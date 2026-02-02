@@ -43,7 +43,7 @@ Project/
 │   └── api_server/     # Flask API
 │       ├── __init__.py
 │       ├── main.py     # Flask 앱 진입점 (config.backend, host/port)
-│       ├── db.py       # DB 연결·검증·포맷 (config.backend + .env 오버라이드)
+│       ├── db.py       # DB 연결·검증·포맷 (config.backend)
 │       └── routes.py   # health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats
 └── Env/                # 환경 설정 패키지
     └── config/
@@ -64,7 +64,6 @@ Project/
 ### 3.1 config.json
 - **위치**: `Env/config/config.json` (또는 `config.json.example` 복사 후 수정)
 - **로드**: `Env/config/loader.py` → `load_config()` → `config.backend`, `config.frontend` (attribute 접근)
-- **오버라이드**: 프로젝트 루트 `.env` 로 DB·Claude 키 등 덮어쓰기 가능 (Backend db.py 에서 `get_env()` 사용)
 
 ### 3.2 config.json 구조 (현재 적용)
 
@@ -93,7 +92,7 @@ Project/
 }
 ```
 
-- 비밀 값은 `.env` 로 오버라이드 권장. 코드에서는 `config.backend.*`, `config.frontend.*` 로만 접근.
+- `config.json` 은 `.gitignore` 대상이라 저장소에 올라가지 않음. 코드에서는 `config.backend.*`, `config.frontend.*` 로만 접근.
 
 ---
 
@@ -121,7 +120,7 @@ Project/
 
 ### 5.2 구성 (현재 적용)
 - **api_server/main.py**: Flask 앱, CORS, 라우트 등록, /, /api, 404/500 핸들러. `config.backend` 로 host/port, `if __name__ == '__main__'` 에서 app.run()
-- **api_server/db.py**: get_db_config (config.backend + .env), get_allowed_tables, get_table_schema, get_db_connection, format_value, validate_table_name, validate_column_name
+- **api_server/db.py**: get_db_config (config.backend), get_allowed_tables, get_table_schema, get_db_connection, format_value, validate_table_name, validate_column_name
 - **api_server/routes.py**: register_routes(app) — 위 API 전부. config.backend (query_timeout_seconds, claude_api_key, claude_api_url) 사용
 
 ---

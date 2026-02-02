@@ -1,13 +1,33 @@
 """
 Backend.api_server.routes (API 라우트)
 ======================================
-health, list-tables, describe-table, table-relationships,
-execute-query, explain-sql, get-column-values, query-stats.
+Flask app에 API 라우트 등록. config.backend·db 모듈 사용.
+
+[Main Functions]
+===========
+- register_routes(app): app에 라우트 등록
+
+[Endpoints]
+=======================
+- GET  /health
+- GET  /api/list-tables
+- POST /api/describe-table
+- GET  /api/table-relationships
+- POST /api/execute-query
+- POST /api/explain-sql
+- POST /api/get-column-values
+- POST /api/query-stats
+
+[Dependencies]
+=========
+- Env (config.backend)
+- Backend.api_server.db
+- flask (request, jsonify), requests, psycopg2
 """
 
 import requests
 import psycopg2
-from flask import request, jsonify, Response
+from flask import request, jsonify
 
 from Env import config
 from Backend.api_server import db
@@ -189,7 +209,7 @@ def register_routes(app):
                 return jsonify({'error': 'query 파라미터가 필요합니다'}), 400
             api_key = db.get_env('CLAUDE_API_KEY', getattr(config.backend, 'claude_api_key', '') or '')
             if not api_key:
-                return jsonify({'error': 'Claude API 키가 서버에 설정되지 않았습니다. .env에 CLAUDE_API_KEY를 추가하세요.'}), 503
+                return jsonify({'error': 'Claude API 키가 서버에 설정되지 않았습니다. Env/config/config.json 의 backend.claude_api_key 를 설정하세요.'}), 503
             url = getattr(config.backend, 'claude_api_url', '') or 'https://api.anthropic.com/v1/messages'
             payload = {
                 'model': 'claude-sonnet-4-20250514',

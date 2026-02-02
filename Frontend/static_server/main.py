@@ -1,16 +1,24 @@
 """
 Frontend.static_server.main (정적 HTTP 서버 진입점)
 ==================================================
-루트(/) 접속 시 index.html 자동 표시. config.frontend.static_port, main_page, static_dir, api_base_url 사용.
-/api-config.js 요청 시 frontend.api_base_url 을 주입한 JS 응답 (Env/config 와 동기화).
+루트(/) 접속 시 index.html 자동 표시. /api-config.js 로 frontend.api_base_url 주입.
+
+[Main Functions]
+===========
+- _build_api_config_js: api-config.js 응답 본문 생성
+- main: TCPServer 기동
+
+[Classes]
+=======================
+- Handler: SimpleHTTPRequestHandler (favicon, api-config.js, / → main_page, 정적 파일)
 
 [Dependencies]
 =========
 - Env (config.frontend)
+- http.server, socketserver, pathlib
 """
 
 import http.server
-import os
 import socketserver
 import sys
 from pathlib import Path

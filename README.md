@@ -49,10 +49,9 @@ python run.py front
 ### 3. 설정 (필수)
 
 API 서버(DB·Claude 등)와 웹 서버(포트·메인 페이지·API URL) 설정은 **Env/config/config.json** 에서 합니다.  
-선택적으로 프로젝트 루트 `.env` 로 DB 등 값을 덮어쓸 수 있습니다.
+`config.json.example` 을 복사해 `config.json` 으로 만든 뒤 값을 채우면 됩니다.
 
 - **config.json**: `backend` (api_host, api_port, db_*, allowed_tables, claude_api_key 등), `frontend` (static_port, main_page, api_base_url, static_dir)
-- **.env** (선택): DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, CLAUDE_API_KEY 등으로 config 값을 오버라이드
 
 DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅니다.
 

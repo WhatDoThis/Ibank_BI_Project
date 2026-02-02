@@ -157,14 +157,19 @@ query-builder-complete/
 
 ## 🔧 설정
 
-### API 서버 설정 (.env)
+### API 서버 설정 (config.json)
 
-```env
-DB_HOST=49.247.47.206
-DB_PORT=5432
-DB_NAME=ibank_bi_data
-DB_USER=ibankbi
-DB_PASSWORD=ibank1234!@#$
+`Env/config/config.json` (또는 `config.json.example` 복사) 의 `backend` 에 DB·API 키 등을 설정합니다.
+
+```json
+"backend": {
+  "db_host": "...",
+  "db_port": 5432,
+  "db_name": "...",
+  "db_user": "...",
+  "db_password": "...",
+  "claude_api_key": "..."
+}
 ```
 
 ### JavaScript 설정 (app.js)
@@ -200,7 +205,7 @@ const API_BASE_URL = 'http://localhost:5000';
 ### DB 연결 실패
 ```
 1. run.py가 실행 중인지 확인
-2. .env 파일의 DB 정보 확인
+2. Env/config/config.json 의 backend DB 정보 확인
 3. 네트워크 방화벽 확인
 ```
 

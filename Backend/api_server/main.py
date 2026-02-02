@@ -3,10 +3,22 @@ Backend.api_server.main (Flask 앱 진입점)
 =========================================
 CORS, 라우트, 에러 핸들러 등록. config.backend 로 host/port 사용.
 
+[Main Functions]
+===========
+- add_cors_headers, handle_preflight: CORS 처리
+- index, api_index: 루트·API 안내
+- not_found, internal_error: 404/500 핸들러
+
+[Endpoints]
+=======================
+- GET /
+- GET /api, GET /api/
+
 [Dependencies]
 =========
 - Env (config.backend)
 - Backend.api_server.db, Backend.api_server.routes
+- flask, flask_cors
 """
 
 import io

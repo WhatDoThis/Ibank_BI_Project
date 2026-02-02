@@ -1,13 +1,21 @@
 """
 Backend.api_server.db (DB 연결 및 검증)
 =======================================
-get_db_connection, format_value, validate_table_name, validate_column_name.
-ALLOWED_TABLES, TABLE_SCHEMA는 Env config.backend 사용.
+config.backend 기반 DB 연결·검증·포맷. Env config.backend 사용.
+
+[Main Functions]
+===========
+- get_env: 환경 변수 조회 (따옴표 제거)
+- get_db_config: config.backend + 환경 변수 병합 후 DB 연결용 dict
+- get_allowed_tables, get_table_schema: 허용 테이블·스키마
+- get_db_connection: DB 연결 생성
+- format_value: JSON 직렬화용 포맷
+- validate_table_name, validate_column_name: 테이블·컬럼명 검증
 
 [Dependencies]
 =========
 - Env (config.backend)
-- psycopg2
+- psycopg2, psycopg2.extras.RealDictCursor
 """
 
 import os
@@ -15,13 +23,7 @@ import re
 from datetime import datetime
 
 import psycopg2
-from dotenv import load_dotenv
 from pathlib import Path
-
-# 프로젝트 루트 .env 우선 로드 (실행 cwd와 무관하게)
-_project_root = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_project_root / ".env")
-load_dotenv()  # cwd 기준 .env도 로드
 
 from psycopg2.extras import RealDictCursor
 
@@ -36,7 +38,7 @@ from Env import config
 
 
 def get_env(key, default):
-    """환경 변수 가져오기 (따옴표 제거). .env 오버라이드용."""
+    """환경 변수 가져오기 (따옴표 제거)."""
     value = os.getenv(key, default)
     if value and isinstance(value, str) and value.startswith('"') and value.endswith('"'):
         value = value.strip('"')
@@ -68,18 +70,12 @@ def get_table_schema():
     return getattr(config.backend, 'table_schema', 'public') or 'public'
 
 
-DB_CONFIG = get_db_config()
-ALLOWED_TABLES = get_allowed_tables()
-TABLE_SCHEMA = get_table_schema()
-
-
 def get_db_connection():
     """DB 연결 생성. config.backend 기반."""
     cfg = get_db_config()
     if not cfg.get('host') or not cfg.get('database') or not cfg.get('user'):
         raise ValueError(
-            'DB 설정이 없습니다. 프로젝트 루트 .env 에 DB_HOST, DB_NAME, DB_USER, DB_PASSWORD 를 넣거나, '
-            'Env/config/config.json (또는 config.json.example 복사) 에 값을 넣어주세요.'
+            'DB 설정이 없습니다. Env/config/config.json (또는 config.json.example 복사) 에 backend.db_host, db_name, db_user, db_password 를 넣어주세요.'
         )
     return psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
 

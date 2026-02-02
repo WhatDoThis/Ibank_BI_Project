@@ -2,11 +2,18 @@
 Env.config.loader (설정 로더)
 =============================
 config.json 로드 후 attribute 접근 가능한 객체로 변환.
-환경 변수(.env)로 오버라이드 시 dotenv는 각 앱에서 로드.
+
+[Main Functions]
+===========
+- load_config: Env/config/config.json 로드, config.backend / config.frontend 반환
+- _dict_to_namespace: 중첩 dict → SimpleNamespace 변환
+
+[Dependencies]
+=========
+- json, pathlib, types.SimpleNamespace
 """
 
 import json
-import os
 from pathlib import Path
 from types import SimpleNamespace
 

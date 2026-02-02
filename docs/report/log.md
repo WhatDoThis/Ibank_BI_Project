@@ -14,7 +14,7 @@
 
 3. **Backend api_server 분리 및 Env 연동**
    - Backend/api_server/main.py: Flask 앱, CORS, 라우트 등록, config.backend 로 host/port
-   - Backend/api_server/db.py: get_db_connection, format_value, validate_*, config.backend + os.getenv(.env) 병합
+   - Backend/api_server/db.py: get_db_connection, format_value, validate_*, config.backend 사용
    - Backend/api_server/routes.py: health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats
    - 각 모듈에서 Env config import 후 config.backend.xxx 사용
 
