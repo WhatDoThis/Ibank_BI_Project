@@ -1,7 +1,6 @@
-# 🔍 스타벅스 CRM 노코드 쿼리 빌더 - 완전체
+# 🔍 스타벅스 CRM 노코드 쿼리 빌더
 
-SQL을 모르는 사람도 쓸 수 있는 **노코드 쿼리 빌더**입니다.  
-doc 폴더에 있던 설계(클로드 버전)를 프로젝트 루트에 동일하게 구현했습니다.
+SQL을 모르는 사람도 쓸 수 있는 **노코드 쿼리 빌더**입니다.
 
 ## ✨ 주요 기능
 
@@ -15,57 +14,66 @@ doc 폴더에 있던 설계(클로드 버전)를 프로젝트 루트에 동일�
 
 ## 🚀 실행 방법
 
-### 1. API 서버 실행
+### 1. 의존성 설치
 
 ```bash
-# 의존성 설치
 pip install -r requirements.txt
-
-# 서버 실행
-python api_server.py
 ```
 
-서버는 **http://localhost:5000** 에서 동작합니다.
+(권장: 프로젝트 루트에서 `python -m venv .venv` 후 `.venv\Scripts\activate` 로 가상환경 사용)
 
-### 2. 프론트엔드 열기
+### 2. 서버 실행
 
-- **방법 A**: `index.html` 을 브라우저에서 직접 열기  
-- **방법 B**: 로컬 서버로 열기  
-  ```bash
-  python -m http.server 8000
-  ```
-  그 다음 **http://localhost:8000** 접속
+**방법 A – 한 번에 두 서버 띄우기 (Windows)**  
+`start.bat` 실행 시 API 서버·웹 서버가 각각 새 창에서 실행됩니다.
 
-### 3. DB 설정 (필수)
+- API: http://localhost:5001  
+- 웹: http://localhost:8080 → 브라우저에서 접속
 
-API 서버는 **DB 정보를 .env에서만** 읽습니다. 프로젝트 루트에 `.env` 파일을 만들고 다음을 설정하세요.
+**방법 B – 터미널에서 따로 실행**
 
-```env
-DB_HOST=your-db-host
-DB_PORT=5432
-DB_NAME=your-database-name
-DB_USER=your-username
-DB_PASSWORD=your-password
+```bash
+# API 서버 (백엔드)
+python run.py back
+
+# 웹 서버 (프론트엔드) — 다른 터미널에서
+python run.py front
 ```
 
-`.env`에 DB_HOST, DB_NAME, DB_USER가 없으면 서버가 "DB 설정이 없습니다" 오류를 냅니다.
+그 다음 브라우저에서 **http://localhost:8080** 접속.
+
+- `python run.py` (인자 없음) → 사용법 출력  
+- `python run.py back` → Backend API (config.backend, 포트 5001)  
+- `python run.py front` → Frontend 정적 서버 (config.frontend, 포트 8080)
+
+### 3. 설정 (필수)
+
+API 서버(DB·Claude 등)와 웹 서버(포트·메인 페이지·API URL) 설정은 **Env/config/config.json** 에서 합니다.  
+선택적으로 프로젝트 루트 `.env` 로 DB 등 값을 덮어쓸 수 있습니다.
+
+- **config.json**: `backend` (api_host, api_port, db_*, allowed_tables, claude_api_key 등), `frontend` (static_port, main_page, api_base_url, static_dir)
+- **.env** (선택): DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, CLAUDE_API_KEY 등으로 config 값을 오버라이드
+
+DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅니다.
 
 ## 📁 프로젝트 구조
 
 ```
-test_2/
-├── index.html       # 메인 UI
-├── styles.css       # 스타일
-├── app.js           # 쿼리 빌더 로직
-├── api_server.py    # Flask API (PostgreSQL)
+프로젝트 루트/
+├── run.py              # 통합 진입점 (python run.py back | front)
+├── start.bat           # API·웹 서버 한 번에 실행 (Windows)
 ├── requirements.txt
 ├── README.md
-└── doc/             # 원본 설계/참고용
-    ├── index.html
-    ├── styles.css
-    ├── app.js
-    ├── api_server.py
-    └── README.md
+├── Backend/
+│   └── api_server/     # Flask API (main.py, db.py, routes.py)
+├── Frontend/
+│   ├── index.html      # 메인 UI
+│   ├── static/
+│   │   ├── css/main.css
+│   │   └── js/app.js
+│   └── static_server/  # 정적 HTTP 서버 (main.py)
+└── Env/
+    └── config/         # config.json, loader.py
 ```
 
 ## 🎯 사용 흐름

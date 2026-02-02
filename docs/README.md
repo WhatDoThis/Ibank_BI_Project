@@ -54,7 +54,7 @@ SQL을 모르는 사람도 쓸 수 있는 **완벽한 노코드 쿼리 빌더**�
 pip install flask flask-cors psycopg2-binary python-dotenv
 
 # 서버 실행
-python api_server.py
+python run.py
 ```
 
 서버가 http://localhost:5000 에서 실행됩니다.
@@ -79,7 +79,7 @@ query-builder-complete/
 ├── index.html          # 메인 HTML (UI 구조)
 ├── styles.css          # 스타일시트
 ├── app.js              # JavaScript 로직
-├── api_server.py       # Flask API 서버
+├── run.py              # API 서버 루트 진입점 (Backend 실행)
 └── README.md           # 이 파일
 ```
 
@@ -199,7 +199,7 @@ const API_BASE_URL = 'http://localhost:5000';
 
 ### DB 연결 실패
 ```
-1. api_server.py가 실행 중인지 확인
+1. run.py가 실행 중인지 확인
 2. .env 파일의 DB 정보 확인
 3. 네트워크 방화벽 확인
 ```

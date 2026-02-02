@@ -1,6 +1,6 @@
 """
-Frontend.static_server.serve (정적 HTTP 서버)
-=============================================
+Frontend.static_server.main (정적 HTTP 서버 진입점)
+==================================================
 루트(/) 접속 시 index.html 자동 표시. config.frontend.static_port, main_page, static_dir, api_base_url 사용.
 /api-config.js 요청 시 frontend.api_base_url 을 주입한 JS 응답 (Env/config 와 동기화).
 
@@ -31,6 +31,14 @@ PORT = int(getattr(config.frontend, 'static_port', 8080) or 8080)
 API_BASE_URL = getattr(config.frontend, 'api_base_url', 'http://localhost:5001') or 'http://localhost:5001'
 
 
+def _build_api_config_js(api_base_url):
+    """api-config.js 응답 본문 생성. Env/config frontend.api_base_url 과 동기화."""
+    return (
+        "// Env/config frontend.api_base_url 에서 주입\n"
+        f"window.APP_CONFIG = {{ apiBaseUrl: {repr(api_base_url)} }};\n"
+    ).encode("utf-8")
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DIR), **kwargs)
@@ -42,10 +50,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         # config.json의 frontend.api_base_url 을 프론트에 주입 (Env/config 와 동기화)
         if self.path == "/api-config.js" or self.path == "api-config.js":
-            body = (
-                "// Env/config frontend.api_base_url 에서 주입\n"
-                f"window.APP_CONFIG = {{ apiBaseUrl: {repr(API_BASE_URL)} }};\n"
-            ).encode("utf-8")
+            body = _build_api_config_js(API_BASE_URL)
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

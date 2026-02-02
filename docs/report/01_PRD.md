@@ -28,7 +28,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ```
 Project/
 ├── Frontend/          # 프론트엔드 패키지
-│   ├── static_server/ # 정적 HTTP 서버 (serve)
+│   ├── static_server/ # 정적 HTTP 서버 (main.py 진입점)
 │   ├── templates/     # HTML 템플릿
 │   └── static/        # CSS, JS 등 정적 자산
 │       ├── css/

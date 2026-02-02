@@ -8,9 +8,9 @@ echo.
 echo [1] 가상환경(.venv) 사용. API 서버와 웹 서버를 각각 새 창에서 실행합니다.
 echo     기본: API http://localhost:5001 , 웹 http://localhost:8080
 echo.
-start "API 서버" cmd /k "cd /d %~dp0 && .venv\Scripts\activate && python -m Backend.api_server.main"
+start "API 서버" cmd /k "cd /d %~dp0 && .venv\Scripts\activate && python run.py back"
 timeout /t 2 /nobreak >nul
-start "웹 서버" cmd /k "cd /d %~dp0 && .venv\Scripts\activate && python -m Frontend.static_server.serve"
+start "웹 서버" cmd /k "cd /d %~dp0 && .venv\Scripts\activate && python run.py front"
 echo.
 echo 두 창이 열렸습니다. 브라우저에서 http://localhost:8080 를 열어주세요.
 pause

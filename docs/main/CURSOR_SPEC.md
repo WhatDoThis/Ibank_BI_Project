@@ -446,7 +446,7 @@ async function executeQuery() {
 
 ## 📝 참고 파일
 
-- `api_server.py` - Flask API 서버 (이미 작동 중)
+- `run.py` - API 서버 루트 진입점 (Backend 실행, 이미 작동 중)
 - 포트: `5000` (API), `9191` (프론트엔드)
 - DB: PostgreSQL (`ibank_bi_data @ 49.247.47.206`)
 
