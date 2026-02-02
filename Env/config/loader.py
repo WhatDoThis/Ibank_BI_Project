@@ -23,9 +23,15 @@ def _dict_to_namespace(d):
 def load_config():
     """Env/config/config.json 로드. config.backend / config.frontend 반환."""
     base = Path(__file__).resolve().parent
-    config_path = base / "config.json"
-    if not config_path.exists():
-        return _dict_to_namespace({"backend": {}, "frontend": {}})
-    with open(config_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return _dict_to_namespace(data)
+    # 프로젝트 루트 기준 경로 우선 (실행 위치와 무관하게 동일한 config 로드)
+    project_root = base.parent.parent
+    config_paths = [
+        project_root / "Env" / "config" / "config.json",
+        base / "config.json",
+    ]
+    for config_path in config_paths:
+        if config_path.is_file():
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return _dict_to_namespace(data)
+    return _dict_to_namespace({"backend": {}, "frontend": {}})

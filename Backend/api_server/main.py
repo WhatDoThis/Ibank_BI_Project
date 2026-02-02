@@ -58,7 +58,7 @@ def index():
         'message': 'Starbucks CRM NoCode Query Builder API',
         'docs': 'GET /api 에서 엔드포인트 목록 확인',
         'health': 'GET /health 로 서버 상태 확인',
-        'endpoints': '/api', '/health',
+        'endpoints': ['/api', '/health'],
     })
 
 

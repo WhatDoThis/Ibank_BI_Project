@@ -58,6 +58,10 @@ def register_routes(app):
             cur.close()
             conn.close()
             return jsonify({'tables': tables, 'count': len(tables)})
+        except ValueError as e:
+            return jsonify({'error': str(e), 'message': 'DB 설정 없음'}), 503
+        except psycopg2.OperationalError as e:
+            return jsonify({'error': str(e), 'message': 'DB 연결 실패(네트워크/접속정보 확인)'}), 503
         except Exception as e:
             return jsonify({'error': str(e), 'message': '테이블 목록 조회 실패'}), 500
 
@@ -153,7 +157,7 @@ def register_routes(app):
 
             conn = db.get_db_connection()
             cur = conn.cursor()
-            timeout = getattr(db.config.backend, 'query_timeout_seconds', 10) or 10
+            timeout = getattr(config.backend, 'query_timeout_seconds', 10) or 10
             cur.execute(f"SET statement_timeout = '{timeout}s'")
             cur.execute(query)
             rows = cur.fetchall()

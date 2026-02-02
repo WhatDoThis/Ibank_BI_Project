@@ -119,7 +119,7 @@ async function init() {
             showToast('error', errMsg);
             if (dbStatusEl) dbStatusEl.textContent = 'DB 연결 안됨: ' + (errMsg.length > 35 ? errMsg.slice(0, 35) + '…' : errMsg);
             if (dbStatusEl) dbStatusEl.className = 'sidebar-db-status error';
-            document.getElementById('sidebarContent').textContent = 'DB 설정 후 새로고침하세요. (.env에 DB_HOST, DB_NAME, DB_USER, DB_PASSWORD)';
+            document.getElementById('sidebarContent').textContent = 'DB 설정 후 새로고침하세요. (Env/config/config.json 또는 .env에 DB_HOST, DB_NAME, DB_USER, DB_PASSWORD)';
             return;
         }
         state.allTables = data.tables || [];
@@ -142,7 +142,7 @@ async function init() {
         showToast('error', e.message || '테이블 로드 실패');
         if (dbStatusEl) dbStatusEl.textContent = 'DB 연결 안됨';
         if (dbStatusEl) dbStatusEl.className = 'sidebar-db-status error';
-        document.getElementById('sidebarContent').textContent = 'API 연결 실패. Backend(5001) 실행 여부와 .env 설정을 확인하세요.';
+        document.getElementById('sidebarContent').textContent = 'API 연결 실패. Backend(5001) 실행 여부와 Env/config/config.json 또는 .env 설정을 확인하세요.';
     }
 }
 

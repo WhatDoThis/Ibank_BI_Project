@@ -16,19 +16,23 @@ from datetime import datetime
 
 import psycopg2
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# 프로젝트 루트 .env 우선 로드 (실행 cwd와 무관하게)
+_project_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_project_root / ".env")
+load_dotenv()  # cwd 기준 .env도 로드
+
 from psycopg2.extras import RealDictCursor
 
-# 프로젝트 루트에서 Env 로드 (실행 경로에 따라 sys.path 필요할 수 있음)
-try:
-    from Env import config
-except ImportError:
-    import sys
-    _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    if _root not in sys.path:
-        sys.path.insert(0, _root)
-    from Env import config
+# 프로젝트 루트를 sys.path 맨 앞에 넣어 Env가 프로젝트 쪽으로 로드되도록 함
+import sys
+_db_module_dir = Path(__file__).resolve().parent
+_project_root_from_db = _db_module_dir.parent.parent
+if str(_project_root_from_db) not in sys.path:
+    sys.path.insert(0, str(_project_root_from_db))
+
+from Env import config
 
 
 def get_env(key, default):
@@ -74,8 +78,8 @@ def get_db_connection():
     cfg = get_db_config()
     if not cfg.get('host') or not cfg.get('database') or not cfg.get('user'):
         raise ValueError(
-            'DB 설정이 없습니다. 프로젝트 루트 .env 또는 Env/config/config.json에 '
-            'DB_HOST, DB_NAME, DB_USER, DB_PASSWORD 를 넣어주세요.'
+            'DB 설정이 없습니다. 프로젝트 루트 .env 에 DB_HOST, DB_NAME, DB_USER, DB_PASSWORD 를 넣거나, '
+            'Env/config/config.json (또는 config.json.example 복사) 에 값을 넣어주세요.'
         )
     return psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
 

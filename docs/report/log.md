@@ -65,3 +65,24 @@
 - 가상환경(.venv) 생성 및 requirements.txt 설치 성공
 - API 서버(5001), 웹 서버(8080) 정상 기동
 - 브라우저에서 **http://localhost:8080** 접속 시 쿼리 빌더 화면 표시 가능 (DB 설정 시 테이블 로드 등 API 연동 정상 동작)
+
+---
+
+## 2025-02-02: config.json 적용 설정 점검 및 로딩 정리
+
+### 완료 작업
+1. **Frontend static_server (serve.py)**
+   - 서빙 디렉터리를 config.frontend.static_dir 기준으로 변경: `DIR = project_root / static_dir` (기본값 'Frontend')
+   - config.frontend.api_base_url 을 프론트에 주입하기 위해 `/api-config.js` 동적 응답 추가: `window.APP_CONFIG = { apiBaseUrl }` 반환
+
+2. **Frontend index.html**
+   - `api-config.js` 스크립트를 app.js 이전에 로드하여, config.json의 frontend.api_base_url 이 앱에서 사용되도록 함
+
+3. **config.json 적용 현황**
+   - backend: api_host, api_port → main.py / db_* → db.py / allowed_tables, table_schema → db.py / query_timeout_seconds, claude_api_key, claude_api_url → routes.py
+   - frontend: static_port, main_page, static_dir, api_base_url → serve.py (api_base_url 은 api-config.js 로 주입)
+
+### 검수 결과
+- Env/config/loader.py: project_root 기준 config.json 탐색 유지, 수정 없음
+- Backend db/main/routes: 기존 config.backend 사용 유지
+- Lint: Frontend/static_server/serve.py 오류 없음
