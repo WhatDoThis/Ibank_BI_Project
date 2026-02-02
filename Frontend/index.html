@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스타벅스 CRM 쿼리 빌더</title>
+    <link rel="stylesheet" href="static/css/main.css">
+</head>
+<body>
+
+<div class="header">
+    <div class="header-title">🔍 스타벅스 CRM 쿼리 빌더</div>
+    <div style="display: flex; gap: 8px;">
+        <button class="btn" style="background: rgba(255,255,255,0.2); color: white;" onclick="clearAll()">초기화</button>
+        <button class="btn btn-primary" onclick="executeQuery()">실행</button>
+    </div>
+</div>
+
+<div class="container">
+    <div class="sidebar">
+        <div class="sidebar-header">📁 테이블</div>
+        <div class="sidebar-db-status" id="dbStatus" title="API 서버 /health 결과">확인 중...</div>
+        <div class="sidebar-search">
+            <input type="text" id="tableSearchInput" placeholder="테이블명 검색..." oninput="filterSidebarTables(this.value)">
+        </div>
+        <div class="sidebar-content" id="sidebarContent">로딩 중...</div>
+    </div>
+
+    <div class="main-area">
+        <div class="grid-area">
+            <div class="filter-order-bar" id="filterOrderBar" style="display: none;">
+                <div class="where-row">
+                    <span class="bar-label">WHERE</span>
+                    <div class="filter-chips" id="filterChips"></div>
+                    <button type="button" class="btn-small secondary" onclick="showAddFilterMenu()">+ 필터 추가</button>
+                </div>
+                <div class="order-row">
+                    <span class="bar-label">ORDER BY</span>
+                    <div class="filter-chips" id="orderByChips"></div>
+                    <button type="button" class="btn-small secondary" onclick="showAddOrderByMenu()">+ ORDER BY 추가</button>
+                </div>
+            </div>
+            <div class="drop-overlay" id="dropOverlay">
+                <div class="drop-message">👇 컬럼을 여기에 드롭하세요</div>
+            </div>
+            <div class="grid-container empty" id="gridContainer">
+                <div class="empty-state">
+                    <div class="empty-icon">📊</div>
+                    <div class="empty-title">왼쪽에서 컬럼을 드래그하세요</div>
+                    <div class="empty-desc">테이블을 선택하고 원하는 컬럼을 드래그하여<br>데이터를 조회할 수 있습니다</div>
+                </div>
+            </div>
+            <div class="pagination-bar" id="paginationBar" style="display: none;">
+                <div class="pagination-info">
+                    <span id="recordRange">1-100건</span>
+                    <span style="color: var(--text-light);"> / 총 </span>
+                    <span id="totalCount">0건</span>
+                </div>
+                <div class="pagination-controls">
+                    <button class="btn-small secondary" onclick="firstPage()" id="firstBtn">⏮️ 처음</button>
+                    <button class="btn-small secondary" onclick="prevPage()" id="prevBtn">◀ 이전</button>
+                    <span class="page-indicator">
+                        페이지 <span id="currentPage">1</span> / <span id="totalPages">1</span>
+                    </span>
+                    <button class="btn-small secondary" onclick="nextPage()" id="nextBtn">다음 ▶</button>
+                    <button class="btn-small secondary" onclick="lastPage()" id="lastBtn">마지막 ⏭️</button>
+                </div>
+                <div class="page-size-selector">
+                    <select id="pageSizeSelect" onchange="changePageSize()">
+                        <option value="50">50건</option>
+                        <option value="100" selected>100건</option>
+                        <option value="200">200건</option>
+                        <option value="500">500건</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="sql-panel" id="sqlPanel">
+            <div class="sql-header">
+                <span>📄 실행된 SQL</span>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-small" onclick="explainSQL()" id="explainBtn">🤖 해석</button>
+                    <button class="btn-small" onclick="copySQLToClipboard()">📋 복사</button>
+                </div>
+            </div>
+            <textarea readonly id="sqlDisplay" placeholder="SQL 쿼리가 여기에 표시됩니다"></textarea>
+            <div class="explanation-area" id="explanationArea" style="display: none;">
+                <div class="explanation-header">
+                    <span>💬 Claude 해석</span>
+                    <span class="explanation-close" onclick="closeExplanation()">×</span>
+                </div>
+                <div class="explanation-content" id="explanationContent">
+                    해석 중...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast">
+    <span id="toastIcon"></span>
+    <span id="toastMessage"></span>
+</div>
+
+<script src="static/js/app.js"></script>
+</body>
+</html>

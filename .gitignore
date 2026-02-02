@@ -1,6 +1,9 @@
 .env
+.env.local
 __pycache__/
 *.pyc
 .venv/
 venv/
-.env.local
+
+# 환경 설정 (비밀/환경별 값 포함 가능)
+Env/config/config.json
