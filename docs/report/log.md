@@ -160,3 +160,189 @@
 
 3. **진입점 패키지 미도입**
    - 진입점이 api·serve 두 가지뿐이고, 한 파일(run.py)로 충분하므로 별도 패키지(entry/ 등)는 두지 않음. 추후 서브커맨드가 많아지면 `python -m entry api|serve` 형태의 패키지로 분리 검토 가능.
+
+---
+
+## 2025-02-02: React 전환 Phase 1 — React 프로젝트 초기화 및 최소 셸
+
+### 완료 작업
+1. **Vite+React 프로젝트 생성**
+   - `Frontend/react-app` 생성 (npm create vite@latest -- --template react)
+   - package.json, vite.config.js, index.html(root), src/main.jsx, src/App.jsx
+
+2. **전역 스타일 연동**
+   - 기존 `Frontend/static/css/main.css` 내용을 `Frontend/react-app/src/styles/main.css`로 복사·연동
+   - main.jsx에서 `import './styles/main.css'` 추가
+   - index.css는 #root 높이만 지정하여 main.css가 전역으로 적용되도록 정리
+
+3. **최소 셸 UI**
+   - App.jsx: 헤더만 표시, 제목 "🔍 스타벅스 CRM 쿼리 빌더" (Backend 호출 없음)
+   - index.html: title·lang "스타벅스 CRM 쿼리 빌더", lang="ko"
+
+### 추가/변경된 파일
+- **추가**: Frontend/react-app/ (전체), Frontend/react-app/src/styles/main.css
+- **변경**: Frontend/react-app/src/App.jsx, src/main.jsx, src/index.css, index.html
+
+### 검증 결과
+- `npm run build` 성공 (dist/index.html, dist/assets/*.css, *.js 생성)
+- Lint: App.jsx, main.jsx 오류 없음
+- 의존성: Phase 1은 Backend 연동 없음(의존성 최소)
+
+### 비고
+- 정적 서빙(운영 시 React 빌드 결과 서빙)은 Phase 5에서 static_server 정리 시 반영 예정.
+- 개발 시에는 `cd Frontend/react-app && npm run dev` 로 Vite dev server 사용 가능.
+
+---
+
+## 2025-02-02: React 전환 Phase 2 — API 클라이언트 및 설정 모듈
+
+### 완료 작업
+1. **계획서 경로 반영**
+   - REACT_MIGRATION_PLAN.md는 docs/report 에 있음(사용자 이동). 해당 경로 기준 진행, 변경 이력에 반영.
+
+2. **api_base_url 설정 모듈**
+   - `Frontend/react-app/src/config/api.js`: getApiBase() — window.APP_CONFIG.apiBaseUrl(정적 서빙 시, config.json 기반) 또는 기본값 http://localhost:5001. (.env 미사용, 프로젝트 정책: Env/config/config.json)
+
+3. **API 클라이언트 모듈**
+   - `Frontend/react-app/src/api/client.js`: health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats (fetch 래퍼, request() 공통)
+   - 기존 Frontend/static/js/app.js 의 API 호출 패턴 참고하여 구현
+
+4. **API 연결 테스트 UI**
+   - App.jsx: API 연결 테스트 버튼 추가, health() 호출 후 결과 표시, getApiBase() 표시
+
+### 추가/변경된 파일
+- **추가**: Frontend/react-app/src/config/api.js, Frontend/react-app/src/api/client.js
+- **변경**: Frontend/react-app/src/App.jsx, docs/report/REACT_MIGRATION_PLAN.md (변경 이력)
+
+### 검증 결과
+- `npm run build` 성공
+- Lint: App.jsx, api/client.js, config/api.js 오류 없음
+- API 클라이언트 단위로 Backend(5001) 호출 시: 브라우저에서 "API 연결 테스트" 클릭 시 health 응답 확인 가능
+
+### Frontend 정리 (Phase 2 범위)
+- 기존 Frontend/index.html, static/js/app.js, static/css/main.css 는 Phase 5에서 React 서빙 전환 시 제거·보관 예정. Phase 2에서는 API 로직만 React 쪽으로 이전·참고했으며, 레거시 파일 삭제 없음.
+- docs/report/REACT_MIGRATION_PLAN.md 변경 이력에 "docs/report 로 이동" 명시.
+
+---
+
+## 2025-02-02: React 전환 Phase 3 — 레이아웃 및 독립 컴포넌트 (DB 상태·테이블 목록)
+
+### 완료 작업
+1. **환경·gitignore 정책 문서화**
+   - docs/main/PRD.md 3.3 추가: .env 미사용, .gitignore는 프로젝트 루트에만 둠.
+
+2. **레이아웃 컴포넌트**
+   - Header.jsx: 앱 제목, API 연결 테스트(health)
+   - Sidebar.jsx: DB 상태(health), 테이블 목록(list-tables), 테이블명 검색, 테이블 펼치기/접기, 컬럼 목록(describe-table)
+   - MainArea.jsx: 플레이스홀더 (Phase 4에서 그리드·SQL 패널 연동)
+   - App.jsx: Header + container(Sidebar + MainArea) 구성
+
+3. **Sidebar 데이터 로드**
+   - 마운트 시 health() → listTables() → 각 테이블 describeTable() 호출, 테이블·컬럼 상태 유지
+   - 검색: 테이블명 필터, 펼치기/접기: tableExpanded 상태
+
+### 추가/변경된 파일
+- **추가**: Frontend/react-app/src/components/Header.jsx, Sidebar.jsx, MainArea.jsx
+- **변경**: Frontend/react-app/src/App.jsx, docs/main/PRD.md (3.3 환경·gitignore 규칙)
+
+### 검증 결과
+- `npm run build` 성공
+- Lint: App.jsx, Header.jsx, Sidebar.jsx, MainArea.jsx 오류 없음
+- 화면: DB 상태·테이블 목록·검색·펼치기/접기·컬럼 목록 표시, Backend(health, list-tables, describe-table) 통신 정상
+
+---
+
+## 2025-02-02: React 전환 Phase 4 — 그리드·필터·SQL 패널·실행
+
+### 완료 작업
+1. **SQL 생성 유틸**
+   - Frontend/react-app/src/utils/sqlBuilder.js: getJoinKey, generateSQL, generateCountSQL (tableRelationships, filters, orderBy, pagination 반영)
+
+2. **App 상태·로드**
+   - App.jsx: 데이터 로드(health, list-tables, describe-table, table-relationships) → tables, tableRelationships, dbStatus
+   - 상태: gridColumns, addedTables, filters, orderBy, resultData, currentPage, pageSize, totalCount, executedSql, explanation, toast
+   - 콜백: addColumn, moveColumn, runExecuteQuery, addFilter/removeFilter, addOrderBy/removeOrderBy, setPage/setPageSize, copySql, explainSql, clearAll
+   - 컬럼 추가 시 자동 실행(useEffect), Header에 초기화·실행 버튼
+
+3. **Sidebar (Phase 4 확장)**
+   - tables, tableRelationships, addedTables를 props로 수신 (로드는 App에서 수행)
+   - JOIN 가능 테이블만 활성화: isTableAvailable(tableName, addedTables, tableRelationships)
+   - 컬럼 드래그: dataTransfer에 application/json으로 { table, column, type } 전달
+
+4. **MainArea (그리드·필터·SQL·페이지네이션)**
+   - 그리드 영역: 컬럼 드롭(onDrop → onAddColumn), 빈 상태 문구, 결과 테이블
+   - 그리드 헤더: 드래그 재정렬(draggedColumnIndex, onMoveColumn)
+   - WHERE/ORDER BY 칩 UI: 필터·정렬 추가/제거, 인라인 필터·ORDER BY 추가 폼
+   - 페이지네이션: 처음/이전/다음/마지막, 페이지 표시, 페이지 크기 선택
+   - SQL 패널: 실행된 SQL 표시, 복사, 🤖 해석(explain-sql), Claude 해석 영역
+
+### 추가/변경된 파일
+- **추가**: Frontend/react-app/src/utils/sqlBuilder.js
+- **변경**: Frontend/react-app/src/App.jsx (상태·로드·콜백 통합), Header.jsx (onExecute, onClearAll), Sidebar.jsx (props 기반, JOIN 활성화, 드래그), MainArea.jsx (그리드·필터·ORDER BY·페이지네이션·SQL 패널)
+
+### 검증 결과
+- `npm run build` 성공
+- Lint: App.jsx, Header, Sidebar, MainArea, utils/sqlBuilder 오류 없음
+- 검수: 테이블 선택 → 컬럼 드래그 → 실행 → 결과·SQL 표시, Backend(execute-query, explain-sql) 통신 정상
+
+---
+
+## 2025-02-03: React 전환 Phase 5 — 스타일·에러 처리·정리 및 Frontend 전체 점검
+
+### Phase 5 완료 작업
+1. **에러/로딩 메시지**
+   - App.jsx: 테이블 로드 실패 시 토스트 표시, cleanup 시 toastTimeout 해제
+   - API 실패 시 기존 토스트·사이드바 메시지 유지
+
+2. **static_server: React 빌드 서빙·SPA fallback**
+   - config.frontend.static_dir: 기본값/예시를 `Frontend/react-app/dist` 로 변경 (config.json, config.json.example)
+   - SPA fallback: 존재하지 않는 경로 요청 시 index.html 응답 (_path_under_dir로 path traversal 방지)
+   - index.html 응답 시 api-config.js 스크립트 주입 (_inject_api_config_into_index) — 빌드 결과에 스크립트 미포함 대비
+
+3. **레거시 보관**
+   - Frontend/index.html, static/js/app.js, static/css/main.css → Frontend/legacy/ 로 이동 (이후 상용화 정리로 legacy 삭제)
+   - Frontend/react-app/src/App.css 삭제 (미사용)
+
+4. **react-app index.html**
+   - api-config.js 스크립트 태그 제거 (Vite 번들 경고 방지, static_server 주입으로 대체)
+
+### Frontend 전체 점검·정리
+- **의존성**: App → Header, Sidebar, MainArea, api/client, utils/sqlBuilder. Sidebar → tables, tableRelationships, addedTables(prop). MainArea → gridColumns, filters, orderBy 등(prop). api/client → config/api. 연결 정상.
+- **불필요 코드**: MainArea에서 미사용 prop tableRelationships 제거. App.css 삭제.
+- **파일 정리**: Frontend/__init__.py 설명 갱신 (react-app·static_server). Frontend/static/ 하위 파일은 legacy로 이동 후, 상용화 정리 시 legacy 삭제.
+- **에러 유발 요인**: Lint 오류 없음. 빌드 성공. static_server index 주입·SPA fallback 적용.
+
+### 추가/변경/삭제된 파일
+- **추가 후 삭제**: Frontend/legacy/ (Phase 5에서 보관, 상용화 정리 시 삭제)
+- **변경**: Frontend/react-app/index.html, App.jsx, MainArea.jsx, static_server/main.py, Env/config/config.json, config.json.example, Frontend/__init__.py
+- **삭제**: Frontend/index.html, Frontend/static/js/app.js, Frontend/static/css/main.css, Frontend/react-app/src/App.css
+
+### 검증 결과
+- `npm run build` 성공 (api-config.js 경고 제거 후 재빌드)
+- Lint: Frontend/react-app/src, static_server/main.py 오류 없음
+- 전체 플로우: React 빌드 → static_server(Frontend/react-app/dist) 서빙 → api-config.js 주입·SPA fallback 동작
+
+---
+
+## 2025-02-03: run.py front 통합·index.html 설명·Frontend 정리
+
+### run.py front 통합
+- `python run.py front` 실행 시 **한 번에**: (1) `Frontend/react-app`에서 `npm run build` 실행, (2) 빌드 성공 후 `Frontend/static_server/main.py` 기동
+- 별도 `cd Frontend/react-app && npm run build` 후 `python run.py front` 할 필요 없음
+
+### index.html 두 파일 존재 이유 (둘 다 필요, 중복 아님)
+- **Frontend/react-app/index.html**: **소스(템플릿)**. Vite가 `npm run build` / `npm run dev` 시 참조하는 HTML 진입점. `<script src="/src/main.jsx">` 등이 있으며, Vite가 이 파일을 기반으로 **dist/index.html을 생성**함. 삭제하면 빌드·개발 불가.
+- **Frontend/react-app/dist/index.html**: **빌드 결과물**. `npm run build` 시 Vite가 **자동 생성**하는 파일. 소스 index.html을 변환한 결과로, 해시된 JS/CSS 경로(`/assets/index-xxx.js`, `index-xxx.css`)가 들어감. static_server는 **dist/** 전체를 서빙하므로 이 파일을 응답함. .gitignore 대상이며, 다음 `npm run build` 시 다시 생성됨.
+- **정리**: 소스(개발·빌드 입력) vs 빌드 결과(서빙용 출력) 관계이므로 **둘 다 유지**. 삭제 대상 없음.
+
+### Frontend 정리
+- **삭제**: 빈 폴더 `Frontend/static` (및 하위 static/js, static/css) — 레거시 파일을 legacy로 이동한 뒤 남은 빈 디렉터리.
+- **유지**: react-app(소스·빌드), static_server(서빙), __init__.py. legacy는 상용화 정리로 삭제(참고용 보관 불필요).
+
+---
+
+## 2025-02-03: Frontend/legacy 삭제 (상용화 정리)
+
+- **삭제**: Frontend/legacy/ 전체 (index.html, README.md, static/css/main.css, static/js/app.js). 구 HTML/CSS/JS 참고용 보관 불필요, 패키지 정리.
+- **변경**: Frontend/__init__.py에서 legacy 언급 제거, docs/report/log.md Phase 5·정리 문구에 legacy 삭제 반영.
+- **정책**: 사용되지 않을 코드·파일은 남기지 않음. 백업은 요청 시에만.

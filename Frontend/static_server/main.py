@@ -2,6 +2,7 @@
 Frontend.static_server.main (정적 HTTP 서버 진입점)
 ==================================================
 루트(/) 접속 시 index.html 자동 표시. /api-config.js 로 frontend.api_base_url 주입.
+React 빌드(static_dir=Frontend/react-app/dist) 시 SPA fallback: 미존재 경로 → index.html.
 
 [Main Functions]
 ===========
@@ -10,7 +11,7 @@ Frontend.static_server.main (정적 HTTP 서버 진입점)
 
 [Classes]
 =======================
-- Handler: SimpleHTTPRequestHandler (favicon, api-config.js, / → main_page, 정적 파일)
+- Handler: SimpleHTTPRequestHandler (favicon, api-config.js, / → main_page, SPA fallback, 정적 파일)
 
 [Dependencies]
 =========
@@ -31,9 +32,9 @@ if str(_project_root) not in sys.path:
 
 from Env import config
 
-# 서빙 디렉터리: config.frontend.static_dir (프로젝트 루트 기준, 기본값 'Frontend')
+# 서빙 디렉터리: config.frontend.static_dir (프로젝트 루트 기준. React 빌드 시 'Frontend/react-app/dist')
 _static_dir = getattr(config.frontend, 'static_dir', 'Frontend') or 'Frontend'
-DIR = _project_root / _static_dir if isinstance(_project_root, Path) else Path(_project_root) / _static_dir
+DIR = Path(_project_root) / _static_dir if isinstance(_project_root, Path) else Path(_project_root) / _static_dir
 MAIN_PAGE = getattr(config.frontend, 'main_page', 'index.html') or 'index.html'
 PORT = int(getattr(config.frontend, 'static_port', 8080) or 8080)
 API_BASE_URL = getattr(config.frontend, 'api_base_url', 'http://localhost:5001') or 'http://localhost:5001'
@@ -45,6 +46,32 @@ def _build_api_config_js(api_base_url):
         "// Env/config frontend.api_base_url 에서 주입\n"
         f"window.APP_CONFIG = {{ apiBaseUrl: {repr(api_base_url)} }};\n"
     ).encode("utf-8")
+
+
+def _path_under_dir(child, parent):
+    """child가 parent 하위 경로인지 확인 (path traversal 방지)."""
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+_API_CONFIG_SCRIPT = '<script src="/api-config.js"></script>'
+
+
+def _inject_api_config_into_index(html_path):
+    """index.html 파일에 api-config.js 스크립트 주입 (</head> 직전). 빌드 결과에 스크립트가 없을 때 사용."""
+    try:
+        content = html_path.read_text(encoding="utf-8")
+        if "/api-config.js" in content:
+            return content.encode("utf-8")
+        insert = _API_CONFIG_SCRIPT + "\n  "
+        if "</head>" in content:
+            content = content.replace("</head>", insert + "</head>", 1)
+        return content.encode("utf-8")
+    except Exception:
+        return None
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -67,6 +94,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if self.path == "/" or self.path == "":
             self.path = "/" + MAIN_PAGE
+        # SPA fallback: 존재하지 않는 경로는 index.html 로 응답
+        request_path = self.path.split("?")[0].lstrip("/") or MAIN_PAGE
+        full = (DIR / request_path).resolve()
+        dir_resolved = DIR.resolve()
+        if not _path_under_dir(full, dir_resolved) or not full.is_file():
+            self.path = "/" + MAIN_PAGE
+            request_path = MAIN_PAGE
+        # index.html 응답 시 api-config.js 스크립트 주입 (React 빌드 결과에 스크립트 미포함 대비)
+        if request_path == MAIN_PAGE and MAIN_PAGE.lower().endswith(".html"):
+            index_path = DIR / MAIN_PAGE
+            if index_path.is_file():
+                body = _inject_api_config_into_index(index_path)
+                if body is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
         return http.server.SimpleHTTPRequestHandler.do_GET(self)
 
 

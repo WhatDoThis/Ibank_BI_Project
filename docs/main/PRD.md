@@ -32,13 +32,13 @@ Project/
 ├── requirements.txt
 ├── README.md
 ├── Frontend/           # 프론트엔드 패키지
-│   ├── index.html      # 메인 HTML (구조만, CSS/JS 외부 참조)
-│   ├── static/
-│   │   ├── css/main.css
-│   │   └── js/app.js
+│   ├── react-app/      # React 앱 (Vite) — 소스·빌드 시 dist/
+│   │   ├── src/        # 컴포넌트·API 클라이언트·스타일
+│   │   ├── index.html  # 진입 HTML 템플릿
+│   │   └── dist/       # npm run build 결과 (정적 서버가 서빙)
 │   └── static_server/  # 정적 HTTP 서버
 │       ├── __init__.py
-│       └── main.py     # 진입점 (config.frontend, /api-config.js 주입)
+│       └── main.py     # 진입점 (config.frontend, React 빌드 서빙·SPA fallback·api-config.js 주입)
 ├── Backend/            # 백엔드 패키지
 │   └── api_server/     # Flask API
 │       ├── __init__.py
@@ -49,12 +49,12 @@ Project/
     └── config/
         ├── __init__.py
         ├── loader.py   # config.json 로드 → config.backend / config.frontend
-        ├── config.json # 실제 설정 (비밀 포함 시 .gitignore)
+        ├── config.json # 실제 설정 (비밀 포함 .gitignore)
         └── config.json.example  # 예시 템플릿
 ```
 
 ### 2.2 실행 방식
-- **run.py**: `python run.py` → 사용법 출력 / `python run.py back` → Backend API / `python run.py front` → Frontend 정적 서버
+- **run.py**: `python run.py` → 사용법 출력 / `python run.py back` → Backend API / `python run.py front` → **Frontend/react-app** 에서 `npm run build` 후 Frontend 정적 서버
 - **start.bat**: 가상환경 활성화 후 `python run.py back`, `python run.py front` 를 각각 새 창에서 실행
 
 ---
@@ -87,25 +87,29 @@ Project/
     "static_port": 8080,
     "main_page": "index.html",
     "api_base_url": "http://localhost:5001",
-    "static_dir": "Frontend"
+    "static_dir": "Frontend/react-app/dist"
   }
 }
 ```
 
 - `config.json` 은 `.gitignore` 대상이라 저장소에 올라가지 않음. 코드에서는 `config.backend.*`, `config.frontend.*` 로만 접근.
 
+### 3.3 프로젝트 규칙 (반드시 유지)
+- **.env 미사용**: 환경 설정은 `Env/config/config.json` 에만 정의한다. `.env` / `.env.example` 은 사용하지 않는다.
+- **.gitignore 단일화**: `.gitignore` 는 **프로젝트 루트에만** 둔다. 하위 패키지(예: Frontend/react-app)에는 중복하여 두지 않는다.
+
 ---
 
 ## 4. 프론트엔드 (Frontend)
 
 ### 4.1 역할
-- 정적 파일 서빙 (HTML, CSS, JS)
-- 단일 페이지 쿼리 빌더 UI (테이블/컬럼 드래그, 그리드, SQL 패널, 페이지네이션)
+- React(Vite) 기반 단일 페이지 쿼리 빌더 UI (테이블/컬럼 드래그, 그리드, SQL 패널, 페이지네이션)
+- 정적 서버가 React 빌드 결과(dist/) 서빙, api-config.js 주입·SPA fallback
 
 ### 4.2 구성 (현재 적용)
-- **index.html**: 메인 페이지 (Frontend 루트). `static/css/main.css`, `static/js/app.js`, `api-config.js` 참조
-- **static_server/main.py**: 루트(/) → main_page, /api-config.js → `window.APP_CONFIG.apiBaseUrl` 주입, 정적 파일 서빙. `config.frontend` (static_port, main_page, static_dir, api_base_url) 사용
-- **static/css/main.css**, **static/js/app.js**: 스타일·앱 로직
+- **Frontend/react-app/**: React 앱 소스. `npm run build` 시 **dist/** 생성. config.frontend.static_dir 은 `Frontend/react-app/dist` (빌드 결과 서빙)
+- **static_server/main.py**: 정적 파일 서빙(DIR=config.frontend.static_dir), /api-config.js → `window.APP_CONFIG.apiBaseUrl` 주입, index.html 응답 시 api-config.js 스크립트 주입, SPA fallback(미존재 경로 → index.html)
+- **config.frontend**: static_port, main_page, api_base_url, **static_dir** (기본: `Frontend/react-app/dist`)
 
 ### 4.3 설정 의존 (config.frontend)
 - static_port, main_page, static_dir, api_base_url
@@ -151,3 +155,4 @@ Project/
 |------|-----------|
 | (최초) | docs/main 기반 PRD 초안, 기본 아키텍처 및 Env config 구조 정의 |
 | (갱신) | 현재 적용 구조 반영: run.py back\|front, start.bat, Frontend/static_server/main.py, Backend api_server 구성, config.json.example, docs/main 전용 개발문서·report 분리 명시 |
+| (React 전환) | Frontend를 React(Vite)로 전환: Frontend/react-app, static_dir=Frontend/react-app/dist, run.py front 시 npm run build 후 서버 기동, legacy 삭제·상용화 정리 반영 |

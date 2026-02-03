@@ -22,6 +22,6 @@
     "static_port": 8080,
     "main_page": "index.html",
     "api_base_url": "http://localhost:5001",
-    "static_dir": "Frontend"
+    "static_dir": "Frontend/react-app/dist"
   }
 }

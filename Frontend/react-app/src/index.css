@@ -1,0 +1,4 @@
+/* Vite 기본 리셋 - 상세 스타일은 styles/main.css에서 로드 */
+#root {
+  height: 100%;
+}

@@ -11,3 +11,4 @@
 |--------|------|
 | 00_ReportIndex.md | 본 인덱스. report 폴더 내 파일 목록 및 설명 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
+| REACT_MIGRATION_PLAN.md | Frontend React 전환 Phase 계획 (Phase 0~5, 검수 기준) |

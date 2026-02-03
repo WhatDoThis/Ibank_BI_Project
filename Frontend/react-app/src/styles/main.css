@@ -1,4 +1,4 @@
-/* Frontend 정적 스타일 - Env/config frontend 설정과 연동 (포트/메인페이지 등) */
+/* Frontend 정적 스타일 - React 앱 전역 (기존 main.css 연동) */
 :root {
   --primary: #00704A;
   --primary-light: #e3f2ed;
