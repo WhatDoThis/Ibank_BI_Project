@@ -346,3 +346,23 @@
 - **삭제**: Frontend/legacy/ 전체 (index.html, README.md, static/css/main.css, static/js/app.js). 구 HTML/CSS/JS 참고용 보관 불필요, 패키지 정리.
 - **변경**: Frontend/__init__.py에서 legacy 언급 제거, docs/report/log.md Phase 5·정리 문구에 legacy 삭제 반영.
 - **정책**: 사용되지 않을 코드·파일은 남기지 않음. 백업은 요청 시에만.
+
+---
+
+## 2025-02-03: README·requirements·docs/main 반영 및 Git 푸시
+
+- **README.md**: 현재 구성 반영 (React 프론트엔드, run.py front 빌드 후 서버, 프로젝트 구조, config.json·static_dir, .env 미사용)
+- **requirements.txt**: Backend 의존성 주석 추가 (flask, flask-cors, psycopg2-binary, requests)
+- **docs/main/PRD.md**: 패키지 구조(Frontend/react-app, static_server), 실행 방식(run.py front 시 npm run build), frontend config(static_dir=Frontend/react-app/dist), Frontend 4.2·4.3, 변경 이력(React 전환) 반영
+- **Git**: 모든 변경사항 커밋 후 origin main 푸시 완료 (c593353..705e16d)
+
+---
+
+## 2025-02-02: README·requirements·docs/main 현재 구성 재점검 및 명세서 React 참고 문구 추가
+
+- **README.md / requirements.txt**: 이미 현재 구성(React 프론트엔드, run.py front 빌드·정적 서버, config.json·.env 미사용) 반영 확인, 수정 없음
+- **docs/main**: PRD.md는 이미 React·static_server·config 반영 상태. 명세서 문서에 현재 구현 참고 문구 추가:
+  - **ADVANCED_FEATURES.md**: 상단에 "현재 구현: React(Vite), Frontend/react-app, 본 문서는 기능 명세용" 문구 추가
+  - **CURSOR_SPEC.md**, **CURSOR_SPEC_V2_SIMPLIFIED.md**: 프로젝트 개요 하단에 "현재 구현: React(Vite), Frontend/react-app, 아래 HTML/구조는 명세 참고용" 문구 추가
+- **docs/report/log.md**: 본 작업 완료 로그 갱신
+- **Git**: 변경사항 커밋 후 푸시
