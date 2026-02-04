@@ -1,5 +1,31 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: Git 커밋 및 푸시 (전체 변경사항 반영)
+
+### 완료 작업
+1. **스테이징**
+   - `git add -A`로 수정·삭제·추가된 모든 파일 스테이징
+   - Backend: dashboard_service.py 신규, main.py·routes.py 수정
+   - Frontend: packages/dashboard·packages/report·shared 이동/추가, 삭제된 src/components·api·config·utils 반영
+   - 기타: run.py, requirements.txt, static_server/main.py, vite.config.js, docs/report/log.md
+
+2. **커밋**
+   - 커밋 해시: d685c25
+   - 메시지: feat: React 대시보드 통합 및 UI/UX 개선 (Backend 대시보드 API, Frontend 패키지 구조·대시보드·필터·페이징·검색·ChartWidget·Report 헤더 정리, static_server 포트 대체, run.py 빌드 연동)
+
+3. **푸시**
+   - `git push origin main` 성공
+   - 원격: https://github.com/GwanHong/IBANK_TEST_PROJECT_001.git (3204bc1..d685c25 main -> main)
+
+### 검수 결과
+- 32 files changed, 2984 insertions(+), 371 deletions(-)
+- rename/delete/add 모두 반영됨, 누락 없음
+
+### 비고
+- 한글 커밋 메시지가 터미널 출력에서 깨져 보일 수 있으나, 원격 저장소에는 UTF-8로 저장됨.
+
+---
+
 ## 2025-02-02: 대시보드 폰트·X축 라벨·필터 연동·테이블 페이징·검색
 
 ### 완료 작업
