@@ -5,7 +5,7 @@
  *
  * [주요 기능]
  * - groupBy 전체 조합으로 X축 라벨 명확 규정(일자+캠페인+워크플로우+채널 순). 복수 값은 줄바꿈으로 표시.
- * - 상위 10건만 표시. 발송 요청(total_count)·발송 성공(success_count) 막대 표시.
+ * - 상위 10건만 표시(정렬 기준: 발송성공 수). 발송 요청(total_count)·발송 성공(success_count) 막대 표시.
  *
  * [의존성]
  * - React, recharts (BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer)
@@ -74,7 +74,9 @@ function XAxisTickMultiline({ x, y, payload }) {
 
 export default function AggregatedBarChart({ data = [], groupBy = {} }) {
   if (!data.length) return null
-  const chartData = data.slice(0, TOP_N).map((row) => ({
+  // 발송성공 수 기준 내림차순 정렬 후 상위 N건 (백엔드와 동일 기준, 프론트에서도 보장)
+  const sorted = [...data].sort((a, b) => (b.success_count ?? 0) - (a.success_count ?? 0))
+  const chartData = sorted.slice(0, TOP_N).map((row) => ({
     name: getCompositeXLabel(row, groupBy),
     발송요청: row.total_count ?? 0,
     발송성공: row.success_count ?? 0
@@ -93,7 +95,7 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
       }}
     >
       <h3 style={{ fontSize: 17, fontWeight: 600, color: '#374151', marginBottom: 16 }}>
-        기준별 발송 현황 (상위 {TOP_N}건)
+        기준별 발송 현황 (발송성공 수 상위 {TOP_N}건)
       </h3>
       <ResponsiveContainer width="100%" height={440}>
         <BarChart

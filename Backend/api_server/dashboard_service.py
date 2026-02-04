@@ -113,12 +113,11 @@ def get_dashboard_data(req):
     select_cols, group_by_sql = _build_group_by_clause(req.get("group_by") or {})
     group_by_clause = f"GROUP BY {group_by_sql}" if group_by_sql else ""
 
-    order_parts = []
+    # 기준별 발송현황 차트 상위 N건: 발송성공 수(success_count) 기준으로 통일
+    order_parts = ["success_count DESC"]
     if req.get("group_by", {}).get("date"):
         order_parts.append("delivery_date DESC")
-    if not req.get("group_by", {}).get("date"):
-        order_parts.append("total_count DESC")
-    order_sql = "ORDER BY " + ", ".join(order_parts) if order_parts else ""
+    order_sql = "ORDER BY " + ", ".join(order_parts)
 
     query = f"""
         SELECT

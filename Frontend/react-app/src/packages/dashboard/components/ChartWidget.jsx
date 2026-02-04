@@ -2,17 +2,17 @@
  * dashboard/components/ChartWidget.jsx (차트 생성 위젯)
  * =====================================================
  * 집계 데이터로 Dimension(축)·Metric(값)·차트 유형을 선택해 막대/선/영역 차트 생성.
- * Dimension: 일자·캠페인·워크플로우·채널 등, Metric: 실수형 지표만. Y축 Nice Numbers 적용.
+ * Dimension: 집계 체크박스 기준(일자·캠페인·워크플로우·채널 중 선택된 것만). Metric: 실수형 지표만. Y축 Nice Numbers 적용.
  *
  * [주요 기능]
- * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택, 섹션 폭 50%
+ * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택, 섹션 폭 50%, 차트 높이 460px
  * - recharts BarChart, LineChart, AreaChart, Y축 domain Nice Numbers
  *
  * [의존성]
  * - React, recharts
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   BarChart,
   Bar,
@@ -86,13 +86,25 @@ function calculateYAxisMin(dataMin, stepSize) {
   return multiplier * stepSize
 }
 
-/** Dimension 후보: 일자·캠페인·워크플로우·채널 등 */
+/** Dimension 후보: 일자·캠페인·워크플로우·채널 (집계 체크박스와 1:1 대응) */
 const DIMENSION_FIELDS = [
   { key: 'delivery_date', label: '일자' },
   { key: 'campaign_label', label: '캠페인' },
   { key: 'workflow_label', label: '워크플로우' },
   { key: 'channel_name', label: '채널' }
 ]
+
+/** groupBy(집계 체크박스)에 따라 사용 가능한 Dimension 목록 반환. 순서: 일자→캠페인→워크플로우→채널. 하나도 없으면 전체. */
+function getAvailableDimensions(groupBy) {
+  const order = [
+    { g: 'date', key: 'delivery_date', label: '일자' },
+    { g: 'campaign', key: 'campaign_label', label: '캠페인' },
+    { g: 'workflow', key: 'workflow_label', label: '워크플로우' },
+    { g: 'channel', key: 'channel_name', label: '채널' }
+  ]
+  const filtered = order.filter(({ g }) => groupBy && groupBy[g])
+  return filtered.length ? filtered : [...DIMENSION_FIELDS]
+}
 
 /** Metric 후보: 실수형 데이터만 (건수·비율) */
 const METRIC_FIELDS = [
@@ -121,17 +133,19 @@ function getDisplayValue(row, key) {
   return '-'
 }
 
-function SingleWidget({ widget, data, onRemove, onUpdate }) {
+function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate }) {
   const { id, xKey, yKey, chartType, title } = widget
-  const dimField = DIMENSION_FIELDS.find((f) => f.key === xKey) || DIMENSION_FIELDS[0]
+  const dims = availableDimensions?.length ? availableDimensions : DIMENSION_FIELDS
+  const effectiveXKey = dims.some((d) => d.key === xKey) ? xKey : (dims[0]?.key ?? 'delivery_date')
+  const dimField = dims.find((f) => f.key === effectiveXKey) || dims[0]
   const metricField = METRIC_FIELDS.find((f) => f.key === yKey) || METRIC_FIELDS[0]
   const chartData = useMemo(() => {
     if (!data?.length) return []
     return data.slice(0, 50).map((row) => ({
-      name: getDisplayValue(row, xKey),
+      name: getDisplayValue(row, effectiveXKey),
       [metricField.label]: typeof row[yKey] === 'number' ? row[yKey] : Number(row[yKey]) || 0
     }))
-  }, [data, xKey, yKey, metricField.label])
+  }, [data, effectiveXKey, yKey, metricField.label])
 
   /* Y축 도메인: 실제 데이터 min/max 기준으로 조정(0 강제 포함 제거 → 변동 구간이 잘 보이도록) */
   const yDomain = useMemo(() => {
@@ -154,7 +168,7 @@ function SingleWidget({ widget, data, onRemove, onUpdate }) {
           borderRadius: 12,
           padding: 20,
           boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-          minHeight: 280
+          minHeight: 500
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -242,7 +256,7 @@ function SingleWidget({ widget, data, onRemove, onUpdate }) {
         borderRadius: 12,
         padding: 20,
         boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-        minHeight: 280
+        minHeight: 500
       }}
     >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -265,11 +279,11 @@ function SingleWidget({ widget, data, onRemove, onUpdate }) {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <select
-            value={xKey}
+            value={effectiveXKey}
             onChange={(e) => onUpdate(id, { xKey: e.target.value })}
             style={{ padding: '6px 10px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 6 }}
           >
-            {DIMENSION_FIELDS.map((f) => (
+            {dims.map((f) => (
               <option key={f.key} value={f.key}>{f.label} (Dimension)</option>
             ))}
           </select>
@@ -300,19 +314,33 @@ function SingleWidget({ widget, data, onRemove, onUpdate }) {
           </button>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={260}>
+      <ResponsiveContainer width="100%" height={460}>
         {chartInner}
       </ResponsiveContainer>
     </div>
   )
 }
 
-export default function ChartWidget({ data = [], widgets = [], onWidgetsChange }) {
+export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onWidgetsChange }) {
+  const availableDimensions = useMemo(() => getAvailableDimensions(groupBy), [groupBy])
+
+  // 집계 체크박스 변경 시, 현재 선택된 Dimension이 목록에 없으면 첫 번째로 맞춤
+  useEffect(() => {
+    const keys = availableDimensions.map((d) => d.key)
+    const firstKey = availableDimensions[0]?.key ?? 'delivery_date'
+    const needsUpdate = widgets.some((w) => !keys.includes(w.xKey))
+    if (!needsUpdate || widgets.length === 0) return
+    onWidgetsChange(
+      widgets.map((w) => ({ ...w, xKey: keys.includes(w.xKey) ? w.xKey : firstKey }))
+    )
+  }, [groupBy, availableDimensions, widgets, onWidgetsChange])
+
   const addWidget = () => {
     const id = `w-${Date.now()}`
+    const defaultXKey = availableDimensions[0]?.key ?? 'delivery_date'
     onWidgetsChange([
       ...widgets,
-      { id, xKey: 'delivery_date', yKey: 'total_count', chartType: 'bar', title: `차트 생성 ${widgets.length + 1}` }
+      { id, xKey: defaultXKey, yKey: 'total_count', chartType: 'bar', title: `차트 생성 ${widgets.length + 1}` }
     ])
   }
 
@@ -349,7 +377,7 @@ export default function ChartWidget({ data = [], widgets = [], onWidgetsChange }
         </button>
       </div>
       <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 12 }}>
-        Dimension: 일자·캠페인·워크플로우·채널 등 / Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정.
+        Dimension: 집계 기준에서 선택한 항목만 표시. 두 개 이상이면 그중 선택 가능. Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
         {widgets.map((w) => (
@@ -357,6 +385,7 @@ export default function ChartWidget({ data = [], widgets = [], onWidgetsChange }
             key={w.id}
             widget={w}
             data={data}
+            availableDimensions={availableDimensions}
             onRemove={removeWidget}
             onUpdate={updateWidget}
           />

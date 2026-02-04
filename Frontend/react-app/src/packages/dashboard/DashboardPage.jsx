@@ -5,6 +5,7 @@
  * - 헤더: 테이블 선택 + 필터 조건(기간·캠페인·워크플로우·채널·집계 기준) → 적용 시 해당 조건 데이터만 표시
  * - 본문: KPI 카드 + 채널 도넛 + 기준별 막대 차트 + 집계 테이블 + 나만의 차트 위젯
  * - 기본 일자: 시작/종료 모두 오늘. 메인 영역 스크롤 가능.
+ * - 최초 진입 시(세션 미유지) 집계 기준: 일자별만 체크(campaign/workflow/channel 미체크).
  *
  * [주요 기능]
  * - 테이블 선택 (getDashboardTables), 필터·GROUP BY 변경 시 getDashboardData 호출
@@ -24,7 +25,8 @@ import AggregatedBarChart from './components/AggregatedBarChart'
 import AggregatedDataTable from './components/AggregatedDataTable'
 import ChartWidget from './components/ChartWidget'
 
-const defaultGroupBy = { campaign: true, date: true, workflow: false, channel: true }
+// 최초 대시보드 진입 시(세션 미유지) 집계 기준: 일자별만 적용
+const defaultGroupBy = { campaign: false, date: true, workflow: false, channel: false }
 
 function getDefaultDateRange() {
   const now = new Date()
@@ -186,6 +188,7 @@ export default function DashboardPage() {
           />
           <ChartWidget
             data={data?.aggregated_data ?? []}
+            groupBy={filters.group_by ?? defaultGroupBy}
             widgets={chartWidgets}
             onWidgetsChange={setChartWidgets}
           />

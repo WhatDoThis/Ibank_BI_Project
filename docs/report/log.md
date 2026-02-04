@@ -1,5 +1,64 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 차트 생성 Dimension을 집계 체크박스 기준으로 연동
+
+### 완료 작업
+1. **Dimension 옵션 = 집계 체크박스 기준**
+   - ChartWidget에 `groupBy`(filters.group_by) 전달. `getAvailableDimensions(groupBy)`로 사용 가능 Dimension 목록 계산(일자→캠페인→워크플로우→채널 순, 체크된 것만). 하나도 없으면 전체 노출.
+
+2. **차트 생성 시 기본 Dimension**
+   - 새 위젯 추가 시 `xKey` = availableDimensions[0] (집계에서 첫 번째로 체크된 항목). 예: 캠페인만 체크 시 기본 Dimension = 캠페인.
+
+3. **두 개 이상 체크 시**
+   - Dimension 드롭다운에 체크된 항목만 표시되어 그중 선택 가능. 선택한 Dimension에 맞게 X축·차트 데이터 표시.
+
+4. **집계 변경 시 위젯 동기화**
+   - useEffect로 groupBy/availableDimensions 변경 시, 위젯의 xKey가 목록에 없으면 첫 번째 Dimension으로 자동 변경.
+
+### 검수 결과
+- Lint: ChartWidget.jsx, DashboardPage.jsx 오류 없음.
+
+### 비고
+- 일자만 체크 시 Dimension 기본값 = 일자, 캠페인만 체크 시 = 캠페인 → X축 레이블이 집계 데이터와 일치하여 이상한 값 방지.
+
+---
+
+## 2025-02-02: 대시보드 최초 진입 시 집계 기준 일자별만 적용
+
+### 완료 작업
+1. **집계 체크박스 초기값 변경 (DashboardPage.jsx)**
+   - 기존 defaultGroupBy: campaign true, date true, workflow false, channel true
+   - 변경: **일자별만** 체크 — campaign false, date true, workflow false, channel false
+   - 세션 유지 없이 페이지 로드 시 항상 이 초기값으로 진입.
+
+### 비고
+- 대시보드는 sessionStorage/localStorage를 사용하지 않으므로, 새로고침·재진입 시마다 이 초기값이 적용됨.
+
+---
+
+## 2025-02-02: 기준별 발송현황 차트 상위 10건 정렬 기준 명확화
+
+### 완료 작업
+1. **정렬 기준 통일: 발송성공 수(success_count)**
+   - 기존: group_by.date 여부에 따라 delivery_date DESC 또는 total_count DESC만 적용되어 "상위 10건" 의미가 불명확했음.
+   - 변경: 항상 **발송성공 수(success_count) DESC**를 1차 정렬로 적용. 일자 그룹 시 2차로 delivery_date DESC 추가하여 동일 성공 수 내에서는 최신 일자 순.
+
+2. **Backend (dashboard_service.py)**
+   - ORDER BY를 `success_count DESC` 고정 후, `group_by.date`일 때만 `delivery_date DESC` 추가.
+   - 주석: "기준별 발송현황 차트 상위 N건: 발송성공 수(success_count) 기준으로 통일".
+
+3. **Frontend (AggregatedBarChart.jsx)**
+   - 차트 제목: "기준별 발송 현황 (상위 10건)" → **"기준별 발송 현황 (발송성공 수 상위 10건)"**으로 변경하여 사용자에게 정렬 기준 명시.
+   - 데이터 표시 전 `[...data].sort((a,b) => (b.success_count ?? 0) - (a.success_count ?? 0))` 적용 후 slice(0, TOP_N)으로, 백엔드와 동일 기준을 프론트에서도 보장.
+
+### 검수 결과
+- Lint: AggregatedBarChart.jsx, dashboard_service.py 오류 없음.
+
+### 비고
+- 발송요청 수(total_count)가 아닌 발송성공 수(success_count)를 기준으로 한 이유: "발송 현황"에서 실제 전달된 양을 기준으로 상위를 보여주는 것이 더 직관적이라 판단.
+
+---
+
 ## 2025-02-02: Git 커밋 및 푸시 (전체 변경사항 반영)
 
 ### 완료 작업
