@@ -118,8 +118,14 @@ if __name__ == '__main__':
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
     backend = config.backend
-    host = getattr(backend, 'api_host', '0.0.0.0') or '0.0.0.0'
-    port = int(getattr(backend, 'api_port', 5001) or 5001)
+    host = getattr(backend, 'api_host', None)
+    if host is None or not str(host).strip():
+        raise ValueError('Env/config/config.json 에 backend.api_host 가 없거나 비어 있습니다.')
+    host = str(host).strip()
+    port = getattr(backend, 'api_port', None)
+    if port is None or port == '':
+        raise ValueError('Env/config/config.json 에 backend.api_port 가 없습니다.')
+    port = int(port)
     db_config = db.get_db_config()
     allowed = db.get_allowed_tables()
 

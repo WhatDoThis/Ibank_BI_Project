@@ -1,16 +1,14 @@
 """
 Backend.api_server.db (DB 연결 및 검증)
 =======================================
-config.backend 기반 DB 연결·검증·포맷. Env config.backend 사용.
+Env/config/config.json 의 backend 만 사용. 환경 변수·기본값 없음. 없으면 예외.
 
 [Main Functions]
 ===========
-- get_env: 환경 변수 조회 (따옴표 제거)
-- get_db_config: config.backend + 환경 변수 병합 후 DB 연결용 dict
-- get_allowed_tables, get_table_schema: 허용 테이블·스키마
+- get_db_config: config.backend 에서만 DB 연결용 dict (필수 키 없으면 ValueError)
+- get_allowed_tables, get_table_schema: config.backend 에서만
 - get_db_connection: DB 연결 생성
-- format_value: JSON 직렬화용 포맷
-- validate_table_name, validate_column_name: 테이블·컬럼명 검증
+- format_value, validate_table_name, validate_column_name
 
 [Dependencies]
 =========
@@ -18,7 +16,6 @@ config.backend 기반 DB 연결·검증·포맷. Env config.backend 사용.
 - psycopg2, psycopg2.extras.RealDictCursor
 """
 
-import os
 import re
 from datetime import datetime
 
@@ -37,46 +34,58 @@ if str(_project_root_from_db) not in sys.path:
 from Env import config
 
 
-def get_env(key, default):
-    """환경 변수 가져오기 (따옴표 제거)."""
-    value = os.getenv(key, default)
-    if value and isinstance(value, str) and value.startswith('"') and value.endswith('"'):
-        value = value.strip('"')
-    return value
-
-
 def get_db_config():
-    """config.backend + 환경 변수 병합 후 DB 연결용 dict 반환."""
+    """config.backend 에서만 DB 설정 읽기. 없거나 비어 있으면 ValueError."""
     backend = config.backend
+    host = getattr(backend, 'db_host', None)
+    port = getattr(backend, 'db_port', None)
+    database = getattr(backend, 'db_name', None)
+    user = getattr(backend, 'db_user', None)
+    password = getattr(backend, 'db_password', None)
+
+    if not host or not str(host).strip():
+        raise ValueError('Env/config/config.json 에 backend.db_host 가 없거나 비어 있습니다.')
+    if database is None or not str(database).strip():
+        raise ValueError('Env/config/config.json 에 backend.db_name 이 없거나 비어 있습니다.')
+    if not user or not str(user).strip():
+        raise ValueError('Env/config/config.json 에 backend.db_user 가 없거나 비어 있습니다.')
+    if port is None or port == '':
+        raise ValueError('Env/config/config.json 에 backend.db_port 가 없습니다.')
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise ValueError('Env/config/config.json 의 backend.db_port 는 숫자여야 합니다.')
+
     return {
-        'host': get_env('DB_HOST', getattr(backend, 'db_host', '') or ''),
-        'port': int(get_env('DB_PORT', str(getattr(backend, 'db_port', 5432) or 5432))),
-        'database': get_env('DB_NAME', getattr(backend, 'db_name', '') or ''),
-        'user': get_env('DB_USER', getattr(backend, 'db_user', '') or ''),
-        'password': get_env('DB_PASSWORD', getattr(backend, 'db_password', '') or ''),
+        'host': str(host).strip(),
+        'port': port,
+        'database': str(database).strip(),
+        'user': str(user).strip(),
+        'password': str(password).strip() if password is not None else '',
     }
 
 
 def get_allowed_tables():
-    """허용 테이블 목록. config.backend.allowed_tables 사용."""
+    """허용 테이블 목록. config.backend.allowed_tables 만 사용. 없으면 ValueError."""
     tables = getattr(config.backend, 'allowed_tables', None)
+    if tables is None:
+        raise ValueError('Env/config/config.json 에 backend.allowed_tables 가 없습니다.')
     if isinstance(tables, list):
         return set(tables)
-    return set()
+    raise ValueError('Env/config/config.json 의 backend.allowed_tables 는 배열이어야 합니다.')
 
 
 def get_table_schema():
-    """테이블 스키마. config.backend.table_schema 사용."""
-    return getattr(config.backend, 'table_schema', 'public') or 'public'
+    """테이블 스키마. config.backend.table_schema 만 사용. 없으면 ValueError."""
+    schema = getattr(config.backend, 'table_schema', None)
+    if schema is None or not str(schema).strip():
+        raise ValueError('Env/config/config.json 에 backend.table_schema 가 없거나 비어 있습니다.')
+    return str(schema).strip()
 
 
 def get_db_connection():
-    """DB 연결 생성. config.backend 기반."""
+    """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증)."""
     cfg = get_db_config()
-    if not cfg.get('host') or not cfg.get('database') or not cfg.get('user'):
-        raise ValueError(
-            'DB 설정이 없습니다. Env/config/config.json (또는 config.json.example 복사) 에 backend.db_host, db_name, db_user, db_password 를 넣어주세요.'
-        )
     return psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
 
 

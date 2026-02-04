@@ -181,7 +181,10 @@ def register_routes(app):
 
             conn = db.get_db_connection()
             cur = conn.cursor()
-            timeout = getattr(config.backend, 'query_timeout_seconds', 10) or 10
+            timeout = getattr(config.backend, 'query_timeout_seconds', None)
+            if timeout is None:
+                raise ValueError('Env/config/config.json 에 backend.query_timeout_seconds 가 없습니다.')
+            timeout = int(timeout)
             cur.execute(f"SET statement_timeout = '{timeout}s'")
             cur.execute(query)
             rows = cur.fetchall()
@@ -193,8 +196,10 @@ def register_routes(app):
             conn.close()
             return jsonify({'data': result, 'count': len(result), 'query': query})
         except psycopg2.errors.QueryCanceled:
+            timeout = getattr(config.backend, 'query_timeout_seconds', None)
+            sec = timeout if timeout is not None else '?'
             return jsonify({
-                'error': '쿼리 실행 시간 초과 (10초)',
+                'error': f'쿼리 실행 시간 초과 ({sec}초)',
                 'message': '쿼리가 너무 오래 걸립니다. LIMIT를 추가하세요.'
             }), 408
         except psycopg2.Error as e:
@@ -211,10 +216,12 @@ def register_routes(app):
             query = (data.get('query') or data.get('sql') or '').strip()
             if not query:
                 return jsonify({'error': 'query 파라미터가 필요합니다'}), 400
-            api_key = db.get_env('CLAUDE_API_KEY', getattr(config.backend, 'claude_api_key', '') or '')
-            if not api_key:
-                return jsonify({'error': 'Claude API 키가 서버에 설정되지 않았습니다. Env/config/config.json 의 backend.claude_api_key 를 설정하세요.'}), 503
-            url = getattr(config.backend, 'claude_api_url', '') or 'https://api.anthropic.com/v1/messages'
+            api_key = getattr(config.backend, 'claude_api_key', None)
+            if not api_key or not str(api_key).strip():
+                return jsonify({'error': 'Env/config/config.json 에 backend.claude_api_key 가 없거나 비어 있습니다.'}), 503
+            url = getattr(config.backend, 'claude_api_url', None)
+            if not url or not str(url).strip():
+                return jsonify({'error': 'Env/config/config.json 에 backend.claude_api_url 이 없거나 비어 있습니다.'}), 503
             payload = {
                 'model': 'claude-sonnet-4-20250514',
                 'max_tokens': 1000,

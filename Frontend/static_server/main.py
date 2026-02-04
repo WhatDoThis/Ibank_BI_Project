@@ -33,12 +33,21 @@ if str(_project_root) not in sys.path:
 
 from Env import config
 
-# 서빙 디렉터리: config.frontend.static_dir (프로젝트 루트 기준. React 빌드 시 'Frontend/react-app/dist')
-_static_dir = getattr(config.frontend, 'static_dir', 'Frontend') or 'Frontend'
+# config.frontend 만 사용. 없거나 비어 있으면 예외 (다른 경로/기본값 없음)
+def _require_frontend(key, name):
+    v = getattr(config.frontend, key, None)
+    if v is None or (isinstance(v, str) and not v.strip()):
+        raise ValueError(f'Env/config/config.json 에 frontend.{name} 이(가) 없거나 비어 있습니다.')
+    return v
+
+_static_dir = _require_frontend('static_dir', 'static_dir')
 DIR = Path(_project_root) / _static_dir if isinstance(_project_root, Path) else Path(_project_root) / _static_dir
-MAIN_PAGE = getattr(config.frontend, 'main_page', 'index.html') or 'index.html'
-PORT = int(getattr(config.frontend, 'static_port', 8080) or 8080)
-API_BASE_URL = getattr(config.frontend, 'api_base_url', 'http://localhost:5001') or 'http://localhost:5001'
+MAIN_PAGE = _require_frontend('main_page', 'main_page')
+_port_val = getattr(config.frontend, 'static_port', None)
+if _port_val is None or _port_val == '':
+    raise ValueError('Env/config/config.json 에 frontend.static_port 가 없거나 비어 있습니다.')
+PORT = int(_port_val)
+API_BASE_URL = _require_frontend('api_base_url', 'api_base_url')
 
 
 def _build_api_config_js(api_base_url):
