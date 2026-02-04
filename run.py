@@ -1,9 +1,10 @@
 """
 run (통합 진입점)
 ================
-프로젝트 루트에서 python run.py <back|front> 로 백엔드 또는 프론트엔드 서버 실행.
+프로젝트 루트에서 python run.py <back|front|serve> 로 백엔드 또는 프론트엔드 서버 실행.
 - back  : Backend/api_server/main.py (Flask API, config.backend)
 - front : Frontend/react-app npm run build 후 Frontend/static_server/main.py (정적 HTTP, config.frontend)
+- serve : 빌드 없이 정적 서버만 기동 (배포 시 systemd 등에서 사용, 재시작 시 즉시 3500 응답)
 """
 
 import subprocess
@@ -17,12 +18,14 @@ if str(_root) not in sys.path:
 _REACT_APP_DIR = _root / "Frontend" / "react-app"
 
 _USAGE = """
-사용법: python run.py <back|front>
-  back  - API 서버 (http://localhost:5001, config.backend)
-  front - React 빌드 후 웹 서버 (http://localhost:8080, config.frontend)
+사용법: python run.py <back|front|serve>
+  back  - API 서버 (config.backend 포트)
+  front - React 빌드 후 웹 서버 (config.frontend 포트)
+  serve - 빌드 없이 정적 서버만 (배포/재시작 시 즉시 응답용)
 
 예: python run.py back
-    python run.py front   (cd Frontend/react-app && npm run build 후 static_server 기동)
+    python run.py front   (빌드 후 static_server 기동)
+    python run.py serve  (이미 빌드된 dist 기준으로만 서빙)
 """
 
 
@@ -62,6 +65,19 @@ def main():
             runpy.run_path(str(_root / "Frontend" / "static_server" / "main.py"), run_name="__main__")
         except ModuleNotFoundError as e:
             print(_DEPS_HINT.strip())
+            sys.exit(1)
+    elif cmd == "serve":
+        # 빌드 없이 정적 서버만 (배포 시 systemd 등에서 사용)
+        import runpy
+        import traceback
+        try:
+            runpy.run_path(str(_root / "Frontend" / "static_server" / "main.py"), run_name="__main__")
+        except ModuleNotFoundError as e:
+            print(_DEPS_HINT.strip(), file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print("run.py serve 오류:", e, file=sys.stderr)
+            traceback.print_exc()
             sys.exit(1)
     else:
         print(_USAGE.strip())

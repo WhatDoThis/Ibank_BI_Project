@@ -122,6 +122,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
+    if not DIR.is_dir():
+        print(f"오류: 정적 디렉터리가 없습니다. [ {DIR} ]", file=sys.stderr)
+        print("  Frontend/react-app 에서 npm run build 후 다시 시도하세요.", file=sys.stderr)
+        sys.exit(1)
     # 포트가 이미 사용 중(WinError 10048 등)이면 다음 포트 시도
     for attempt in range(10):
         try_port = PORT + attempt

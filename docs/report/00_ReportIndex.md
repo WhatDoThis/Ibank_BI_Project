@@ -11,5 +11,6 @@
 |--------|------|
 | 00_ReportIndex.md | 본 인덱스. report 폴더 내 파일 목록 및 설명 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
-| nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 8080, /report_api → 5001). 서버 배포 시 참고 |
+| DEPLOY_SERVER.md | Linux 서버 배포 절차 (report-front는 run.py serve, 배포 시 빌드 후 재시작) |
+| nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 3500, /report_api → 8500). 서버 배포 시 참고 |
 | REACT_MIGRATION_PLAN.md | Frontend React 전환 Phase 계획 (Phase 0~5, 검수 기준) |
