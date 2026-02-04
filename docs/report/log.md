@@ -1,5 +1,26 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: Linux api_base_url 안내 및 Git 푸시
+
+### 완료 작업
+1. **DEPLOY_SERVER.md §6 추가**
+   - Linux 서버에서 `frontend.api_base_url` 은 **백엔드 경로**여야 함을 명시.
+   - 잘못된 예: `https://도메인/report` → API 요청이 프론트(3500)로 가서 실패.
+   - 올바른 예: `https://도메인/report_api` → API 요청이 백엔드(8500)로 전달되어 정상 동작.
+   - Nginx `location /report/`(프론트) vs `location /report_api/`(API) 구조에 따른 설정 가이드.
+
+2. **기타 검수**
+   - Backend api_server, Frontend react-app/src, static_server, Env: Lint 오류 없음.
+   - 로컬 config.json은 개발용(8080, localhost:5001) 유지; Linux 서버 쪽 config는 서버에서 `report_api` 로 수정 후 재시작 필요.
+
+3. **Git**
+   - 변경사항 커밋 및 원격 푸시.
+
+### 비고
+- 리눅스에 `api_base_url: https://ajo.sdev-ibank.co.kr/report` 로 되어 있으면 `/report` 가 프론트 경로이므로 API 호출이 실패함. 서버 config.json 에서 `https://ajo.sdev-ibank.co.kr/report_api` 로 변경 필요.
+
+---
+
 ## 2025-02-02: 로컬 쿼리 빌더( index 1 / app 1 / main 1 ) → React Report 적용
 
 ### 완료 작업

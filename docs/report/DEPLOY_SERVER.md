@@ -147,3 +147,22 @@ python run.py serve
 → 브라우저가 현재 페이지 기준으로 요청하므로 `https://도메인/report/` 접속 시 `/report/api-config.js`로 요청되고, Nginx가 `/report/`로 프록시하여 3500에서 정상 응답한다.
 
 **적용**: 코드 반영 후 서버에서 `git pull` → (필요 시) `npm run build` → `systemctl restart report-front`.
+
+---
+
+## 6. Linux 서버에서 api_base_url (필수)
+
+Nginx는 **프론트엔드**와 **API**를 서로 다른 경로로 프록시합니다.
+
+- `location /report/` → 프론트엔드(정적 서버, 3500)
+- `location /report_api/` → 백엔드 API(8500)
+
+프론트엔드 앱이 API를 호출할 때 사용하는 주소는 **백엔드로 가는 경로**여야 합니다.
+
+| 설정 | 설명 |
+|------|------|
+| **잘못된 예** | `"api_base_url": "https://ajo.sdev-ibank.co.kr/report"` → API 요청이 `/report/api/...` 로 나가서 **프론트엔드 서버(3500)** 로 전달됨 → API 실패 |
+| **올바른 예** | `"api_base_url": "https://ajo.sdev-ibank.co.kr/report_api"` → API 요청이 `/report_api/api/...` 로 나가서 **백엔드(8500)** 로 전달됨 → 정상 동작 |
+
+**조치**: Linux 서버의 `Env/config/config.json` 에서 `frontend.api_base_url` 을 **`https://도메인/report_api`** 로 설정해야 합니다. (`/report` 가 아닌 **`/report_api`**)  
+수정 후 `sudo systemctl restart report-front` 로 재시작해야 반영됩니다.

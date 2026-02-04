@@ -94,6 +94,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(DIR), **kwargs)
 
     def do_GET(self):
+        # Vite base: '/report/' → /report/... 요청을 dist 기준 경로로 변환 (로컬 8080/report/ 접속 시 자산 404 방지)
+        if self.path.startswith("/report"):
+            rest = self.path[7:].lstrip("/")  # "/report" 제거
+            self.path = "/" + rest if rest else "/"
+
         if self.path == "/favicon.ico" or self.path == "favicon.ico":
             self.send_response(204)
             self.end_headers()
