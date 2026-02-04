@@ -1,0 +1,229 @@
+/**
+ * report/report.css (리포트 쿼리 빌더 전용 스타일)
+ * ================================================
+ * main 1.css 및 app 1.js 인라인 스타일 통합. 기준축/피벗/HAVING/날짜단위/집계 등 UI.
+ *
+ * [적용 범위]
+ * - filter-order-bar: 기준축(groupby-row), 피벗축(pivot-row), 행별집계(pivot-agg-row), HAVING(having-row), 조건(where-row), 정렬(order-row)
+ * - 그리드 헤더: 기준축 토글, 컬럼 제거, 날짜 단위 버튼, 집계 드롭다운
+ * - chip/팝업/드릴다운
+ */
+
+/* ─── filter-order-bar 행 레이아웃 (기준축/피벗/행별집계/HAVING/조건/정렬) ─── */
+.filter-order-bar .groupby-row,
+.filter-order-bar .pivot-row,
+.filter-order-bar .pivot-agg-row,
+.filter-order-bar .having-row,
+.filter-order-bar .where-row,
+.filter-order-bar .order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.filter-order-bar .order-row:last-child {
+  margin-bottom: 0;
+}
+.filter-order-bar .bar-label {
+  font-weight: 600;
+  color: var(--text-light);
+  min-width: 36px;
+}
+
+/* chip 내 연산자 강조 */
+.chip-op {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* 기준축 chip */
+.gb-chip {
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+}
+
+/* HAVING chip */
+.having-chip {
+  background: #fff3e0;
+  border: 1px solid #ffcc80;
+}
+
+/* 피벗축 chip */
+.pivot-chip {
+  background: #e1f5fe;
+  border: 1px solid #4fc3f7;
+}
+.pivot-value-badge {
+  font-size: 9px;
+  background: #81d4fa;
+  color: #01579b;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-left: 2px;
+}
+
+/* 행별집계 chip */
+.pivot-agg-chip {
+  background: #f3e5f5;
+  border: 1px solid #ce93d8;
+}
+
+/* ─── 그리드 헤더: 기준축/제거/집계/날짜단위 ─── */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.col-remove {
+  font-size: 14px;
+  color: #999;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.data-grid th:hover .col-remove {
+  opacity: 1;
+}
+.col-remove:hover {
+  color: #f44336;
+  background: #ffebee;
+}
+
+/* 기준축 토글 (호버 시 표시) */
+.col-gb {
+  font-size: 13px;
+  color: #bbb;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.data-grid th:hover .col-gb {
+  opacity: 1;
+}
+.col-gb:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* 기준축 배지 (클릭 가능, × 포함) */
+.gb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  background: var(--primary);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.gb-badge:hover {
+  background: #005a3b;
+}
+.data-grid th.is-groupby {
+  background: #e3f2ed !important;
+}
+
+/* 집계 드롭다운 */
+.agg-select {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin-top: 3px;
+  cursor: pointer;
+  background: white;
+}
+.agg-select:hover {
+  border-color: var(--primary);
+}
+
+/* 날짜 단위 버튼 */
+.date-granularity-buttons {
+  display: flex;
+  gap: 2px;
+  margin-top: 3px;
+}
+.date-btn {
+  font-size: 9px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: white;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.date-btn:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+}
+.date-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* 행별 드릴다운 버튼 */
+.btn-drilldown {
+  font-size: 9px;
+  padding: 2px 6px;
+  margin-left: 6px;
+  border: 1px solid #b39ddb;
+  border-radius: 3px;
+  background: white;
+  color: #5e35b1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-drilldown:hover {
+  background: #ede7f6;
+  border-color: #5e35b1;
+}
+
+/* 드릴다운 행 스타일 */
+.drilldown-row {
+  background: #f9f9f9;
+}
+.drilldown-cell {
+  padding: 8px 12px !important;
+  font-size: 11px;
+}
+.drilldown-indent {
+  color: #999;
+  margin-right: 8px;
+}
+.drilldown-label {
+  color: #666;
+  margin-right: 8px;
+}
+.drilldown-value {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* 필터 팝업 — 문장형 */
+.filter-sentence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.filter-col-name {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 12px;
+}
+.filter-sentence select {
+  flex: 1;
+  min-width: 100px;
+}

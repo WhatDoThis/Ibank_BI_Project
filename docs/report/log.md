@@ -1,5 +1,47 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 로컬 쿼리 빌더( index 1 / app 1 / main 1 ) → React Report 적용
+
+### 완료 작업
+1. **Report CSS (report.css)**
+   - `main 1.css` 및 `app 1.js` 인라인 스타일을 `Frontend/react-app/src/packages/report/report.css`로 통합.
+   - 기준축/피벗/HAVING chip, 그리드 헤더(기준축 토글·제거·집계·날짜단위), 필터 문장형·드릴다운 스타일 반영.
+   - ReportPage.jsx에서 `import './report.css'` 추가.
+
+2. **상수·헬퍼 (report/utils)**
+   - `constants.js`: OPERATOR_LABELS, AGG_FUNCTIONS export.
+   - `helpers.js`: isDateColumn, isDateType, isDateTimeType, escapeSqlString, escapeLikePattern, formatWhereValue, isNumericValue export.
+
+3. **sqlBuilder 확장**
+   - `generateSQL` 8번째 인자 options: groupBy, dateGranularity, havings, pivot, pivotRowAggs 지원.
+   - GROUP BY, 날짜 단위(TO_CHAR), 컬럼별 aggFunc, HAVING, 피벗(CASE WHEN) 모드 SELECT/COUNT 쿼리 생성.
+   - `generateCountSQL` 5번째 인자 options 동일 지원 (GROUP BY 시 서브쿼리).
+   - `generateDistinctPivotSQL`: 피벗 축 값 조회용 DISTINCT 쿼리 생성.
+
+4. **ReportPage 상태·콜백**
+   - 상태: groupBy, pivot, pivotRowAggs, dateGranularity, havings 추가.
+   - gridColumns에 aggFunc 필드; syncAggFuncs, addColumn 시 groupBy 반영.
+   - removeColumn: 해당 컬럼/테이블 제거 시 groupBy/havings/pivot/pivotRowAggs/orderBy 정리 및 orderBy columnIndex 재계산.
+   - toggleGroupBy, setDateGranularityFor, changeAggFuncFor, addHaving, removeHaving, setPivotFromValues, fetchAndSetPivot, removePivotCallback, addPivotAgg, removePivotAgg 추가.
+   - clearAll에 groupBy/pivot/pivotRowAggs/dateGranularity/havings 초기화 추가.
+   - runExecuteQuery에서 generateSQL/generateCountSQL에 options 전달.
+
+5. **MainArea UI**
+   - filter-order-bar: 기준축(groupby-row), 피벗축(pivot-row), 행별집계(pivot-agg-row), HAVING(having-row), 조건(where-row), 정렬(order-row) 행 추가.
+   - Chip 및 버튼: + 피벗 추가, + 집계 추가, + HAVING 추가, + 조건 추가, + 정렬 추가. OPERATOR_LABELS로 조건/HAVING 연산자 한글 표시.
+   - 그리드 헤더: 기준축 토글(⊞/기준축 ×), 컬럼 제거(×), 날짜 단위(연/연월/연월일), 집계 드롭다운(AGG_FUNCTIONS, 기준축 활성 시).
+   - 피벗 모드: groupBy + pivotRowAggs + pivot.values + 전체 컬럼 테이블 렌더링.
+   - HAVING 추가 시 컬럼 선택 메뉴 → 연산자/값 팝업(필터 문장형 스타일).
+
+### 검수 결과
+- Lint: ReportPage.jsx, MainArea.jsx, sqlBuilder.js, constants.js, helpers.js 오류 없음.
+- `npm run build` 성공.
+
+### 비고
+- 기존 React Report(addedTables, gridColumns, filters, orderBy) 호환 유지. orderBy는 columnIndex 기반으로 유지하고, sqlBuilder에서 집계 시 agg 표현식으로 ORDER BY 생성.
+
+---
+
 ## 2025-02-02: 차트 생성 Dimension을 집계 체크박스 기준으로 연동
 
 ### 완료 작업

@@ -58,7 +58,8 @@ def _path_under_dir(child, parent):
         return False
 
 
-_API_CONFIG_SCRIPT = '<script src="/api-config.js"></script>'
+# 상대 경로 사용 시 도메인/report/ 접속 시에도 브라우저가 /report/api-config.js 로 요청 → Nginx 프록시 정상
+_API_CONFIG_SCRIPT = '<script src="api-config.js"></script>'
 
 
 def _inject_api_config_into_index(html_path):
@@ -138,7 +139,7 @@ def main():
                 if attempt < 9:
                     continue
                 print(f"오류: 포트 {PORT}~{try_port} 모두 사용 중입니다. 기존 웹 서버를 종료한 뒤 다시 시도하세요.")
-                print("  Windows에서 포트 사용 프로세스 확인: netstat -ano | findstr :8080")
+                print(f"  Windows에서 포트 사용 프로세스 확인: netstat -ano | findstr :{PORT}")
                 sys.exit(1)
             raise
     print(f"HTTP 서버: http://localhost:{try_port}")

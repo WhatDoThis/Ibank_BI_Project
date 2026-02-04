@@ -134,3 +134,14 @@ python run.py serve
 ```
 
 (콘솔에 뜨는 오류 메시지 확인 후 Ctrl+C 로 종료)
+
+---
+
+## 5. 도메인 접속 시 "Load resource" 404 발생 시
+
+**원인**: 앱이 Nginx에서 `/report/` 아래로 서비스되는데, `api-config.js`가 **도메인 루트**(`/api-config.js`)로 요청되면 Nginx의 `location /report/`에 매칭되지 않아 404가 난다.
+
+**조치**: static_server가 index.html에 주입하는 스크립트 경로를 **상대 경로** `api-config.js`로 변경했다.  
+→ 브라우저가 현재 페이지 기준으로 요청하므로 `https://도메인/report/` 접속 시 `/report/api-config.js`로 요청되고, Nginx가 `/report/`로 프록시하여 3500에서 정상 응답한다.
+
+**적용**: 코드 반영 후 서버에서 `git pull` → (필요 시) `npm run build` → `systemctl restart report-front`.

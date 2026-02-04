@@ -5,21 +5,28 @@
  *
  * [주요 기능]
  * - 데이터 로드: health, listTables, describeTable, tableRelationships
- * - 상태: gridColumns, addedTables, filters, orderBy, resultData, pagination, executedSql, explanation
- * - 콜백: addColumn, moveColumn, executeQuery, 필터/ORDER BY, 페이지, SQL 복사/해석, 초기화
+ * - 상태: gridColumns(aggFunc), addedTables, filters, orderBy, groupBy, pivot, pivotRowAggs, dateGranularity, havings, resultData, pagination, executedSql, explanation
+ * - 콜백: addColumn, moveColumn, toggleGroupBy, setDateGranularity, changeAggFunc, addHaving, removeHaving, pivot/행별집계, executeQuery, 필터/ORDER BY, 페이지, SQL 복사/해석, 초기화
  *
  * [의존성]
- * - React, shared/api/client, report/utils/sqlBuilder, report/components (Header, Sidebar, MainArea)
+ * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Header, Sidebar, MainArea)
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import './report.css'
+import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
-import { generateSQL, generateCountSQL } from './utils/sqlBuilder'
+import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
+import { AGG_FUNCTIONS } from './utils/constants'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
 
 const DEFAULT_PAGE_SIZE = 100
+
+function isGroupByColumn(groupBy, table, column) {
+  return groupBy.some((g) => g.table === table && g.column === column)
+}
 
 export default function ReportPage() {
   const [dbStatus, setDbStatus] = useState({ ok: null, message: '확인 중...' })
@@ -29,6 +36,11 @@ export default function ReportPage() {
 
   const [gridColumns, setGridColumns] = useState([])
   const [addedTables, setAddedTables] = useState([])
+  const [groupBy, setGroupBy] = useState([])
+  const [pivot, setPivot] = useState(null)
+  const [pivotRowAggs, setPivotRowAggs] = useState([])
+  const [dateGranularity, setDateGranularity] = useState({})
+  const [havings, setHavings] = useState([])
   const [filters, setFilters] = useState([])
   const [orderBy, setOrderBy] = useState([])
   const [resultData, setResultData] = useState([])
@@ -48,7 +60,7 @@ export default function ReportPage() {
         const ok = healthData?.status === 'healthy'
         if (!cancelled) setDbStatus({ ok, message: ok ? 'DB 연결됨' : (healthData?.error || healthData?.message || 'DB 연결 안됨') })
       } catch (e) {
-        if (!cancelled) setDbStatus({ ok: false, message: 'API 서버 연결 실패 (5001 포트 확인)' })
+        if (!cancelled) setDbStatus({ ok: false, message: `API 서버 연결 실패 (${getApiBase()} 확인)` })
       }
       try {
         const listData = await listTables()
@@ -106,6 +118,16 @@ export default function ReportPage() {
     return () => clearTimeout(t)
   }, [])
 
+  const syncAggFuncs = useCallback((cols, gb) => {
+    if (!gb || gb.length === 0) {
+      return cols.map((c) => ({ ...c, aggFunc: null }))
+    }
+    return cols.map((c) => {
+      if (isGroupByColumn(gb, c.table, c.column)) return { ...c, aggFunc: null }
+      return { ...c, aggFunc: c.aggFunc || 'COUNT' }
+    })
+  }, [])
+
   const addColumn = useCallback(
     (columnInfo) => {
       const exists = gridColumns.some((c) => c.table === columnInfo.table && c.column === columnInfo.column)
@@ -119,12 +141,14 @@ export default function ReportPage() {
         tableAliasMap[t] = 't' + (i + 1)
       })
       const alias = tableAliasMap[columnInfo.table] || 't1'
+      const isGB = isGroupByColumn(groupBy, columnInfo.table, columnInfo.column)
+      const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
       setAddedTables(newAddedTables)
-      setGridColumns((prev) => [...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type }])
+      setGridColumns((prev) => syncAggFuncs([...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type, aggFunc }], groupBy))
       setCurrentPage(1)
       showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
     },
-    [gridColumns, addedTables, showToast]
+    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast]
   )
 
   const runExecuteQuery = useCallback(async () => {
@@ -133,7 +157,8 @@ export default function ReportPage() {
       return
     }
     try {
-      const countSQL = generateCountSQL(gridColumns, addedTables, filters, tableRelationships)
+      const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs }
+      const countSQL = generateCountSQL(gridColumns, addedTables, filters, tableRelationships, options)
       if (countSQL) {
         try {
           const countRes = await apiExecuteQuery(countSQL)
@@ -143,7 +168,7 @@ export default function ReportPage() {
           setTotalCount(0)
         }
       }
-      const sql = generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships)
+      const sql = generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, options)
       setExecutedSql(sql)
       const res = await apiExecuteQuery(sql)
       setResultData(res.data || [])
@@ -151,7 +176,7 @@ export default function ReportPage() {
     } catch (e) {
       showToast('error', e.message || '실행 실패')
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, showToast])
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, groupBy, dateGranularity, havings, pivot, pivotRowAggs, showToast])
 
   useEffect(() => {
     if (gridColumns.length === 0) return
@@ -168,6 +193,157 @@ export default function ReportPage() {
       arr.splice(newIndex, 0, moved)
       return arr
     })
+    setCurrentPage(1)
+  }, [])
+
+  const removeColumn = useCallback(
+    (tableName, columnName) => {
+      const removedIndex = gridColumns.findIndex((c) => c.table === tableName && c.column === columnName)
+      if (removedIndex < 0) return
+
+      let nextCols = gridColumns.filter((c) => !(c.table === tableName && c.column === columnName))
+      const tableStillUsed = nextCols.some((c) => c.table === tableName)
+
+      setFilters((prev) => prev.filter((f) => !(f.table === tableName && f.column === columnName)))
+      setGroupBy((prev) => prev.filter((g) => !(g.table === tableName && g.column === columnName)))
+      setHavings((prev) => prev.filter((h) => !(h.table === tableName && h.column === columnName)))
+      setPivotRowAggs((prev) => prev.filter((a) => !(a.table === tableName && a.column === columnName)))
+      if (pivot && pivot.table === tableName && pivot.column === columnName) setPivot(null)
+
+      if (!tableStillUsed) {
+        nextCols = nextCols.filter((c) => c.table !== tableName)
+        setAddedTables((tables) => tables.filter((t) => t !== tableName))
+        setGroupBy((g) => g.filter((x) => x.table !== tableName))
+        setHavings((h) => h.filter((x) => x.table !== tableName))
+        setPivot((p) => (p && p.table === tableName ? null : p))
+        setPivotRowAggs((a) => a.filter((x) => x.table !== tableName))
+        setOrderBy((prev) =>
+          prev
+            .filter((ob) => {
+              const c = gridColumns[ob.columnIndex]
+              return c && c.table !== tableName
+            })
+            .map((ob) => {
+              const c = gridColumns[ob.columnIndex]
+              const newIdx = nextCols.findIndex((n) => n.table === c.table && n.column === c.column)
+              return newIdx >= 0 ? { ...ob, columnIndex: newIdx } : null
+            })
+            .filter(Boolean)
+        )
+        setGridColumns(nextCols)
+      } else {
+        setOrderBy((prev) =>
+          prev
+            .filter((ob) => gridColumns[ob.columnIndex] && !(gridColumns[ob.columnIndex].table === tableName && gridColumns[ob.columnIndex].column === columnName))
+            .map((ob) => (ob.columnIndex > removedIndex ? { ...ob, columnIndex: ob.columnIndex - 1 } : ob))
+        )
+        setGridColumns(syncAggFuncs(nextCols, groupBy.filter((g) => !(g.table === tableName && g.column === columnName))))
+      }
+      setCurrentPage(1)
+    },
+    [gridColumns, groupBy, pivot, syncAggFuncs]
+  )
+
+  const toggleGroupBy = useCallback(
+    (table, column) => {
+      setGroupBy((prev) => {
+        const exists = prev.some((g) => g.table === table && g.column === column)
+        if (exists) {
+          const next = prev.filter((g) => !(g.table === table && g.column === column))
+          setGridColumns((cols) => syncAggFuncs(cols, next))
+          if (next.length === 0) setHavings([])
+          return next
+        }
+        const next = [{ table, column }]
+        setGridColumns((cols) => syncAggFuncs(cols, next))
+        return next
+      })
+      setCurrentPage(1)
+    },
+    [syncAggFuncs]
+  )
+
+  const setDateGranularityFor = useCallback((table, column, granularity) => {
+    setDateGranularity((prev) => ({ ...prev, [`${table}.${column}`]: granularity }))
+    setCurrentPage(1)
+  }, [])
+
+  const changeAggFuncFor = useCallback((table, column, newAgg) => {
+    setGridColumns((prev) =>
+      prev.map((c) => (c.table === table && c.column === column ? { ...c, aggFunc: newAgg } : c))
+    )
+    setHavings((prev) =>
+      prev.map((h) => (h.table === table && h.column === column ? { ...h, aggFunc: newAgg } : h))
+    )
+    setCurrentPage(1)
+  }, [])
+
+  const addHaving = useCallback((having) => {
+    setHavings((prev) => {
+      const idx = prev.findIndex((h) => h.table === having.table && h.column === having.column && h.aggFunc === having.aggFunc)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = having
+        return next
+      }
+      return [...prev, having]
+    })
+    setCurrentPage(1)
+  }, [])
+
+  const removeHaving = useCallback((index) => {
+    setHavings((prev) => prev.filter((_, i) => i !== index))
+    setCurrentPage(1)
+  }, [])
+
+  const setPivotFromValues = useCallback((table, column, values) => {
+    setPivot({ table, column, values })
+    setCurrentPage(1)
+  }, [])
+
+  const fetchAndSetPivot = useCallback(
+    async (table, column) => {
+      const alias = gridColumns.find((c) => c.table === table)?.alias
+      if (!alias) return
+      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships)
+      if (!sql) {
+        showToast('error', '피벗 값 조회 SQL 생성 실패')
+        return
+      }
+      try {
+        showToast('warning', '⏳ 피벗 값을 조회 중...')
+        const res = await apiExecuteQuery(sql)
+        const data = res.data || []
+        const values = data.map((row) => row[`${alias}.${column}`] ?? row[column] ?? row[Object.keys(row)[0]]).filter((v) => v != null)
+        if (values.length === 0) {
+          showToast('error', '피벗 값을 찾을 수 없습니다')
+          return
+        }
+        setPivotFromValues(table, column, values)
+        showToast('success', `피벗축 설정 완료 (${values.length}개 값)`)
+      } catch (e) {
+        showToast('error', '피벗 값 조회 실패: ' + (e.message || ''))
+      }
+    },
+    [gridColumns, addedTables, filters, tableRelationships, setPivotFromValues, showToast]
+  )
+
+  const removePivotCallback = useCallback(() => {
+    setPivot(null)
+    setPivotRowAggs([])
+    setCurrentPage(1)
+  }, [])
+
+  const addPivotAgg = useCallback((agg) => {
+    setPivotRowAggs((prev) => {
+      if (prev.some((a) => a.table === agg.table && a.column === agg.column && a.aggFunc === agg.aggFunc)) return prev
+      return [...prev, agg]
+    })
+    setCurrentPage(1)
+  }, [])
+
+  const removePivotAgg = useCallback((index) => {
+    setPivotRowAggs((prev) => prev.filter((_, i) => i !== index))
     setCurrentPage(1)
   }, [])
 
@@ -224,6 +400,11 @@ export default function ReportPage() {
   const clearAll = useCallback(() => {
     setGridColumns([])
     setAddedTables([])
+    setGroupBy([])
+    setPivot(null)
+    setPivotRowAggs([])
+    setDateGranularity({})
+    setHavings([])
     setFilters([])
     setOrderBy([])
     setResultData([])
@@ -248,6 +429,11 @@ export default function ReportPage() {
         <MainArea
           gridColumns={gridColumns}
           addedTables={addedTables}
+          groupBy={groupBy}
+          pivot={pivot}
+          pivotRowAggs={pivotRowAggs}
+          dateGranularity={dateGranularity}
+          havings={havings}
           filters={filters}
           orderBy={orderBy}
           resultData={resultData}
@@ -257,8 +443,18 @@ export default function ReportPage() {
           executedSql={executedSql}
           explanation={explanation}
           onAddColumn={addColumn}
+          onRemoveColumn={removeColumn}
           onMoveColumn={moveColumn}
           onExecute={runExecuteQuery}
+          onToggleGroupBy={toggleGroupBy}
+          onSetDateGranularity={setDateGranularityFor}
+          onChangeAggFunc={changeAggFuncFor}
+          onAddHaving={addHaving}
+          onRemoveHaving={removeHaving}
+          onFetchAndSetPivot={fetchAndSetPivot}
+          onRemovePivot={removePivotCallback}
+          onAddPivotAgg={addPivotAgg}
+          onRemovePivotAgg={removePivotAgg}
           onAddFilter={addFilter}
           onRemoveFilter={removeFilter}
           onAddOrderBy={addOrderBy}
