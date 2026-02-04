@@ -45,6 +45,7 @@ def main():
         except ModuleNotFoundError as e:
             if e.name and (e.name in ("flask", "flask_cors", "psycopg2", "requests") or "flask" in (e.name or "").lower()):
                 print(_DEPS_HINT.strip())
+                sys.exit(1)
             raise
     elif cmd == "front":
         # React 빌드 후 static_server 기동 (한 번에 실행)
@@ -61,7 +62,7 @@ def main():
             runpy.run_path(str(_root / "Frontend" / "static_server" / "main.py"), run_name="__main__")
         except ModuleNotFoundError as e:
             print(_DEPS_HINT.strip())
-            raise
+            sys.exit(1)
     else:
         print(_USAGE.strip())
         sys.exit(1)

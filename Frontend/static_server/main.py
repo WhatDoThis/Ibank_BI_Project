@@ -7,10 +7,11 @@ React 빌드(static_dir=Frontend/react-app/dist) 시 SPA fallback: 미존재 경
 [Main Functions]
 ===========
 - _build_api_config_js: api-config.js 응답 본문 생성
-- main: TCPServer 기동
+- main: 포트(PORT) 사용 중이면 PORT+1~PORT+9 순차 시도 후 TCPServer 기동
 
 [Classes]
 =======================
+- ReuseTCPServer: TCPServer with allow_reuse_address (포트 재사용)
 - Handler: SimpleHTTPRequestHandler (favicon, api-config.js, / → main_page, SPA fallback, 정적 파일)
 
 [Dependencies]
@@ -74,6 +75,10 @@ def _inject_api_config_into_index(html_path):
         return None
 
 
+class ReuseTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DIR), **kwargs)
@@ -117,10 +122,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
-    with socketserver.TCPServer(("", PORT), Handler) as httpd:
-        print(f"HTTP 서버: http://localhost:{PORT}")
-        print("종료: Ctrl+C")
+    # 포트가 이미 사용 중(WinError 10048 등)이면 다음 포트 시도
+    for attempt in range(10):
+        try_port = PORT + attempt
+        try:
+            httpd = ReuseTCPServer(("", try_port), Handler)
+            break
+        except OSError as e:
+            port_in_use = getattr(e, 'winerror', None) == 10048 or getattr(e, 'errno', None) in (98, 10048)
+            if port_in_use:
+                if attempt < 9:
+                    continue
+                print(f"오류: 포트 {PORT}~{try_port} 모두 사용 중입니다. 기존 웹 서버를 종료한 뒤 다시 시도하세요.")
+                print("  Windows에서 포트 사용 프로세스 확인: netstat -ano | findstr :8080")
+                sys.exit(1)
+            raise
+    print(f"HTTP 서버: http://localhost:{try_port}")
+    print("종료: Ctrl+C")
+    try:
         httpd.serve_forever()
+    finally:
+        httpd.server_close()
 
 
 if __name__ == '__main__':

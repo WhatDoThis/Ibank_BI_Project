@@ -1,5 +1,99 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 대시보드 폰트·X축 라벨·필터 연동·테이블 페이징·검색
+
+### 완료 작업
+1. **KPI 이하 폰트 2pt 증가**
+   - KPICards: 제목 17px, 라벨 14px, 숫자 24px/15px
+   - ChannelDonutCharts: 제목 16px, 범례 14px, 합계 13px
+   - AggregatedBarChart: 제목 17px, 축/툴팁/범례 13~14px
+   - AggregatedDataTable: 제목 17px, 테이블 14px, 셀 패딩 10px
+   - ChartWidget: 제목 16~17px, 셀렉트/버튼 14~15px
+
+2. **기준별 발송현황 X축: groupBy 전체 조합으로 중복 없이 라벨**
+   - AggregatedBarChart: getXKey 단일 키 제거, getCompositeXLabel(row, groupBy) 추가
+   - groupBy에 적용된 컬럼만 순서대로(일자→캠페인→워크플로우→채널) 조합해 "일자 / 채널" 등 고유 라벨 생성
+   - 일자별+채널별 선택 시 "2026-02-04 / Email", "2026-02-04 / SMS" 형태로 X축에 중복 없이 표시
+
+3. **필터 옵션 연동 (선택된 컬럼에 따라 다른 옵션만 표시)**
+   - Backend: get_filter_options(table_id, campaign_ids, workflow_ids, channels) 추가, _build_where_and_params로 캠페인/워크플로우/채널 쿼리별 WHERE 적용(캠페인 목록은 워크플로우·채널 기준, 워크플로우는 캠페인·채널 기준, 채널은 캠페인·워크플로우 기준)
+   - routes: GET filter-options 쿼리 파라미터 campaign_ids, workflow_ids, channels 파싱 후 전달
+   - Frontend: getDashboardFilterOptions(tableId, filters) 호출 시 선택값 쿼리스트링으로 전달
+   - DashboardPage: tableId 및 filters.campaign_ids/workflow_ids/channels 변경 시 필터 옵션 재조회, 옵션 목록에 없는 선택값은 setFilters로 제거(루프 방지 위해 길이 변경 시에만 setFilters)
+
+4. **집계 데이터 테이블: 50건 페이징 + 테이블 내 검색**
+   - PAGE_SIZE 50, page state, filteredData(useMemo로 검색어 필터), pageData = filteredData.slice(startIdx, startIdx+PAGE_SIZE)
+   - 검색: rowMatchesFilter(row, filterText, groupBy)로 캠페인/일자/워크플로우/채널/숫자 컬럼 텍스트 매칭(해당 테이블에서만 적용, 다른 집계에는 미적용)
+   - 상단에 "테이블 내 검색" 입력창, "N건 중 start-end (페이지 p/total)" 표시, 이전/다음 버튼
+   - data.length 또는 groupBy 변경 시 page 1로 리셋
+
+### 검수 결과
+- Lint: AggregatedBarChart, AggregatedDataTable, DashboardPage, ChartWidget, KPICards, ChannelDonutCharts 대상 오류 없음
+- Backend: dashboard_service get_filter_options, routes _parse_int_list 추가
+
+### 비고
+- 필터 연동으로 캠페인 C001 선택 시 워크플로우는 C001에 존재하는 것만 노출되어 "데이터가 없다" 조합 방지.
+
+---
+
+## 2025-02-02: 대시보드 스크롤·기본 일자·차트 위젯
+
+### 완료 작업
+1. **대시보드 스크롤**
+   - App.jsx: 레이아웃을 flex 컨테이너(height 100vh)로 감싸고, nav는 flexShrink 0, main은 flex 1 + overflowY auto + minHeight 0으로 설정
+   - 아래로 내려갈수록 스크롤 생성되어 전체 콘텐츠 확인 가능
+
+2. **기본 일자**
+   - DashboardPage getDefaultDateRange(): 시작일·종료일 모두 오늘 날짜로 반환하도록 변경 (기간이 아닌 최신일=오늘 기본)
+
+3. **나만의 차트 위젯 (ChartWidget.jsx)**
+   - 집계 데이터(aggregated_data) 기반으로 사용자가 차트를 추가·삭제·설정
+   - X축: 일자·캠페인·워크플로우·채널 등 어떤 데이터 타입이든 선택 가능
+   - Y축: 실수형만(발송요청·발송성공·오픈·클릭·성공률·오픈률·클릭률 등)
+   - 차트 유형: 막대(bar)·선형(line)·영역(area) 선택, recharts BarChart/LineChart/AreaChart 사용
+   - 위젯별 X/Y/차트유형 셀렉트 및 삭제 버튼, "차트 추가"로 위젯 추가
+   - DashboardPage 하단에 ChartWidget 섹션 배치, chartWidgets state로 관리
+
+### 검수 결과
+- Lint: App.jsx, DashboardPage.jsx, ChartWidget.jsx 대상 오류 없음
+
+### 비고
+- 기존 KPI·채널 도넛·기준별 막대·집계 테이블은 그대로 두고, 가장 아래에 위젯 영역을 추가해 원하는 차트를 꾸며나가는 구조.
+
+---
+
+## 2025-02-02: 대시보드 UI 디자인 개선 (필터·KPI·차트 레이아웃)
+
+### 완료 작업
+1. **헤더 필터 UI 현대화 (DashboardHeader.jsx)**
+   - 캠페인·워크플로우·채널 셀렉트 박스: 3열 그리드(1fr 1fr 1fr), minWidth 260px, width 100%로 텍스트 잘림 방지
+   - 테이블/기간/조회: 패딩·폰트·버튼 스타일 정리, border-radius 8~10px, box-shadow 적용
+   - 집계 기준 체크박스: 2행에 배치(테이블 라인과 컬럼 선택 라인 사이), width 100%, justifyContent flex-start로 좌측 정렬
+   - 900px 이하에서 필터 3열 → 1열로 반응형 전환
+
+2. **KPI 영역 전체 폭 사용 (KPICards.jsx + dashboard.css)**
+   - 섹션에 kpi-cards-section, 그리드에 kpi-grid 클래스 적용
+   - grid-template-columns: repeat(6, 1fr)로 6개 카드가 화면 좌우 꽉 채움
+   - 1200px 이하 3열, 768px 이하 2열 미디어 쿼리
+
+3. **채널 도넛 차트·막대 차트 잘림 방지**
+   - ChannelDonutCharts: donut-row 그리드(auto-fit, minmax(320px,1fr)), donut-block minWidth 0, ResponsiveContainer height 240
+   - dashboard.css: channel-donut-charts-section, aggregated-bar-chart에 width 100%, overflow visible
+
+4. **대시보드 전용 스타일 (dashboard.css)**
+   - .dashboard-page, .dashboard-header 전체 폭
+   - 필터 셀렉트 클래스별 minWidth 260px, box-sizing border-box
+   - DashboardPage.jsx에 dashboard.css import, 루트 div에 width/maxWidth 100%, boxSizing border-box
+
+### 검수 결과
+- Lint: DashboardHeader, KPICards, ChannelDonutCharts, DashboardPage 대상 오류 없음
+- 집계 체크박스 해제 시 해당 셀렉트 비활성화·필터 초기화 로직은 기존 유지
+
+### 비고
+- 상단 필터는 3행 구조 유지(테이블 라인 → 집계 기준 라인 → 컬럼 선택 라인). 집계 기준은 2행에 좌측 정렬로 “테이블과 컬럼 선택 사이”에 명확히 배치.
+
+---
+
 ## 2025-02-02: PRD 작성 및 아키텍처 재구성
 
 ### 완료 작업
@@ -366,3 +460,51 @@
   - **CURSOR_SPEC.md**, **CURSOR_SPEC_V2_SIMPLIFIED.md**: 프로젝트 개요 하단에 "현재 구현: React(Vite), Frontend/react-app, 아래 HTML/구조는 명세 참고용" 문구 추가
 - **docs/report/log.md**: 본 작업 완료 로그 갱신
 - **Git**: 변경사항 커밋 후 푸시
+
+---
+
+## 2025-02-02: Frontend 패키지화 — 리포트 패키지 분리·대시보드 플레이스홀더·라우팅
+
+- **공용(shared)**: `src/shared/api/client.js`, `src/shared/config/api.js` — 리포트·대시보드 등 모든 페이지에서 사용하는 API 클라이언트·설정
+- **리포트 패키지**: `src/packages/report/` — 쿼리 빌더 페이지. ReportPage.jsx, components(Header, Sidebar, MainArea), utils/sqlBuilder.js. shared API·config 사용, `@/shared/...` alias로 import
+- **대시보드 패키지**: `src/packages/dashboard/` — DashboardPage.jsx 플레이스홀더. 추후 사용자 제공 코드로 교체
+- **App.jsx**: BrowserRouter + 상단 네비(리포트 | 대시보드) + Routes: `/` → `/report`, `/report` → ReportPage, `/dashboard` → DashboardPage
+- **vite.config.js**: resolve.alias `@` → `src` (ESM 호환: fileURLToPath로 __dirname 대체)
+- **package.json**: react-router-dom 의존성 추가
+- **삭제**: 기존 `src/api`, `src/config`, `src/components`(Header, Sidebar, MainArea), `src/utils/sqlBuilder.js` — report 패키지로 이전
+- **유지**: `src/index.css`, `src/styles/main.css`, `src/main.jsx`, `src/App.jsx`, `src/assets` — 전역 스타일·앱 진입점
+- **검증**: npm run build 성공, Lint 오류 없음
+
+---
+
+## 2025-02-02: 범용 대시보드 시스템 적용 (PRD 아키텍처 준수)
+
+- **Backend (Flask·Env 연동, report와 분리)**  
+  - **dashboard_service.py**: 대시보드 전용 비즈니스 로직. db.get_db_connection(), db.validate_table_name(), db.get_table_schema() 사용. GROUP BY(캠페인/일자/워크플로우/채널) 동적 생성, KPI·채널별 분포, get_filter_options.  
+  - **routes.py**: POST /api/dashboard/data, GET /api/dashboard/filter-options/<table_id>, GET /api/dashboard/tables 등록. config·db만 사용, 기존 report 엔드포인트와 구분.  
+  - **main.py**: API 안내에 대시보드 엔드포인트 추가.
+- **Frontend (packages/dashboard, JSX·shared API)**  
+  - **shared/api/client.js**: getDashboardData(body), getDashboardFilterOptions(tableId), getDashboardTables() 추가.  
+  - **packages/dashboard**: DashboardPage.jsx(테이블 선택·필터·조회·KPI·집계 테이블), components/DashboardFilters.jsx, KPICards.jsx, AggregatedDataTable.jsx. 공용은 @/shared/api/client 사용, TypeScript·TanStack Query 미사용(useState/useEffect).  
+- **검증**: Frontend npm run build 성공, Lint 오류 없음. Backend는 config.backend·allowed_tables 기준 테이블 검증.
+
+---
+
+## 2025-02-02: 대시보드 UI 구상 반영 (헤더 통합·추이/인사이트 미구현 명시)
+
+- **1. 헤더에 테이블 셀렉트박스**: 대시보드로 볼 테이블을 여러 개 중 선택. DashboardHeader에 테이블 셀렉트 포함.
+- **2. 전체 추이 그래프 삭제**: 여러 날짜 추이 그래프는 현재 미구현(추후 구현 예정). 코드에 해당 섹션 없음.
+- **3. 인사이트 삭제**: 인사이트는 추후 AI 검토 예정. 코드에 인사이트 섹션 없음.
+- **4. 헤더에 필터링 조건 통합**: 3번 참고 이미지처럼 헤더 한 블록에 테이블 선택 + 기간(날짜 범위) + 캠페인·워크플로우·채널 필터 + 집계 기준(GROUP BY) + 조회 버튼 배치. DashboardHeader.jsx 신규, DashboardPage에서 기존 테이블 행·DashboardFilters 카드 제거 후 DashboardHeader 사용. 필터 적용 시 해당 조건 데이터만 조회.
+- **구성**: packages/dashboard/components/DashboardHeader.jsx 추가. DashboardPage는 헤더 → KPI 카드 → 집계 테이블만 표시. DashboardFilters.jsx는 유지(다른 뷰에서 사용 가능).
+
+---
+
+## 2025-02-02: 대시보드 시각 요소 추가 (차트·다이어그램)
+
+- **목적**: KPI 숫자만이 아니라 차트·다이어그램으로 데이터 시각적 비교·분석 가능하도록 구성(참고 이미지 반영).
+- **Recharts 추가**: package.json에 recharts 의존성 추가.
+- **채널별 도넛 차트 (ChannelDonutCharts.jsx)**: KPI channel_distribution(발송 요청·발송 성공)을 도넛 차트로 표시. 채널별 비중·합계 표시, 툴팁·범례.
+- **집계 막대 차트 (AggregatedBarChart.jsx)**: aggregated_data를 기준(일자/캠페인/채널 등)별 막대 차트로 표시. 발송 요청·발송 성공 막대, 상위 30건, groupBy에 따라 X축 라벨 결정.
+- **KPI 카드 시각 강화 (KPICards.jsx)**: 카드별 배경색·테두리·아이콘·숫자 색상 적용(캠페인 수·발송 요청/성공/실패·오픈·클릭). 섹션 제목 "주요 지표".
+- **DashboardPage**: 본문 순서 — 주요 지표(KPI) → 채널별 분포(도넛) → 기준별 발송 현황(막대) → 집계 데이터 테이블. AggregatedDataTable 섹션 스타일 통일(둥근 모서리·섹션 제목).

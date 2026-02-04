@@ -1,19 +1,14 @@
 /**
- * api/client.js (Backend API 클라이언트)
- * ======================================
- * Backend API 호출용 fetch 래퍼. config/api.getApiBase() 사용.
- * 기존 Frontend/static/js/app.js 의 API 호출 패턴을 참고하여 구현.
+ * api/client.js (Backend API 클라이언트) — 공용
+ * ==============================================
+ * Backend API 호출용 fetch 래퍼. shared/config/api.getApiBase() 사용.
  *
  * [주요 기능]
  * - health, listTables, describeTable, tableRelationships
  * - executeQuery, explainSql, getColumnValues, queryStats
  *
- * [Endpoints]
- * - GET  /health, GET /api/list-tables, GET /api/table-relationships
- * - POST /api/describe-table, /api/execute-query, /api/explain-sql, /api/get-column-values, /api/query-stats
- *
  * [의존성]
- * - config/api (getApiBase)
+ * - shared/config/api (getApiBase)
  */
 
 import { getApiBase } from '../config/api.js';
@@ -82,4 +77,27 @@ export async function getColumnValues(tableName, columnName, limit = 100) {
 /** POST /api/query-stats - 쿼리 통계 */
 export async function queryStats(query) {
   return request('POST', '/api/query-stats', { query });
+}
+
+// ---------- 대시보드 (report와 분리된 전용 API) ----------
+
+/** POST /api/dashboard/data - 대시보드 집계·KPI */
+export async function getDashboardData(body) {
+  return request('POST', '/api/dashboard/data', body);
+}
+
+/** GET /api/dashboard/filter-options/:table_id - 필터 옵션(캠페인·워크플로우·채널). 선택된 값이 있으면 해당 조건에 맞는 옵션만 반환 */
+export async function getDashboardFilterOptions(tableId, filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.campaign_ids?.length) params.set('campaign_ids', filters.campaign_ids.join(','));
+  if (filters.workflow_ids?.length) params.set('workflow_ids', filters.workflow_ids.join(','));
+  if (filters.channels?.length) params.set('channels', filters.channels.join(','));
+  const qs = params.toString();
+  const path = `/api/dashboard/filter-options/${encodeURIComponent(tableId)}${qs ? '?' + qs : ''}`;
+  return request('GET', path);
+}
+
+/** GET /api/dashboard/tables - 대시보드 사용 가능 테이블 목록 */
+export async function getDashboardTables() {
+  return request('GET', '/api/dashboard/tables');
 }

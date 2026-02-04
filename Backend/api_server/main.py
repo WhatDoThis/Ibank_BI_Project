@@ -89,6 +89,9 @@ def api_index():
             'POST /api/explain-sql',
             'POST /api/get-column-values',
             'POST /api/query-stats',
+            'POST /api/dashboard/data',
+            'GET  /api/dashboard/filter-options/<table_id>',
+            'GET  /api/dashboard/tables',
         ]
     })
 

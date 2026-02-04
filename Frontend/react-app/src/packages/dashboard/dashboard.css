@@ -1,0 +1,91 @@
+/**
+ * dashboard/dashboard.css
+ * 대시보드 전용 레이아웃·폭·차트 영역 스타일
+ * - 페이지·KPI·차트 영역 전체 폭 사용
+ * - 셀렉트/필터 폭 확대로 텍스트 잘림 방지
+ * - 차트 컨테이너 overflow 방지
+ */
+
+.dashboard-page {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.dashboard-page .dashboard-header {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* 셀렉트 박스 내 옵션 텍스트 잘림 방지: 최소 폭 확보 */
+.dashboard-header .filter-select-campaign,
+.dashboard-header .filter-select-workflow,
+.dashboard-header .filter-select-channel {
+  min-width: 260px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+  .dashboard-header .filter-row-three {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* KPI 영역: 화면 좌우 꽉 채움 */
+.kpi-cards-section {
+  width: 100%;
+  max-width: 100%;
+}
+
+.kpi-cards-section .kpi-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1200px) {
+  .kpi-cards-section .kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .kpi-cards-section .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 채널 도넛 차트: 잘림 방지, 영역 전체 활용 */
+.channel-donut-charts-section {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.channel-donut-charts-section .donut-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
+}
+
+.channel-donut-charts-section .donut-block {
+  min-width: 0;
+  overflow: visible;
+}
+
+/* 집계 막대 차트 영역 */
+.aggregated-bar-chart {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.aggregated-bar-chart .recharts-responsive-container {
+  overflow: visible;
+}

@@ -1,7 +1,7 @@
 /**
- * utils/sqlBuilder.js (SQL 생성 유틸)
- * ===================================
- * generateSQL, generateCountSQL, getJoinKey. Phase 4 그리드·필터·실행용.
+ * report/utils/sqlBuilder.js (SQL 생성 유틸)
+ * ===========================================
+ * generateSQL, generateCountSQL, getJoinKey. 리포트(쿼리 빌더) 전용.
  *
  * [주요 기능]
  * - getJoinKey: FK 관계로 JOIN 키 반환

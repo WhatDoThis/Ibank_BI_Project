@@ -1,6 +1,6 @@
 /**
- * config/api.js (API 기본 URL 설정)
- * ==================================
+ * config/api.js (API 기본 URL 설정) — 공용
+ * ==========================================
  * api_base_url 은 Env/config/config.json frontend.api_base_url 에서만 정의.
  * 정적 서빙 시 static_server가 /api-config.js 로 window.APP_CONFIG.apiBaseUrl 주입.
  * .env 미사용(프로젝트 정책: 환경은 config.json).

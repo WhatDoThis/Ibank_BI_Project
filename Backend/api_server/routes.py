@@ -17,11 +17,14 @@ Flask app에 API 라우트 등록. config.backend·db 모듈 사용.
 - POST /api/explain-sql
 - POST /api/get-column-values
 - POST /api/query-stats
+- POST /api/dashboard/data
+- GET  /api/dashboard/filter-options/<table_id>
+- GET  /api/dashboard/tables
 
 [Dependencies]
 =========
 - Env (config.backend)
-- Backend.api_server.db
+- Backend.api_server.db, Backend.api_server.dashboard_service
 - flask (request, jsonify), requests, psycopg2
 """
 
@@ -31,6 +34,7 @@ from flask import request, jsonify
 
 from Env import config
 from Backend.api_server import db
+from Backend.api_server import dashboard_service
 
 
 def register_routes(app):
@@ -299,3 +303,72 @@ def register_routes(app):
             })
         except Exception as e:
             return jsonify({'error': str(e), 'message': '통계 조회 실패'}), 500
+
+    # ---------- 대시보드 (report와 분리된 전용 엔드포인트) ----------
+    @app.route('/api/dashboard/data', methods=['POST'])
+    def dashboard_data():
+        try:
+            data = request.json or {}
+            table_id = (data.get('table_id') or '').strip()
+            if not table_id:
+                return jsonify({'error': 'table_id가 필요합니다'}), 400
+            date_range = data.get('date_range')
+            if not date_range or not isinstance(date_range, list) or len(date_range) < 2:
+                return jsonify({'error': 'date_range [시작일, 종료일]가 필요합니다'}), 400
+            req = {
+                'table_id': table_id,
+                'date_range': [str(date_range[0]), str(date_range[1])],
+                'campaign_ids': data.get('campaign_ids'),
+                'workflow_ids': data.get('workflow_ids'),
+                'channels': data.get('channels'),
+                'group_by': data.get('group_by') or {
+                    'campaign': True,
+                    'date': True,
+                    'workflow': False,
+                    'channel': True,
+                },
+            }
+            result = dashboard_service.get_dashboard_data(req)
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            return jsonify({'error': str(e), 'message': '대시보드 데이터 조회 실패'}), 500
+
+    def _parse_int_list(value):
+        if not value or not str(value).strip():
+            return None
+        try:
+            return [int(x.strip()) for x in str(value).split(',') if x.strip()]
+        except ValueError:
+            return None
+
+    @app.route('/api/dashboard/filter-options/<table_id>', methods=['GET'])
+    def dashboard_filter_options(table_id):
+        try:
+            table_id = (table_id or '').strip()
+            if not table_id:
+                return jsonify({'error': 'table_id가 필요합니다'}), 400
+            campaign_ids = _parse_int_list(request.args.get('campaign_ids'))
+            workflow_ids = _parse_int_list(request.args.get('workflow_ids'))
+            channels = _parse_int_list(request.args.get('channels'))
+            result = dashboard_service.get_filter_options(
+                table_id,
+                campaign_ids=campaign_ids,
+                workflow_ids=workflow_ids,
+                channels=channels,
+            )
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            return jsonify({'error': str(e), 'message': '필터 옵션 조회 실패'}), 500
+
+    @app.route('/api/dashboard/tables', methods=['GET'])
+    def dashboard_tables():
+        try:
+            allowed = db.get_allowed_tables()
+            tables = [{'id': t, 'name': t} for t in sorted(allowed)]
+            return jsonify({'tables': tables})
+        except Exception as e:
+            return jsonify({'error': str(e), 'message': '테이블 목록 조회 실패'}), 500
