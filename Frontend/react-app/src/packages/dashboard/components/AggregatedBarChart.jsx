@@ -84,19 +84,11 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
   const hasMultiline = chartData.some((d) => (d.name || '').includes(' / '))
   const bottomMargin = hasMultiline ? X_AXIS_BOTTOM_MARGIN : 24
   return (
-    <section
-      className="aggregated-bar-chart"
-      style={{
-        background: '#fff',
-        borderRadius: 12,
-        padding: 20,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-        marginBottom: 24
-      }}
-    >
-      <h3 style={{ fontSize: 17, fontWeight: 600, color: '#374151', marginBottom: 16 }}>
+    <section className="aggregated-bar-chart aggregated-bar-chart-section">
+      <h3 className="aggregated-bar-chart__title">
         기준별 발송 현황 (발송성공 수 상위 {TOP_N}건)
       </h3>
+      <div className="aggregated-bar-chart__chart-wrap">
       <ResponsiveContainer width="100%" height={440}>
         <BarChart
           data={chartData}
@@ -117,10 +109,11 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
             labelStyle={{ color: '#374151', fontSize: 13 }}
           />
           <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: 14, paddingBottom: 12 }} />
-          <Bar dataKey="발송요청" fill="#3b82f6" radius={[4, 4, 0, 0]} name="발송 요청" />
-          <Bar dataKey="발송성공" fill="#10b981" radius={[4, 4, 0, 0]} name="발송 성공" />
+          <Bar dataKey="발송요청" fill="#3b82f6" radius={[4, 4, 0, 0]} name="발송 요청" maxBarSize={75} />
+          <Bar dataKey="발송성공" fill="#10b981" radius={[4, 4, 0, 0]} name="발송 성공" maxBarSize={75} />
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </section>
   )
 }

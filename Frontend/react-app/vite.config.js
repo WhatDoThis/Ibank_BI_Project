@@ -16,10 +16,10 @@ if (fs.existsSync(configPath)) {
 }
 
 // https://vite.dev/config/
-// base: '/report/' — 도메인 하위 경로(예: https://도메인/report/) 서빙 시 asset·라우터 경로 맞춤
+// base: '/ibank-bi/' — 도메인 하위 경로(예: https://도메인/ibank-bi/) 서빙 시 asset·라우터 경로 맞춤
 // define: Env/config/config.json frontend.api_base_url 을 빌드 시 주입
 export default defineConfig({
-  base: '/report/',
+  base: '/ibank-bi/',
   plugins: [react()],
   define: {
     'import.meta.env.VITE_API_BASE': JSON.stringify(apiBaseFromConfig),

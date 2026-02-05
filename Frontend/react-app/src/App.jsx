@@ -21,7 +21,7 @@ const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || '
 function AppLayout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      <nav className="app-nav" style={{ flexShrink: 0, padding: '8px 16px', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', gap: 16 }}>
+      <nav className="app-nav" style={{ flexShrink: 0, padding: '14px 16px', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', gap: 16 }}>
         <span className="app-brand" style={{ fontWeight: 600 }}>스타벅스 CRM</span>
         <NavLink
           to="/report"

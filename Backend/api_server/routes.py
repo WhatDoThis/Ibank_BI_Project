@@ -20,6 +20,7 @@ Flask app에 API 라우트 등록. config.backend·db 모듈 사용.
 - POST /api/dashboard/data
 - GET  /api/dashboard/filter-options/<table_id>
 - GET  /api/dashboard/tables
+- GET  /api/dashboard/required-columns
 
 [Dependencies]
 =========
@@ -28,13 +29,75 @@ Flask app에 API 라우트 등록. config.backend·db 모듈 사용.
 - flask (request, jsonify), requests, psycopg2
 """
 
+import re
 import requests
 import psycopg2
+from pathlib import Path
+from datetime import datetime
 from flask import request, jsonify
 
 from Env import config
 from Backend.api_server import db
 from Backend.api_server import dashboard_service
+
+# execute-query 디버깅 로그 파일 (프로젝트 루트)
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent / "execute_query_debug.log"
+
+
+def _log(msg, *args):
+    """execute-query 디버깅용: 터미널 + 파일 동시 출력 (터미널이 안 보일 때 파일 확인)."""
+    line = f"[execute-query] {msg % args if args else msg}"
+    print(line, flush=True)
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+    except Exception:
+        pass
+
+
+def _contains_dangerous_sql(query):
+    """
+    쿼리 내 위험 구문 여부 검사. 문맥 기반: 쿼리 시작 또는 세미콜론 직후에만 검사.
+    - SELECT 내 컬럼명(created_at, updated_at), 문자열 리터럴('create table'), 식별자(some_table) 등 오탐 방지.
+    - 각 구문은 세미콜론으로 분리한 뒤, 각 문장이 위험 키워드로 시작할 때만 금지 처리.
+    """
+    if not query or not query.strip():
+        _log("dangerous_sql: query empty -> None")
+        return None
+    text = query.upper()
+    phrases = [
+        'DROP TABLE', 'DROP INDEX', 'DROP VIEW', 'DROP SCHEMA', 'DROP DATABASE',
+        'DELETE FROM',
+        'INSERT INTO',
+        'ALTER TABLE', 'ALTER INDEX', 'ALTER VIEW',
+        'CREATE TABLE', 'CREATE INDEX', 'CREATE VIEW', 'CREATE SCHEMA',
+        'TRUNCATE TABLE',
+    ]
+    # 세미콜론으로 분리한 각 문장만 검사. 맨 앞이 SELECT(줄바꿈/공백 무관)이면 금지 검사 제외.
+    segments = text.split(';')
+    _log("dangerous_sql: segments count=%s", len(segments))
+    for i, segment in enumerate(segments):
+        segment = segment.strip()
+        if not segment:
+            continue
+        seg_preview = (segment[:80] + '...') if len(segment) > 80 else segment
+        seg_preview = seg_preview.replace('\n', '\\n')
+        if re.match(r'^\s*SELECT\b', segment):
+            _log("dangerous_sql: segment[%s] starts with SELECT -> skip (preview=%s)", i, seg_preview)
+            continue
+        for phrase in phrases:
+            words = phrase.split()
+            parts = [r'\b' + re.escape(w) + r'\b' for w in words]
+            pattern = r'^\s*' + r'\s+'.join(parts) + r'(?:\s|$)'
+            if re.match(pattern, segment):
+                _log("dangerous_sql: segment[%s] matched phrase=%s -> RETURN (preview=%s)", i, phrase, seg_preview)
+                return phrase
+        if re.match(r'^\s*UPDATE\b\s', segment):
+            _log("dangerous_sql: segment[%s] matched UPDATE -> RETURN (preview=%s)", i, seg_preview)
+            return 'UPDATE'
+        _log("dangerous_sql: segment[%s] no SELECT and no dangerous phrase (preview=%s)", i, seg_preview)
+    _log("dangerous_sql: all segments passed -> None")
+    return None
 
 
 def register_routes(app):
@@ -169,16 +232,17 @@ def register_routes(app):
         try:
             data = request.json
             query = (data.get('query') or '').strip()
+            query_preview = repr(query[:200]) if len(query) > 200 else repr(query)
+            _log("request: len=%s startswith_SELECT=%s preview=%s", len(query), query.upper().startswith('SELECT'), query_preview)
             if not query:
                 return jsonify({'error': 'query 파라미터가 필요합니다'}), 400
             if not query.upper().startswith('SELECT'):
+                _log("reject: not SELECT")
                 return jsonify({'error': 'SELECT 쿼리만 실행 가능합니다'}), 400
-            dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
-            query_upper = query.upper()
-            for keyword in dangerous_keywords:
-                if keyword in query_upper:
-                    return jsonify({'error': f'금지된 키워드: {keyword}'}), 400
-
+            dangerous = _contains_dangerous_sql(query)
+            if dangerous:
+                _log("reject: dangerous=%s", dangerous)
+                return jsonify({'error': f'금지된 키워드: {dangerous}'}), 400
             conn = db.get_db_connection()
             cur = conn.cursor()
             timeout = getattr(config.backend, 'query_timeout_seconds', None)
@@ -216,6 +280,9 @@ def register_routes(app):
             query = (data.get('query') or data.get('sql') or '').strip()
             if not query:
                 return jsonify({'error': 'query 파라미터가 필요합니다'}), 400
+            dangerous = _contains_dangerous_sql(query)
+            if dangerous:
+                return jsonify({'error': f'금지된 키워드: {dangerous}'}), 400
             api_key = getattr(config.backend, 'claude_api_key', None)
             if not api_key or not str(api_key).strip():
                 return jsonify({'error': 'Env/config/config.json 에 backend.claude_api_key 가 없거나 비어 있습니다.'}), 503
@@ -295,6 +362,9 @@ def register_routes(app):
             query = (data.get('query') or '').strip()
             if not query or not query.upper().startswith('SELECT'):
                 return jsonify({'error': 'SELECT 쿼리가 필요합니다'}), 400
+            dangerous = _contains_dangerous_sql(query)
+            if dangerous:
+                return jsonify({'error': f'금지된 키워드: {dangerous}'}), 400
             conn = db.get_db_connection()
             cur = conn.cursor()
             count_query = f"SELECT COUNT(*) as total FROM ({query}) as subquery"
@@ -374,8 +444,16 @@ def register_routes(app):
     @app.route('/api/dashboard/tables', methods=['GET'])
     def dashboard_tables():
         try:
-            allowed = db.get_allowed_tables()
-            tables = [{'id': t, 'name': t} for t in sorted(allowed)]
+            aggregatable = dashboard_service.get_aggregatable_tables()
+            tables = [{'id': t, 'name': t} for t in aggregatable]
             return jsonify({'tables': tables})
         except Exception as e:
             return jsonify({'error': str(e), 'message': '테이블 목록 조회 실패'}), 500
+
+    @app.route('/api/dashboard/required-columns', methods=['GET'])
+    def dashboard_required_columns():
+        try:
+            columns = dashboard_service.get_required_columns()
+            return jsonify({'columns': columns})
+        except Exception as e:
+            return jsonify({'error': str(e), 'message': '필수 컬럼 조회 실패'}), 500

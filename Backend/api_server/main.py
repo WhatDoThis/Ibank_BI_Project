@@ -92,6 +92,7 @@ def api_index():
             'POST /api/dashboard/data',
             'GET  /api/dashboard/filter-options/<table_id>',
             'GET  /api/dashboard/tables',
+            'GET  /api/dashboard/required-columns',
         ]
     })
 

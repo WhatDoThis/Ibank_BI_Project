@@ -9,7 +9,7 @@
  * - 콜백: addColumn, moveColumn, toggleGroupBy, setDateGranularity, changeAggFunc, addHaving, removeHaving, pivot/행별집계, executeQuery, 필터/ORDER BY, 페이지, SQL 복사/해석, 초기화
  *
  * [의존성]
- * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Header, Sidebar, MainArea)
+ * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Sidebar, MainArea)
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -18,7 +18,6 @@ import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { AGG_FUNCTIONS } from './utils/constants'
-import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
 
@@ -417,7 +416,6 @@ export default function ReportPage() {
 
   return (
     <>
-      <Header onExecute={runExecuteQuery} onClearAll={clearAll} />
       <div className="container">
         <Sidebar
           tables={tables}
@@ -446,6 +444,7 @@ export default function ReportPage() {
           onRemoveColumn={removeColumn}
           onMoveColumn={moveColumn}
           onExecute={runExecuteQuery}
+          onClearAll={clearAll}
           onToggleGroupBy={toggleGroupBy}
           onSetDateGranularity={setDateGranularityFor}
           onChangeAggFunc={changeAggFuncFor}

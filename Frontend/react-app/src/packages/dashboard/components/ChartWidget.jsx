@@ -355,31 +355,17 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
   }
 
   return (
-    <section className="chart-widget-section" style={{ marginTop: 24, width: '50%', minWidth: 320 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h3 style={{ fontSize: 17, fontWeight: 600, color: '#374151' }}>차트 생성</h3>
-        <button
-          type="button"
-          onClick={addWidget}
-          style={{
-            padding: '8px 16px',
-            fontSize: 15,
-            fontWeight: 600,
-            background: '#0d9488',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            cursor: 'pointer',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
-          }}
-        >
+    <section className="chart-widget-section chart-widget">
+      <div className="chart-widget__header">
+        <h3 className="chart-widget__title">차트 생성</h3>
+        <button type="button" className="chart-widget__add-btn" onClick={addWidget}>
           + 차트 생성
         </button>
       </div>
-      <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 12 }}>
+      <p className="chart-widget__desc">
         Dimension: 집계 기준에서 선택한 항목만 표시. 두 개 이상이면 그중 선택 가능. Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정.
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
+      <div className="chart-widget__grid">
         {widgets.map((w) => (
           <SingleWidget
             key={w.id}

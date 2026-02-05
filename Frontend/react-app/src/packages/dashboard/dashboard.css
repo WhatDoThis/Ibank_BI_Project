@@ -1,6 +1,7 @@
 /**
  * dashboard/dashboard.css
  * 대시보드 전용 레이아웃·폭·차트 영역 스타일
+ * - 기능별 class 기반으로 추적·스타일 적용
  * - 페이지·KPI·차트 영역 전체 폭 사용
  * - 셀렉트/필터 폭 확대로 텍스트 잘림 방지
  * - 차트 컨테이너 overflow 방지
@@ -10,11 +11,247 @@
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  min-height: 100vh;
+  background: #f9fafb;
+  padding: 24px;
+}
+
+.dashboard-page__header-wrap {
+  width: 100%;
+}
+
+.dashboard-page__error {
+  padding: 12px;
+  margin-bottom: 16px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 4px;
+}
+
+.dashboard-page__empty {
+  padding: 24px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.dashboard-page__content {
+  width: 100%;
 }
 
 .dashboard-page .dashboard-header {
   width: 100%;
   max-width: 100%;
+  background: #fff;
+  padding: 20px 24px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  margin-bottom: 20px;
+}
+
+/* 1행: 테이블 + 기간 + 조회 */
+.dashboard-header__table-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dashboard-header__table-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-header__table-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  min-width: 52px;
+}
+
+.dashboard-header__table-select-wrap {
+  display: inline-block;
+}
+
+.dashboard-table-select {
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  outline: none;
+  min-width: 220px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dashboard-header__info-btn-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.dashboard-info-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0d9488;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.dashboard-info-btn:hover {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.dashboard-header__date-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-header__date-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  min-width: 36px;
+}
+
+.dashboard-header__date-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-header__date-input {
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  outline: none;
+  min-width: 150px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dashboard-header__date-sep {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.dashboard-header__load-btn {
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #0d9488;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  transition: background 0.2s;
+}
+
+.dashboard-header__load-btn:hover:not(:disabled) {
+  background: #0f766e;
+}
+
+.dashboard-header__load-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* 2행: 집계 기준 */
+.dashboard-header__group-by-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 24px;
+  width: 100%;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dashboard-header__group-by-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.dashboard-header__group-by-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+}
+
+.dashboard-header__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #374151;
+}
+
+.dashboard-header__checkbox {
+  width: 16px;
+  height: 16px;
+}
+
+/* 3행: 필터 셀렉트 */
+.dashboard-header__filter-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  align-items: end;
+  width: 100%;
+}
+
+.dashboard-header__filter-cell {
+  min-width: 0;
+}
+
+.dashboard-header__filter-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.dashboard-header__filter-label--disabled {
+  color: #9ca3af;
+}
+
+.dashboard-header__filter-select {
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  min-height: 180px;
+  width: 100%;
+  min-width: 260px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.dashboard-header__filter-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #f3f4f6;
 }
 
 /* 셀렉트 박스 내 옵션 텍스트 잘림 방지: 최소 폭 확보 */
@@ -33,10 +270,109 @@
   }
 }
 
+/* 필수 컬럼 안내 모달 */
+.dashboard-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dashboard-modal {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  overflow: auto;
+  padding: 24px;
+}
+
+.dashboard-modal__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 16px 0;
+}
+
+.dashboard-modal__body {
+  margin-bottom: 20px;
+}
+
+.dashboard-modal__desc {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+}
+
+.dashboard-modal__column-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 8px 0;
+}
+
+.dashboard-modal__column-name {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.dashboard-modal__column-type {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.dashboard-modal__list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.dashboard-modal__list-item {
+  margin-bottom: 6px;
+}
+
+.dashboard-modal__list-item code {
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.dashboard-modal__loading {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.dashboard-modal__close {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #e5e7eb;
+  color: #374151;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.dashboard-modal__close:hover {
+  background: #d1d5db;
+}
+
 /* KPI 영역: 화면 좌우 꽉 채움 */
 .kpi-cards-section {
   width: 100%;
   max-width: 100%;
+  margin-bottom: 24px;
 }
 
 .kpi-cards-section .kpi-grid {
@@ -44,6 +380,40 @@
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 16px;
+}
+
+.kpi-cards__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.kpi-card {
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.kpi-card__label {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kpi-card__value {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.kpi-card__unit {
+  font-size: 15px;
+  font-weight: 500;
+  margin-left: 4px;
+  opacity: 0.9;
 }
 
 @media (max-width: 1200px) {
@@ -76,6 +446,35 @@
 .channel-donut-charts-section .donut-block {
   min-width: 0;
   overflow: visible;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.channel-donut-charts__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.channel-donut-charts__row {
+  width: 100%;
+}
+
+.donut-block__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.donut-block__total {
+  font-size: 13px;
+  color: #6b7280;
+  text-align: center;
+  margin-top: -8px;
 }
 
 /* 집계 막대 차트 영역 */
@@ -86,6 +485,185 @@
   overflow: visible;
 }
 
+.aggregated-bar-chart-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 24px;
+}
+
+.aggregated-bar-chart__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 16px;
+}
+
+.aggregated-bar-chart__chart-wrap {
+  width: 100%;
+}
+
 .aggregated-bar-chart .recharts-responsive-container {
   overflow: visible;
+}
+
+/* 집계 데이터 테이블 */
+.aggregated-data-table-section {
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 24px;
+}
+
+.aggregated-data-table__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.aggregated-data-table__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0;
+}
+
+.aggregated-data-table__search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.aggregated-data-table__search-input {
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  min-width: 160px;
+}
+
+.aggregated-data-table__pagination-info {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.aggregated-data-table__table-wrap {
+  overflow-x: auto;
+}
+
+.aggregated-data-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.aggregated-data-table__thead tr {
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.aggregated-data-table__thead th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+}
+
+.aggregated-data-table__thead th:nth-last-child(-n+7) {
+  text-align: right;
+}
+
+.aggregated-data-table__tbody tr {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.aggregated-data-table__tbody td {
+  padding: 10px 12px;
+}
+
+.aggregated-data-table__tbody td:nth-last-child(-n+7) {
+  text-align: right;
+}
+
+.aggregated-data-table__pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.aggregated-data-table__pagination-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.aggregated-data-table__pagination-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.aggregated-data-table__pagination-label {
+  font-size: 14px;
+  color: #374151;
+}
+
+/* 차트 위젯 영역 */
+.chart-widget-section.chart-widget {
+  margin-top: 24px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 320px;
+}
+
+.chart-widget__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.chart-widget__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.chart-widget__add-btn {
+  padding: 8px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  background: #0d9488;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.chart-widget__add-btn:hover {
+  background: #0f766e;
+}
+
+.chart-widget__desc {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.chart-widget__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
 }

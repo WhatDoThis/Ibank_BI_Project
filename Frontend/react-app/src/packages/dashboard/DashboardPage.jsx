@@ -146,9 +146,9 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <div className="dashboard-page" style={{ minHeight: '100vh', background: '#f9fafb', padding: 24, width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
-      {/* 헤더: 테이블 선택 + 필터 조건 (3번 이미지 스타일) */}
-      <DashboardHeader
+    <div className="dashboard-page">
+      <div className="dashboard-page__header-wrap">
+        <DashboardHeader
         tables={tables}
         tableId={tableId}
         onTableChange={setTableId}
@@ -159,21 +159,22 @@ export default function DashboardPage() {
         loading={loading}
         onLoad={loadData}
       />
+      </div>
 
       {error && (
-        <div style={{ padding: 12, marginBottom: 16, background: '#fef2f2', color: '#b91c1c', borderRadius: 4 }}>
+        <div className="dashboard-page__error">
           {error}
         </div>
       )}
 
       {!tableId && (
-        <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>
+        <div className="dashboard-page__empty">
           헤더에서 테이블을 선택한 뒤 조회하세요.
         </div>
       )}
 
       {tableId && (
-        <>
+        <div className="dashboard-page__content">
           {data?.kpi && <KPICards kpi={data.kpi} />}
           {data?.kpi && <ChannelDonutCharts kpi={data.kpi} />}
           {data?.aggregated_data?.length > 0 && (
@@ -192,7 +193,7 @@ export default function DashboardPage() {
             widgets={chartWidgets}
             onWidgetsChange={setChartWidgets}
           />
-        </>
+        </div>
       )}
     </div>
   )

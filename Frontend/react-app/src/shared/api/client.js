@@ -97,7 +97,12 @@ export async function getDashboardFilterOptions(tableId, filters = {}) {
   return request('GET', path);
 }
 
-/** GET /api/dashboard/tables - 대시보드 사용 가능 테이블 목록 */
+/** GET /api/dashboard/tables - 대시보드 사용 가능(집계 가능) 테이블 목록 */
 export async function getDashboardTables() {
   return request('GET', '/api/dashboard/tables');
+}
+
+/** GET /api/dashboard/required-columns - 대시보드 조회 필수 컬럼 목록 (안내용) */
+export async function getDashboardRequiredColumns() {
+  return request('GET', '/api/dashboard/required-columns');
 }

@@ -9,6 +9,36 @@
  * - chip/팝업/드릴다운
  */
 
+/* ─── filter-order-bar: 초기화/실행 버튼 행 (우상단) ─── */
+.filter-order-bar__actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+.filter-order-bar__actions-spacer {
+  flex: 1;
+}
+.filter-order-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-report-secondary {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+.btn-report-secondary:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
 /* ─── filter-order-bar 행 레이아웃 (기준축/피벗/행별집계/HAVING/조건/정렬) ─── */
 .filter-order-bar .groupby-row,
 .filter-order-bar .pivot-row,

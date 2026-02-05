@@ -37,6 +37,7 @@ export default function MainArea({
   onRemoveColumn,
   onMoveColumn,
   onExecute,
+  onClearAll,
   onToggleGroupBy,
   onSetDateGranularity,
   onChangeAggFunc,
@@ -133,6 +134,21 @@ export default function MainArea({
       <div className="grid-area">
         {gridColumns.length > 0 && (
           <div className="filter-order-bar">
+            <div className="filter-order-bar__actions-row">
+              <span className="filter-order-bar__actions-spacer" />
+              <div className="filter-order-bar__actions">
+                {typeof onClearAll === 'function' && (
+                  <button type="button" className="btn btn-report-secondary" onClick={onClearAll}>
+                    초기화
+                  </button>
+                )}
+                {typeof onExecute === 'function' && (
+                  <button type="button" className="btn btn-primary" onClick={onExecute}>
+                    실행
+                  </button>
+                )}
+              </div>
+            </div>
             {isGroupByActive && (
               <>
                 <div className="groupby-row">

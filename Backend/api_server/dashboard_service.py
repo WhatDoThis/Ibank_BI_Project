@@ -8,16 +8,34 @@ config.backend·db 모듈 사용. report 라우트와 분리된 대시보드 전
 ===========
 - get_dashboard_data: 필터·GROUP BY 기준으로 집계 데이터·KPI 반환
 - get_filter_options: 캠페인·워크플로우·채널 목록 반환
+- get_aggregatable_tables: 집계 가능(필수 컬럼 보유) 테이블만 반환
+- get_required_columns: 대시보드 조회 필수 컬럼 목록 반환
 
 [의존성]
 =========
-- Backend.api_server.db (get_db_connection, get_table_schema, validate_table_name)
+- Backend.api_server.db (get_db_connection, get_table_schema, get_table_columns, get_table_columns_with_types, validate_table_name)
 - psycopg2
 """
 
 import psycopg2
 
 from Backend.api_server import db
+
+# 대시보드 집계에 필요한 컬럼·허용 타입 (모두 있어야 셀렉트에 노출·조회 가능). (컬럼명, 허용 data_type 목록)
+# data_type 은 PostgreSQL information_schema.columns.data_type 값(소문자 비교).
+DASHBOARD_REQUIRED_COLUMNS = [
+    ("delivery_date", ["date", "timestamp without time zone", "timestamp with time zone"]),
+    ("campaign_id", ["bigint", "integer", "smallint"]),
+    ("campaign_label", ["character varying", "text", "varchar"]),
+    ("workflow_id", ["bigint", "integer", "smallint"]),
+    ("workflow_label", ["character varying", "text", "varchar"]),
+    ("delivery_channel", ["smallint", "integer", "bigint"]),
+    ("total_count", ["bigint", "integer", "smallint"]),
+    ("success_count", ["bigint", "integer", "smallint"]),
+    ("failed_count", ["bigint", "integer", "smallint"]),
+    ("open_count", ["bigint", "integer", "smallint"]),
+    ("click_count", ["bigint", "integer", "smallint"]),
+]
 
 # 채널 코드 → 이름 매핑 (대시보드 전용)
 CHANNEL_MAPPING = {
@@ -27,6 +45,48 @@ CHANNEL_MAPPING = {
     42: "Android",
     121: "Kakao",
 }
+
+
+def get_required_columns():
+    """대시보드 조회를 위해 테이블에 필요한 컬럼·타입 목록 반환 (API·안내용). [{ name, allowed_types }, ...]"""
+    return [
+        {"name": name, "allowed_types": list(allowed_types)}
+        for name, allowed_types in DASHBOARD_REQUIRED_COLUMNS
+    ]
+
+
+def get_aggregatable_tables():
+    """allowed_tables 중 필수 컬럼을 모두 가지고, 각 컬럼 타입이 허용 타입인 테이블만 반환 (대시보드 셀렉트용)."""
+    allowed = db.get_allowed_tables()
+    required_count = len(DASHBOARD_REQUIRED_COLUMNS)
+    result = []
+    for table_name in sorted(allowed):
+        try:
+            rows = db.get_table_columns_with_types(table_name)
+            col_map = {}
+            for r in rows:
+                cname = (r.get("column_name") or "").strip().lower()
+                dtype = (r.get("data_type") or "").strip().lower()
+                if cname:
+                    col_map[cname] = dtype
+            if len(col_map) < required_count:
+                continue
+            ok = True
+            for name, allowed_types in DASHBOARD_REQUIRED_COLUMNS:
+                key = name.lower()
+                if key not in col_map:
+                    ok = False
+                    break
+                actual = col_map[key]
+                allowed_lower = [t.lower() for t in allowed_types]
+                if actual not in allowed_lower:
+                    ok = False
+                    break
+            if ok:
+                result.append(table_name)
+        except Exception:
+            continue
+    return result
 
 
 def _full_table_name(table_id):

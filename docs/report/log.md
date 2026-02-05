@@ -1,5 +1,101 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 대시보드 필수 컬럼 타입 검증·금지 키워드 문맥 검사(CREATE 등 오탐 제거)
+
+### 완료 작업
+1. **대시보드: 필수 컬럼에 데이터 타입 검증 추가**
+   - **db.py**: `get_table_columns_with_types(table_name)` 추가 — information_schema에서 column_name, data_type 반환.
+   - **dashboard_service.py**: `DASHBOARD_REQUIRED_COLUMNS`를 (컬럼명, 허용 data_type 목록) 구조로 변경. `get_aggregatable_tables()`는 `get_table_columns_with_types()`로 컬럼·타입 조회 후, 이름 존재 여부와 실제 타입이 허용 타입 목록에 있는지 검사. `get_required_columns()`는 `[{ name, allowed_types }, ...]` 형태로 반환.
+   - **DashboardHeader.jsx**: info 모달 오픈 시 `getDashboardRequiredColumns()` 호출하여 필수 컬럼 목록 로드, 컬럼명과 허용 타입(예: `delivery_date (date | timestamp without time zone)`)을 함께 표시. 안내 문구에 "이름과 타입 모두 일치" 필요하다고 명시.
+   - **dashboard.css**: `.dashboard-modal__column-type` 스타일 추가(타입 표시용).
+
+2. **리포트: 금지 키워드 검사를 문맥 기반으로 통일 (CREATE·UPDATE 등 오탐 제거)**
+   - **routes.py** `_contains_dangerous_sql()`: 기존 `\bCREATE(?!\w)\s+\bTABLE(?!\w)` 등 전체 검색 방식을 제거. **세미콜론으로 분리한 각 문장**만 검사하여, **문장 시작**에서만 위험 구문(DROP TABLE, CREATE TABLE, DELETE FROM, UPDATE 등)으로 시작할 때만 금지 처리.
+   - 이에 따라 `SELECT created_at ...`, `SELECT * FROM some_table`, 문자열 리터럴 내 'create table' 등은 더 이상 "금지된 키워드"로 잡히지 않음. 메시지 출처는 백엔드 `/api/execute-query` 등 400 응답의 `error` 필드이며, 프론트는 해당 메시지를 toast(우하단)에 표시.
+
+### 검수 결과
+- Lint: db.py, dashboard_service.py, routes.py, DashboardHeader.jsx, dashboard.css 오류 없음.
+
+### 비고
+- 백엔드 재시작 후 대시보드 테이블 목록·필수 컬럼 API 동작 확인 권장. 리포트에서 created_at/updated_at/some_table 등 사용 시 금지 키워드 오탐 없음 확인.
+
+---
+
+## 2025-02-02: 대시보드 테이블 필터 강화·금지 키워드(updated_at) 오탐 수정·base 경로 확인
+
+### 완료 작업
+1. **대시보드: 필수 컬럼 없는 테이블 제외 로직 강화 (dashboard_service.py)**
+   - `get_aggregatable_tables()`: 컬럼명을 `str(c).strip().lower()`로 정규화, 필수 컬럼 개수 미달(`len(col_set) < required_count`)이거나 `required.issubset(col_set)`이 아니면 해당 테이블 제외.
+   - 필수 컬럼을 모두 가진 테이블만 대시보드 테이블 셀렉트에 노출되도록 명시적 검사 유지.
+
+2. **리포트: 금지 키워드 검사에서 updated_at 오탐 방지 (routes.py)**
+   - `_contains_dangerous_sql()`: UPDATE 검사를 `\bUPDATE\s`에서 **문맥 기반**으로 변경.
+   - **쿼리 맨 앞** 또는 **세미콜론 직후**에 오는 `UPDATE ` 만 금지하도록 정규식 적용: `^\s*UPDATE\s`, `\s;\s*UPDATE\s`.
+   - `SELECT ... updated_at ...` 등 컬럼명 `updated_at`은 매칭되지 않아 "금지된 키워드: UPDATE" 알림이 더 이상 발생하지 않음.
+
+3. **base 경로 확인**
+   - Vite `base: '/ibank-bi/'`, static_server에서 `/ibank-bi` 요청을 dist 기준으로 서빙하도록 이미 적용됨.
+   - 접속 URL: `http://127.0.0.1:8080/ibank-bi/` (report/report 중복 없음).
+
+### 검수 결과
+- Lint: routes.py, dashboard_service.py 오류 없음.
+
+### 비고
+- 백엔드 수정 반영을 위해 API 서버 재시작 필요. 대시보드 테이블 목록 갱신을 위해 프론트 재빌드 후 확인 권장.
+
+---
+
+## 2025-02-02: 대시보드 Info 버튼 노출·집계 테이블 필터 검수·리포트 헤더 제거·버튼 이동
+
+### 완료 작업
+1. **대시보드 Info 버튼 노출**
+   - 테이블 셀렉트와 같은 줄이 아닌, **테이블 div 아래 한 줄**로 배치. `dashboard-header__table-cell`을 flex column으로 변경, `dashboard-header__table-input-row`(라벨+셀렉트) 아래에 `dashboard-header__info-btn-wrap`(info 버튼) 배치.
+
+2. **집계 가능 테이블 필터 검수**
+   - Backend `get_aggregatable_tables()`: 컬럼명 비교 시 **대소문자 무시** (`c.lower()`, `required.issubset(col_set)`) 적용. DB가 대문자/혼합 컬럼명을 주어도 집계 가능 테이블이 누락되지 않도록 함.
+   - 서버에 최신 코드 반영 후 `report-api` 재시작 시 셀렉트에는 필수 컬럼을 가진 테이블만 노출됨.
+
+3. **리포트 페이지**
+   - **header class div 삭제**: `Header` 컴포넌트를 ReportPage에서 제거(렌더링·import 제거). 제목·초기화·실행이 있던 상단 헤더 영역 제거.
+   - **nav 상하 폭**: App.jsx `app-nav` padding을 `8px 16px` → **`14px 16px`** 로 변경.
+   - **초기화·실행 버튼**: filter-order-bar **우측 상단**으로 이동. MainArea에 `onClearAll` prop 추가, `filter-order-bar__actions-row`(우측 정렬) 안에 `filter-order-bar__actions`(초기화·실행 버튼) 배치. report.css에 `.filter-order-bar__actions-row`, `.btn-report-secondary` 스타일 추가.
+
+### 비고
+- 대시보드에서 여전히 모든 테이블이 보이면, 배포 서버에서 `report-api` 재시작 및 프론트 `npm run build` 후 `report-front` 재시작 필요.
+
+---
+
+## 2025-02-02: 대시보드 집계 가능 테이블만 셀렉트·info 모달·class 기반 CSS
+
+### 완료 작업
+1. **Backend: 집계 가능 테이블만 셀렉트에 노출**
+   - `db.get_table_columns(table_name)`: information_schema 기반 컬럼명 목록 반환.
+   - `dashboard_service.DASHBOARD_REQUIRED_COLUMNS`: delivery_date, campaign_id, campaign_label, workflow_id, workflow_label, delivery_channel, total_count, success_count, failed_count, open_count, click_count.
+   - `get_aggregatable_tables()`: allowed_tables 중 위 필수 컬럼을 모두 가진 테이블만 반환.
+   - `GET /api/dashboard/tables`: get_aggregatable_tables() 사용으로 변경. `GET /api/dashboard/required-columns`: 필수 컬럼 목록 반환(안내용).
+
+2. **Frontend: 테이블 div 아래 info 버튼 + 모달**
+   - DashboardHeader에 "info" 버튼 추가(테이블 셀렉트 옆). 클릭 시 모달 오픈.
+   - 모달: "대시보드 조회를 위한 테이블 필수 컬럼" 제목, getDashboardRequiredColumns()로 목록 로드, 닫기 버튼·오버레이 클릭 시 닫힘.
+
+3. **전체 div 기능별 class 부여 및 CSS 클래스 기반 적용**
+   - DashboardPage: dashboard-page, dashboard-page__header-wrap, __error, __empty, __content.
+   - DashboardHeader: dashboard-header, __table-row, __table-cell, __table-label, __table-select-wrap, dashboard-table-select, __info-btn-wrap, dashboard-info-btn, __date-cell, __date-label, __date-inputs, __load-btn, __group-by-row, __group-by-label, __group-by-checkboxes, __checkbox-label, __filter-row, __filter-cell, __filter-label, dashboard-modal-overlay, dashboard-modal, dashboard-modal__title/__body/__list/__close 등.
+   - KPICards: kpi-cards-section, kpi-cards__title, kpi-grid, kpi-card, kpi-card__label/__value/__unit.
+   - ChannelDonutCharts: channel-donut-charts__title, __row, donut-block__title, __total.
+   - AggregatedBarChart: aggregated-bar-chart-section, __title, __chart-wrap.
+   - AggregatedDataTable: aggregated-data-table-section, __toolbar, __title, __search-wrap, __search-input, __pagination-info, __table-wrap, __table, __thead, __tbody, __pagination, __pagination-btn, __pagination-label.
+   - ChartWidget: chart-widget, chart-widget__header, __title, __add-btn, __desc, __grid.
+   - dashboard.css: 위 클래스 기준으로 스타일 정리(인라인 제거 가능한 부분 class로 이전).
+
+### 검수 결과
+- Lint: Backend db/dashboard_service/routes, Frontend DashboardHeader/DashboardPage/ KPICards/ChannelDonutCharts/AggregatedBarChart/AggregatedDataTable/ChartWidget 대상 오류 없음.
+
+### 비고
+- 집계 불가 테이블은 셀렉트에 아예 노출되지 않음. 사용자는 info 모달로 필수 컬럼을 확인할 수 있음.
+
+---
+
 ## 2025-02-02: Linux api_base_url 안내 및 Git 푸시
 
 ### 완료 작업

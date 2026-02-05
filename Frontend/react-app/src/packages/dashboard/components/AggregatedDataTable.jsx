@@ -57,34 +57,26 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
   const colCount = getColumnCount(groupBy)
 
   return (
-    <section
-      className="aggregated-data-table"
-      style={{
-        background: '#fff',
-        padding: 20,
-        borderRadius: 12,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-        <h3 style={{ fontSize: 17, fontWeight: 600, color: '#374151', margin: 0 }}>집계 데이터 테이블</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <section className="aggregated-data-table aggregated-data-table-section">
+      <div className="aggregated-data-table__toolbar">
+        <h3 className="aggregated-data-table__title">집계 데이터 테이블</h3>
+        <div className="aggregated-data-table__search-wrap">
           <input
             type="text"
+            className="aggregated-data-table__search-input"
             placeholder="테이블 내 검색..."
             value={filterText}
             onChange={(e) => { setFilterText(e.target.value); setPage(1) }}
-            style={{ padding: '8px 12px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 8, minWidth: 160 }}
           />
-          <span style={{ fontSize: 14, color: '#6b7280' }}>
+          <span className="aggregated-data-table__pagination-info">
             {filteredData.length}건 중 {startIdx + 1}-{Math.min(startIdx + PAGE_SIZE, filteredData.length)} (페이지 {currentPage}/{totalPages})
           </span>
         </div>
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+      <div className="aggregated-data-table__table-wrap">
+        <table className="aggregated-data-table__table">
+          <thead className="aggregated-data-table__thead">
+            <tr>
               {groupBy.campaign && (
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>캠페인</th>
               )}
@@ -106,7 +98,7 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>클릭률</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="aggregated-data-table__tbody">
             {pageData.length === 0 && (
               <tr>
                 <td colSpan={colCount} style={{ padding: 24, textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
@@ -145,21 +137,21 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
         </table>
       </div>
       {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        <div className="aggregated-data-table__pagination">
           <button
             type="button"
+            className="aggregated-data-table__pagination-btn"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={currentPage <= 1}
-            style={{ padding: '8px 16px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer', opacity: currentPage <= 1 ? 0.5 : 1 }}
           >
             이전
           </button>
-          <span style={{ fontSize: 14, color: '#374151' }}>{currentPage} / {totalPages}</span>
+          <span className="aggregated-data-table__pagination-label">{currentPage} / {totalPages}</span>
           <button
             type="button"
+            className="aggregated-data-table__pagination-btn"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={currentPage >= totalPages}
-            style={{ padding: '8px 16px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer', opacity: currentPage >= totalPages ? 0.5 : 1 }}
           >
             다음
           </button>

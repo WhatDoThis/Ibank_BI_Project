@@ -6,7 +6,7 @@ Env/config/config.json 의 backend 만 사용. 환경 변수·기본값 없음. 
 [Main Functions]
 ===========
 - get_db_config: config.backend 에서만 DB 연결용 dict (필수 키 없으면 ValueError)
-- get_allowed_tables, get_table_schema: config.backend 에서만
+- get_allowed_tables, get_table_schema, get_table_columns, get_table_columns_with_types: config.backend 에서만
 - get_db_connection: DB 연결 생성
 - format_value, validate_table_name, validate_column_name
 
@@ -81,6 +81,50 @@ def get_table_schema():
     if schema is None or not str(schema).strip():
         raise ValueError('Env/config/config.json 에 backend.table_schema 가 없거나 비어 있습니다.')
     return str(schema).strip()
+
+
+def get_table_columns(table_name):
+    """테이블의 컬럼명 목록 반환 (information_schema 기준). 허용된 테이블만 조회 가능."""
+    validate_table_name(table_name)
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [row["column_name"] for row in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_table_columns_with_types(table_name):
+    """테이블의 컬럼명·데이터타입 목록 반환. [{ column_name, data_type }, ...]. 대시보드 필수 컬럼 타입 검증용."""
+    validate_table_name(table_name)
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [{"column_name": row["column_name"], "data_type": row["data_type"]} for row in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
 
 
 def get_db_connection():

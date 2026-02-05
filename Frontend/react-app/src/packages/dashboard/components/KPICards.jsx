@@ -27,31 +27,28 @@ const CARD_CONFIG = [
 export default function KPICards({ kpi }) {
   if (!kpi) return null
   return (
-    <section className="kpi-cards-section kpi-cards" style={{ marginBottom: 24, width: '100%' }}>
-      <h3 style={{ fontSize: 17, fontWeight: 600, color: '#374151', marginBottom: 12 }}>
-        주요 지표
-      </h3>
-      <div className="kpi-grid" style={{ width: '100%' }}>
+    <section className="kpi-cards-section kpi-cards">
+      <h3 className="kpi-cards__title">주요 지표</h3>
+      <div className="kpi-grid">
         {CARD_CONFIG.map((c) => {
           const value = kpi[c.valueKey] ?? 0
           return (
             <div
               key={c.valueKey}
+              className="kpi-card"
               style={{
                 background: c.bg,
                 border: `1px solid ${c.color}20`,
-                borderRadius: 12,
-                padding: 16,
-                boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+                color: c.color
               }}
             >
-              <div style={{ fontSize: 14, color: '#6b7280', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="kpi-card__label">
                 <span>{c.icon}</span>
                 <span>{c.label}</span>
               </div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: c.color }}>
+              <div className="kpi-card__value" style={{ color: c.color }}>
                 {formatNum(value)}
-                <span style={{ fontSize: 15, fontWeight: 500, marginLeft: 4, opacity: 0.9 }}>{c.unit}</span>
+                <span className="kpi-card__unit">{c.unit}</span>
               </div>
             </div>
           )

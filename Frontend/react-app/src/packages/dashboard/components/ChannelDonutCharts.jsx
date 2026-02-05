@@ -29,17 +29,8 @@ function DonutBlock({ title, data, totalLabel }) {
     fill: CHART_COLORS[i % CHART_COLORS.length]
   }))
   return (
-    <div
-      className="donut-block"
-      style={{
-        background: '#fff',
-        borderRadius: 12,
-        padding: 20,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-        minWidth: 0
-      }}
-    >
-      <div style={{ fontSize: 16, fontWeight: 600, color: '#374151', marginBottom: 8 }}>{title}</div>
+    <div className="donut-block channel-donut-charts__block">
+      <div className="donut-block__title">{title}</div>
       <ResponsiveContainer width="100%" height={240}>
         <PieChart>
           <Pie
@@ -76,7 +67,7 @@ function DonutBlock({ title, data, totalLabel }) {
         </PieChart>
       </ResponsiveContainer>
       {totalLabel && (
-        <div style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', marginTop: -8 }}>
+        <div className="donut-block__total">
           합계: {formatNum(total)} {totalLabel}
         </div>
       )}
@@ -88,14 +79,9 @@ export default function ChannelDonutCharts({ kpi }) {
   const dist = kpi?.channel_distribution
   if (!dist || (!dist.send?.length && !dist.success?.length)) return null
   return (
-    <section
-      className="channel-donut-charts-section channel-donut-charts"
-      style={{ marginBottom: 24, width: '100%', overflow: 'visible' }}
-    >
-      <h3 style={{ fontSize: 17, fontWeight: 600, color: '#374151', marginBottom: 12 }}>
-        채널별 분포
-      </h3>
-      <div className="donut-row" style={{ width: '100%' }}>
+    <section className="channel-donut-charts-section channel-donut-charts">
+      <h3 className="channel-donut-charts__title">채널별 분포</h3>
+      <div className="donut-row channel-donut-charts__row">
         {dist.send?.length > 0 && (
           <DonutBlock title="발송 요청" data={dist.send} totalLabel="건" />
         )}
