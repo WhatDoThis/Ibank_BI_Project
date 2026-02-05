@@ -51,9 +51,10 @@ export async function describeTable(tableName) {
   return request('POST', '/api/describe-table', { table_name: tableName });
 }
 
-/** GET /api/table-relationships - FK 관계 */
-export async function tableRelationships() {
-  return request('GET', '/api/table-relationships');
+/** GET /api/table-relationships - mode: 'fk' | 'column' | 'all' (다중 조인키 반환) */
+export async function tableRelationships(mode = 'all') {
+  const q = mode && mode !== 'all' ? `?mode=${encodeURIComponent(mode)}` : '';
+  return request('GET', `/api/table-relationships${q}`);
 }
 
 /** POST /api/execute-query - SQL 실행 */

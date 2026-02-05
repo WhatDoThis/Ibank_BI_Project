@@ -18,7 +18,7 @@ function isTableAvailable(tableName, addedTables, tableRelationships) {
   return !!relLast[tableName] || !!relTable[last]
 }
 
-export default function Sidebar({ tables = [], tableRelationships = {}, addedTables = [], loading, dbStatus = {} }) {
+export default function Sidebar({ tables = [], tableRelationships = {}, addedTables = [], loading, dbStatus = {}, joinMode = 'all', setJoinMode }) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [searchKeyword, setSearchKeyword] = useState('')
 
@@ -46,6 +46,19 @@ export default function Sidebar({ tables = [], tableRelationships = {}, addedTab
       <div className="sidebar-header">📁 테이블</div>
       <div className={`sidebar-db-status ${dbStatus.ok === true ? 'ok' : dbStatus.ok === false ? 'error' : ''}`} title="API /health 결과">
         {dbStatus.message ?? '확인 중...'}
+      </div>
+      <div className="sidebar-join-mode">
+        <label className="sidebar-join-mode-label">조인 기준</label>
+        <select
+          className="sidebar-join-mode-select"
+          value={joinMode}
+          onChange={(e) => setJoinMode(e.target.value)}
+          title="FK만 / 동일 컬럼명·타입 / 둘 다"
+        >
+          <option value="all">둘 다 (FK + 동일 컬럼·타입)</option>
+          <option value="fk">FK만</option>
+          <option value="column">동일 컬럼명·타입</option>
+        </select>
       </div>
       <div className="sidebar-search">
         <input

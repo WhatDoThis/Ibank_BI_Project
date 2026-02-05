@@ -193,37 +193,71 @@ def register_routes(app):
 
     @app.route('/api/table-relationships', methods=['GET'])
     def table_relationships():
+        """JOIN 가능 관계. mode=fk | column | all. 다중 조인키(컬럼 쌍) 반환."""
         try:
-            conn = db.get_db_connection()
-            cur = conn.cursor()
-            allowed = db.get_allowed_tables()
-            table_list = "', '".join(allowed) if allowed else ''
-            schema = db.get_table_schema()
-            if not table_list:
-                cur.close()
-                conn.close()
+            allowed = list(db.get_allowed_tables())
+            if not allowed:
                 return jsonify({'relationships': [], 'count': 0})
-            cur.execute(f"""
-                SELECT 
-                    kcu.table_name AS from_table,
-                    kcu.column_name AS from_column,
-                    ccu.table_name AS to_table,
-                    ccu.column_name AS to_column
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage kcu
-                  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-                JOIN information_schema.constraint_column_usage ccu
-                  ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema = %s
-                  AND kcu.table_name IN ('{table_list}')
-                  AND ccu.table_name IN ('{table_list}')
-                ORDER BY kcu.table_name, ccu.table_name
-            """, (schema,))
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
-            relationships = [dict(r) for r in rows]
+
+            mode = (request.args.get('mode') or 'all').strip().lower()
+            if mode not in ('fk', 'column', 'all'):
+                mode = 'all'
+
+            relationships = []
+
+            if mode in ('fk', 'all'):
+                schema = db.get_table_schema()
+                conn = db.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    placeholders = ", ".join(["%s"] * len(allowed))
+                    sql = (
+                        "SELECT kcu.table_name AS from_table, kcu.column_name AS from_column, "
+                        "ccu.table_name AS to_table, ccu.column_name AS to_column "
+                        "FROM information_schema.table_constraints tc "
+                        "JOIN information_schema.key_column_usage kcu "
+                        "ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema "
+                        "JOIN information_schema.constraint_column_usage ccu "
+                        "ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema "
+                        "WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s "
+                        "AND kcu.table_name IN (" + placeholders + ") "
+                        "AND ccu.table_name IN (" + placeholders + ") "
+                        "ORDER BY kcu.table_name, ccu.table_name, kcu.column_name"
+                    )
+                    cur.execute(sql, (schema,) + tuple(allowed) + tuple(allowed))
+                    for r in cur.fetchall():
+                        row = dict(r)
+                        if mode == 'all':
+                            row['source'] = 'fk'
+                        relationships.append(row)
+                finally:
+                    cur.close()
+                    conn.close()
+
+            if mode in ('column', 'all'):
+                table_columns = {}
+                for table_name in allowed:
+                    try:
+                        table_columns[table_name] = db.get_table_columns_with_types(table_name)
+                    except Exception:
+                        table_columns[table_name] = []
+                for i, t1 in enumerate(allowed):
+                    cols1 = {(c["column_name"], c["data_type"]) for c in table_columns.get(t1, [])}
+                    for t2 in allowed[i + 1:]:
+                        cols2 = {(c["column_name"], c["data_type"]) for c in table_columns.get(t2, [])}
+                        common = cols1 & cols2
+                        for col_name, _ in sorted(common):
+                            relationships.append({
+                                "from_table": t1, "to_table": t2,
+                                "from_column": col_name, "to_column": col_name,
+                                "source": "column" if mode == 'all' else None,
+                            })
+                            relationships.append({
+                                "from_table": t2, "to_table": t1,
+                                "from_column": col_name, "to_column": col_name,
+                                "source": "column" if mode == 'all' else None,
+                            })
+
             return jsonify({'relationships': relationships, 'count': len(relationships)})
         except Exception as e:
             return jsonify({'error': str(e), 'message': 'JOIN 관계 조회 실패'}), 500

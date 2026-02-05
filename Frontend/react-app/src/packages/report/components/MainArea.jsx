@@ -17,9 +17,16 @@ function isGroupByColumn(groupBy, table, column) {
   return groupBy.some((g) => g.table === table && g.column === column)
 }
 
+function joinOptionLabel(opt) {
+  return opt ? `${opt.prevColumn} = ${opt.currColumn}` : ''
+}
+
 export default function MainArea({
   gridColumns = [],
   addedTables = [],
+  relationshipOptions = {},
+  joinSelections = {},
+  onJoinSelection,
   groupBy = [],
   pivot = null,
   pivotRowAggs = [],
@@ -68,6 +75,7 @@ export default function MainArea({
   const [addPivotAggMenuOpen, setAddPivotAggMenuOpen] = useState(false)
   const [addHavingMenuOpen, setAddHavingMenuOpen] = useState(false)
   const [addHavingPopup, setAddHavingPopup] = useState(null)
+  const [filterOrderBarOpen, setFilterOrderBarOpen] = useState(false)
 
   const isGroupByActive = groupBy && groupBy.length > 0
   const hasPivot = pivot && pivot.values && pivot.values.length > 0
@@ -129,14 +137,60 @@ export default function MainArea({
     return c.column
   }
 
+  const joinPairs = addedTables.length >= 2
+    ? addedTables.slice(0, -1).map((prev, i) => ({ prevTable: prev, currTable: addedTables[i + 1] }))
+    : []
+
   return (
     <div className="main-area">
       <div className="grid-area">
+        {joinPairs.length > 0 && (
+          <div className="join-conditions-bar">
+            <span className="join-conditions-bar__label">조인 조건</span>
+            <div className="join-conditions-bar__pairs">
+              {joinPairs.map(({ prevTable, currTable }) => {
+                const key = `${prevTable}||${currTable}`
+                const opts = relationshipOptions[key] || []
+                const selected = joinSelections[key] || opts[0]
+                const selectedVal = selected ? `${selected.prevColumn}::${selected.currColumn}` : ''
+                const valueInOpts = opts.some((o) => o.prevColumn === selected?.prevColumn && o.currColumn === selected?.currColumn)
+                return (
+                  <div key={key} className="join-conditions-pair">
+                    <span className="join-conditions-pair__tables">{prevTable} ↔ {currTable}</span>
+                    <select
+                      className="join-conditions-pair__select"
+                      value={valueInOpts ? selectedVal : (opts[0] ? `${opts[0].prevColumn}::${opts[0].currColumn}` : '')}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        if (!v) {
+                          onJoinSelection?.(prevTable, currTable, null)
+                          return
+                        }
+                        const [prevColumn, currColumn] = v.split('::')
+                        const opt = opts.find((o) => o.prevColumn === prevColumn && o.currColumn === currColumn)
+                        if (opt) onJoinSelection?.(prevTable, currTable, opt)
+                      }}
+                    >
+                      {opts.length === 0 && <option value="">조인 조건 없음</option>}
+                      {opts.map((opt, idx) => (
+                        <option key={idx} value={`${opt.prevColumn}::${opt.currColumn}`}>
+                          {joinOptionLabel(opt)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {gridColumns.length > 0 && (
-          <div className="filter-order-bar">
-            <div className="filter-order-bar__actions-row">
+          <div className={`filter-order-bar ${filterOrderBarOpen ? 'filter-order-bar--open' : ''}`}>
+            <div className="filter-order-bar__header" onClick={() => setFilterOrderBarOpen((v) => !v)} role="button" tabIndex={0}>
+              <span className="filter-order-bar__toggle-icon">{filterOrderBarOpen ? '▼' : '▶'}</span>
+              <span className="filter-order-bar__title">조건·정렬 설정</span>
               <span className="filter-order-bar__actions-spacer" />
-              <div className="filter-order-bar__actions">
+              <div className="filter-order-bar__actions" onClick={(e) => e.stopPropagation()}>
                 {typeof onClearAll === 'function' && (
                   <button type="button" className="btn btn-report-secondary" onClick={onClearAll}>
                     초기화
@@ -149,6 +203,8 @@ export default function MainArea({
                 )}
               </div>
             </div>
+            {filterOrderBarOpen && (
+              <div className="filter-order-bar__dropdown-content">
             {isGroupByActive && (
               <>
                 <div className="groupby-row">
@@ -353,6 +409,8 @@ export default function MainArea({
                 )}
               </div>
             </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -433,7 +491,7 @@ export default function MainArea({
                     const isGB = isGroupByColumn(groupBy, c.table, c.column)
                     const isDate = isDateColumn(c.column, c.type)
                     const granKey = `${c.table}.${c.column}`
-                    const gran = dateGranularity[granKey] || 'YYYY-MM-DD'
+                    const gran = dateGranularity[granKey] // 없으면 원본 표시, 연/연월/연월일 중 선택 시에만 해당 버튼 활성
                     return (
                       <th
                         key={i}

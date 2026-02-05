@@ -9,12 +9,34 @@
  * - chip/팝업/드릴다운
  */
 
-/* ─── filter-order-bar: 초기화/실행 버튼 행 (우상단) ─── */
-.filter-order-bar__actions-row {
+/* ─── filter-order-bar: 드롭다운 바 (접기/펼치기) ─── */
+.filter-order-bar {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: var(--bg-secondary, #f9fafb);
+  margin-bottom: 10px;
+}
+.filter-order-bar__header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 10px;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.filter-order-bar__header:hover {
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
+}
+.filter-order-bar__toggle-icon {
+  font-size: 10px;
+  color: var(--text-light, #6b7280);
+  min-width: 14px;
+}
+.filter-order-bar__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary, #111827);
 }
 .filter-order-bar__actions-spacer {
   flex: 1;
@@ -24,6 +46,78 @@
   align-items: center;
   gap: 8px;
 }
+.filter-order-bar__dropdown-content {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  padding-top: 10px;
+  margin-top: 0;
+}
+
+/* ─── 사이드바: 조인 기준 선택 ─── */
+.sidebar-join-mode {
+  margin-bottom: 10px;
+}
+.sidebar-join-mode-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light, #6b7280);
+  margin-bottom: 4px;
+}
+.sidebar-join-mode-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* ─── 조인 조건 (테이블별 선택) ─── */
+.join-conditions-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: #f0f9ff;
+}
+.join-conditions-bar__label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary, #111827);
+  flex-shrink: 0;
+}
+.join-conditions-bar__pairs {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.join-conditions-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.join-conditions-pair__tables {
+  font-size: 11px;
+  color: var(--text-light, #6b7280);
+  white-space: nowrap;
+}
+.join-conditions-pair__select {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: #fff;
+  min-width: 140px;
+  cursor: pointer;
+}
+
 .btn-report-secondary {
   padding: 6px 12px;
   border-radius: 4px;

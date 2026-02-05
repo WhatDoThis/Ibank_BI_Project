@@ -4,7 +4,7 @@
  * generateSQL, generateCountSQL, getJoinKey. 리포트(쿼리 빌더) 전용.
  *
  * [주요 기능]
- * - getJoinKey: FK 관계로 JOIN 키 반환
+ * - getJoinKey: 테이블 관계(FK 또는 동일 컬럼·타입)로 JOIN 키 반환
  * - generateSQL: SELECT + JOIN + WHERE + [GROUP BY + HAVING] + ORDER BY + LIMIT/OFFSET (피벗/날짜단위/집계 지원)
  * - generateCountSQL: COUNT(*) 쿼리 (GROUP BY 시 서브쿼리)
  *
@@ -69,6 +69,8 @@ function getSelectExpression(col, gridColumns, groupBy, dateGranularity) {
   if (groupBy && groupBy.length > 0 && !isGB && col.aggFunc) {
     return `${col.aggFunc}(${base}) AS "${col.aggFunc}(${alias}.${col.column})"`
   }
+  // 날짜 단위 적용 시 결과 컬럼명을 alias.column 으로 고정해 그리드에서 row[key]로 조회 가능하게 함
+  if (gran) return `${base} AS "${alias}.${col.column}"`
   return base
 }
 
@@ -119,7 +121,11 @@ export function generateSQL(
 
     groupBy.forEach((g) => {
       const alias = getAlias(gridColumns, g.table)
-      if (alias) selectParts.push(groupByExpression(alias, g.table, g.column, dateGranularity))
+      if (!alias) return
+      const expr = groupByExpression(alias, g.table, g.column, dateGranularity)
+      const gKey = `${g.table}.${g.column}`
+      const gran = dateGranularity[gKey]
+      selectParts.push(gran ? `${expr} AS "${alias}.${g.column}"` : expr)
     })
     pivotRowAggs.forEach((agg) => {
       const alias = getAlias(gridColumns, agg.table)
@@ -145,7 +151,7 @@ export function generateSQL(
     const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
     const joinKey = getJoinKey(tableRelationships, prevTable, currTable)
-    if (!joinKey) throw new Error(`JOIN 관계 없음: ${prevTable} - ${currTable} (FK만 가능)`)
+    if (!joinKey) throw new Error(`JOIN 관계 없음: ${prevTable} - ${currTable} (조인 조건 선택 필요)`)
     sql += `\nLEFT JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
   }
 

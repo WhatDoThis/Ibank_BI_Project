@@ -12,7 +12,7 @@
  * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Sidebar, MainArea)
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import './report.css'
 import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
@@ -30,7 +30,6 @@ function isGroupByColumn(groupBy, table, column) {
 export default function ReportPage() {
   const [dbStatus, setDbStatus] = useState({ ok: null, message: '확인 중...' })
   const [tables, setTables] = useState([])
-  const [tableRelationships, setTableRelationships] = useState({})
   const [loading, setLoading] = useState(true)
 
   const [gridColumns, setGridColumns] = useState([])
@@ -49,6 +48,28 @@ export default function ReportPage() {
   const [executedSql, setExecutedSql] = useState('')
   const [explanation, setExplanation] = useState(null)
   const [toast, setToast] = useState(null)
+  const [joinMode, setJoinMode] = useState('all') // 'fk' | 'column' | 'all'
+  const [relationshipOptions, setRelationshipOptions] = useState({}) // { "t1-t2": [ { prevColumn, currColumn }, ... ] }
+  const [joinSelections, setJoinSelections] = useState({}) // { "t1-t2": { prevColumn, currColumn } }
+
+  const tableRelationships = useMemo(() => {
+    const resolved = {}
+    tables.forEach((t) => {
+      if (t.table_name) resolved[t.table_name] = {}
+    })
+    Object.keys(relationshipOptions).forEach((key) => {
+      const opts = relationshipOptions[key]
+      if (!opts || opts.length === 0) return
+      const parts = key.split('||')
+      if (parts.length !== 2) return
+      const [fromTable, toTable] = parts
+      const sel = joinSelections[key] || opts[0]
+      resolved[fromTable][toTable] = sel
+      if (!resolved[toTable]) resolved[toTable] = {}
+      resolved[toTable][fromTable] = { prevColumn: sel.currColumn, currColumn: sel.prevColumn }
+    })
+    return resolved
+  }, [tables, relationshipOptions, joinSelections])
 
   useEffect(() => {
     let cancelled = false
@@ -76,23 +97,6 @@ export default function ReportPage() {
           }
         }
         if (!cancelled) setTables(tablesWithColumns)
-        const relData = await fetchTableRelationships()
-        const rels = relData?.relationships || []
-        const relMap = {}
-        rels.forEach((r) => {
-          const fromTable = r.from_table
-          const toTable = r.to_table
-          const fromCol = r.from_column
-          const toCol = r.to_column
-          if (!relMap[fromTable]) relMap[fromTable] = {}
-          if (!relMap[toTable]) relMap[toTable] = {}
-          relMap[fromTable][toTable] = { prevColumn: fromCol, currColumn: toCol }
-          relMap[toTable][fromTable] = { prevColumn: toCol, currColumn: fromCol }
-        })
-        tablesWithColumns.forEach((t) => {
-          if (!relMap[t.table_name]) relMap[t.table_name] = {}
-        })
-        if (!cancelled) setTableRelationships(relMap)
       } catch (e) {
         if (!cancelled) {
           setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
@@ -109,6 +113,38 @@ export default function ReportPage() {
       cancelled = true
       if (toastTimeout) clearTimeout(toastTimeout)
     }
+  }, [])
+
+  useEffect(() => {
+    if (!tables.length) return
+    let cancelled = false
+    fetchTableRelationships(joinMode)
+      .then((relData) => {
+        if (cancelled) return
+        const rels = relData?.relationships || []
+        const opts = {}
+        const seen = new Set()
+        rels.forEach((r) => {
+          const fromTable = r.from_table
+          const toTable = r.to_table
+          const prevCol = r.from_column
+          const currCol = r.to_column
+          const key = `${fromTable}||${toTable}`
+          const optKey = `${key}::${prevCol}::${currCol}`
+          if (seen.has(optKey)) return
+          seen.add(optKey)
+          if (!opts[key]) opts[key] = []
+          opts[key].push({ prevColumn: prevCol, currColumn: currCol })
+        })
+        setRelationshipOptions(opts)
+      })
+      .catch(() => setRelationshipOptions({}))
+    return () => { cancelled = true }
+  }, [joinMode, tables])
+
+  const setJoinSelection = useCallback((fromTable, toTable, value) => {
+    const key = `${fromTable}||${toTable}`
+    setJoinSelections((prev) => (value ? { ...prev, [key]: value } : (() => { const n = { ...prev }; delete n[key]; return n })()))
   }, [])
 
   const showToast = useCallback((type, msg) => {
@@ -263,7 +299,16 @@ export default function ReportPage() {
   )
 
   const setDateGranularityFor = useCallback((table, column, granularity) => {
-    setDateGranularity((prev) => ({ ...prev, [`${table}.${column}`]: granularity }))
+    const key = `${table}.${column}`
+    setDateGranularity((prev) => {
+      const current = prev[key]
+      if (current === granularity) {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      }
+      return { ...prev, [key]: granularity }
+    })
     setCurrentPage(1)
   }, [])
 
@@ -423,10 +468,15 @@ export default function ReportPage() {
           addedTables={addedTables}
           loading={loading}
           dbStatus={dbStatus}
+          joinMode={joinMode}
+          setJoinMode={setJoinMode}
         />
         <MainArea
           gridColumns={gridColumns}
           addedTables={addedTables}
+          relationshipOptions={relationshipOptions}
+          joinSelections={joinSelections}
+          onJoinSelection={setJoinSelection}
           groupBy={groupBy}
           pivot={pivot}
           pivotRowAggs={pivotRowAggs}
