@@ -1,5 +1,38 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 차트 위젯 범례 고정 및 Y축 Nice number 적용
+
+### 완료 작업
+1. **범례 고정**
+   - 범례를 Y축과 동일하게 스크롤 영역 밖으로 이동. `chart-widget__legend-fixed`로 차트 상단에 고정 행 추가(메트릭명+색상 블록). Recharts `<Legend />` 제거, 고정 영역만 사용.
+
+2. **Y축 Nice number 적용**
+   - 스크롤 영역의 LineChart/AreaChart/BarChart에 `domain={yDomain}`이 반영되도록 숨김 YAxis(`<YAxis domain={yDomain} hide width={0} />`) 추가. 기존에는 왼쪽 고정 BarChart에만 domain이 있어 실제 그리기 스케일은 자동 도메인 사용 → 스크롤 차트에도 동일 domain 적용.
+   - `calculateNiceStepSizeLineArea`: 구간 4개 이상을 위해 `maxStep = dataRange/2` → `dataRange/4`로 변경.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 위젯 하단 삭제 버튼 제거
+
+### 완료 작업
+1. **삭제 버튼 중복 제거**
+   - 디멘션·메트릭·차트 타입 셀렉트 옆에 있던 하단 "삭제" 버튼 제거. 상단(저장 버튼 옆) 삭제 버튼만 유지.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
 ## 2025-02-02: 차트 생성 막대 차트 좌우 폭 확대 및 Y축 고정
 
 ### 완료 작업

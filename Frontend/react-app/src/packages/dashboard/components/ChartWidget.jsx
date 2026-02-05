@@ -7,7 +7,7 @@
  *
  * [주요 기능]
  * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황과 동일.
- * - 막대·선형·영역 공통: Y축 고정 + 오른쪽만 가로 스크롤, X축 minWidth(LABEL_SLOT_WIDTH×건수)·XAxisTickTruncate로 레이블 겹침/잘림 방지. 차트 영역 max-width 1200px.
+ * - 막대·선형·영역 공통: 범례·Y축 고정 + 오른쪽만 가로 스크롤, X축 minWidth(LABEL_SLOT_WIDTH×건수)·XAxisTickTruncate로 레이블 겹침/잘림 방지. 차트 영역 max-width 1200px. 스크롤 영역 차트에는 domain 적용을 위해 숨김 YAxis 사용.
  *
  * [의존성]
  * - React, recharts, shared/api/client (getChartData)
@@ -27,7 +27,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer
 } from 'recharts'
 
@@ -92,7 +91,7 @@ function calculateYAxisMin(dataMin, stepSize) {
 /** 선형/영역 전용: 간격 0.5 단위만(0.5,1,2,5,10…), Y축 구간 4개 이상, yMin=dataMin-간격, yMax=dataMax+간격 */
 function calculateNiceStepSizeLineArea(dataMin, dataMax) {
   const dataRange = dataMax - dataMin
-  const maxStep = dataRange <= 0 ? 1 : dataRange / 2
+  const maxStep = dataRange <= 0 ? 1 : dataRange / 4
   const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
   let step = 0.5
   for (const c of candidates) {
@@ -322,12 +321,22 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     />
   )
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-  const legendProps = { verticalAlign: 'top', align: 'center', wrapperStyle: { fontSize: 14, paddingBottom: 12 } }
+  const legendColor = chartType === 'line' ? '#0d9488' : chartType === 'area' ? '#7c3aed' : '#4f46e5'
+  const fixedLegendRow = (
+    <div className="chart-widget__legend-fixed">
+      <div style={{ width: Y_AXIS_FIXED_WIDTH, flexShrink: 0 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', minWidth: 0 }}>
+        <span style={{ width: 12, height: 12, borderRadius: 2, background: legendColor, flexShrink: 0 }} />
+        <span>{metricField.label}</span>
+      </div>
+    </div>
+  )
 
-  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정, X축 간격 확보(minWidth) 후 스크롤. 스크롤 영역 차트는 좌측 여백으로 recharts-surface 덮임 방지 */
+  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정, 범례 고정. X축 간격 확보(minWidth) 후 스크롤. 스크롤 영역 차트는 domain 적용을 위해 숨김 YAxis 사용 */
   const marginLeftOnly = { top: 40, right: 0, left: 8, bottom: chartBottomMargin }
   const marginRightOnly = { top: 40, right: 24, left: 32, bottom: chartBottomMargin }
   const scrollContentMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
+  const hiddenYAxis = <YAxis domain={yDomain} hide width={0} />
   const fixedYAxisBlock = (
     <div className="chart-widget__y-axis-fixed" style={{ width: Y_AXIS_FIXED_WIDTH }}>
       <ResponsiveContainer width={Y_AXIS_FIXED_WIDTH} height={CHART_HEIGHT}>
@@ -343,15 +352,16 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   if (chartType === 'line') {
     chartInner = (
       <>
+        {fixedLegendRow}
         {fixedYAxisBlock}
         <div className="chart-widget__chart-scroll">
           <div style={{ minWidth: scrollContentMinWidth }}>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
               <LineChart {...commonProps} margin={marginRightOnly}>
+                {hiddenYAxis}
                 {gridEl}
                 <XAxis {...xAxisPropsBar} />
                 {tooltipEl}
-                <Legend {...legendProps} />
                 <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
               </LineChart>
             </ResponsiveContainer>
@@ -362,15 +372,16 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   } else if (chartType === 'area') {
     chartInner = (
       <>
+        {fixedLegendRow}
         {fixedYAxisBlock}
         <div className="chart-widget__chart-scroll">
           <div style={{ minWidth: scrollContentMinWidth }}>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
               <AreaChart {...commonProps} margin={marginRightOnly}>
+                {hiddenYAxis}
                 {gridEl}
                 <XAxis {...xAxisPropsBar} />
                 {tooltipEl}
-                <Legend {...legendProps} />
                 <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
               </AreaChart>
             </ResponsiveContainer>
@@ -383,15 +394,16 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     const barMaxSize = Math.min(75, Math.floor(LABEL_SLOT_WIDTH * 0.55))
     chartInner = (
       <>
+        {fixedLegendRow}
         {fixedYAxisBlock}
         <div className="chart-widget__chart-scroll">
           <div style={{ minWidth: scrollContentMinWidth }}>
             <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
               <BarChart {...commonProps} margin={marginRightOnly} barCategoryGap="8%">
+                {hiddenYAxis}
                 {gridEl}
                 <XAxis {...xAxisPropsBar} />
                 {tooltipEl}
-                <Legend {...legendProps} />
                 <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={barMaxSize}>
                   {chartData.map((entry, i) => (
                     <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
@@ -470,9 +482,6 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
               <option key={t.key} value={t.key}>{t.label}</option>
             ))}
           </select>
-          <button type="button" className="chart-widget__delete-btn" onClick={() => onRemove(id)}>
-            삭제
-          </button>
         </div>
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed" style={{ padding: CHART_PADDING }}>
           {chartInner}

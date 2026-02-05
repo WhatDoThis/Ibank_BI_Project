@@ -829,6 +829,20 @@
   overflow-x: auto;
 }
 
+/* 범례 고정: Y축처럼 스크롤하지 않고 상단 고정. chart-wrap과 동일 flex 구조로 정렬 */
+.chart-widget__legend-fixed {
+  display: flex;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-bottom: 8px;
+  min-width: 0;
+}
+
+.chart-widget__legend-fixed > div:last-child {
+  padding-left: 16px;
+}
+
 /* 막대 차트: Y축 고정 + 스크롤 영역 분리 시 스크롤은 내부 오른쪽 영역만 */
 .chart-widget__chart-wrap.chart-widget__chart-wrap--y-fixed {
   overflow-x: visible;

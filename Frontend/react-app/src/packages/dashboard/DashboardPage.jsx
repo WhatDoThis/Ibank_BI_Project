@@ -230,7 +230,7 @@ export default function DashboardPage() {
           )}
           {data?.kpi && (
             <CollapsibleSection
-              title="채널별 도넛"
+              title="채널별 분석"
               open={sectionOpen.channel}
               onToggle={() => toggleSection('channel')}
             >
