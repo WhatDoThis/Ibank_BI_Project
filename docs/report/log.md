@@ -1,5 +1,104 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 차트 생성 막대 차트 좌우 폭 확대 및 Y축 고정
+
+### 완료 작업
+1. **좌우 폭 확대**
+   - `.chart-widget__chart-wrap`의 max-width를 980px → 1200px로 변경해 차트가 보이는 영역을 넓힘.
+
+2. **가로 스크롤 시 Y축 고정**
+   - 막대 차트만 왼쪽에 Y축 전용 영역을 두고, 오른쪽만 가로 스크롤되도록 분리.
+   - 왼쪽: 고정 너비(56px)로 Y축만 표시하는 BarChart(동일 domain·높이).
+   - 오른쪽: `chart-widget__chart-scroll`에서 overflow-x: auto로 X축·막대만 스크롤.
+   - 클래스 `chart-widget__chart-wrap--y-fixed`로 flex 레이아웃 적용.
+
+3. **선형·영역 차트에 bar와 동일 구성 적용**
+   - 선형/영역도 고정 Y축 + 스크롤 영역 분리, minWidth(LABEL_SLOT_WIDTH×건수)로 X축 간격 확보 후 가로 스크롤.
+   - X축 레이블은 막대와 동일하게 `XAxisTickTruncate` 적용해 잘림·겹침 방지. bar/line/area 동일 정형 구성.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/dashboard.css: chart-widget__chart-wrap max-width, y-fixed 레이아웃
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx: 막대 차트 시 Y축 고정 + 스크롤 영역 분리
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 생성 전용 별도 조회 API (디멘션·메트릭 방식)
+
+### 완료 작업
+1. **원인**
+   - 차트 생성이 대시보드 메인 집계 데이터(일자별 등)를 그대로 사용해, 캠페인/워크플로우 디멘션 선택 시 카디널리티가 높아져 X축 레이블 겹침·가독성 저하 발생.
+
+2. **Adobe Analytics / Google Analytics 참고**
+   - **Adobe**: Report Builder에서 디멘션(비수치·분류)과 메트릭(수치)을 요청 단위로 정의하고, 데이터 블록은 “한 요청 = 한 테이블”로 생성. 디멘션별·메트릭별 전용 요청으로 시각화 가독성 확보.
+   - **GA**: Bar/Column 차트는 “한 디멘션 + 다중 메트릭” 또는 “두 디멘션 + 단일 메트릭” 구성 권장. 디멘션/메트릭을 Setup에서 명확히 설정 후 시각화.
+
+3. **백엔드**
+   - `dashboard_service.get_chart_data(req)`: 단일 디멘션·단일 메트릭으로 별도 SQL 집계. `dimension`(delivery_date/campaign_label/workflow_label/channel_name), `metric`, 동일 필터(date_range, campaign_ids, workflow_ids, channels), `limit`(기본 50) 지원.
+   - `POST /api/dashboard/chart-data` 라우트 추가.
+
+4. **프론트엔드**
+   - `getChartData(body)` API 클라이언트 추가.
+   - ChartWidget: `tableId`, `filters` 전달 시 `getChartData`로 차트 데이터 조회. 없으면 기존처럼 `data` prop으로 폴백.
+   - SingleWidget: API 조회 중 “차트 데이터 조회 중...” 표시.
+
+### 수정·추가 파일
+- Backend/api_server/dashboard_service.py: get_chart_data, CHART_DIMENSION_KEYS, CHART_METRIC_KEYS
+- Backend/api_server/routes.py: POST /api/dashboard/chart-data
+- Frontend/react-app/src/shared/api/client.js: getChartData
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx: tableId, filters, getChartData 연동
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx: ChartWidget에 tableId, filters 전달
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 생성 막대 차트 X축 레이블 겹침 수정
+
+### 완료 작업
+1. **레이블 간격 확보(차트 생성 막대 차트)**
+   - 막대 차트 영역에 `minWidth: max(280, chartData.length * LABEL_SLOT_WIDTH)` 적용. 슬롯당 100px(LABEL_SLOT_WIDTH) 확보로 recharts-cartesian-axis-tick(g) 겹침 제거.
+   - `.chart-widget__chart-wrap`에 `overflow-x: auto` 추가. 필요 폭이 980px 초과 시 가로 스크롤로 전체 표시.
+
+2. **막대·간격 조절**
+   - `barCategoryGap="8%"`로 막대 간 간격 확보.
+   - `maxBarSize`: 고정 75 → `Math.min(75, LABEL_SLOT_WIDTH * 0.55)`(약 55px)로 제한해 슬롯 내 여백 확보.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+
+### 검수 결과
+- Lint: ChartWidget.jsx 오류 없음.
+
+---
+
+## 2025-02-02: 차트 생성 섹션 레이아웃·안내 문구·버튼 패딩 조정
+
+### 완료 작업
+1. **차트 폭을 기준별 발송 현황과 동일하게 맞춤**
+   - ChartWidget 내 SingleWidget 차트 영역을 `.chart-widget__chart-wrap`으로 감싸고, CSS에서 `max-width: 980px`, `margin: 0 auto` 적용(기준별 발송 현황의 `.aggregated-bar-chart__chart-wrap`과 동일).
+   - 막대 차트의 `minWidth: chartData.length * LABEL_SLOT_WIDTH` 제거하여 차트가 섹션 폭을 넘어 과도하게 늘어나지 않도록 함.
+
+2. **안내 문구 위치·패딩**
+   - "Dimension: 집계 기준에서 선택한 항목만 표시. 두 개 이상이면 그중 선택 가능. Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정." 문구를 섹션 헤더(접기/펼치기 제목) 바로 아래로 이동(ChartWidget 내 첫 번째 요소로 배치).
+   - `.chart-widget__desc`에 `padding: 10px 0 0 10px`(상·좌 10px) 적용.
+
+3. **차트 생성 버튼 우측 여백**
+   - `.chart-widget__header`에 `padding-right: 30px` 적용하여 섹션 내 우측 여백 확보.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/dashboard.css: chart-widget 영역 스타일 수정·추가
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx: 안내 문구 순서 변경, 차트 래퍼에 chart-widget__chart-wrap 적용
+
+### 검수 결과
+- Lint: ChartWidget.jsx, dashboard.css 오류 없음.
+
+---
+
 ## 2025-02-02: 대시보드 정렬 기준 UI (멀티 정렬·적용 문구)
 
 ### 완료 작업

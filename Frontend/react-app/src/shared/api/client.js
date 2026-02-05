@@ -6,6 +6,7 @@
  * [주요 기능]
  * - health, listTables, describeTable, tableRelationships
  * - executeQuery, explainSql, getColumnValues, queryStats
+ * - getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData
  *
  * [의존성]
  * - shared/config/api (getApiBase)
@@ -105,4 +106,9 @@ export async function getDashboardTables() {
 /** GET /api/dashboard/required-columns - 대시보드 조회 필수 컬럼 목록 (안내용) */
 export async function getDashboardRequiredColumns() {
   return request('GET', '/api/dashboard/required-columns');
+}
+
+/** POST /api/dashboard/chart-data - 차트 생성 전용 데이터 (단일 디멘션·메트릭 별도 조회) */
+export async function getChartData(body) {
+  return request('POST', '/api/dashboard/chart-data', body);
 }

@@ -1,6 +1,6 @@
 # 프론트엔드 개발 가이드
 
-본 문서는 **docs/main** 내 프론트엔드 전용 명세로, 00_PRD.md·ADVANCED_FEATURES.md 에 있던 프론트 관련 내용을 정리한 것입니다. 구현 위치: `Frontend/react-app`.
+본 문서는 **docs/main** 내 프론트엔드 전용 명세입니다. 구현 위치: `Frontend/react-app`.
 
 ---
 
@@ -68,13 +68,14 @@ Frontend/react-app/
 │   │       ├── index.jsx
 │   │       ├── dashboard.css
 │   │       └── components/
-│   │           ├── DashboardHeader.jsx  # 테이블 선택·필수 컬럼 안내 모달
-│   │           ├── DashboardFilters.jsx # 기간·캠페인·워크플로우·채널
+│   │           ├── DashboardHeader.jsx   # 테이블 선택·필수 컬럼 안내 모달
+│   │           ├── DashboardFilters.jsx  # 기간·캠페인·워크플로우·채널·집계 기준
+│   │           ├── CollapsibleSection.jsx
 │   │           ├── KPICards.jsx
 │   │           ├── ChannelDonutCharts.jsx
 │   │           ├── AggregatedBarChart.jsx
 │   │           ├── AggregatedDataTable.jsx
-│   │           └── ChartWidget.jsx      # 나만의 차트 (Dimension/Metric/유형)
+│   │           └── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정)
 │   │
 │   ├── shared/
 │   │   ├── api/
@@ -111,23 +112,24 @@ Frontend/react-app/
 
 ### 4.2 dashboard (대시보드)
 
-- **DashboardPage.jsx**: 테이블 ID·기간·캠페인·워크플로우·채널 필터·집계 기준(일자/캠페인/워크플로우/채널) 상태. `getDashboardData`, `getDashboardFilterOptions` 호출. KPI·도넛·막대·집계 테이블·ChartWidget 배치.
-- **DashboardHeader**: 테이블 셀렉트, 필수 컬럼 안내 모달(`getDashboardRequiredColumns`).
-- **DashboardFilters**: 기간·캠페인·워크플로우·채널 필터. 선택된 필터에 따라 옵션 연동(`filter-options`).
+- **DashboardPage.jsx**: 테이블 ID·기간·캠페인·워크플로우·채널 필터·집계 기준 상태. `getDashboardData`, `getDashboardFilterOptions` 호출. KPI·도넛·막대·집계 테이블·ChartWidget 배치. CollapsibleSection으로 섹션 접기/펼치기.
+- **DashboardHeader**: 테이블 셀렉트, 필수 컬럼 안내 모달, 초기화·실행 버튼.
+- **DashboardFilters**: 기간·캠페인·워크플로우·채널 필터·집계 기준 체크·정렬 기준. 선택 필터에 따른 옵션 연동.
+- **CollapsibleSection**: 섹션 제목·접기/펼치기 토글.
 - **KPICards**: 총 발송·성공·실패 등 KPI 카드.
 - **ChannelDonutCharts**: 채널별 도넛.
 - **AggregatedBarChart**: 기준별 발송 현황 막대 차트(상위 10건, success_count 기준).
 - **AggregatedDataTable**: 집계 데이터 테이블, 페이징·테이블 내 검색.
-- **ChartWidget**: Dimension/Metric/차트 유형 선택, Y축 Nice Numbers, 제목 편집. 집계 기준 체크박스와 연동.
+- **ChartWidget**: 차트 생성. Dimension/Metric/막대·선형·영역 선택, 제목 편집. tableId·filters 있으면 `getChartData` 전용 API로 조회. 막대·선형·영역 공통: Y축 고정·오른쪽만 가로 스크롤·X축 minWidth·XAxisTickTruncate. 삭제 버튼(연한 빨간 배경·흰글씨).
 
 **대시보드 기능 요약**
 
-- 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준 체크.
-- KPI 카드, 채널 도넛, 기준별 막대 차트, 집계 테이블(페이징·검색), 나만의 차트 위젯. 필수 컬럼 안내 모달(컬럼명·허용 타입).
+- 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준·정렬 기준.
+- KPI 카드, 채널 도넛, 기준별 막대 차트, 집계 테이블(페이징·검색), 차트 생성 위젯(전용 API·Y축 고정·가로 스크롤). 필수 컬럼 안내 모달. 섹션 접기/펼치기.
 
 ### 4.3 shared
 
-- **api/client.js**: health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns.
+- **api/client.js**: health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData.
 - **config/api.js**: API 베이스 URL (환경·api-config 주입 반영).
 
 ---

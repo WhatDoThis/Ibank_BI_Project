@@ -10,6 +10,7 @@ config.backend·db 모듈 사용. report 라우트와 분리된 대시보드 전
 - get_filter_options: 캠페인·워크플로우·채널 목록 반환
 - get_aggregatable_tables: 집계 가능(필수 컬럼 보유) 테이블만 반환
 - get_required_columns: 대시보드 조회 필수 컬럼 목록 반환
+- get_chart_data: 차트 생성 전용 단일 디멘션·메트릭 집계(별도 조회, 가독성 확보)
 
 [의존성]
 =========
@@ -346,6 +347,97 @@ def get_filter_options(table_id, campaign_ids=None, workflow_ids=None, channels=
         except psycopg2.Error:
             pass
         return {"campaigns": campaigns, "workflows": workflows, "channels": channel_list}
+    finally:
+        cur.close()
+        conn.close()
+
+
+# 차트 생성용 단일 디멘션·메트릭 조회 (Adobe/GA 방식: 디멘션별·메트릭별 전용 요청으로 가독성 확보)
+CHART_DIMENSION_KEYS = ("delivery_date", "campaign_label", "workflow_label", "channel_name")
+CHART_METRIC_KEYS = (
+    "total_count", "success_count", "failed_count", "open_count", "click_count",
+    "success_rate", "open_rate", "click_rate",
+)
+
+
+def get_chart_data(req):
+    """
+    차트 생성 전용 데이터: 단일 디멘션·단일 메트릭으로 집계해 반환.
+    대시보드 메인 집계와 별도 조회로, 캠페인/워크플로우 등 카디널리티가 높은 차트도
+    해당 축 기준으로만 GROUP BY 하여 가독성 있게 표시.
+    req: table_id, date_range, campaign_ids?, workflow_ids?, channels?, dimension, metric, limit?
+    returns: { rows: [ { name, value, delivery_date? }, ... ] }
+    """
+    table = _full_table_name(req["table_id"])
+    where_sql, params = _build_where_clause(req)
+    dimension = (req.get("dimension") or "delivery_date").strip()
+    metric = (req.get("metric") or "success_count").strip()
+    limit = max(1, min(100, int(req.get("limit") or 50)))
+
+    if dimension not in CHART_DIMENSION_KEYS:
+        dimension = "delivery_date"
+    if metric not in CHART_METRIC_KEYS:
+        metric = "success_count"
+
+    # 디멘션별 GROUP BY / SELECT
+    if dimension == "delivery_date":
+        group_cols = "delivery_date"
+        select_dim = "delivery_date::text AS name"
+    elif dimension == "campaign_label":
+        group_cols = "campaign_id, campaign_label"
+        select_dim = "COALESCE(campaign_label, campaign_id::text) AS name"
+    elif dimension == "workflow_label":
+        group_cols = "workflow_id, workflow_label"
+        select_dim = "COALESCE(workflow_label, workflow_id::text) AS name"
+    else:  # channel_name
+        group_cols = "delivery_channel"
+        select_dim = "delivery_channel::text AS name"
+
+    # 메트릭 표현식 (비율은 집계 후 계산)
+    if metric in ("success_rate", "open_rate", "click_rate"):
+        if metric == "success_rate":
+            metric_expr = "ROUND(SUM(success_count)::numeric / NULLIF(SUM(total_count), 0) * 100, 2)"
+        elif metric == "open_rate":
+            metric_expr = "ROUND(SUM(open_count)::numeric / NULLIF(SUM(success_count), 0) * 100, 2)"
+        else:
+            metric_expr = "ROUND(SUM(click_count)::numeric / NULLIF(SUM(open_count), 0) * 100, 2)"
+    else:
+        metric_expr = f"COALESCE(SUM({metric}), 0)::bigint"
+
+    if dimension == "delivery_date":
+        order_sql = "ORDER BY delivery_date ASC"
+    else:
+        order_sql = "ORDER BY value DESC"
+
+    query = f"""
+        SELECT {select_dim},
+               {metric_expr} AS value
+        FROM {table}
+        WHERE {where_sql}
+        GROUP BY {group_cols}
+        {order_sql}
+        LIMIT %s
+    """
+    params = list(params) + [limit]
+    conn = db.get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        result = []
+        for r in rows:
+            row = {"name": (r.get("name") or "-"), "value": r.get("value")}
+            if dimension == "delivery_date" and r.get("name"):
+                row["delivery_date"] = r.get("name")
+            if dimension == "channel_name" and r.get("name"):
+                try:
+                    ch_code = int(r.get("name"))
+                    row["name"] = CHANNEL_MAPPING.get(ch_code, str(ch_code))
+                except (TypeError, ValueError):
+                    pass
+                row["channel_code"] = r.get("name")
+            result.append(row)
+        return {"rows": result}
     finally:
         cur.close()
         conn.close()

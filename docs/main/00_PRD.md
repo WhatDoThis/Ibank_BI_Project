@@ -14,7 +14,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 1.2 핵심 가치
 - **리포트(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
-- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·나만의 차트 위젯
+- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API 조회·Y축 고정·가로 스크롤)
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -114,7 +114,7 @@ Project/
 ## 5. 백엔드 (Backend)
 
 ### 5.1 역할
-- Flask REST API: 리포트용(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats) + 대시보드용(dashboard/data, dashboard/filter-options, dashboard/tables, dashboard/required-columns).
+- Flask REST API: 리포트용(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats) + 대시보드용(dashboard/data, dashboard/filter-options, dashboard/tables, dashboard/required-columns, dashboard/chart-data).
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트 요약
@@ -130,12 +130,13 @@ Project/
 - GET /api/dashboard/filter-options/<table_id>
 - GET /api/dashboard/tables (필수 컬럼·타입 만족 테이블만)
 - GET /api/dashboard/required-columns
+- POST /api/dashboard/chart-data (차트 생성 전용: 단일 디멘션·메트릭 집계, limit 50)
 
 ### 5.3 구성
 - **api_server/main.py**: Flask, CORS, 라우트 등록, config.backend 로 host/port.
 - **api_server/db.py**: get_db_config, get_allowed_tables, get_table_schema, get_table_columns, get_table_columns_with_types, get_db_connection, format_value, validate_table_name, validate_column_name.
 - **api_server/routes.py**: register_routes(app), 금지 SQL 검사(_contains_dangerous_sql).
-- **api_server/dashboard_service.py**: get_dashboard_data, get_filter_options, get_aggregatable_tables, get_required_columns (이름·허용 타입).
+- **api_server/dashboard_service.py**: get_dashboard_data, get_filter_options, get_aggregatable_tables, get_required_columns, get_chart_data (이름·허용 타입, 차트 전용 단일 디멘션·메트릭 조회).
 
 ---
 
@@ -150,8 +151,8 @@ Project/
 
 ### 6.2 대시보드
 - 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널) 체크.
-- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 나만의 차트 위젯(Dimension/Metric/차트 유형).
-- 필수 컬럼 안내 모달(컬럼명·허용 타입 목록).
+- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 차트 생성 위젯(Dimension/Metric/막대·선형·영역, 전용 API 조회, Y축 고정·가로 스크롤·X축 레이블 턱).
+- 필수 컬럼 안내 모달(컬럼명·허용 타입 목록). 섹션 접기/펼치기(CollapsibleSection).
 
 ### 6.3 공통
 - API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
@@ -179,3 +180,4 @@ Project/
 | (React 전환) | packages report·dashboard, static_dir=Frontend/react-app/dist 반영 |
 | (문서 통합) | CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 유효 내용 PRD로 통합, 해당 두 파일 삭제. base /ibank-bi/, 대시보드 API·필수 컬럼 타입·금지 키워드 문맥 검사 반영 |
 | (문서 분리) | 프론트 상세를 01_FRONTEND_GUIDE.md 로 이관. 00_PRD는 요약만 유지. ADVANCED_FEATURES.md 내용 통합 후 삭제 |
+| (최신화) | 차트 생성 전용 API(chart-data), 차트 생성 위젯(전용 조회·Y축 고정·막대/선형/영역 동일 구성), CollapsibleSection 반영. 사용하지 않는 표현 정리 |

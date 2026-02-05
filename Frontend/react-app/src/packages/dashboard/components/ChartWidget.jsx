@@ -1,18 +1,20 @@
 /**
  * dashboard/components/ChartWidget.jsx (차트 생성 위젯)
  * =====================================================
- * 집계 데이터로 Dimension(축)·Metric(값)·차트 유형을 선택해 막대/선/영역 차트 생성.
- * Dimension: 집계 체크박스 기준(일자·캠페인·워크플로우·채널 중 선택된 것만). Metric: 실수형 지표만. Y축 Nice Numbers 적용.
+ * Dimension(축)·Metric(값)·차트 유형 선택으로 막대/선/영역 차트 생성.
+ * 차트 데이터는 별도 API(getChartData)로 단일 디멘션·메트릭 집계 조회(Adobe/GA 방식). tableId·filters 있으면 API 사용, 없으면 data prop 폴백.
+ * Dimension: 집계 체크박스 기준. Metric: 실수형 지표만. Y축 Nice Numbers 적용.
  *
  * [주요 기능]
- * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황(AggregatedBarChart)과 동일(margin, 축/툴팁/범례, 높이 440).
- * - recharts BarChart, LineChart, AreaChart, Y축 domain Nice Numbers, Bar maxBarSize 75
+ * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황과 동일.
+ * - 막대·선형·영역 공통: Y축 고정 + 오른쪽만 가로 스크롤, X축 minWidth(LABEL_SLOT_WIDTH×건수)·XAxisTickTruncate로 레이블 겹침/잘림 방지. 차트 영역 max-width 1200px.
  *
  * [의존성]
- * - React, recharts
+ * - React, recharts, shared/api/client (getChartData)
  */
 
 import { useState, useMemo, useEffect } from 'react'
+import { getChartData } from '@/shared/api/client'
 import {
   BarChart,
   Bar,
@@ -131,6 +133,8 @@ const CHART_WIDGET_DATE_COLORS = ['#4f46e5', '#7c3aed', '#2563eb', '#0d9488', '#
 /** X축 레이블·막대 간격 (기준별 발송 현황과 동일): 슬롯 폭(px), 세그먼트당 최대 글자 수 */
 const LABEL_SLOT_WIDTH = 100
 const MAX_LABEL_CHARS = 12
+/** 막대 차트 가로 스크롤 시 고정할 Y축 영역 너비(px) */
+const Y_AXIS_FIXED_WIDTH = 56
 
 function truncateLabel(str, maxChars = MAX_LABEL_CHARS) {
   const s = String(str ?? '').trim()
@@ -159,13 +163,55 @@ function getDisplayValue(row, key) {
   return '-'
 }
 
-function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate }) {
+function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, tableId, filters }) {
   const { id, xKey, yKey, chartType, title } = widget
   const dims = availableDimensions?.length ? availableDimensions : DIMENSION_FIELDS
   const effectiveXKey = dims.some((d) => d.key === xKey) ? xKey : (dims[0]?.key ?? 'delivery_date')
   const dimField = dims.find((f) => f.key === effectiveXKey) || dims[0]
   const metricField = METRIC_FIELDS.find((f) => f.key === yKey) || METRIC_FIELDS[0]
-  const chartData = useMemo(() => {
+
+  const [chartDataFromApi, setChartDataFromApi] = useState([])
+  const [chartDataLoading, setChartDataLoading] = useState(false)
+  const useChartApi = Boolean(tableId && filters?.date_range?.length >= 2)
+
+  useEffect(() => {
+    if (!useChartApi) {
+      setChartDataFromApi([])
+      return
+    }
+    let cancelled = false
+    setChartDataLoading(true)
+    getChartData({
+      table_id: tableId,
+      date_range: filters.date_range,
+      campaign_ids: filters.campaign_ids || [],
+      workflow_ids: filters.workflow_ids || [],
+      channels: filters.channels || [],
+      dimension: effectiveXKey,
+      metric: yKey,
+      limit: 50
+    })
+      .then((res) => {
+        if (cancelled) return
+        const rows = res.rows || []
+        setChartDataFromApi(
+          rows.map((r) => ({
+            name: r.name ?? '-',
+            [metricField.label]: typeof r.value === 'number' ? r.value : Number(r.value) || 0,
+            delivery_date: r.delivery_date
+          }))
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setChartDataFromApi([])
+      })
+      .finally(() => {
+        if (!cancelled) setChartDataLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [useChartApi, tableId, filters?.date_range, filters?.campaign_ids, filters?.workflow_ids, filters?.channels, effectiveXKey, yKey, metricField.label])
+
+  const chartDataFromProp = useMemo(() => {
     if (!data?.length) return []
     return data.slice(0, 50).map((row) => ({
       name: getDisplayValue(row, effectiveXKey),
@@ -173,6 +219,8 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
       delivery_date: row.delivery_date
     }))
   }, [data, effectiveXKey, yKey, metricField.label])
+
+  const chartData = useChartApi ? chartDataFromApi : chartDataFromProp
 
   const dateOrderForBar = useMemo(() => {
     const dates = [...new Set(chartData.map((d) => d.delivery_date).filter(Boolean))].sort()
@@ -216,15 +264,13 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
             placeholder="차트 제목"
             style={{ fontSize: 16, fontWeight: 600, color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', minWidth: 140 }}
           />
-          <button
-            type="button"
-            onClick={() => onRemove(id)}
-            style={{ padding: '4px 8px', fontSize: 14, color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', background: '#fff' }}
-          >
+          <button type="button" className="chart-widget__delete-btn" onClick={() => onRemove(id)}>
             삭제
           </button>
         </div>
-        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>표시할 데이터가 없습니다.</div>
+        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
+          {chartDataLoading ? '차트 데이터 조회 중...' : '표시할 데이터가 없습니다.'}
+        </div>
       </div>
     )
   }
@@ -246,12 +292,6 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     ...xAxisPropsBase,
     tick: <XAxisTickTruncate />
   }
-  const xAxisPropsOthers = {
-    ...xAxisPropsBase,
-    tick: { fontSize: 12 },
-    angle: chartData.length > 8 ? -35 : 0,
-    textAnchor: chartData.length > 8 ? 'end' : 'middle'
-  }
   const yAxisEl = <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} />
   const tooltipEl = (
     <Tooltip
@@ -263,43 +303,84 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
   const legendProps = { verticalAlign: 'top', align: 'center', wrapperStyle: { fontSize: 14, paddingBottom: 12 } }
 
+  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정, X축 간격 확보(minWidth) 후 스크롤 */
+  const marginLeftOnly = { top: 40, right: 0, left: 8, bottom: chartBottomMargin }
+  const marginRightOnly = { top: 40, right: 16, left: 0, bottom: chartBottomMargin }
+  const scrollContentMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
+  const fixedYAxisBlock = (
+    <div className="chart-widget__y-axis-fixed" style={{ width: Y_AXIS_FIXED_WIDTH }}>
+      <ResponsiveContainer width={Y_AXIS_FIXED_WIDTH} height={440}>
+        <BarChart data={chartData} margin={marginLeftOnly}>
+          <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} width={Y_AXIS_FIXED_WIDTH - 16} />
+          <Bar dataKey={metricField.label} barSize={0} fill="transparent" isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+
   let chartInner
   if (chartType === 'line') {
     chartInner = (
-      <LineChart {...commonProps}>
-        {gridEl}
-        <XAxis {...xAxisPropsOthers} />
-        {yAxisEl}
-        {tooltipEl}
-        <Legend {...legendProps} />
-        <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
-      </LineChart>
+      <>
+        {fixedYAxisBlock}
+        <div className="chart-widget__chart-scroll">
+          <div style={{ minWidth: scrollContentMinWidth }}>
+            <ResponsiveContainer width="100%" height={440}>
+              <LineChart {...commonProps} margin={marginRightOnly}>
+                {gridEl}
+                <XAxis {...xAxisPropsBar} />
+                {tooltipEl}
+                <Legend {...legendProps} />
+                <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </>
     )
   } else if (chartType === 'area') {
     chartInner = (
-      <AreaChart {...commonProps}>
-        {gridEl}
-        <XAxis {...xAxisPropsOthers} />
-        {yAxisEl}
-        {tooltipEl}
-        <Legend {...legendProps} />
-        <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
-      </AreaChart>
+      <>
+        {fixedYAxisBlock}
+        <div className="chart-widget__chart-scroll">
+          <div style={{ minWidth: scrollContentMinWidth }}>
+            <ResponsiveContainer width="100%" height={440}>
+              <AreaChart {...commonProps} margin={marginRightOnly}>
+                {gridEl}
+                <XAxis {...xAxisPropsBar} />
+                {tooltipEl}
+                <Legend {...legendProps} />
+                <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </>
     )
   } else {
+    /* 막대 차트: bar만 barCategoryGap·maxBarSize·Cell 적용, 나머지 레이아웃은 위와 동일 */
+    const barMaxSize = Math.min(75, Math.floor(LABEL_SLOT_WIDTH * 0.55))
     chartInner = (
-      <BarChart {...commonProps}>
-        {gridEl}
-        <XAxis {...xAxisPropsBar} />
-        {yAxisEl}
-        {tooltipEl}
-        <Legend {...legendProps} />
-        <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={75}>
-          {chartData.map((entry, i) => (
-            <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
-          ))}
-        </Bar>
-      </BarChart>
+      <>
+        {fixedYAxisBlock}
+        <div className="chart-widget__chart-scroll">
+          <div style={{ minWidth: scrollContentMinWidth }}>
+            <ResponsiveContainer width="100%" height={440}>
+              <BarChart {...commonProps} margin={marginRightOnly} barCategoryGap="8%">
+                {gridEl}
+                <XAxis {...xAxisPropsBar} />
+                {tooltipEl}
+                <Legend {...legendProps} />
+                <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={barMaxSize}>
+                  {chartData.map((entry, i) => (
+                    <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </>
     )
   }
 
@@ -359,31 +440,19 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
               <option key={t.key} value={t.key}>{t.label}</option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={() => onRemove(id)}
-            style={{ padding: '4px 8px', fontSize: 14, color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', background: '#fff' }}
-          >
+          <button type="button" className="chart-widget__delete-btn" onClick={() => onRemove(id)}>
             삭제
           </button>
         </div>
       </div>
-      {chartType === 'bar' ? (
-        <div style={{ minWidth: Math.max(280, chartData.length * LABEL_SLOT_WIDTH), width: '100%' }}>
-          <ResponsiveContainer width="100%" height={440}>
-            {chartInner}
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height={440}>
-          {chartInner}
-        </ResponsiveContainer>
-      )}
+      <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
+        {chartInner}
+      </div>
     </div>
   )
 }
 
-export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onWidgetsChange }) {
+export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onWidgetsChange, tableId, filters }) {
   const availableDimensions = useMemo(() => getAvailableDimensions(groupBy), [groupBy])
 
   // 집계 체크박스 변경 시, 현재 선택된 Dimension이 목록에 없으면 첫 번째로 맞춤
@@ -418,14 +487,14 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
 
   return (
     <section className="chart-widget-section chart-widget">
+      <p className="chart-widget__desc">
+        Dimension: 집계 기준에서 선택한 항목만 표시. 두 개 이상이면 그중 선택 가능. Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정.
+      </p>
       <div className="chart-widget__header">
         <button type="button" className="chart-widget__add-btn" onClick={addWidget}>
           + 차트 생성
         </button>
       </div>
-      <p className="chart-widget__desc">
-        Dimension: 집계 기준에서 선택한 항목만 표시. 두 개 이상이면 그중 선택 가능. Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정.
-      </p>
       <div className="chart-widget__grid">
         {widgets.map((w) => (
           <SingleWidget
@@ -435,6 +504,8 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
             availableDimensions={availableDimensions}
             onRemove={removeWidget}
             onUpdate={updateWidget}
+            tableId={tableId}
+            filters={filters}
           />
         ))}
       </div>

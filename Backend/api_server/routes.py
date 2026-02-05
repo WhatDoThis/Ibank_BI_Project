@@ -21,6 +21,7 @@ Flask app에 API 라우트 등록. config.backend·db 모듈 사용.
 - GET  /api/dashboard/filter-options/<table_id>
 - GET  /api/dashboard/tables
 - GET  /api/dashboard/required-columns
+- POST /api/dashboard/chart-data
 
 [Dependencies]
 =========
@@ -457,3 +458,30 @@ def register_routes(app):
             return jsonify({'columns': columns})
         except Exception as e:
             return jsonify({'error': str(e), 'message': '필수 컬럼 조회 실패'}), 500
+
+    @app.route('/api/dashboard/chart-data', methods=['POST'])
+    def dashboard_chart_data():
+        try:
+            data = request.json or {}
+            table_id = (data.get('table_id') or '').strip()
+            if not table_id:
+                return jsonify({'error': 'table_id가 필요합니다'}), 400
+            date_range = data.get('date_range')
+            if not date_range or not isinstance(date_range, list) or len(date_range) < 2:
+                return jsonify({'error': 'date_range [시작일, 종료일]가 필요합니다'}), 400
+            req = {
+                'table_id': table_id,
+                'date_range': [str(date_range[0]), str(date_range[1])],
+                'campaign_ids': data.get('campaign_ids'),
+                'workflow_ids': data.get('workflow_ids'),
+                'channels': data.get('channels'),
+                'dimension': (data.get('dimension') or 'delivery_date').strip(),
+                'metric': (data.get('metric') or 'success_count').strip(),
+                'limit': data.get('limit', 50),
+            }
+            result = dashboard_service.get_chart_data(req)
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            return jsonify({'error': str(e), 'message': '차트 데이터 조회 실패'}), 500

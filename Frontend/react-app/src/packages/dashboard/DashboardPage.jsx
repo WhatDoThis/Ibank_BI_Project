@@ -269,6 +269,8 @@ export default function DashboardPage() {
               groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
               widgets={chartWidgets}
               onWidgetsChange={setChartWidgets}
+              tableId={tableId}
+              filters={filters}
             />
           </CollapsibleSection>
         </div>
