@@ -25,6 +25,25 @@
 
 ---
 
+## 2025-02-02: 차트 생성 삭제 버튼 스타일 및 docs/main 최신화
+
+### 완료 작업
+1. **차트 생성 섹션 삭제 버튼**
+   - 연한 빨간 배경(#f87171), 흰색 글씨. hover 시 #ef4444. 클래스 `.chart-widget__delete-btn` 추가(dashboard.css), ChartWidget.jsx 두 곳 적용.
+
+2. **docs/main 최신화**
+   - 00_PRD.md: 차트 생성 전용 API(chart-data), 차트 생성 위젯(전용 조회·Y축 고정·막대/선형/영역 동일), CollapsibleSection 반영. API 엔드포인트·dashboard_service 함수 목록 보강.
+   - 01_FRONTEND_GUIDE.md: ADVANCED_FEATURES.md 참조 제거. CollapsibleSection, ChartWidget( getChartData·Y축 고정·삭제 버튼 스타일), getChartData API, DashboardHeader/Filters 최신 설명 반영.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/dashboard.css, ChartWidget.jsx
+- docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md
+
+### Git
+- 커밋 후 origin/main 푸시 완료.
+
+---
+
 ## 2025-02-02: 차트 생성 전용 별도 조회 API (디멘션·메트릭 방식)
 
 ### 완료 작업
