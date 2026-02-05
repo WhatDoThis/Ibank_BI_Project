@@ -835,7 +835,8 @@
   align-items: center;
   max-width: 1200px;
   margin: 0 auto;
-  padding-bottom: 8px;
+  padding-top: 12px;
+  padding-bottom: 20px;
   min-width: 0;
 }
 

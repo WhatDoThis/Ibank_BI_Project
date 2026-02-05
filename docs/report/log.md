@@ -1,5 +1,24 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 차트 위젯 범례 간격 및 막대 Y축 max 보정
+
+### 완료 작업
+1. **범례 위치**
+   - 범례가 Y축과 겹치지 않도록 상단 여유 확대. `.chart-widget__legend-fixed`에 `padding-top: 12px`, `padding-bottom: 8px` → `padding-bottom: 20px` 적용해 차트와 충분히 간격 확보.
+
+2. **막대 차트 Y축 max**
+   - 막대도 `y축 max = data max + 간격` 적용. 기존: `dataMax === dataMin`일 때 `dataMax + 1`만 사용해 막대가 상단에 붙는 문제.
+   - 변경: 막대는 항상 `yMax = dataMax + Math.max(stepSize, 1)`. 단일 값일 때는 `stepSize = calculateNiceStepSize(0, dataMax)`로 데이터 크기에 맞는 간격 사용.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
 ## 2025-02-02: 차트 위젯 범례 고정 및 Y축 Nice number 적용
 
 ### 완료 작업

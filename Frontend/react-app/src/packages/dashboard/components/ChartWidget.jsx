@@ -248,16 +248,18 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: 막대=0부터(양적 비교), 선형/영역=0.5단위 간격·4구간 이상·yMin=dataMin-간격, yMax=dataMax+간격 */
+  /* Y축 도메인: 막대=0부터, yMax=dataMax+간격(항상 상단 여유). 선형/영역=0.5단위·4구간 이상·yMin=dataMin-간격, yMax=dataMax+간격 */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
     const values = chartData.map((d) => d[metricField.label])
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
     if (chartType === 'bar') {
-      const stepSize = calculateNiceStepSize(dataMin, dataMax)
-      const yMax = calculateYAxisMax(dataMax, stepSize)
-      return [0, dataMax === dataMin ? Math.max(1, dataMax + 1) : yMax]
+      const stepSize = (dataMin === dataMax && dataMax > 0)
+        ? calculateNiceStepSize(0, dataMax)
+        : calculateNiceStepSize(dataMin, dataMax)
+      const yMax = dataMax + Math.max(stepSize, 1)
+      return [0, yMax]
     }
     const step = calculateNiceStepSizeLineArea(dataMin, dataMax)
     const yMin = dataMin - step
