@@ -826,15 +826,23 @@
   flex: 0 0 auto;
   overflow: hidden;
   min-width: 56px;
+  min-height: 500px;  /* CHART_HEIGHT와 동일, 상하 크기 일치 */
 }
 
 .chart-widget__chart-wrap--y-fixed .chart-widget__chart-scroll {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 500px;  /* CHART_HEIGHT와 동일 */
   overflow-x: auto;
+  padding-left: 16px;   /* 고정 Y축과 차트 사이 간격, recharts-surface 덮임 완화 */
+  padding-right: 16px;  /* 우측 잘림 방지 */
 }
 
 .chart-widget .recharts-responsive-container {
+  overflow: visible;
+}
+
+.chart-widget .recharts-wrapper {
   overflow: visible;
 }
 

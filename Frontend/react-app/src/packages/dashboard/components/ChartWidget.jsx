@@ -135,6 +135,10 @@ const LABEL_SLOT_WIDTH = 100
 const MAX_LABEL_CHARS = 12
 /** 막대 차트 가로 스크롤 시 고정할 Y축 영역 너비(px) */
 const Y_AXIS_FIXED_WIDTH = 56
+/** 차트 캔버스 높이(px). Y축 레이블 잘림 방지로 500 사용 */
+const CHART_HEIGHT = 500
+/** 차트 배경과 내부 차트 사이 상하좌우 패딩(px) */
+const CHART_PADDING = 30
 
 function truncateLabel(str, maxChars = MAX_LABEL_CHARS) {
   const s = String(str ?? '').trim()
@@ -232,18 +236,21 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: 실제 데이터 min/max 기준으로 조정(0 강제 포함 제거 → 변동 구간이 잘 보이도록) */
+  /* Y축 도메인: 막대=0부터(양적 비교), 선형/영역=동적 min~max(고저 변동 강조) */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
     const values = chartData.map((d) => d[metricField.label])
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
-    if (dataMax === dataMin) return [dataMin - 1, dataMax + 1]
     const stepSize = calculateNiceStepSize(dataMin, dataMax)
-    const yMin = calculateYAxisMin(dataMin, stepSize)
     const yMax = calculateYAxisMax(dataMax, stepSize)
+    if (chartType === 'bar') {
+      return [0, dataMax === dataMin ? Math.max(1, dataMax + 1) : yMax]
+    }
+    if (dataMax === dataMin) return [dataMin - 1, dataMax + 1]
+    const yMin = calculateYAxisMin(dataMin, stepSize)
     return [yMin, yMax]
-  }, [chartData, metricField.label])
+  }, [chartData, metricField.label, chartType])
 
   if (!chartData.length) {
     return (
@@ -253,7 +260,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
           borderRadius: 12,
           padding: 20,
           boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-          minHeight: 500
+          minHeight: CHART_HEIGHT + CHART_PADDING * 2
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -303,13 +310,13 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
   const legendProps = { verticalAlign: 'top', align: 'center', wrapperStyle: { fontSize: 14, paddingBottom: 12 } }
 
-  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정, X축 간격 확보(minWidth) 후 스크롤 */
+  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정, X축 간격 확보(minWidth) 후 스크롤. 스크롤 영역 차트는 좌측 여백으로 recharts-surface 덮임 방지 */
   const marginLeftOnly = { top: 40, right: 0, left: 8, bottom: chartBottomMargin }
-  const marginRightOnly = { top: 40, right: 16, left: 0, bottom: chartBottomMargin }
+  const marginRightOnly = { top: 40, right: 24, left: 32, bottom: chartBottomMargin }
   const scrollContentMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
   const fixedYAxisBlock = (
     <div className="chart-widget__y-axis-fixed" style={{ width: Y_AXIS_FIXED_WIDTH }}>
-      <ResponsiveContainer width={Y_AXIS_FIXED_WIDTH} height={440}>
+      <ResponsiveContainer width={Y_AXIS_FIXED_WIDTH} height={CHART_HEIGHT}>
         <BarChart data={chartData} margin={marginLeftOnly}>
           <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} width={Y_AXIS_FIXED_WIDTH - 16} />
           <Bar dataKey={metricField.label} barSize={0} fill="transparent" isAnimationActive={false} />
@@ -325,7 +332,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         {fixedYAxisBlock}
         <div className="chart-widget__chart-scroll">
           <div style={{ minWidth: scrollContentMinWidth }}>
-            <ResponsiveContainer width="100%" height={440}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
               <LineChart {...commonProps} margin={marginRightOnly}>
                 {gridEl}
                 <XAxis {...xAxisPropsBar} />
@@ -344,7 +351,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         {fixedYAxisBlock}
         <div className="chart-widget__chart-scroll">
           <div style={{ minWidth: scrollContentMinWidth }}>
-            <ResponsiveContainer width="100%" height={440}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
               <AreaChart {...commonProps} margin={marginRightOnly}>
                 {gridEl}
                 <XAxis {...xAxisPropsBar} />
@@ -365,7 +372,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         {fixedYAxisBlock}
         <div className="chart-widget__chart-scroll">
           <div style={{ minWidth: scrollContentMinWidth }}>
-            <ResponsiveContainer width="100%" height={440}>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
               <BarChart {...commonProps} margin={marginRightOnly} barCategoryGap="8%">
                 {gridEl}
                 <XAxis {...xAxisPropsBar} />
@@ -391,7 +398,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         borderRadius: 12,
         padding: 20,
         boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-        minHeight: 500
+        minHeight: CHART_HEIGHT + CHART_PADDING * 2
       }}
     >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -445,7 +452,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
           </button>
         </div>
       </div>
-      <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
+      <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed" style={{ padding: CHART_PADDING }}>
         {chartInner}
       </div>
     </div>
