@@ -53,6 +53,10 @@ const TOP_N = 10
 const LINE_HEIGHT = 14
 const X_AXIS_BOTTOM_MARGIN = 100
 const X_LABEL_OFFSET = 14
+/** 레이블당 슬롯 폭(px): 막대 간격 = 레이블 가독 확보. 100px = 약 10~12자 + 여백 (권장 60~100px) */
+const LABEL_SLOT_WIDTH = 100
+/** 세그먼트(한 줄)당 최대 글자 수, 초과 시 ... 처리 */
+const MAX_LABEL_CHARS = 12
 /** 일자별 막대 색상 (날짜 인덱스 → 발송요청/발송성공 색) */
 const DATE_BAR_PALETTE = [
   { primary: '#4f46e5', secondary: '#059669' },
@@ -62,19 +66,25 @@ const DATE_BAR_PALETTE = [
   { primary: '#6366f1', secondary: '#4f46e5' }
 ]
 
-/** X축 복수 값(일자/캠페인/워크플로우/채널)을 " / " 기준으로 줄바꿈 표시. 차트와 레이블 간격 확보를 위해 아래로 오프셋 */
+function truncateSegment(str, maxChars = MAX_LABEL_CHARS) {
+  const s = String(str || '').trim()
+  if (s.length <= maxChars) return s
+  return s.slice(0, maxChars) + '...'
+}
+
+/** X축 복수 값(일자/캠페인/워크플로우/채널)을 " / " 기준으로 줄바꿈 표시. 세그먼트당 길이 제한 후 overflow 효과로 겹침 방지 */
 function XAxisTickMultiline({ x, y, payload }) {
   const label = payload?.value ?? ''
-  const parts = String(label).split(' / ').filter(Boolean)
+  const parts = String(label).split(' / ').filter(Boolean).map((p) => truncateSegment(p.trim()))
   const fontSize = 11
   return (
     <g transform={`translate(${x}, ${y + X_LABEL_OFFSET})`}>
       <text textAnchor="middle" fill="#374151" fontSize={fontSize}>
         {parts.length <= 1 ? (
-          <tspan x={0} dy={4}>{label || '-'}</tspan>
+          <tspan x={0} dy={4}>{parts[0] || '-'}</tspan>
         ) : (
           parts.map((part, i) => (
-            <tspan key={i} x={0} dy={i === 0 ? 0 : LINE_HEIGHT}>{part.trim() || '-'}</tspan>
+            <tspan key={i} x={0} dy={i === 0 ? 0 : LINE_HEIGHT}>{part || '-'}</tspan>
           ))
         )}
       </text>
@@ -101,9 +111,14 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
   }
   const hasMultiline = chartData.some((d) => (d.name || '').includes(' / '))
   const bottomMargin = hasMultiline ? X_AXIS_BOTTOM_MARGIN : 24
+  const barCount = chartData.length
+  const chartMinWidth = Math.max(280, barCount * LABEL_SLOT_WIDTH)
   return (
     <section className="aggregated-bar-chart aggregated-bar-chart-section">
-      <div className="aggregated-bar-chart__chart-wrap">
+      <div
+        className="aggregated-bar-chart__chart-wrap"
+        style={{ minWidth: `max(70%, ${chartMinWidth}px)` }}
+      >
       <ResponsiveContainer width="100%" height={440}>
         <BarChart
           data={chartData}

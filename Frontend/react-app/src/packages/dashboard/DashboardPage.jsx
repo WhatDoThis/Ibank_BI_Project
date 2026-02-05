@@ -73,8 +73,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [chartWidgets, setChartWidgets] = useState([])
-  /** 정렬 기준: [{ key: 'delivery_date'|'total_count'|..., order: 'asc'|'desc' }, ...], 먼저 누른 것이 1순위 */
-  const [sortOrder, setSortOrder] = useState([])
+  /** 정렬 기준: [{ key: 'delivery_date'|'total_count'|..., order: 'asc'|'desc' }, ...]. 미설정 시 기본: 일자 내림차순 */
+  const [sortOrder, setSortOrder] = useState([{ key: 'delivery_date', order: 'desc' }])
   /** 섹션 접기/펼치기: kpi, channel, bar, table, chartWidget */
   const [sectionOpen, setSectionOpen] = useState({
     kpi: true,

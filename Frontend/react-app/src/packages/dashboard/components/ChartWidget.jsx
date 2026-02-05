@@ -128,6 +128,28 @@ const CHART_TYPES = [
 /** 차트 생성 막대: 일자별 색상 구분용 팔레트 */
 const CHART_WIDGET_DATE_COLORS = ['#4f46e5', '#7c3aed', '#2563eb', '#0d9488', '#059669', '#6366f1']
 
+/** X축 레이블·막대 간격 (기준별 발송 현황과 동일): 슬롯 폭(px), 세그먼트당 최대 글자 수 */
+const LABEL_SLOT_WIDTH = 100
+const MAX_LABEL_CHARS = 12
+
+function truncateLabel(str, maxChars = MAX_LABEL_CHARS) {
+  const s = String(str ?? '').trim()
+  if (s.length <= maxChars) return s || '-'
+  return s.slice(0, maxChars) + '...'
+}
+
+/** 차트 생성 X축 틱: 레이블 길이 제한으로 겹침 방지 */
+function XAxisTickTruncate({ x, y, payload }) {
+  const text = truncateLabel(payload?.value)
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <text textAnchor="middle" fill="#374151" fontSize={12} x={0} y={0} dy={8}>
+        {text}
+      </text>
+    </g>
+  )
+}
+
 function getDisplayValue(row, key) {
   const v = row[key]
   if (v != null && v !== '') return String(v)
@@ -214,14 +236,21 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     margin: { top: 40, right: 16, left: 8, bottom: chartBottomMargin }
   }
 
-  const xAxisProps = {
+  const xAxisPropsBase = {
     dataKey: 'name',
-    tick: { fontSize: 12 },
     interval: 0,
-    angle: chartData.length > 8 ? -35 : 0,
-    textAnchor: chartData.length > 8 ? 'end' : 'middle',
     axisLine: { stroke: '#e5e7eb' },
     tickLine: false
+  }
+  const xAxisPropsBar = {
+    ...xAxisPropsBase,
+    tick: <XAxisTickTruncate />
+  }
+  const xAxisPropsOthers = {
+    ...xAxisPropsBase,
+    tick: { fontSize: 12 },
+    angle: chartData.length > 8 ? -35 : 0,
+    textAnchor: chartData.length > 8 ? 'end' : 'middle'
   }
   const yAxisEl = <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} />
   const tooltipEl = (
@@ -239,7 +268,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     chartInner = (
       <LineChart {...commonProps}>
         {gridEl}
-        <XAxis {...xAxisProps} />
+        <XAxis {...xAxisPropsOthers} />
         {yAxisEl}
         {tooltipEl}
         <Legend {...legendProps} />
@@ -250,7 +279,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     chartInner = (
       <AreaChart {...commonProps}>
         {gridEl}
-        <XAxis {...xAxisProps} />
+        <XAxis {...xAxisPropsOthers} />
         {yAxisEl}
         {tooltipEl}
         <Legend {...legendProps} />
@@ -261,7 +290,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     chartInner = (
       <BarChart {...commonProps}>
         {gridEl}
-        <XAxis {...xAxisProps} />
+        <XAxis {...xAxisPropsBar} />
         {yAxisEl}
         {tooltipEl}
         <Legend {...legendProps} />
@@ -339,9 +368,17 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
           </button>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={440}>
-        {chartInner}
-      </ResponsiveContainer>
+      {chartType === 'bar' ? (
+        <div style={{ minWidth: Math.max(280, chartData.length * LABEL_SLOT_WIDTH), width: '100%' }}>
+          <ResponsiveContainer width="100%" height={440}>
+            {chartInner}
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={440}>
+          {chartInner}
+        </ResponsiveContainer>
+      )}
     </div>
   )
 }
