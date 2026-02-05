@@ -38,6 +38,62 @@
   width: 100%;
 }
 
+/* 접기/펼치기 섹션 */
+.dashboard-collapsible {
+  width: 100%;
+  margin-bottom: 16px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.dashboard-collapsible__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+  background: #fafafa;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s;
+}
+
+.dashboard-collapsible__header:hover {
+  background: #f3f4f6;
+}
+
+.dashboard-collapsible__title {
+  flex: 1;
+}
+
+.dashboard-collapsible__chevron {
+  font-size: 12px;
+  color: #6b7280;
+  margin-left: 8px;
+}
+
+.dashboard-collapsible__body {
+  padding: 0;
+}
+
+.dashboard-collapsible__body .kpi-cards-section,
+.dashboard-collapsible__body .channel-donut-charts-section,
+.dashboard-collapsible__body .aggregated-bar-chart-section,
+.dashboard-collapsible__body .aggregated-data-table-section,
+.dashboard-collapsible__body .chart-widget-section {
+  margin-bottom: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
 .dashboard-page .dashboard-header {
   width: 100%;
   max-width: 100%;
@@ -208,6 +264,73 @@
 .dashboard-header__checkbox {
   width: 16px;
   height: 16px;
+}
+
+/* 정렬 기준 행 (집계 기준과 동일 포맷) */
+.dashboard-header__sort-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 24px;
+  width: 100%;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dashboard-header__sort-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.dashboard-header__sort-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-header__sort-btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.dashboard-header__sort-btn:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.dashboard-header__sort-btn--desc {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.dashboard-header__sort-btn--asc {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.dashboard-header__sort-badge {
+  margin-left: 2px;
+  font-size: 12px;
+}
+
+.dashboard-header__sort-applied {
+  margin-left: auto;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
 }
 
 /* 3행: 필터 셀렉트 */
@@ -500,9 +623,12 @@
   margin-bottom: 16px;
 }
 
+/* 화면 폭의 최소 70% 유지·최대 980px (Recharts/Chart.js 등 권장: % + min/max 조합) */
 .aggregated-bar-chart__chart-wrap {
-  /* width는 AggregatedBarChart에서 막대 개수에 따라 유동 지정 (인라인 스타일) */
-  min-width: 0;
+  width: 100%;
+  min-width: 70%;
+  max-width: 980px;
+  margin: 0 auto;
 }
 
 .aggregated-bar-chart .recharts-responsive-container {
@@ -630,7 +756,7 @@
 
 .chart-widget__header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 12px;
 }

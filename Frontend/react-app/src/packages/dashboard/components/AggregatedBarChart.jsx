@@ -6,6 +6,7 @@
  * [주요 기능]
  * - groupBy 전체 조합으로 X축 라벨 명확 규정(일자+캠페인+워크플로우+채널 순). 복수 값은 줄바꿈으로 표시.
  * - 상위 10건만 표시(정렬 기준: 발송성공 수). 발송 요청(total_count)·발송 성공(success_count) 막대 표시.
+ * - 차트 폭: 컨테이너 100%, min-width 70%·max-width 980px (Recharts/대시보드 권장 비율 유지).
  *
  * [의존성]
  * - React, recharts (BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer)
@@ -14,6 +15,7 @@
 import {
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -51,11 +53,14 @@ const TOP_N = 10
 const LINE_HEIGHT = 14
 const X_AXIS_BOTTOM_MARGIN = 100
 const X_LABEL_OFFSET = 14
-/** 막대 개수에 따라 차트 너비 유동 계산 (가독성): 막대당 90px, 좌우 여백 포함, min/max clamp */
-const WIDTH_PER_BAR = 90
-const CHART_MIN_WIDTH = 280
-const CHART_MAX_WIDTH = 980
-const CHART_SIDE_PADDING = 48
+/** 일자별 막대 색상 (날짜 인덱스 → 발송요청/발송성공 색) */
+const DATE_BAR_PALETTE = [
+  { primary: '#4f46e5', secondary: '#059669' },
+  { primary: '#7c3aed', secondary: '#0d9488' },
+  { primary: '#2563eb', secondary: '#10b981' },
+  { primary: '#0d9488', secondary: '#047857' },
+  { primary: '#6366f1', secondary: '#4f46e5' }
+]
 
 /** X축 복수 값(일자/캠페인/워크플로우/채널)을 " / " 기준으로 줄바꿈 표시. 차트와 레이블 간격 확보를 위해 아래로 오프셋 */
 function XAxisTickMultiline({ x, y, payload }) {
@@ -81,21 +86,24 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
   if (!data.length) return null
   // 발송성공 수 기준 내림차순 정렬 후 상위 N건 (백엔드와 동일 기준, 프론트에서도 보장)
   const sorted = [...data].sort((a, b) => (b.success_count ?? 0) - (a.success_count ?? 0))
-  const chartData = sorted.slice(0, TOP_N).map((row) => ({
+  const topRows = sorted.slice(0, TOP_N)
+  const dateOrder = [...new Set(topRows.map((r) => r.delivery_date).filter(Boolean))].sort()
+  const chartData = topRows.map((row) => ({
     name: getCompositeXLabel(row, groupBy),
     발송요청: row.total_count ?? 0,
-    발송성공: row.success_count ?? 0
+    발송성공: row.success_count ?? 0,
+    delivery_date: row.delivery_date
   }))
+  const getDateColor = (dateKey) => {
+    const idx = dateOrder.indexOf(dateKey)
+    const pair = DATE_BAR_PALETTE[idx % DATE_BAR_PALETTE.length]
+    return pair
+  }
   const hasMultiline = chartData.some((d) => (d.name || '').includes(' / '))
   const bottomMargin = hasMultiline ? X_AXIS_BOTTOM_MARGIN : 24
-  const barCount = chartData.length
-  const chartWidth = Math.min(CHART_MAX_WIDTH, Math.max(CHART_MIN_WIDTH, barCount * WIDTH_PER_BAR + CHART_SIDE_PADDING))
   return (
     <section className="aggregated-bar-chart aggregated-bar-chart-section">
-      <h3 className="aggregated-bar-chart__title">
-        기준별 발송 현황 (발송성공 수 상위 {TOP_N}건)
-      </h3>
-      <div className="aggregated-bar-chart__chart-wrap" style={{ width: chartWidth, maxWidth: '100%', margin: '0 auto' }}>
+      <div className="aggregated-bar-chart__chart-wrap">
       <ResponsiveContainer width="100%" height={440}>
         <BarChart
           data={chartData}
@@ -116,8 +124,16 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
             labelStyle={{ color: '#374151', fontSize: 13 }}
           />
           <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: 14, paddingBottom: 12 }} />
-          <Bar dataKey="발송요청" fill="#3b82f6" radius={[4, 4, 0, 0]} name="발송 요청" maxBarSize={75} />
-          <Bar dataKey="발송성공" fill="#10b981" radius={[4, 4, 0, 0]} name="발송 성공" maxBarSize={75} />
+          <Bar dataKey="발송요청" radius={[4, 4, 0, 0]} name="발송 요청" maxBarSize={75}>
+            {chartData.map((entry, i) => (
+              <Cell key={i} fill={getDateColor(entry.delivery_date)?.primary ?? '#4f46e5'} />
+            ))}
+          </Bar>
+          <Bar dataKey="발송성공" radius={[4, 4, 0, 0]} name="발송 성공" maxBarSize={75}>
+            {chartData.map((entry, i) => (
+              <Cell key={i} fill={getDateColor(entry.delivery_date)?.secondary ?? '#059669'} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
       </div>

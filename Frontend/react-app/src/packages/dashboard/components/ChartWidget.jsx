@@ -5,8 +5,8 @@
  * Dimension: 집계 체크박스 기준(일자·캠페인·워크플로우·채널 중 선택된 것만). Metric: 실수형 지표만. Y축 Nice Numbers 적용.
  *
  * [주요 기능]
- * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택, 섹션 폭 50%, 차트 높이 460px
- * - recharts BarChart, LineChart, AreaChart, Y축 domain Nice Numbers
+ * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황(AggregatedBarChart)과 동일(margin, 축/툴팁/범례, 높이 440).
+ * - recharts BarChart, LineChart, AreaChart, Y축 domain Nice Numbers, Bar maxBarSize 75
  *
  * [의존성]
  * - React, recharts
@@ -16,6 +16,7 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   BarChart,
   Bar,
+  Cell,
   LineChart,
   Line,
   AreaChart,
@@ -124,6 +125,9 @@ const CHART_TYPES = [
   { key: 'area', label: '영역' }
 ]
 
+/** 차트 생성 막대: 일자별 색상 구분용 팔레트 */
+const CHART_WIDGET_DATE_COLORS = ['#4f46e5', '#7c3aed', '#2563eb', '#0d9488', '#059669', '#6366f1']
+
 function getDisplayValue(row, key) {
   const v = row[key]
   if (v != null && v !== '') return String(v)
@@ -143,9 +147,20 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     if (!data?.length) return []
     return data.slice(0, 50).map((row) => ({
       name: getDisplayValue(row, effectiveXKey),
-      [metricField.label]: typeof row[yKey] === 'number' ? row[yKey] : Number(row[yKey]) || 0
+      [metricField.label]: typeof row[yKey] === 'number' ? row[yKey] : Number(row[yKey]) || 0,
+      delivery_date: row.delivery_date
     }))
   }, [data, effectiveXKey, yKey, metricField.label])
+
+  const dateOrderForBar = useMemo(() => {
+    const dates = [...new Set(chartData.map((d) => d.delivery_date).filter(Boolean))].sort()
+    return dates
+  }, [chartData])
+
+  const getBarFillByDate = (deliveryDate) => {
+    const idx = dateOrderForBar.indexOf(deliveryDate)
+    return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
+  }
 
   /* Y축 도메인: 실제 데이터 min/max 기준으로 조정(0 강제 포함 제거 → 변동 구간이 잘 보이도록) */
   const yDomain = useMemo(() => {
@@ -192,11 +207,11 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     )
   }
 
-  const chartBottomMargin = 56
-  const chartTopMargin = 40
+  /* 기준별 발송 현황 차트(AggregatedBarChart)와 동일 포맷: margin, 축/툴팁/범례 스타일 */
+  const chartBottomMargin = 24
   const commonProps = {
     data: chartData,
-    margin: { top: chartTopMargin, right: 16, left: 8, bottom: chartBottomMargin }
+    margin: { top: 40, right: 16, left: 8, bottom: chartBottomMargin }
   }
 
   const xAxisProps = {
@@ -206,10 +221,16 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
     angle: chartData.length > 8 ? -35 : 0,
     textAnchor: chartData.length > 8 ? 'end' : 'middle',
     axisLine: { stroke: '#e5e7eb' },
-    tickLine: { stroke: '#e5e7eb' }
+    tickLine: false
   }
   const yAxisEl = <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} />
-  const tooltipEl = <Tooltip formatter={(v) => formatNum(v)} contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }} labelStyle={{ color: '#374151' }} />
+  const tooltipEl = (
+    <Tooltip
+      formatter={(v) => formatNum(v)}
+      contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13 }}
+      labelStyle={{ color: '#374151', fontSize: 13 }}
+    />
+  )
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
   const legendProps = { verticalAlign: 'top', align: 'center', wrapperStyle: { fontSize: 14, paddingBottom: 12 } }
 
@@ -222,7 +243,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
         {yAxisEl}
         {tooltipEl}
         <Legend {...legendProps} />
-        <Line type="monotone" dataKey={metricField.label} stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} name={metricField.label} />
+        <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
       </LineChart>
     )
   } else if (chartType === 'area') {
@@ -233,7 +254,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
         {yAxisEl}
         {tooltipEl}
         <Legend {...legendProps} />
-        <Area type="monotone" dataKey={metricField.label} stroke="#0d9488" fill="#0d9488" fillOpacity={0.3} name={metricField.label} />
+        <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
       </AreaChart>
     )
   } else {
@@ -244,7 +265,11 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
         {yAxisEl}
         {tooltipEl}
         <Legend {...legendProps} />
-        <Bar dataKey={metricField.label} fill="#3b82f6" radius={[4, 4, 0, 0]} name={metricField.label} />
+        <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={75}>
+          {chartData.map((entry, i) => (
+            <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
+          ))}
+        </Bar>
       </BarChart>
     )
   }
@@ -314,7 +339,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate })
           </button>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={460}>
+      <ResponsiveContainer width="100%" height={440}>
         {chartInner}
       </ResponsiveContainer>
     </div>
@@ -357,7 +382,6 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
   return (
     <section className="chart-widget-section chart-widget">
       <div className="chart-widget__header">
-        <h3 className="chart-widget__title">차트 생성</h3>
         <button type="button" className="chart-widget__add-btn" onClick={addWidget}>
           + 차트 생성
         </button>

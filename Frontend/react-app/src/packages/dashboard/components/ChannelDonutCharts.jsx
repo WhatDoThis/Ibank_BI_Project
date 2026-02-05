@@ -80,7 +80,6 @@ export default function ChannelDonutCharts({ kpi }) {
   if (!dist || (!dist.send?.length && !dist.success?.length)) return null
   return (
     <section className="channel-donut-charts-section channel-donut-charts">
-      <h3 className="channel-donut-charts__title">채널별 분포</h3>
       <div className="donut-row channel-donut-charts__row">
         {dist.send?.length > 0 && (
           <DonutBlock title="발송 요청" data={dist.send} totalLabel="건" />

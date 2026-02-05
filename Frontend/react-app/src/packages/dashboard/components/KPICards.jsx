@@ -28,7 +28,6 @@ export default function KPICards({ kpi }) {
   if (!kpi) return null
   return (
     <section className="kpi-cards-section kpi-cards">
-      <h3 className="kpi-cards__title">주요 지표</h3>
       <div className="kpi-grid">
         {CARD_CONFIG.map((c) => {
           const value = kpi[c.valueKey] ?? 0

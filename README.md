@@ -36,7 +36,7 @@ npm install
 `start.bat` 실행 시 API 서버·웹 서버가 각각 새 창에서 실행됩니다.
 
 - API: http://localhost:5001  
-- 웹: http://localhost:8080 → 브라우저에서 접속
+- 웹: http://localhost:8080/ibank-bi/ (리포트: /ibank-bi/report, 대시보드: /ibank-bi/dashboard)
 
 **방법 B – 터미널에서 따로 실행**
 
@@ -52,7 +52,7 @@ python run.py front
 - `python run.py back` → Backend API (config.backend, 포트 5001)  
 - `python run.py front` → **Frontend/react-app** 에서 `npm run build` 후 정적 서버 기동 (config.frontend, 포트 8080)
 
-그 다음 브라우저에서 **http://localhost:8080** 접속.
+그 다음 브라우저에서 **http://localhost:8080/ibank-bi/** 접속.
 
 ### 4. 설정 (필수)
 
@@ -93,4 +93,4 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 3. **실행** 버튼 또는 컬럼 추가 시 자동 실행 후 결과·SQL 확인
 4. **🤖 해석** 으로 Claude SQL 해석, **📋 복사** 로 SQL 복사
 
-상세 명세는 **docs/main** (PRD.md, CURSOR_SPEC.md 등) 참고.
+상세 명세는 **docs/main** (00_PRD.md, 01_FRONTEND_GUIDE.md) 참고.

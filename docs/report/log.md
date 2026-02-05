@@ -1,5 +1,69 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 대시보드 정렬 기준 UI (멀티 정렬·적용 문구)
+
+### 완료 작업
+1. **정렬 기준 행 추가 (DashboardHeader)**
+   - 집계 기준 아래에 동일 포맷의 "정렬 기준" 행 추가. 일자·발송수·성공수·오픈수·클릭수 버튼.
+   - 클릭 시: 1회=내림차순, 2회=오름차순, 3회=정렬 해제. 먼저 누른 항목이 1순위인 멀티 정렬.
+   - 적용된 정렬을 버튼 div 오른쪽에 표시: "1. 일자 - 오름차순 2. 발송수 - 내림차순" 형식.
+
+2. **정렬 로직 (DashboardPage)**
+   - sortOrder 상태: `[{ key, order: 'asc'|'desc' }, ...]`. sortAggregatedData(rows, sortOrder)로 정렬 후 sortedAggregatedData 를 AggregatedBarChart·AggregatedDataTable·ChartWidget 에 전달.
+
+3. **스타일 (dashboard.css)**
+   - .dashboard-header__sort-row, .dashboard-header__sort-label, .dashboard-header__sort-buttons, .dashboard-header__sort-btn(--desc/--asc), .dashboard-header__sort-applied 추가.
+
+### 비고
+- 백엔드 기본 ORDER BY(success_count DESC 등)는 유지. 프론트에서 정렬 기준이 있으면 그 순서로 덮어서 표시.
+
+---
+
+## 2025-02-02: docs/main 문서 분리 — 01_FRONTEND_GUIDE 생성·ADVANCED_FEATURES 통합 후 삭제
+
+### 완료 작업
+1. **01_FRONTEND_GUIDE.md 생성**
+   - 00_PRD.md·ADVANCED_FEATURES.md 의 프론트 관련 내용을 통합. 참고 포맷: Chart_Gen 02_Frontend_Guide.md (카테고리만 참고, 우리 시스템에 맞게 구성).
+   - 개요·접속 경로·기술 스택·아키텍처(디렉토리 구조)·패키지별 구성(report·dashboard·shared)·추가 기능(Claude 해석·페이지네이션)·스타일링·문서 구성 수록. 코드 블록은 최소화하고 구조·역할·동작 위주로 기술.
+
+2. **00_PRD.md 수정**
+   - 섹션 4(프론트엔드): 상세 제거, 한 단락 요약 + "상세는 01_FRONTEND_GUIDE.md 참고" 로 정리.
+   - 섹션 7(문서 구성): 00_PRD.md, 01_FRONTEND_GUIDE.md 로 갱신. ADVANCED_FEATURES.md 제거.
+   - 변경 이력: 문서 분리(프론트 상세 이관·ADVANCED_FEATURES 통합 후 삭제) 항목 추가.
+
+3. **ADVANCED_FEATURES.md 삭제**
+   - 내용 전부 01_FRONTEND_GUIDE.md 로 이관 완료 후 삭제.
+
+4. **README.md**
+   - 상세 명세 참조: "00_PRD.md, 01_FRONTEND_GUIDE.md" 로 수정.
+
+### 비고
+- docs/main: 00_PRD(요약·코드 세부 없음), 01_FRONTEND_GUIDE(프론트 전용 상세).
+
+---
+
+## 2025-02-02: docs/main 문서 정리 — PRD 통합·CURSOR_SPEC 삭제·ADVANCED_FEATURES 갱신
+
+### 완료 작업
+1. **PRD.md 유지·검토**
+   - CURSOR_SPEC.md, CURSOR_SPEC_V2_SIMPLIFIED.md 의 유효 내용은 이미 PRD로 통합된 상태로 유지. 한 줄씩 검토하여 현재 시스템과 일치함을 확인.
+
+2. **CURSOR_SPEC.md, CURSOR_SPEC_V2_SIMPLIFIED.md 삭제**
+   - 두 파일 삭제 완료. 요구사항·아키텍처·설정·기능 요약은 docs/main/PRD.md 만 참조.
+
+3. **ADVANCED_FEATURES.md 전면 수정**
+   - 기존 HTML/CSS/JavaScript 코드 블록 전부 제거 (과거 바닐라 구현 기준이었음).
+   - 현재 구현 기준으로 재작성: 프론트 React(Vite), Claude 해석은 백엔드 `/api/explain-sql` (API 키는 config.backend), 페이지네이션은 COUNT 쿼리 + LIMIT/OFFSET, ReportPage/MainArea·client.js 기준으로 동작·UI 개요만 기술.
+
+4. **README.md 수정**
+   - 상세 명세 참조를 "PRD.md, CURSOR_SPEC.md 등" → "PRD.md, ADVANCED_FEATURES.md" 로 변경.
+   - 접속 URL 안내: 웹 `http://localhost:8080/ibank-bi/`, 리포트 `/ibank-bi/report`, 대시보드 `/ibank-bi/dashboard` 명시.
+
+### 비고
+- docs/main 문서 구성: PRD.md(요구사항·아키텍처·설정), ADVANCED_FEATURES.md(Claude 해석·페이지네이션 등 추가 기능 명세).
+
+---
+
 ## 2025-02-02: 대시보드 필수 컬럼 타입 검증·금지 키워드 문맥 검사(CREATE 등 오탐 제거)
 
 ### 완료 작업

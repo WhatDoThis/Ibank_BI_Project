@@ -1,13 +1,14 @@
 /**
  * dashboard/components/DashboardHeader.jsx (대시보드 헤더)
  * ========================================================
- * 테이블 선택 + 집계 기준(테이블/컬럼 라인 사이) + 필터(캠페인·워크플로우·채널) 구성.
+ * 테이블 선택 + 집계 기준 + 정렬 기준 + 필터(캠페인·워크플로우·채널) 구성.
  * 집계 체크 해제 시 해당 셀렉트 음영·해당 데이터 전체 노출.
  *
  * [주요 기능]
- * - 1행: 테이블 셀렉트 + 테이블 오른쪽 info 버튼(필수 컬럼 안내 모달) + 기간 + 조회
- * - 2행: 집계 기준 체크박스 (테이블 라인과 컬럼 선택 라인 사이)
- * - 3행: 캠페인·워크플로우·채널 셀렉트 (넓은 폭), 집계 체크 해제 시 비활성화
+ * - 1행: 테이블 셀렉트 + info 버튼(필수 컬럼 안내 모달) + 기간 + 조회
+ * - 2행: 집계 기준 체크박스 (캠페인별·일자별·워크플로우별·채널별)
+ * - 정렬 기준: 일자·발송수·성공수·오픈수·클릭수 버튼 (1회=내림 2회=오름 3회=해제), 멀티 정렬·적용 문구 표시
+ * - 3행: 캠페인·워크플로우·채널 셀렉트, 집계 체크 해제 시 비활성화
  *
  * [의존성]
  * - React, @/shared/api/client (getDashboardRequiredColumns)
@@ -16,6 +17,14 @@
 import { useState, useEffect } from 'react'
 import { getDashboardRequiredColumns } from '@/shared/api/client'
 
+const SORT_OPTIONS = [
+  { key: 'delivery_date', label: '일자' },
+  { key: 'total_count', label: '발송수' },
+  { key: 'success_count', label: '성공수' },
+  { key: 'open_count', label: '오픈수' },
+  { key: 'click_count', label: '클릭수' }
+]
+
 export default function DashboardHeader({
   tables = [],
   tableId,
@@ -23,6 +32,8 @@ export default function DashboardHeader({
   filters,
   onFiltersChange,
   onGroupByChange,
+  sortOrder = [],
+  onSortOrderChange,
   filterOptions = {},
   loading,
   onLoad
@@ -64,6 +75,32 @@ export default function DashboardHeader({
       if (key === 'channel') onFiltersChange({ channels: [] })
     }
   }
+
+  /** 정렬 버튼 클릭: 없음 → 내림차순 → 오름차순 → 제거. 먼저 누른 항목이 1순위(멀티 정렬). */
+  const handleSortClick = (optionKey) => {
+    const idx = sortOrder.findIndex((s) => s.key === optionKey)
+    if (idx === -1) {
+      onSortOrderChange([...sortOrder, { key: optionKey, order: 'desc' }])
+    } else if (sortOrder[idx].order === 'desc') {
+      onSortOrderChange(sortOrder.map((s, i) => (i === idx ? { ...s, order: 'asc' } : s)))
+    } else {
+      onSortOrderChange(sortOrder.filter((_, i) => i !== idx))
+    }
+  }
+
+  const getSortState = (optionKey) => {
+    const entry = sortOrder.find((s) => s.key === optionKey)
+    if (!entry) return null
+    return entry.order
+  }
+
+  const sortAppliedText = sortOrder.length
+    ? sortOrder.map((s, i) => {
+        const label = SORT_OPTIONS.find((o) => o.key === s.key)?.label ?? s.key
+        const orderText = s.order === 'desc' ? '내림차순' : '오름차순'
+        return `${i + 1}. ${label} - ${orderText}`
+      }).join('  ')
+    : ''
 
   return (
     <header className="dashboard-header">
@@ -140,15 +177,6 @@ export default function DashboardHeader({
           <label className="dashboard-header__checkbox-label">
             <input
               type="checkbox"
-              checked={!!group_by.date}
-              onChange={(e) => onGroupByChange({ date: e.target.checked })}
-              className="dashboard-header__checkbox"
-            />
-            <span>일자별</span>
-          </label>
-          <label className="dashboard-header__checkbox-label">
-            <input
-              type="checkbox"
               checked={!!group_by.workflow}
               onChange={(e) => handleGroupByChange('workflow', e.target.checked)}
               className="dashboard-header__checkbox"
@@ -165,6 +193,33 @@ export default function DashboardHeader({
             <span>채널별</span>
           </label>
         </div>
+      </div>
+
+      {/* 정렬 기준: 일자·발송수·성공수·오픈수·클릭수 (1회=내림 2회=오름 3회=초기화), 멀티 정렬 지원 */}
+      <div className="dashboard-header__sort-row">
+        <span className="dashboard-header__sort-label">정렬 기준</span>
+        <div className="dashboard-header__sort-buttons">
+          {SORT_OPTIONS.map((opt) => {
+            const state = getSortState(opt.key)
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                className={`dashboard-header__sort-btn ${state ? `dashboard-header__sort-btn--${state}` : ''}`}
+                onClick={() => handleSortClick(opt.key)}
+                title={state === 'desc' ? '다음 클릭: 오름차순' : state === 'asc' ? '다음 클릭: 정렬 해제' : '클릭: 내림차순'}
+              >
+                {opt.label}
+                {state && <span className="dashboard-header__sort-badge">{state === 'desc' ? ' ↓' : ' ↑'}</span>}
+              </button>
+            )
+          })}
+        </div>
+        {sortAppliedText && (
+          <span className="dashboard-header__sort-applied">
+            {sortAppliedText}
+          </span>
+        )}
       </div>
 
       {/* 3행: 캠페인·워크플로우·채널 필터 */}

@@ -49,6 +49,21 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
     return data.filter((row) => rowMatchesFilter(row, filterText, groupBy))
   }, [data, filterText, groupBy])
 
+  /** 일자별 구분: 고유 일자 순서로 행 배경 음영(짝수 번째 일자 = 음영) */
+  const dateOrder = useMemo(() => {
+    if (!groupBy.date) return []
+    const dates = [...new Set(data.map((r) => r.delivery_date).filter(Boolean))].sort()
+    return dates
+  }, [data, groupBy.date])
+
+  const getRowBg = useMemo(() => {
+    if (!groupBy.date || dateOrder.length === 0) return () => undefined
+    return (row) => {
+      const idx = dateOrder.indexOf(row.delivery_date)
+      return idx >= 0 && idx % 2 === 1 ? '#f3f4f6' : undefined
+    }
+  }, [groupBy.date, dateOrder])
+
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE))
   const currentPage = Math.min(Math.max(1, page), totalPages)
   const startIdx = (currentPage - 1) * PAGE_SIZE
@@ -59,7 +74,6 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
   return (
     <section className="aggregated-data-table aggregated-data-table-section">
       <div className="aggregated-data-table__toolbar">
-        <h3 className="aggregated-data-table__title">집계 데이터 테이블</h3>
         <div className="aggregated-data-table__search-wrap">
           <input
             type="text"
@@ -107,7 +121,7 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
               </tr>
             )}
             {pageData.map((row, idx) => (
-              <tr key={startIdx + idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
+              <tr key={startIdx + idx} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: getRowBg(row) }}>
                 {groupBy.campaign && (
                   <td style={{ padding: '10px 12px' }}>{row.campaign_label ?? row.campaign_id ?? '-'}</td>
                 )}

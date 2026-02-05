@@ -1,0 +1,181 @@
+# 제품 요구사항 정의서 (PRD)
+
+## 문서 정보
+- **카테고리**: 요구사항 정의
+- **기반**: docs/main (통합·정리 완료. CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 내용 취합 후 해당 파일 삭제)
+- **비고**: 개발문서는 docs/main 에만 두며, docs/report 는 코드 정리·배포·실행 로그만 포함
+
+---
+
+## 1. 프로젝트 개요
+
+### 1.1 목적
+SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이터를 조회·집계할 수 있는 **노코드 쿼리 빌더** 및 **정형 대시보드** (스타벅스 CRM 대상).
+
+### 1.2 핵심 가치
+- **리포트(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
+- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·나만의 차트 위젯
+- **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
+- **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
+
+---
+
+## 2. 기본 아키텍처
+
+### 2.1 패키지 구조 (루트 기준)
+
+```
+Project/
+├── run.py              # 통합 진입점 (python run.py back | front | serve)
+├── start.bat           # Windows: API·웹 서버 각각 새 창 실행
+├── requirements.txt
+├── README.md
+├── Frontend/
+│   ├── react-app/      # React 앱 (Vite), base: /ibank-bi/
+│   │   ├── src/
+│   │   │   ├── packages/
+│   │   │   │   ├── report/     # 쿼리 빌더 (ReportPage, Sidebar, MainArea, sqlBuilder)
+│   │   │   │   └── dashboard/  # 대시보드 (DashboardPage, KPI·차트·집계 테이블·ChartWidget)
+│   │   │   └── shared/         # API 클라이언트, config
+│   │   ├── index.html
+│   │   └── dist/       # npm run build 결과
+│   └── static_server/
+│       └── main.py     # 정적 서버 (dist 서빙, /ibank-bi 요청 처리, SPA fallback, api-config.js 주입)
+├── Backend/
+│   └── api_server/
+│       ├── main.py    # Flask 진입 (config.backend, host/port)
+│       ├── db.py      # DB 연결·검증·get_table_columns·get_table_columns_with_types
+│       ├── routes.py  # health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats, dashboard/* 
+│       └── dashboard_service.py  # 대시보드 집계·필터 옵션·필수 컬럼(이름·타입) 검증
+└── Env/
+    └── config/
+        ├── loader.py
+        ├── config.json
+        └── config.json.example
+```
+
+### 2.2 실행 방식
+- `python run.py back`: Backend API (Flask, config.backend.api_port, 기본 5001)
+- `python run.py front`: Frontend/react-app 에서 `npm run build` 후 정적 서버 (config.frontend.static_port, 기본 8080)
+- `python run.py serve`: 빌드 없이 정적 서버만 (배포 시 502 방지용)
+- **접속 경로**: 로컬 `http://localhost:8080/ibank-bi/`, 리포트 `http://localhost:8080/ibank-bi/report`, 대시보드 `http://localhost:8080/ibank-bi/dashboard`
+
+---
+
+## 3. 환경 설정 (Env)
+
+### 3.1 config.json
+- **위치**: `Env/config/config.json` (또는 `config.json.example` 복사 후 수정)
+- **로드**: `Env/config/loader.py` → `config.backend`, `config.frontend`
+
+### 3.2 config.json 구조
+
+```json
+{
+  "backend": {
+    "api_host": "0.0.0.0",
+    "api_port": 5001,
+    "db_host": "",
+    "db_port": 5432,
+    "db_name": "",
+    "db_user": "",
+    "db_password": "",
+    "allowed_tables": ["테이블명1", "..."],
+    "table_schema": "public",
+    "query_timeout_seconds": 10,
+    "claude_api_key": "",
+    "claude_api_url": "https://api.anthropic.com/v1/messages"
+  },
+  "frontend": {
+    "static_port": 8080,
+    "main_page": "index.html",
+    "api_base_url": "http://localhost:5001",
+    "static_dir": "Frontend/react-app/dist"
+  }
+}
+```
+
+- `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
+- **Linux 배포 시**: Nginx에서 프론트는 `/ibank-bi/`, API는 `/report_api/` 등으로 프록시할 경우 `frontend.api_base_url` 은 **API 쪽 URL** (예: `https://도메인/report_api`) 로 설정.
+
+### 3.3 규칙
+- **.env 미사용**: 설정은 `Env/config/config.json` 만 사용.
+- **.gitignore**: 프로젝트 루트에만 둠.
+
+---
+
+## 4. 프론트엔드 (Frontend)
+
+- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report(쿼리 빌더), dashboard(집계 대시보드). 공용 API·설정은 shared. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
+- 상세 구조·패키지·추가 기능(Claude 해석·페이지네이션)은 **01_FRONTEND_GUIDE.md** 참고.
+
+---
+
+## 5. 백엔드 (Backend)
+
+### 5.1 역할
+- Flask REST API: 리포트용(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats) + 대시보드용(dashboard/data, dashboard/filter-options, dashboard/tables, dashboard/required-columns).
+- PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
+
+### 5.2 API 엔드포인트 요약
+- GET /health
+- GET /api/list-tables
+- POST /api/describe-table
+- GET /api/table-relationships
+- POST /api/execute-query
+- POST /api/explain-sql (Claude, config.backend.claude_api_key/url)
+- POST /api/get-column-values
+- POST /api/query-stats
+- POST /api/dashboard/data
+- GET /api/dashboard/filter-options/<table_id>
+- GET /api/dashboard/tables (필수 컬럼·타입 만족 테이블만)
+- GET /api/dashboard/required-columns
+
+### 5.3 구성
+- **api_server/main.py**: Flask, CORS, 라우트 등록, config.backend 로 host/port.
+- **api_server/db.py**: get_db_config, get_allowed_tables, get_table_schema, get_table_columns, get_table_columns_with_types, get_db_connection, format_value, validate_table_name, validate_column_name.
+- **api_server/routes.py**: register_routes(app), 금지 SQL 검사(_contains_dangerous_sql).
+- **api_server/dashboard_service.py**: get_dashboard_data, get_filter_options, get_aggregatable_tables, get_required_columns (이름·허용 타입).
+
+---
+
+## 6. 핵심 기능 요약 (현재 구현 기준)
+
+### 6.1 리포트(쿼리 빌더)
+- 사이드바: 테이블 목록, 테이블별 컬럼(드래그 가능), JOIN 불가 테이블 비활성화.
+- 그리드: 컬럼 드롭 추가, 헤더 드래그로 순서 변경, 기준축·피벗·HAVING·조건·정렬·날짜 단위·집계 함수.
+- SQL 자동 생성: 별칭(t1, t2) 사용, WHERE/ORDER BY/GROUP BY/HAVING/LIMIT·OFFSET.
+- 실행·페이지네이션(건수 선택), 실행된 SQL 표시·복사·Claude 해석(백엔드 경유).
+- 초기화 시 그리드·필터·정렬·집계·피벗 등 전부 리셋.
+
+### 6.2 대시보드
+- 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널) 체크.
+- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 나만의 차트 위젯(Dimension/Metric/차트 유형).
+- 필수 컬럼 안내 모달(컬럼명·허용 타입 목록).
+
+### 6.3 공통
+- API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
+- 별칭 필수: SQL 내 컬럼 참조 시 `t1.column_name` 형식. 금지 키워드: SELECT 문장은 검사 제외, 그 외 문장에서 DROP/CREATE/UPDATE 등 위험 구문만 차단.
+
+---
+
+## 7. docs/main 문서 구성
+
+| 문서 | 용도 |
+|------|------|
+| 00_PRD.md | 제품 요구사항·아키텍처·패키지·설정·기능 요약 (본 문서, 코드 수준 세부 없음) |
+| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·추가 기능 명세 |
+
+- docs/report: 배포·실행 로그·nginx 등. 개발 요구사항은 docs/main 에만 둠.
+
+---
+
+## 8. 변경 이력
+
+| 일자 | 변경 내용 |
+|------|-----------|
+| (최초) | docs/main 기반 PRD 초안 |
+| (갱신) | run.py back/front/serve, Frontend/react-app, static_server, config.json 구조 반영 |
+| (React 전환) | packages report·dashboard, static_dir=Frontend/react-app/dist 반영 |
+| (문서 통합) | CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 유효 내용 PRD로 통합, 해당 두 파일 삭제. base /ibank-bi/, 대시보드 API·필수 컬럼 타입·금지 키워드 문맥 검사 반영 |
+| (문서 분리) | 프론트 상세를 01_FRONTEND_GUIDE.md 로 이관. 00_PRD는 요약만 유지. ADVANCED_FEATURES.md 내용 통합 후 삭제 |

@@ -15,10 +15,11 @@
  * - React, shared/api/client, dashboard/components (DashboardHeader, KPICards, ChannelDonutCharts, AggregatedBarChart, AggregatedDataTable, ChartWidget)
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getDashboardData, getDashboardFilterOptions, getDashboardTables } from '@/shared/api/client'
 import './dashboard.css'
 import DashboardHeader from './components/DashboardHeader'
+import CollapsibleSection from './components/CollapsibleSection'
 import KPICards from './components/KPICards'
 import ChannelDonutCharts from './components/ChannelDonutCharts'
 import AggregatedBarChart from './components/AggregatedBarChart'
@@ -27,6 +28,25 @@ import ChartWidget from './components/ChartWidget'
 
 // 최초 대시보드 진입 시(세션 미유지) 집계 기준: 일자별만 적용
 const defaultGroupBy = { campaign: false, date: true, workflow: false, channel: false }
+
+/** 집계 데이터 정렬: sortOrder = [{ key, order: 'asc'|'desc' }, ...], 먼저 누른 것이 1순위 */
+function sortAggregatedData(rows, sortOrder) {
+  if (!rows?.length || !sortOrder?.length) return rows || []
+  return [...rows].sort((a, b) => {
+    for (const { key, order } of sortOrder) {
+      const va = a[key]
+      const vb = b[key]
+      let cmp = 0
+      if (va == null && vb == null) cmp = 0
+      else if (va == null) cmp = 1
+      else if (vb == null) cmp = -1
+      else if (key === 'delivery_date') cmp = String(va).localeCompare(String(vb))
+      else cmp = Number(va) - Number(vb)
+      if (cmp !== 0) return order === 'desc' ? -cmp : cmp
+    }
+    return 0
+  })
+}
 
 function getDefaultDateRange() {
   const now = new Date()
@@ -53,6 +73,19 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [chartWidgets, setChartWidgets] = useState([])
+  /** 정렬 기준: [{ key: 'delivery_date'|'total_count'|..., order: 'asc'|'desc' }, ...], 먼저 누른 것이 1순위 */
+  const [sortOrder, setSortOrder] = useState([])
+  /** 섹션 접기/펼치기: kpi, channel, bar, table, chartWidget */
+  const [sectionOpen, setSectionOpen] = useState({
+    kpi: true,
+    channel: true,
+    bar: true,
+    table: true,
+    chartWidget: true
+  })
+  const toggleSection = useCallback((key) => {
+    setSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }))
+  }, [])
 
   // 테이블 목록 로드
   useEffect(() => {
@@ -113,12 +146,16 @@ export default function DashboardPage() {
     return () => { cancelled = true }
   }, [tableId, filters.campaign_ids, filters.workflow_ids, filters.channels])
 
-  // 대시보드 데이터 로드 (filters 변경 시)
+  // 대시보드 데이터 로드 (filters 변경 시). 일자별은 항상 적용(집계 기준에서 체크박스 제거됨).
   const loadData = useCallback(() => {
     if (!filters.table_id || !filters.date_range?.length) return
     setLoading(true)
     setError(null)
-    getDashboardData(filters)
+    const payload = {
+      ...filters,
+      group_by: { ...(filters.group_by || defaultGroupBy), date: true }
+    }
+    getDashboardData(payload)
       .then((res) => {
         setData(res)
         setLoading(false)
@@ -145,6 +182,11 @@ export default function DashboardPage() {
     }))
   }, [])
 
+  const sortedAggregatedData = useMemo(
+    () => sortAggregatedData(data?.aggregated_data ?? [], sortOrder),
+    [data?.aggregated_data, sortOrder]
+  )
+
   return (
     <div className="dashboard-page">
       <div className="dashboard-page__header-wrap">
@@ -155,6 +197,8 @@ export default function DashboardPage() {
         filters={filters}
         onFiltersChange={updateFilters}
         onGroupByChange={updateGroupBy}
+        sortOrder={sortOrder}
+        onSortOrderChange={setSortOrder}
         filterOptions={filterOptions}
         loading={loading}
         onLoad={loadData}
@@ -175,24 +219,58 @@ export default function DashboardPage() {
 
       {tableId && (
         <div className="dashboard-page__content">
-          {data?.kpi && <KPICards kpi={data.kpi} />}
-          {data?.kpi && <ChannelDonutCharts kpi={data.kpi} />}
-          {data?.aggregated_data?.length > 0 && (
-            <AggregatedBarChart
-              data={data.aggregated_data}
-              groupBy={filters.group_by ?? defaultGroupBy}
-            />
+          {data?.kpi && (
+            <CollapsibleSection
+              title="주요 지표"
+              open={sectionOpen.kpi}
+              onToggle={() => toggleSection('kpi')}
+            >
+              <KPICards kpi={data.kpi} />
+            </CollapsibleSection>
           )}
-          <AggregatedDataTable
-            data={data?.aggregated_data ?? []}
-            groupBy={filters.group_by ?? defaultGroupBy}
-          />
-          <ChartWidget
-            data={data?.aggregated_data ?? []}
-            groupBy={filters.group_by ?? defaultGroupBy}
-            widgets={chartWidgets}
-            onWidgetsChange={setChartWidgets}
-          />
+          {data?.kpi && (
+            <CollapsibleSection
+              title="채널별 도넛"
+              open={sectionOpen.channel}
+              onToggle={() => toggleSection('channel')}
+            >
+              <ChannelDonutCharts kpi={data.kpi} />
+            </CollapsibleSection>
+          )}
+          {sortedAggregatedData.length > 0 && (
+            <CollapsibleSection
+              title="기준별 발송 현황 (발송성공수 상위 10건)"
+              open={sectionOpen.bar}
+              onToggle={() => toggleSection('bar')}
+            >
+              <AggregatedBarChart
+                data={sortedAggregatedData}
+                groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
+              />
+            </CollapsibleSection>
+          )}
+          <CollapsibleSection
+            title="집계 데이터 테이블"
+            open={sectionOpen.table}
+            onToggle={() => toggleSection('table')}
+          >
+            <AggregatedDataTable
+              data={sortedAggregatedData}
+              groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            title="차트 생성"
+            open={sectionOpen.chartWidget}
+            onToggle={() => toggleSection('chartWidget')}
+          >
+            <ChartWidget
+              data={sortedAggregatedData}
+              groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
+              widgets={chartWidgets}
+              onWidgetsChange={setChartWidgets}
+            />
+          </CollapsibleSection>
         </div>
       )}
     </div>
