@@ -501,7 +501,8 @@
 }
 
 .aggregated-bar-chart__chart-wrap {
-  width: 100%;
+  /* width는 AggregatedBarChart에서 막대 개수에 따라 유동 지정 (인라인 스타일) */
+  min-width: 0;
 }
 
 .aggregated-bar-chart .recharts-responsive-container {

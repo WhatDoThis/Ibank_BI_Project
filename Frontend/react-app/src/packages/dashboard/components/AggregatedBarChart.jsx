@@ -51,6 +51,11 @@ const TOP_N = 10
 const LINE_HEIGHT = 14
 const X_AXIS_BOTTOM_MARGIN = 100
 const X_LABEL_OFFSET = 14
+/** 막대 개수에 따라 차트 너비 유동 계산 (가독성): 막대당 90px, 좌우 여백 포함, min/max clamp */
+const WIDTH_PER_BAR = 90
+const CHART_MIN_WIDTH = 280
+const CHART_MAX_WIDTH = 980
+const CHART_SIDE_PADDING = 48
 
 /** X축 복수 값(일자/캠페인/워크플로우/채널)을 " / " 기준으로 줄바꿈 표시. 차트와 레이블 간격 확보를 위해 아래로 오프셋 */
 function XAxisTickMultiline({ x, y, payload }) {
@@ -83,12 +88,14 @@ export default function AggregatedBarChart({ data = [], groupBy = {} }) {
   }))
   const hasMultiline = chartData.some((d) => (d.name || '').includes(' / '))
   const bottomMargin = hasMultiline ? X_AXIS_BOTTOM_MARGIN : 24
+  const barCount = chartData.length
+  const chartWidth = Math.min(CHART_MAX_WIDTH, Math.max(CHART_MIN_WIDTH, barCount * WIDTH_PER_BAR + CHART_SIDE_PADDING))
   return (
     <section className="aggregated-bar-chart aggregated-bar-chart-section">
       <h3 className="aggregated-bar-chart__title">
         기준별 발송 현황 (발송성공 수 상위 {TOP_N}건)
       </h3>
-      <div className="aggregated-bar-chart__chart-wrap">
+      <div className="aggregated-bar-chart__chart-wrap" style={{ width: chartWidth, maxWidth: '100%', margin: '0 auto' }}>
       <ResponsiveContainer width="100%" height={440}>
         <BarChart
           data={chartData}
