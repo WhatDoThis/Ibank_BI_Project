@@ -89,6 +89,19 @@ function calculateYAxisMin(dataMin, stepSize) {
   return multiplier * stepSize
 }
 
+/** 선형/영역 전용: 간격 0.5 단위만(0.5,1,2,5,10…), Y축 구간 4개 이상, yMin=dataMin-간격, yMax=dataMax+간격 */
+function calculateNiceStepSizeLineArea(dataMin, dataMax) {
+  const dataRange = dataMax - dataMin
+  const maxStep = dataRange <= 0 ? 1 : dataRange / 2
+  const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+  let step = 0.5
+  for (const c of candidates) {
+    if (c <= maxStep) step = c
+    else break
+  }
+  return step
+}
+
 /** Dimension 후보: 일자·캠페인·워크플로우·채널 (집계 체크박스와 1:1 대응) */
 const DIMENSION_FIELDS = [
   { key: 'delivery_date', label: '일자' },
@@ -236,19 +249,20 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: 막대=0부터(양적 비교), 선형/영역=동적 min~max(고저 변동 강조) */
+  /* Y축 도메인: 막대=0부터(양적 비교), 선형/영역=0.5단위 간격·4구간 이상·yMin=dataMin-간격, yMax=dataMax+간격 */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
     const values = chartData.map((d) => d[metricField.label])
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
-    const stepSize = calculateNiceStepSize(dataMin, dataMax)
-    const yMax = calculateYAxisMax(dataMax, stepSize)
     if (chartType === 'bar') {
+      const stepSize = calculateNiceStepSize(dataMin, dataMax)
+      const yMax = calculateYAxisMax(dataMax, stepSize)
       return [0, dataMax === dataMin ? Math.max(1, dataMax + 1) : yMax]
     }
-    if (dataMax === dataMin) return [dataMin - 1, dataMax + 1]
-    const yMin = calculateYAxisMin(dataMin, stepSize)
+    const step = calculateNiceStepSizeLineArea(dataMin, dataMax)
+    const yMin = dataMin - step
+    const yMax = dataMax + step
     return [yMin, yMax]
   }, [chartData, metricField.label, chartType])
 
@@ -401,7 +415,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         minHeight: CHART_HEIGHT + CHART_PADDING * 2
       }}
     >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <input
           type="text"
           value={title || ''}
@@ -419,7 +433,16 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
             maxWidth: 280
           }}
         />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button type="button" className="chart-widget__save-btn" onClick={() => { /* 저장: DB 정립 후 구현 */ }}>
+            저장
+          </button>
+          <button type="button" className="chart-widget__delete-btn" onClick={() => onRemove(id)}>
+            삭제
+          </button>
+        </div>
+      </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <select
             value={effectiveXKey}
             onChange={(e) => onUpdate(id, { xKey: e.target.value })}
@@ -451,10 +474,9 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
             삭제
           </button>
         </div>
-      </div>
-      <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed" style={{ padding: CHART_PADDING }}>
-        {chartInner}
-      </div>
+        <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed" style={{ padding: CHART_PADDING }}>
+          {chartInner}
+        </div>
     </div>
   )
 }

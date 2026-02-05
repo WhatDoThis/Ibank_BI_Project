@@ -806,6 +806,20 @@
   background: #ef4444;
 }
 
+.chart-widget__save-btn {
+  padding: 6px 14px;
+  font-size: 14px;
+  color: #fff;
+  background: #0d9488;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.chart-widget__save-btn:hover {
+  background: #0f766e;
+}
+
 /* 차트 영역 폭: 좌우 여유 확대(max-width 1200px). 막대 차트는 레이블 간격 확보를 위해 내부 minWidth·가로 스크롤, Y축 고정 영역과 분리 */
 .chart-widget__chart-wrap {
   width: 100%;
