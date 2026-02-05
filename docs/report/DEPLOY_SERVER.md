@@ -139,7 +139,58 @@ python run.py serve
 
 ---
 
-## 5. 도메인 접속 시 "Load resource" 404 발생 시
+## 5. /ibank-bi 경로 접속 시 404 (base 경로 변경 후)
+
+**증상**: `https://도메인/ibank-bi/` 또는 `https://도메인/ibank-bi/report` 접속 시 404.
+
+**원인**: 프론트엔드 Vite `base`가 `/ibank-bi/`로 설정되어 있어, 앱은 **/ibank-bi/** 아래에서만 동작합니다. Nginx에 **location /ibank-bi/** 가 없으면 해당 경로가 다른 location 또는 default로 가서 404가 난다.
+
+**조치 (Nginx)**:
+
+1. **docs/report/nginx_report.conf** 를 참고해 서버 Nginx 설정에 아래를 추가(또는 기존 server 블록에 포함).
+
+```nginx
+# /ibank-bi/ → 프론트엔드(3500). URI 전체 전달(슬래시 없음)해야 정적 서버가 SPA/asset 처리.
+location /ibank-bi/ {
+    allow 127.0.0.1;
+    allow 39.115.174.0/24;
+    allow 49.247.47.206;
+    deny all;
+
+    proxy_pass http://127.0.0.1:3500;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_connect_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+}
+location = /ibank-bi {
+    allow 127.0.0.1;
+    allow 39.115.174.0/24;
+    allow 49.247.47.206;
+    deny all;
+    return 302 /ibank-bi/;
+}
+```
+
+2. **주의**: `proxy_pass http://127.0.0.1:3500;` 처럼 **끝에 슬래시 없이** 써야 요청 URI(`/ibank-bi/report` 등)가 그대로 3500으로 전달된다. 슬래시를 붙이면 경로가 잘려서 SPA/asset 요청이 깨진다.
+
+3. 설정 반영 후:
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+**config.json**: `frontend.api_base_url` 은 **API 경로**만 바라보면 된다. 예: `https://도메인/report_api`. `/ibank-bi` 로 접속해도 API는 `/report_api` 로 호출하면 된다. (Nginx에서 `/report_api/` → 8500 프록시는 그대로 둠.)
+
+---
+
+## 6. 도메인 접속 시 "Load resource" 404 발생 시
 
 **원인**: 앱이 Nginx에서 `/report/` 아래로 서비스되는데, `api-config.js`가 **도메인 루트**(`/api-config.js`)로 요청되면 Nginx의 `location /report/`에 매칭되지 않아 404가 난다.
 
@@ -150,7 +201,7 @@ python run.py serve
 
 ---
 
-## 6. Linux 서버에서 api_base_url (필수)
+## 7. Linux 서버에서 api_base_url (필수)
 
 Nginx는 **프론트엔드**와 **API**를 서로 다른 경로로 프록시합니다.
 
