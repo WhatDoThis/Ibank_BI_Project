@@ -3,7 +3,7 @@
  * =====================================================
  * Dimension(축)·Metric(값)·차트 유형 선택으로 막대/선/영역 차트 생성.
  * 차트 데이터는 별도 API(getChartData)로 단일 디멘션·메트릭 집계 조회(Adobe/GA 방식). tableId·filters 있으면 API 사용, 없으면 data prop 폴백.
- * Dimension: 집계 체크박스 기준. Metric: 실수형 지표만. Y축 Nice Numbers 적용.
+ * Dimension: 집계 체크박스 기준. Metric: 실수형 지표만. Y축: Chart.js 스타일 Nice Numbers (niceNum·calculateYAxisScale·선형/영역·막대 전용).
  *
  * [주요 기능]
  * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황과 동일.
@@ -32,73 +32,260 @@ import {
 
 const formatNum = (n) => (n != null ? new Intl.NumberFormat('ko-KR').format(n) : '0')
 
-/** Nice Numbers: Y축 간격(stepSize) 계산 */
-function calculateNiceStepSize(dataMin, dataMax) {
-  const dataRange = dataMax - dataMin
-  if (dataRange === 0) return 1.0
-  const magnitude = 10 ** Math.floor(Math.log10(dataRange))
-  const normalizedRange = dataRange / magnitude
-  let stepSize
-  if (normalizedRange <= 1) stepSize = 0.2 * magnitude
-  else if (normalizedRange <= 2) stepSize = 0.5 * magnitude
-  else if (normalizedRange <= 5) stepSize = 1.0 * magnitude
-  else if (normalizedRange <= 10) stepSize = 2.0 * magnitude
-  else stepSize = 5.0 * magnitude
-  const maxStepSize = dataMax * 0.3
-  if (stepSize > maxStepSize) {
-    const magnitudeLimit = 10 ** Math.floor(Math.log10(maxStepSize))
-    const normalizedLimit = maxStepSize / magnitudeLimit
-    if (normalizedLimit <= 1) stepSize = 0.2 * magnitudeLimit
-    else if (normalizedLimit <= 2) stepSize = 0.5 * magnitudeLimit
-    else if (normalizedLimit <= 5) stepSize = 1.0 * magnitudeLimit
-    else if (normalizedLimit <= 10) stepSize = 2.0 * magnitudeLimit
-    else stepSize = 5.0 * magnitudeLimit
-  }
-  let minStepSize = dataRange < 1000 ? dataRange * 0.1 : 0
-  if (dataRange < 1) {
-    if (dataRange <= 0.2) stepSize = Math.max(0.05, minStepSize)
-    else if (dataRange <= 0.5) stepSize = Math.max(0.1, minStepSize)
-    else stepSize = Math.max(0.2, minStepSize)
-  } else if (dataRange < 10) {
-    if (dataRange <= 1) stepSize = Math.max(0.2, minStepSize)
-    else if (dataRange <= 2) stepSize = Math.max(0.5, minStepSize)
-    else if (dataRange <= 5) stepSize = Math.max(1.0, minStepSize)
-    else stepSize = Math.max(1.0, minStepSize)
-  } else if (dataRange < 100) {
-    if (dataRange <= 10) stepSize = Math.max(1.0, minStepSize)
-    else if (dataRange <= 20) stepSize = Math.max(2.0, minStepSize)
-    else if (dataRange <= 50) stepSize = Math.max(5.0, minStepSize)
-    else stepSize = Math.max(10.0, minStepSize)
+/** rate(성공률·오픈률·클릭률 등): 항상 소수점 둘째 자리까지 표기 (30 → 30.00, 30.1 → 30.10) */
+const formatRate = (n) =>
+  (n != null && !Number.isNaN(Number(n)))
+    ? new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
+    : '0.00'
+
+/** Y축 레이블용: 좁은 공간에서 잘리지 않도록 큰 수는 지수/축약 표기. rate일 때는 formatRate 사용 */
+function formatYAxisTick(value, isRate = false) {
+  if (isRate) return formatRate(value)
+  if (value == null || Number.isNaN(value)) return '0'
+  const n = Number(value)
+  const abs = Math.abs(n)
+  if (abs >= 1e12) return (n / 1e12).toFixed(0) + 'e12'
+  if (abs >= 1e9) return (n / 1e9).toFixed(0) + 'e9'
+  if (abs >= 1e6) return (n / 1e6).toFixed(0) + 'e6'
+  if (abs >= 1e3) return new Intl.NumberFormat('ko-KR').format(n)
+  return String(n)
+}
+
+/** 차트 도메인/툴팁용: 문자열(쉼표 포함 등)을 숫자로 안전 파싱 */
+function parseChartNumber(v) {
+  if (v == null) return 0
+  if (typeof v === 'number' && !Number.isNaN(v)) return v
+  const s = String(v).replace(/,/g, '').trim()
+  const n = Number(s)
+  return Number.isNaN(n) ? 0 : n
+}
+
+/**
+ * Y축 Nice Numbers (Chart.js 스타일)
+ * - 1, 2, 5의 배수로 가독성 좋은 틱 간격
+ * - 데이터 범위에 따른 적응형 패딩
+ */
+
+/** 주어진 범위에서 "nice" 숫자 반환 */
+function niceNum(range, round) {
+  if (range <= 0) return 1
+  const exponent = Math.floor(Math.log10(range))
+  const fraction = range / Math.pow(10, exponent)
+  let niceFraction
+  if (round) {
+    if (fraction < 1.5) niceFraction = 1
+    else if (fraction < 3) niceFraction = 2
+    else if (fraction < 7) niceFraction = 5
+    else niceFraction = 10
   } else {
-    stepSize = Math.max(stepSize, minStepSize)
+    if (fraction <= 1) niceFraction = 1
+    else if (fraction <= 2) niceFraction = 2
+    else if (fraction <= 5) niceFraction = 5
+    else niceFraction = 10
   }
-  return stepSize
+  return niceFraction * Math.pow(10, exponent)
 }
 
-function calculateYAxisMax(dataMax, stepSize) {
-  const baseMax = Math.ceil(dataMax / stepSize) * stepSize
-  return baseMax + stepSize
-}
+/**
+ * Y축 스케일 계산 (메인)
+ * @returns {{ min, max, stepSize, ticks, tickCount }}
+ */
+function calculateYAxisScale(dataMin, dataMax, options = {}) {
+  const {
+    minTicks = 5,
+    maxTicks = 10,
+    paddingRatio = 0.1,
+    includeZero = false
+  } = options
 
-function calculateYAxisMin(dataMin, stepSize) {
-  let baseMin = Math.floor(dataMin / stepSize) * stepSize
-  let calculatedMin = baseMin - stepSize
-  calculatedMin = Math.max(0, calculatedMin)
-  const multiplier = calculatedMin > 0 ? Math.floor(calculatedMin / stepSize) : 0
-  return multiplier * stepSize
-}
-
-/** 선형/영역 전용: 간격 0.5 단위만(0.5,1,2,5,10…), Y축 구간 4개 이상, yMin=dataMin-간격, yMax=dataMax+간격 */
-function calculateNiceStepSizeLineArea(dataMin, dataMax) {
-  const dataRange = dataMax - dataMin
-  const maxStep = dataRange <= 0 ? 1 : dataRange / 4
-  const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
-  let step = 0.5
-  for (const c of candidates) {
-    if (c <= maxStep) step = c
-    else break
+  if (dataMin === dataMax) {
+    const value = dataMin
+    const padding = Math.abs(value) * 0.1 || 1
+    return {
+      min: value - padding,
+      max: value + padding,
+      stepSize: padding / 2,
+      ticks: [value - padding, value, value + padding],
+      tickCount: 3
+    }
   }
-  return step
+
+  let rangeMin = dataMin
+  let rangeMax = dataMax
+  if (includeZero) {
+    rangeMin = Math.min(0, dataMin)
+    rangeMax = Math.max(0, dataMax)
+  }
+
+  let range = rangeMax - rangeMin
+  const padding = range * paddingRatio
+  let adjustedMin = rangeMin - padding
+  let adjustedMax = rangeMax + padding
+  let adjustedRange = adjustedMax - adjustedMin
+
+  const roughStep = adjustedRange / (minTicks - 1)
+  const stepSize = niceNum(roughStep, false)
+
+  let niceMin = Math.floor(adjustedMin / stepSize) * stepSize
+  let niceMax = Math.ceil(adjustedMax / stepSize) * stepSize
+
+  if (includeZero) {
+    if (niceMin > 0) niceMin = 0
+    if (niceMax < 0) niceMax = 0
+  }
+
+  let tickCount = Math.round((niceMax - niceMin) / stepSize) + 1
+
+  if (tickCount > maxTicks && minTicks >= 3) {
+    return calculateYAxisScale(dataMin, dataMax, {
+      ...options,
+      minTicks: Math.max(3, Math.floor(maxTicks * 0.7))
+    })
+  }
+
+  const ticks = []
+  for (let i = 0; i < tickCount; i++) {
+    ticks.push(niceMin + stepSize * i)
+  }
+
+  return {
+    min: niceMin,
+    max: niceMax,
+    stepSize,
+    ticks,
+    tickCount
+  }
+}
+
+/** 선형/영역 차트 전용: 촘촘한 틱, 패딩 5% */
+function calculateYAxisScaleForLineArea(dataMin, dataMax, options = {}) {
+  return calculateYAxisScale(dataMin, dataMax, {
+    minTicks: 6,
+    maxTicks: 12,
+    paddingRatio: 0.05,
+    ...options
+  })
+}
+
+/**
+ * 막대 차트 전용 Y축 계산 (개선 버전)
+ * - 모든 값이 양수면 0부터 시작
+ * - 모든 값이 음수면 0까지 표시
+ * - 혼합된 경우 0을 중심으로 표시
+ */
+function calculateYAxisScaleForBar(dataMin, dataMax, options = {}) {
+  const {
+    minTicks = 5,
+    maxTicks = 8,
+    paddingRatio = 0.1
+  } = options
+
+  if (dataMin === dataMax) {
+    const value = dataMin
+    if (value >= 0) {
+      const max = value * 1.2 || 10
+      const stepSize = max / 5
+      return {
+        min: 0,
+        max,
+        stepSize,
+        ticks: Array.from({ length: 6 }, (_, i) => i * stepSize),
+        tickCount: 6
+      }
+    }
+    const min = value * 1.2
+    const stepSize = Math.abs(min) / 5
+    return {
+      min,
+      max: 0,
+      stepSize,
+      ticks: Array.from({ length: 6 }, (_, i) => min + i * stepSize),
+      tickCount: 6
+    }
+  }
+
+  if (dataMin >= 0 && dataMax > 0) {
+    const adjustedMin = 0
+    const padding = dataMax * paddingRatio
+    const adjustedMax = dataMax + padding
+    const adjustedRange = adjustedMax - adjustedMin
+    const roughStep = adjustedRange / (minTicks - 1)
+    const stepSize = niceNum(roughStep, false)
+    const niceMax = Math.ceil(adjustedMax / stepSize) * stepSize
+    let tickCount = Math.round(niceMax / stepSize) + 1
+
+    if (tickCount > maxTicks) {
+      const newStepSize = niceNum(niceMax / (maxTicks - 1), true)
+      const newNiceMax = Math.ceil(adjustedMax / newStepSize) * newStepSize
+      tickCount = Math.round(newNiceMax / newStepSize) + 1
+      const ticks = []
+      for (let i = 0; i < tickCount; i++) ticks.push(newStepSize * i)
+      return { min: 0, max: newNiceMax, stepSize: newStepSize, ticks, tickCount }
+    }
+
+    const ticks = []
+    for (let i = 0; i < tickCount; i++) ticks.push(stepSize * i)
+    return { min: 0, max: niceMax, stepSize, ticks, tickCount }
+  }
+
+  if (dataMin < 0 && dataMax <= 0) {
+    const adjustedMax = 0
+    const padding = Math.abs(dataMin) * paddingRatio
+    const adjustedMin = dataMin - padding
+    const adjustedRange = adjustedMax - adjustedMin
+    const roughStep = adjustedRange / (minTicks - 1)
+    const stepSize = niceNum(roughStep, false)
+    const niceMin = Math.floor(adjustedMin / stepSize) * stepSize
+    let tickCount = Math.round((0 - niceMin) / stepSize) + 1
+
+    if (tickCount > maxTicks) {
+      const newStepSize = niceNum(Math.abs(niceMin) / (maxTicks - 1), true)
+      const newNiceMin = Math.floor(adjustedMin / newStepSize) * newStepSize
+      tickCount = Math.round((0 - newNiceMin) / newStepSize) + 1
+      const ticks = []
+      for (let i = 0; i < tickCount; i++) ticks.push(newNiceMin + newStepSize * i)
+      return { min: newNiceMin, max: 0, stepSize: newStepSize, ticks, tickCount }
+    }
+
+    const ticks = []
+    for (let i = 0; i < tickCount; i++) ticks.push(niceMin + stepSize * i)
+    return { min: niceMin, max: 0, stepSize, ticks, tickCount }
+  }
+
+  const padding = (dataMax - dataMin) * paddingRatio
+  const adjustedMin = dataMin - padding
+  const adjustedMax = dataMax + padding
+  const adjustedRange = adjustedMax - adjustedMin
+  const roughStep = adjustedRange / (minTicks - 1)
+  const stepSize = niceNum(roughStep, false)
+  let niceMin = Math.floor(adjustedMin / stepSize) * stepSize
+  let niceMax = Math.ceil(adjustedMax / stepSize) * stepSize
+  let tickCount = Math.round((niceMax - niceMin) / stepSize) + 1
+
+  if (tickCount > maxTicks) {
+    const newStepSize = niceNum((niceMax - niceMin) / (maxTicks - 1), true)
+    const newNiceMin = Math.floor(adjustedMin / newStepSize) * newStepSize
+    const newNiceMax = Math.ceil(adjustedMax / newStepSize) * newStepSize
+    tickCount = Math.round((newNiceMax - newNiceMin) / newStepSize) + 1
+    const ticks = []
+    for (let i = 0; i < tickCount; i++) ticks.push(newNiceMin + newStepSize * i)
+    return { min: newNiceMin, max: newNiceMax, stepSize: newStepSize, ticks, tickCount }
+  }
+
+  const ticks = []
+  for (let i = 0; i < tickCount; i++) ticks.push(niceMin + stepSize * i)
+  return { min: niceMin, max: niceMax, stepSize, ticks, tickCount }
+}
+
+/** 백분율 차트 전용: 0~100 고정 (필요 시 사용) */
+function calculateYAxisScaleForPercentage() {
+  return {
+    min: 0,
+    max: 100,
+    stepSize: 10,
+    ticks: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+    tickCount: 11
+  }
 }
 
 /** Dimension 후보: 일자·캠페인·워크플로우·채널 (집계 체크박스와 1:1 대응) */
@@ -145,8 +332,8 @@ const CHART_WIDGET_DATE_COLORS = ['#4f46e5', '#7c3aed', '#2563eb', '#0d9488', '#
 /** X축 레이블·막대 간격 (기준별 발송 현황과 동일): 슬롯 폭(px), 세그먼트당 최대 글자 수 */
 const LABEL_SLOT_WIDTH = 100
 const MAX_LABEL_CHARS = 12
-/** 막대 차트 가로 스크롤 시 고정할 Y축 영역 너비(px) */
-const Y_AXIS_FIXED_WIDTH = 56
+/** 막대 차트 가로 스크롤 시 고정할 Y축 영역 너비(px). 큰 수(1e9 등) 레이블이 잘리지 않도록 여유 확보 */
+const Y_AXIS_FIXED_WIDTH = 80
 /** 차트 캔버스 높이(px). Y축 레이블 잘림 방지로 500 사용 */
 const CHART_HEIGHT = 500
 /** 차트 배경과 내부 차트 사이 상하좌우 패딩(px) */
@@ -185,6 +372,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   const effectiveXKey = dims.some((d) => d.key === xKey) ? xKey : (dims[0]?.key ?? 'delivery_date')
   const dimField = dims.find((f) => f.key === effectiveXKey) || dims[0]
   const metricField = METRIC_FIELDS.find((f) => f.key === yKey) || METRIC_FIELDS[0]
+  const isRate = ['success_rate', 'open_rate', 'click_rate'].includes(yKey)
 
   const [chartDataFromApi, setChartDataFromApi] = useState([])
   const [chartDataLoading, setChartDataLoading] = useState(false)
@@ -213,7 +401,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         setChartDataFromApi(
           rows.map((r) => ({
             name: r.name ?? '-',
-            [metricField.label]: typeof r.value === 'number' ? r.value : Number(r.value) || 0,
+            [metricField.label]: parseChartNumber(r.value),
             delivery_date: r.delivery_date
           }))
         )
@@ -231,7 +419,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     if (!data?.length) return []
     return data.slice(0, 50).map((row) => ({
       name: getDisplayValue(row, effectiveXKey),
-      [metricField.label]: typeof row[yKey] === 'number' ? row[yKey] : Number(row[yKey]) || 0,
+      [metricField.label]: parseChartNumber(row[yKey]),
       delivery_date: row.delivery_date
     }))
   }, [data, effectiveXKey, yKey, metricField.label])
@@ -248,23 +436,18 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: 막대=0부터, yMax=dataMax+간격(항상 상단 여유). 선형/영역=0.5단위·4구간 이상·yMin=dataMin-간격, yMax=dataMax+간격 */
+  /* Y축 도메인: Nice Numbers 알고리즘 (막대=0 포함·패딩 10%, 선형/영역=패딩 5%) */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
-    const values = chartData.map((d) => d[metricField.label])
+    const values = chartData.map((d) => parseChartNumber(d[metricField.label]))
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
     if (chartType === 'bar') {
-      const stepSize = (dataMin === dataMax && dataMax > 0)
-        ? calculateNiceStepSize(0, dataMax)
-        : calculateNiceStepSize(dataMin, dataMax)
-      const yMax = dataMax + Math.max(stepSize, 1)
-      return [0, yMax]
+      const scale = calculateYAxisScaleForBar(dataMin, dataMax)
+      return [scale.min, scale.max]
     }
-    const step = calculateNiceStepSizeLineArea(dataMin, dataMax)
-    const yMin = dataMin - step
-    const yMax = dataMax + step
-    return [yMin, yMax]
+    const scale = calculateYAxisScaleForLineArea(dataMin, dataMax)
+    return [scale.min, scale.max]
   }, [chartData, metricField.label, chartType])
 
   if (!chartData.length) {
@@ -297,11 +480,12 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     )
   }
 
-  /* 기준별 발송 현황 차트(AggregatedBarChart)와 동일 포맷: margin, 축/툴팁/범례 스타일 */
-  const chartBottomMargin = 24
+  /* 기준별 발송 현황 차트와 동일 포맷: margin (상단 여유로 Y축·recharts-surface 잘림 방지) */
+  const chartTopMargin = 48
+  const chartBottomMargin = 28
   const commonProps = {
     data: chartData,
-    margin: { top: 40, right: 16, left: 8, bottom: chartBottomMargin }
+    margin: { top: chartTopMargin, right: 16, left: 8, bottom: chartBottomMargin }
   }
 
   const xAxisPropsBase = {
@@ -314,36 +498,34 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     ...xAxisPropsBase,
     tick: <XAxisTickTruncate />
   }
-  const yAxisEl = <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} />
+  const formatDisplay = isRate ? formatRate : formatNum
+  const yAxisEl = <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={(v) => formatYAxisTick(v, isRate)} />
   const tooltipEl = (
     <Tooltip
-      formatter={(v) => formatNum(v)}
+      formatter={(v) => formatDisplay(v)}
       contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13 }}
       labelStyle={{ color: '#374151', fontSize: 13 }}
     />
   )
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
   const legendColor = chartType === 'line' ? '#0d9488' : chartType === 'area' ? '#7c3aed' : '#4f46e5'
-  const fixedLegendRow = (
-    <div className="chart-widget__legend-fixed">
-      <div style={{ width: Y_AXIS_FIXED_WIDTH, flexShrink: 0 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', minWidth: 0 }}>
-        <span style={{ width: 12, height: 12, borderRadius: 2, background: legendColor, flexShrink: 0 }} />
-        <span>{metricField.label}</span>
-      </div>
+  const legendRow = (
+    <div className="chart-widget__legend-top">
+      <span className="chart-widget__legend-top__mark" style={{ background: legendColor }} />
+      <span>{metricField.label}</span>
     </div>
   )
 
-  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정, 범례 고정. X축 간격 확보(minWidth) 후 스크롤. 스크롤 영역 차트는 domain 적용을 위해 숨김 YAxis 사용 */
-  const marginLeftOnly = { top: 40, right: 0, left: 8, bottom: chartBottomMargin }
-  const marginRightOnly = { top: 40, right: 24, left: 32, bottom: chartBottomMargin }
+  /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정. 범례는 차트 블록 전체 상단 한 줄. 스크롤 차트는 domain 적용을 위해 숨김 YAxis 사용 */
+  const marginLeftOnly = { top: chartTopMargin, right: 0, left: 8, bottom: chartBottomMargin }
+  const marginRightOnly = { top: chartTopMargin, right: 24, left: 32, bottom: chartBottomMargin }
   const scrollContentMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
-  const hiddenYAxis = <YAxis domain={yDomain} hide width={0} />
+  const hiddenYAxis = <YAxis domain={yDomain} hide width={0} allowDataOverflow />
   const fixedYAxisBlock = (
     <div className="chart-widget__y-axis-fixed" style={{ width: Y_AXIS_FIXED_WIDTH }}>
       <ResponsiveContainer width={Y_AXIS_FIXED_WIDTH} height={CHART_HEIGHT}>
         <BarChart data={chartData} margin={marginLeftOnly}>
-          <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={formatNum} width={Y_AXIS_FIXED_WIDTH - 16} />
+          <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={(v) => formatYAxisTick(v, isRate)} width={Y_AXIS_FIXED_WIDTH - 16} allowDataOverflow />
           <Bar dataKey={metricField.label} barSize={0} fill="transparent" isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
@@ -353,69 +535,75 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   let chartInner
   if (chartType === 'line') {
     chartInner = (
-      <>
-        {fixedLegendRow}
-        {fixedYAxisBlock}
-        <div className="chart-widget__chart-scroll">
-          <div style={{ minWidth: scrollContentMinWidth }}>
-            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-              <LineChart {...commonProps} margin={marginRightOnly}>
-                {hiddenYAxis}
-                {gridEl}
-                <XAxis {...xAxisPropsBar} />
-                {tooltipEl}
-                <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
-              </LineChart>
-            </ResponsiveContainer>
+      <div className="chart-widget__chart-block">
+        {legendRow}
+        <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
+          {fixedYAxisBlock}
+          <div className="chart-widget__chart-scroll">
+            <div style={{ minWidth: scrollContentMinWidth }}>
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                <LineChart {...commonProps} margin={marginRightOnly}>
+                  {hiddenYAxis}
+                  {gridEl}
+                  <XAxis {...xAxisPropsBar} />
+                  {tooltipEl}
+                  <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-      </>
+      </div>
     )
   } else if (chartType === 'area') {
     chartInner = (
-      <>
-        {fixedLegendRow}
-        {fixedYAxisBlock}
-        <div className="chart-widget__chart-scroll">
-          <div style={{ minWidth: scrollContentMinWidth }}>
-            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-              <AreaChart {...commonProps} margin={marginRightOnly}>
-                {hiddenYAxis}
-                {gridEl}
-                <XAxis {...xAxisPropsBar} />
-                {tooltipEl}
-                <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
-              </AreaChart>
-            </ResponsiveContainer>
+      <div className="chart-widget__chart-block">
+        {legendRow}
+        <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
+          {fixedYAxisBlock}
+          <div className="chart-widget__chart-scroll">
+            <div style={{ minWidth: scrollContentMinWidth }}>
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                <AreaChart {...commonProps} margin={marginRightOnly}>
+                  {hiddenYAxis}
+                  {gridEl}
+                  <XAxis {...xAxisPropsBar} />
+                  {tooltipEl}
+                  <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-      </>
+      </div>
     )
   } else {
     /* 막대 차트: bar만 barCategoryGap·maxBarSize·Cell 적용, 나머지 레이아웃은 위와 동일 */
     const barMaxSize = Math.min(75, Math.floor(LABEL_SLOT_WIDTH * 0.55))
     chartInner = (
-      <>
-        {fixedLegendRow}
-        {fixedYAxisBlock}
-        <div className="chart-widget__chart-scroll">
-          <div style={{ minWidth: scrollContentMinWidth }}>
-            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-              <BarChart {...commonProps} margin={marginRightOnly} barCategoryGap="8%">
-                {hiddenYAxis}
-                {gridEl}
-                <XAxis {...xAxisPropsBar} />
-                {tooltipEl}
-                <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={barMaxSize}>
-                  {chartData.map((entry, i) => (
-                    <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+      <div className="chart-widget__chart-block">
+        {legendRow}
+        <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
+          {fixedYAxisBlock}
+          <div className="chart-widget__chart-scroll">
+            <div style={{ minWidth: scrollContentMinWidth }}>
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                <BarChart {...commonProps} margin={marginRightOnly} barCategoryGap="8%">
+                  {hiddenYAxis}
+                  {gridEl}
+                  <XAxis {...xAxisPropsBar} />
+                  {tooltipEl}
+                  <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={barMaxSize}>
+                    {chartData.map((entry, i) => (
+                      <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-      </>
+      </div>
     )
   }
 

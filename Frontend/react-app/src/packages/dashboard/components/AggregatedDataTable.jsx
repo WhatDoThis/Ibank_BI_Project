@@ -16,6 +16,12 @@ function formatNum(num) {
   return new Intl.NumberFormat('ko-KR').format(num)
 }
 
+/** rate(성공률·오픈률·클릭률): 항상 소수점 둘째 자리까지 (30 → 30.00, 30.1 → 30.10) */
+function formatRate(num) {
+  if (num == null || Number.isNaN(Number(num))) return '0.00'
+  return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(num))
+}
+
 function getColumnCount(groupBy) {
   let n = 7 // 발송요청·발송성공·오픈·클릭·성공률·오픈률·클릭률
   if (groupBy.campaign) n += 1
@@ -142,9 +148,9 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.success_count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.open_count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.click_count)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#059669' }}>{row.success_rate}%</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#2563eb' }}>{row.open_rate}%</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#7c3aed' }}>{row.click_rate}%</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#059669' }}>{formatRate(row.success_rate)}%</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#2563eb' }}>{formatRate(row.open_rate)}%</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#7c3aed' }}>{formatRate(row.click_rate)}%</td>
               </tr>
             ))}
           </tbody>

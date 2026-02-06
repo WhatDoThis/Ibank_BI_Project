@@ -49,7 +49,7 @@ function DonutBlock({ title, data, totalLabel }) {
           </Pie>
           <Tooltip
             formatter={(value, name, props) => [
-              `${formatNum(value)} (${(props.payload?.percentage ?? 0).toFixed(1)}%)`,
+              `${formatNum(value)} (${Number(props.payload?.percentage ?? 0).toFixed(2)}%)`,
               name
             ]}
             contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
@@ -60,7 +60,7 @@ function DonutBlock({ title, data, totalLabel }) {
             verticalAlign="middle"
             formatter={(value, entry) => (
               <span style={{ fontSize: 14, color: '#374151' }}>
-                {value} {entry.payload?.percentage != null ? `(${entry.payload.percentage.toFixed(1)}%)` : ''}
+                {value} {entry.payload?.percentage != null ? `(${Number(entry.payload.percentage).toFixed(2)}%)` : ''}
               </span>
             )}
           />
