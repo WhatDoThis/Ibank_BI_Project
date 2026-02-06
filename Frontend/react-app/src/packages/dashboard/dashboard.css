@@ -820,28 +820,41 @@
   background: #0f766e;
 }
 
-/* 차트 영역 폭: 좌우 여유 확대(max-width 1200px). 막대 차트는 레이블 간격 확보를 위해 내부 minWidth·가로 스크롤, Y축 고정 영역과 분리 */
+/* 차트 영역: 가로 스크롤만 사용, 세로 스크롤 제거 */
 .chart-widget__chart-wrap {
   width: 100%;
   min-width: 0;
   max-width: 1200px;
   margin: 0 auto;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
-/* 범례 고정: Y축처럼 스크롤하지 않고 상단 고정. chart-wrap과 동일 flex 구조로 정렬 */
-.chart-widget__legend-fixed {
+/* 차트 블록: 범례 + 차트 세로 배치, 상하 잘림 방지 */
+.chart-widget__chart-block {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+/* 범례: 차트 블록 전체 상단 한 줄 (Y축 옆이 아닌 위) */
+.chart-widget__legend-top {
   display: flex;
   align-items: center;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding-top: 12px;
-  padding-bottom: 20px;
+  gap: 8px;
+  font-size: 14px;
+  color: #374151;
+  padding-bottom: 12px;
   min-width: 0;
 }
 
-.chart-widget__legend-fixed > div:last-child {
-  padding-left: 16px;
+.chart-widget__legend-top__mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
 /* 막대 차트: Y축 고정 + 스크롤 영역 분리 시 스크롤은 내부 오른쪽 영역만 */
@@ -851,28 +864,35 @@
   align-items: stretch;
 }
 
+/* Y축 고정 영역: overflow visible로 상단/하단 Y축 레이블·recharts-surface 잘림 방지 */
 .chart-widget__chart-wrap--y-fixed .chart-widget__y-axis-fixed {
   flex: 0 0 auto;
-  overflow: hidden;
-  min-width: 56px;
-  min-height: 500px;  /* CHART_HEIGHT와 동일, 상하 크기 일치 */
+  overflow: visible;
+  min-width: 80px;
+  min-height: 500px;  /* CHART_HEIGHT와 동일 */
 }
 
 .chart-widget__chart-wrap--y-fixed .chart-widget__chart-scroll {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 500px;  /* CHART_HEIGHT와 동일 */
+  min-height: 500px;
   overflow-x: auto;
-  padding-left: 16px;   /* 고정 Y축과 차트 사이 간격, recharts-surface 덮임 완화 */
-  padding-right: 16px;  /* 우측 잘림 방지 */
+  overflow-y: hidden;   /* 차트 생성: 오른쪽 세로 스크롤 제거 */
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
+/* recharts-surface·캔버스가 잘리지 않도록 항상 visible (막대·선형·영역 공통) */
 .chart-widget .recharts-responsive-container {
-  overflow: visible;
+  overflow: visible !important;
 }
 
 .chart-widget .recharts-wrapper {
-  overflow: visible;
+  overflow: visible !important;
+}
+
+.chart-widget .recharts-surface {
+  overflow: visible !important;
 }
 
 .chart-widget__grid {
