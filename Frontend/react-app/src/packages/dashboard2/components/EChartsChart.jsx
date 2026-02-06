@@ -5,7 +5,7 @@
  *
  * [주요 기능]
  * - 템플릿 ID에 따라 xAxis/series 옵션 생성 (일자 또는 복합 라벨, 메트릭 시리즈)
- * - 막대 복수 메트릭 시 스택(stack), Y축 좁은 구간 시 데이터 구간 확대, 카테고리 많을 때 dataZoom 적용
+ * - 막대: Y축 항상 0부터(막대 길이 직관 유지). 선형: 좁은 구간 시 Y축 데이터 구간 확대. 막대 복수 메트릭 시 스택, 카테고리 많을 때 dataZoom
  * - echarts.init / setOption / resize / dispose 로 라이프사이클 관리
  *
  * [의존성]
@@ -15,7 +15,10 @@
 import { useRef, useEffect, useMemo } from 'react'
 import * as echarts from 'echarts'
 
-/** groupBy에 따라 행의 X축 라벨 생성 (일자 + 캠페인 + 워크플로우 + 채널) */
+/**
+ * groupBy에 따라 행의 X축 라벨 생성.
+ * 복수 항목(일자 + 캠페인/워크플로우/채널)일 때는 "일자\n캠페인 / 워크플로우 / 채널" 로 줄바꿈해 오버플로우 시에도 일자·설명이 함께 보이도록 함.
+ */
 function getCompositeXLabel(row, groupBy) {
   const parts = []
   if (groupBy.date) {
@@ -35,7 +38,8 @@ function getCompositeXLabel(row, groupBy) {
     parts.push(v != null && v !== '' ? String(v) : '-')
   }
   if (parts.length === 0) return '-'
-  return parts.join(' / ')
+  if (parts.length === 1) return parts[0]
+  return parts[0] + '\n' + parts.slice(1).join(' / ')
 }
 
 /** 템플릿 정의: id, label, chartType, metricKeys(표시할 수치 컬럼) */
@@ -78,13 +82,14 @@ function niceAxisRange(dataMin, dataMax, paddingRatio = 0.1) {
 
 /**
  * Y축을 데이터 구간으로 확대할지 여부 및 min/max 계산.
- * 값이 좁은 구간에 몰려 있으면(범위/최대 < NARROW_RATIO) 데이터 구간 기준 축 사용.
+ * 선형 차트만 적용. 막대 차트는 Y축이 0부터 시작해야 막대 길이로 크기가 직관적으로 보이므로 확대하지 않음.
  */
 const NARROW_RATIO = 0.2
 const MIN_ABSOLUTE_RANGE = 1
 
 function computeYAxisBounds(rows, template) {
   if (!rows?.length || !template?.metricKeys?.length) return null
+  if (template.chartType === 'bar') return null
   const keys = template.metricKeys
   const isBar = template.chartType === 'bar'
   const isStackedBar = isBar && keys.length > 1
@@ -152,32 +157,94 @@ function buildOption(rows, groupBy, template) {
   const showDataZoom = categories.length > 20
   const dataZoomEnd = showDataZoom ? Math.min(100, Math.round((20 / categories.length) * 100)) : 100
 
-  const gridBottom = showDataZoom ? '22%' : '12%'
+  const hasZoomHint = Boolean(yAxisBounds)
+  const manyCategories = categories.length > 8
+  const rotateLabels = manyCategories
+  const MAX_LABEL_CHARS = 18
+
+  const legendTop = 8
+  const zoomHintTop = hasZoomHint ? 36 : 0
+  const gridTop = hasZoomHint ? 72 : 52
+  const baseBottom = manyCategories ? 100 : 60
+  const gridBottom = showDataZoom ? baseBottom + 44 : baseBottom
+  const gridLeft = rotateLabels ? 104 : 76
+  const gridRight = 52
+
+  const truncateLabel = (value) => {
+    const s = String(value ?? '').trim()
+    if (s.length <= MAX_LABEL_CHARS) return s
+    return s.slice(0, MAX_LABEL_CHARS) + '…'
+  }
+
+  const formatAxisLabel = (value) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return ''
+    const lines = raw.split('\n')
+    if (lines.length <= 1) return truncateLabel(raw)
+    const first = lines[0].trim()
+    const rest = lines.slice(1).join(' ').trim()
+    const second = truncateLabel(rest)
+    return second ? `${first}\n${second}` : first
+  }
+
   const option = {
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0, data: series.map((s) => s.name) },
-    grid: { left: '3%', right: '4%', bottom: gridBottom, top: yAxisBounds ? '18%' : '15%', containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      formatter: (params) => {
+        if (!params?.length) return ''
+        const lines = [params[0].axisValue]
+        params.forEach((p) => lines.push(`${p.marker} ${p.seriesName}: ${p.value != null ? Number(p.value).toLocaleString('ko-KR') : '-'}`))
+        return lines.join('<br/>')
+      }
+    },
+    legend: {
+      top: legendTop,
+      left: 'center',
+      data: series.map((s) => s.name),
+      itemGap: 20
+    },
+    grid: {
+      left: gridLeft,
+      right: gridRight,
+      bottom: gridBottom,
+      top: gridTop,
+      containLabel: true
+    },
     xAxis: {
       type: 'category',
       data: categories,
-      axisLabel: { rotate: categories.length > 8 ? 45 : 0 }
+      axisLabel: {
+        rotate: rotateLabels ? 45 : 0,
+        margin: 16,
+        interval: 0,
+        overflow: 'truncate',
+        width: rotateLabels ? 72 : undefined,
+        formatter: (value) => formatAxisLabel(value)
+      },
+      axisTick: { alignWithLabel: true },
+      boundaryGap: isBar
     },
-    yAxis,
+    yAxis: {
+      ...yAxis,
+      axisLabel: { margin: 12 },
+      splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
+    },
     series
   }
 
-  if (yAxisBounds) {
+  if (hasZoomHint) {
     option.title = {
       subtext: 'Y축이 데이터 구간으로 확대되었습니다.',
       left: 'center',
-      top: 4,
+      top: zoomHintTop,
       subtextStyle: { fontSize: 11, color: '#6b7280' }
     }
   }
 
   if (showDataZoom) {
     option.dataZoom = [
-      { type: 'slider', xAxisIndex: 0, start: 0, end: dataZoomEnd, bottom: 8 },
+      { type: 'slider', xAxisIndex: 0, start: 0, end: dataZoomEnd, bottom: 12, height: 24 },
       { type: 'inside', xAxisIndex: 0, start: 0, end: dataZoomEnd }
     ]
   }
@@ -185,17 +252,95 @@ function buildOption(rows, groupBy, template) {
   return option
 }
 
-export default function EChartsChart({ data = [], groupBy = {}, templateId }) {
+/**
+ * 단일 시리즈 차트 옵션 (Dimension·Metric·차트 유형 자유 선택 시 getChartData 연동).
+ * chartData = [{ name, value }], metricLabel, chartType('bar'|'line'|'area').
+ */
+function buildOptionFromCustom(chartData, metricLabel, chartType) {
+  if (!chartData?.length) {
+    return { title: { text: '데이터 없음', left: 'center', top: 'middle' } }
+  }
+  const categories = chartData.map((d) => d.name ?? '-')
+  const values = chartData.map((d) => (d.value != null ? Number(d.value) : 0))
+  const isBar = chartType === 'bar'
+  const isArea = chartType === 'area'
+
+  const manyCategories = categories.length > 8
+  const rotateLabels = manyCategories
+  const MAX_LABEL_CHARS = 18
+  const truncateLabel = (v) => {
+    const s = String(v ?? '').trim()
+    return s.length <= MAX_LABEL_CHARS ? s : s.slice(0, MAX_LABEL_CHARS) + '…'
+  }
+  const formatAxisLabel = (value) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return ''
+    const lines = raw.split('\n')
+    if (lines.length <= 1) return truncateLabel(raw)
+    return `${lines[0].trim()}\n${truncateLabel(lines.slice(1).join(' '))}`
+  }
+
+  const gridLeft = rotateLabels ? 104 : 76
+  const gridRight = 52
+  const baseBottom = manyCategories ? 100 : 60
+  const gridBottom = baseBottom
+  const gridTop = 52
+
+  const series = [
+    {
+      name: metricLabel || '값',
+      type: isBar ? 'bar' : 'line',
+      data: values,
+      smooth: !isBar,
+      areaStyle: isArea ? { opacity: 0.35 } : undefined,
+      stack: isArea ? 'total' : undefined
+    }
+  ]
+  if (isBar && categories.length <= 15) {
+    series[0].label = { show: true, position: 'top', fontSize: 10, formatter: (params) => (params.value != null ? Number(params.value).toLocaleString('ko-KR') : '') }
+  }
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      formatter: (params) => {
+        if (!params?.length) return ''
+        const lines = [params[0].axisValue]
+        params.forEach((p) => lines.push(`${p.marker} ${p.seriesName}: ${p.value != null ? Number(p.value).toLocaleString('ko-KR') : '-'}`))
+        return lines.join('<br/>')
+      }
+    },
+    legend: { top: 8, left: 'center', data: series.map((s) => s.name), itemGap: 20 },
+    grid: { left: gridLeft, right: gridRight, bottom: gridBottom, top: gridTop, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: categories,
+      axisLabel: { rotate: rotateLabels ? 45 : 0, margin: 16, interval: 0, overflow: 'truncate', width: rotateLabels ? 72 : undefined, formatter: formatAxisLabel },
+      axisTick: { alignWithLabel: true },
+      boundaryGap: isBar
+    },
+    yAxis: { type: 'value', axisLabel: { margin: 12 }, splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } } },
+    series
+  }
+}
+
+export default function EChartsChart({ data = [], groupBy = {}, templateId, customChartData, metricLabel, chartType }) {
   const chartRef = useRef(null)
   const instanceRef = useRef(null)
 
+  const useCustomMode = customChartData && metricLabel != null && chartType != null
+
   const template = useMemo(
-    () => CHART_TEMPLATES.find((t) => t.id === templateId) || CHART_TEMPLATES[0],
-    [templateId]
+    () => (useCustomMode ? null : CHART_TEMPLATES.find((t) => t.id === templateId) || CHART_TEMPLATES[0]),
+    [useCustomMode, templateId]
   )
   const option = useMemo(
-    () => buildOption(data, { ...groupBy, date: true }, template),
-    [data, groupBy, template]
+    () =>
+      useCustomMode
+        ? buildOptionFromCustom(customChartData, metricLabel, chartType)
+        : buildOption(data, { ...groupBy, date: true }, template),
+    [useCustomMode, customChartData, metricLabel, chartType, data, groupBy, template]
   )
 
   useEffect(() => {

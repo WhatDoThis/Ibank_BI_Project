@@ -60,4 +60,3 @@ class ChartDataRequest(BaseModel):
     channels: Optional[List[int]] = None
     dimension: str = Field("delivery_date", description="집계 기준 컬럼")
     metric: str = Field("success_count", description="집계 지표 컬럼")
-    limit: int = Field(50, ge=1, le=500)

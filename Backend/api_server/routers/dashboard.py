@@ -102,7 +102,6 @@ def dashboard_chart_data(body: ChartDataRequest):
             "channels": body.channels,
             "dimension": (body.dimension or "delivery_date").strip(),
             "metric": (body.metric or "success_count").strip(),
-            "limit": body.limit,
         }
         result = dashboard_service.get_chart_data(req)
         return result

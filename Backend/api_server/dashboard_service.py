@@ -363,16 +363,17 @@ CHART_METRIC_KEYS = (
 def get_chart_data(req):
     """
     차트 생성 전용 데이터: 단일 디멘션·단일 메트릭으로 집계해 반환.
-    대시보드 메인 집계와 별도 조회로, 캠페인/워크플로우 등 카디널리티가 높은 차트도
-    해당 축 기준으로만 GROUP BY 하여 가독성 있게 표시.
-    req: table_id, date_range, campaign_ids?, workflow_ids?, channels?, dimension, metric, limit?
+    - date_range: 항상 [시작일, 종료일] 구간 전체를 WHERE로 사용. 마지막 일자만 쓰는 것이 아님.
+    - dimension=delivery_date: X축 일자별, 기간 내 각 일자별 집계.
+    - dimension=campaign_label/workflow_label/channel_name: 기간 전체에 대해 해당 축으로만 GROUP BY,
+      차트는 데이터 신뢰성을 위해 LIMIT 없이 전건 반환. campaign_ids 등 필터가 걸려 있으면 그 조건에 맞는 행만 집계됨.
+    req: table_id, date_range, campaign_ids?, workflow_ids?, channels?, dimension, metric
     returns: { rows: [ { name, value, delivery_date? }, ... ] }
     """
     table = _full_table_name(req["table_id"])
     where_sql, params = _build_where_clause(req)
     dimension = (req.get("dimension") or "delivery_date").strip()
     metric = (req.get("metric") or "success_count").strip()
-    limit = max(1, min(100, int(req.get("limit") or 50)))
 
     if dimension not in CHART_DIMENSION_KEYS:
         dimension = "delivery_date"
@@ -416,9 +417,7 @@ def get_chart_data(req):
         WHERE {where_sql}
         GROUP BY {group_cols}
         {order_sql}
-        LIMIT %s
     """
-    params = list(params) + [limit]
     conn = db.get_db_connection()
     cur = conn.cursor()
     try:

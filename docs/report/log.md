@@ -1,5 +1,43 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 차트 데이터 LIMIT 제거 (차트 신뢰성)
+
+### 완료 작업
+1. **차트 전용 API에서 LIMIT 제거**
+   - `dashboard_service.get_chart_data`: 차트는 기간·디멘션에 해당하는 **전체** 데이터를 반환하도록 SQL에서 `LIMIT` 절 제거. (표 테이블용 페이지네이션 LIMIT 50은 별도 유지.)
+   - docstring: "한 축당 상위 limit건" → "차트는 데이터 신뢰성을 위해 LIMIT 없이 전건 반환"으로 수정.
+
+2. **API·프론트 정리**
+   - `ChartDataRequest`: `limit` 필드 제거.
+   - `routers/dashboard.py`: 차트 요청 시 `limit` 전달 제거.
+   - `ChartWidget.jsx`: `getChartData` 호출 시 `limit: 50` 제거.
+
+### 수정 파일
+- Backend/api_server/dashboard_service.py (get_chart_data LIMIT 제거)
+- Backend/api_server/routers/dashboard.py (limit 미전달)
+- Backend/api_server/schemas.py (ChartDataRequest limit 제거)
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx (limit 미전달)
+
+### 검수 결과
+- Lint: 수정 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 디멘션 셀렉트 안내 문구 추가 (3개 이상 집계 시 정의 반영)
+
+### 완료 작업
+- **ChartWidget.jsx**
+  - Dimension 셀렉트 왼쪽 안내: 선택 디멘션별 문구 + 집계 기준 2개 이상일 때 "나머지는 합산" 명시. 예: "일자별 집계 결과가 반영됨. (캠페인·워크플로우는 합산)".
+  - 섹션 설명 문구: "Dimension(X축): 집계 기준 중 선택한 1개만 축으로 사용하고, 나머지 집계 기준은 합산하여 표시"로 디멘션·메트릭 관계 정의. "상위 50건" 제거(차트 LIMIT 없음 반영).
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+
+### 검수 결과
+- Lint: 오류 없음.
+
+---
+
 ## 2025-02-02: 백엔드 Flask → FastAPI 전면 전환 완료
 
 ### 완료 작업

@@ -452,16 +452,20 @@ function getDisplayValue(row, key) {
 }
 
 function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, tableId, filters }) {
-  const { id, xKey, yKey, chartType, title } = widget
+  const { id, xKey, yKey, chartType, title, chartDateRange } = widget
   const dims = availableDimensions?.length ? availableDimensions : DIMENSION_FIELDS
   const effectiveXKey = dims.some((d) => d.key === xKey) ? xKey : (dims[0]?.key ?? 'delivery_date')
   const dimField = dims.find((f) => f.key === effectiveXKey) || dims[0]
   const metricField = METRIC_FIELDS.find((f) => f.key === yKey) || METRIC_FIELDS[0]
   const isRate = ['success_rate', 'open_rate', 'click_rate'].includes(yKey)
+  const isDateDimension = effectiveXKey === 'delivery_date'
+  const chartDateRangeResolved = isDateDimension || !chartDateRange?.length
+    ? filters?.date_range
+    : chartDateRange
 
   const [chartDataFromApi, setChartDataFromApi] = useState([])
   const [chartDataLoading, setChartDataLoading] = useState(false)
-  const useChartApi = Boolean(tableId && filters?.date_range?.length >= 2)
+  const useChartApi = Boolean(tableId && chartDateRangeResolved?.length >= 2)
 
   useEffect(() => {
     if (!useChartApi) {
@@ -472,13 +476,12 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     setChartDataLoading(true)
     getChartData({
       table_id: tableId,
-      date_range: filters.date_range,
+      date_range: chartDateRangeResolved,
       campaign_ids: filters.campaign_ids || [],
       workflow_ids: filters.workflow_ids || [],
       channels: filters.channels || [],
       dimension: effectiveXKey,
-      metric: yKey,
-      limit: 50
+      metric: yKey
     })
       .then((res) => {
         if (cancelled) return
@@ -498,7 +501,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         if (!cancelled) setChartDataLoading(false)
       })
     return () => { cancelled = true }
-  }, [useChartApi, tableId, filters?.date_range, filters?.campaign_ids, filters?.workflow_ids, filters?.channels, effectiveXKey, yKey, metricField.label])
+  }, [useChartApi, tableId, chartDateRangeResolved, filters?.campaign_ids, filters?.workflow_ids, filters?.channels, effectiveXKey, yKey, metricField.label])
 
   const chartDataFromProp = useMemo(() => {
     if (!data?.length) return []
@@ -736,6 +739,41 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         </div>
       </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          {!isDateDimension && filters?.date_range?.length >= 2 && (
+            <>
+              <span style={{ fontSize: 13, color: '#374151', fontWeight: 500 }}>기준 기간</span>
+              <input
+                type="date"
+                value={(chartDateRange || filters.date_range)?.[0] ?? ''}
+                onChange={(e) => {
+                  const from = e.target.value
+                  const to = (chartDateRange || filters.date_range)?.[1] ?? from
+                  onUpdate(id, { chartDateRange: [from, to] })
+                }}
+                style={{ padding: '6px 8px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6 }}
+              />
+              <span style={{ fontSize: 13, color: '#6b7280' }}>~</span>
+              <input
+                type="date"
+                value={(chartDateRange || filters.date_range)?.[1] ?? ''}
+                onChange={(e) => {
+                  const to = e.target.value
+                  const from = (chartDateRange || filters.date_range)?.[0] ?? to
+                  onUpdate(id, { chartDateRange: [from, to] })
+                }}
+                style={{ padding: '6px 8px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6 }}
+              />
+            </>
+          )}
+          <span style={{ fontSize: 13, color: '#6b7280' }}>
+            {dimField?.label
+              ? (() => {
+                  const otherDims = dims.filter((d) => d.key !== effectiveXKey).map((d) => d.label)
+                  const base = `${dimField.label}별 집계 결과가 반영됨.`
+                  return otherDims.length > 0 ? `${base} (${otherDims.join('·')}는 합산)` : base
+                })()
+              : ''}
+          </span>
           <select
             value={effectiveXKey}
             onChange={(e) => onUpdate(id, { xKey: e.target.value })}
@@ -807,7 +845,7 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
   return (
     <section className="chart-widget-section chart-widget">
       <p className="chart-widget__desc">
-        Dimension: 집계 기준에서 선택한 항목만 표시. 두 개 이상이면 그중 선택 가능. Metric: 실수형 지표만. Y축은 선택한 Metric에 맞게 자동 조정.
+        Dimension(X축): 집계 기준 중 선택한 1개만 축으로 사용하고, 나머지 집계 기준은 합산하여 표시. 일자 선택 시 기간 내 일자별, 캠페인/워크플로우/채널 선택 시 해당 기간 전체 합산. 비일자 디멘션일 때는 차트 앞에서 기준 기간 선택 가능.
       </p>
       <div className="chart-widget__header">
         <button type="button" className="chart-widget__add-btn" onClick={addWidget}>

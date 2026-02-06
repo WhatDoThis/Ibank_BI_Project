@@ -1,24 +1,58 @@
 /**
- * dashboard2/Dashboard2Page.jsx (템플릿 ECharts 대시보드 페이지)
- * =============================================================
- * 테이블 조회·컬럼 선택 등 헤더/필터는 dashboard와 동일. 본문은 템플릿 선택 + ECharts 차트.
+ * dashboard2/Dashboard2Page.jsx (ECharts 대시보드 페이지)
+ * =======================================================
+ * 테이블·필터는 dashboard와 동일. 본문은 Dimension·Metric·차트 유형 자유 선택 + getChartData API + ECharts.
  *
  * [주요 기능]
- * - getDashboardTables / getDashboardFilterOptions / getDashboardData 로 동일 데이터 조회
- * - DashboardHeader 재사용, 정렬·집계 기준·필터 동일
- * - 템플릿 선택 시 ECharts API로 차트 옵션 구성 후 렌더링
+ * - getDashboardTables / getDashboardFilterOptions / getDashboardData (헤더·집계용)
+ * - getChartData: 단일 Dimension·Metric 조회 후 ECharts로 막대/선형/영역 차트
+ * - 기존 대시보드와 동일하게 Dimension(일자·캠페인·워크플로우·채널), Metric(발송요청·성공·오픈·클릭·비율), 차트 유형(막대·선형·영역) 선택
  *
  * [의존성]
- * - React, shared/api/client, dashboard/components/DashboardHeader, dashboard/dashboard.css,
- *   dashboard2/components/EChartsChart (CHART_TEMPLATES)
+ * - React, shared/api/client, dashboard/components/DashboardHeader, dashboard2/components/EChartsChart
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getDashboardData, getDashboardFilterOptions, getDashboardTables } from '@/shared/api/client'
+import { getDashboardData, getDashboardFilterOptions, getDashboardTables, getChartData } from '@/shared/api/client'
 import '../dashboard/dashboard.css'
 import './dashboard2.css'
 import DashboardHeader from '../dashboard/components/DashboardHeader'
-import EChartsChart, { CHART_TEMPLATES } from './components/EChartsChart'
+import EChartsChart from './components/EChartsChart'
+
+const DIMENSION_FIELDS = [
+  { key: 'delivery_date', label: '일자' },
+  { key: 'campaign_label', label: '캠페인' },
+  { key: 'workflow_label', label: '워크플로우' },
+  { key: 'channel_name', label: '채널' }
+]
+
+function getAvailableDimensions(groupBy) {
+  const order = [
+    { g: 'date', key: 'delivery_date', label: '일자' },
+    { g: 'campaign', key: 'campaign_label', label: '캠페인' },
+    { g: 'workflow', key: 'workflow_label', label: '워크플로우' },
+    { g: 'channel', key: 'channel_name', label: '채널' }
+  ]
+  const filtered = order.filter(({ g }) => groupBy && groupBy[g])
+  return filtered.length ? filtered : [...DIMENSION_FIELDS]
+}
+
+const METRIC_FIELDS = [
+  { key: 'total_count', label: '발송요청' },
+  { key: 'success_count', label: '발송성공' },
+  { key: 'failed_count', label: '발송실패' },
+  { key: 'open_count', label: '오픈' },
+  { key: 'click_count', label: '클릭' },
+  { key: 'success_rate', label: '성공률(%)' },
+  { key: 'open_rate', label: '오픈률(%)' },
+  { key: 'click_rate', label: '클릭률(%)' }
+]
+
+const CHART_TYPES = [
+  { key: 'bar', label: '막대' },
+  { key: 'line', label: '선형' },
+  { key: 'area', label: '영역' }
+]
 
 const defaultGroupBy = { campaign: false, date: true, workflow: false, channel: false }
 
@@ -64,7 +98,11 @@ export default function Dashboard2Page() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [sortOrder, setSortOrder] = useState([{ key: 'delivery_date', order: 'desc' }])
-  const [templateId, setTemplateId] = useState(CHART_TEMPLATES[0]?.id || 'bar_success')
+  const [dimensionKey, setDimensionKey] = useState('delivery_date')
+  const [metricKey, setMetricKey] = useState('total_count')
+  const [chartType, setChartType] = useState('bar')
+  const [chartData, setChartData] = useState([])
+  const [chartDataLoading, setChartDataLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -161,6 +199,40 @@ export default function Dashboard2Page() {
     [data?.aggregated_data, sortOrder]
   )
   const groupBy = { ...(filters.group_by ?? defaultGroupBy), date: true }
+  const availableDimensions = useMemo(() => getAvailableDimensions(groupBy), [groupBy])
+  const effectiveDimensionKey = availableDimensions.some((d) => d.key === dimensionKey) ? dimensionKey : (availableDimensions[0]?.key ?? 'delivery_date')
+  const metricField = useMemo(() => METRIC_FIELDS.find((f) => f.key === metricKey) || METRIC_FIELDS[0], [metricKey])
+
+  useEffect(() => {
+    if (!tableId || !filters.date_range?.length || filters.date_range.length < 2) {
+      setChartData([])
+      return
+    }
+    let cancelled = false
+    setChartDataLoading(true)
+    getChartData({
+      table_id: tableId,
+      date_range: filters.date_range,
+      campaign_ids: filters.campaign_ids || [],
+      workflow_ids: filters.workflow_ids || [],
+      channels: filters.channels || [],
+      dimension: effectiveDimensionKey,
+      metric: metricKey,
+      limit: 50
+    })
+      .then((res) => {
+        if (cancelled) return
+        const rows = res.rows || []
+        setChartData(rows.map((r) => ({ name: r.name ?? '-', value: r.value })))
+      })
+      .catch(() => {
+        if (!cancelled) setChartData([])
+      })
+      .finally(() => {
+        if (!cancelled) setChartDataLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [tableId, filters.date_range, filters.campaign_ids, filters.workflow_ids, filters.channels, effectiveDimensionKey, metricKey])
 
   return (
     <div className="dashboard2-page">
@@ -190,26 +262,47 @@ export default function Dashboard2Page() {
 
       {tableId && (
         <div className="dashboard2-page__content">
-          <div className="dashboard2-template-row">
-            <label htmlFor="dashboard2-template">차트 템플릿</label>
+          <div className="dashboard2-chart-options">
+            <label htmlFor="dashboard2-dimension">Dimension</label>
             <select
-              id="dashboard2-template"
-              className="dashboard2-template-select"
-              value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
+              id="dashboard2-dimension"
+              className="dashboard2-option-select"
+              value={effectiveDimensionKey}
+              onChange={(e) => setDimensionKey(e.target.value)}
             >
-              {CHART_TEMPLATES.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
+              {availableDimensions.map((d) => (
+                <option key={d.key} value={d.key}>{d.label} (Dimension)</option>
+              ))}
+            </select>
+            <label htmlFor="dashboard2-metric">Metric</label>
+            <select
+              id="dashboard2-metric"
+              className="dashboard2-option-select"
+              value={metricKey}
+              onChange={(e) => setMetricKey(e.target.value)}
+            >
+              {METRIC_FIELDS.map((f) => (
+                <option key={f.key} value={f.key}>{f.label} (Metric)</option>
+              ))}
+            </select>
+            <label htmlFor="dashboard2-chart-type">차트 유형</label>
+            <select
+              id="dashboard2-chart-type"
+              className="dashboard2-option-select"
+              value={chartType}
+              onChange={(e) => setChartType(e.target.value)}
+            >
+              {CHART_TYPES.map((t) => (
+                <option key={t.key} value={t.key}>{t.label}</option>
               ))}
             </select>
           </div>
           <div className="dashboard2-chart-wrap">
+            {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
             <EChartsChart
-              data={sortedAggregatedData}
-              groupBy={groupBy}
-              templateId={templateId}
+              customChartData={chartData}
+              metricLabel={metricField.label}
+              chartType={chartType}
             />
           </div>
         </div>
