@@ -1,32 +1,31 @@
 """
-Backend.api_server.main (Flask 앱 진입점)
-=========================================
-CORS, 라우트, 에러 핸들러 등록. config.backend 로 host/port 사용.
+Backend.api_server.main (FastAPI 앱 진입점)
+===========================================
+CORS, 라우터 등록, 예외 핸들러. config.backend 로 host/port 사용.
 
 [Main Functions]
 ===========
-- add_cors_headers, handle_preflight: CORS 처리
-- index, api_index: 루트·API 안내
-- not_found, internal_error: 404/500 핸들러
+- 루트·API 안내, 404/500 JSON 응답 (기존 형식 유지)
 
 [Endpoints]
 =======================
-- GET /
-- GET /api, GET /api/
+- GET /, GET /api, GET /api/ → health 라우터
+- GET /health, /api/* → health·report·dashboard 라우터
 
 [Dependencies]
 =========
 - Env (config.backend)
-- Backend.api_server.db, Backend.api_server.routes
-- flask, flask_cors
+- Backend.api_server.db, Backend.api_server.routers
+- fastapi, uvicorn
 """
 
 import io
 import os
 import sys
 
-from flask import Flask, Response, jsonify, request
-from flask_cors import CORS
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 try:
     from Env import config
@@ -37,106 +36,73 @@ except ImportError:
     from Env import config
 
 from Backend.api_server import db
-from Backend.api_server.routes import register_routes
+from Backend.api_server.routers import health_router, report_router, dashboard_router
 
-app = Flask(__name__)
-# trailing slash 유무 모두 허용 (404 방지)
-app.url_map.strict_slashes = False
-CORS(app, resources={r'/api/*': {'origins': '*', 'allow_headers': ['Content-Type']}}, supports_credentials=False)
+app = FastAPI(
+    title="Starbucks CRM NoCode Query Builder API",
+    description="노코드 쿼리 빌더 및 대시보드 API",
+)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-    response.headers['Access-Control-Max-Age'] = '86400'
-    return response
-
-
-@app.before_request
-def handle_preflight():
-    if request.method == 'OPTIONS':
-        return Response(status=200)
+app.include_router(health_router)
+app.include_router(report_router)
+app.include_router(dashboard_router)
 
 
-register_routes(app)
+@app.exception_handler(404)
+def not_found_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "API 엔드포인트를 찾을 수 없습니다",
+            "message": str(exc),
+        },
+    )
 
 
-@app.route('/', methods=['GET'])
-def index():
-    """루트: API 안내 및 /api 로 리다이렉트 안내."""
-    return jsonify({
-        'message': 'Starbucks CRM NoCode Query Builder API',
-        'docs': 'GET /api 에서 엔드포인트 목록 확인',
-        'health': 'GET /health 로 서버 상태 확인',
-        'endpoints': ['/api', '/health'],
-    })
+@app.exception_handler(500)
+def internal_error_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "서버 내부 오류",
+            "message": str(exc),
+        },
+    )
 
 
-@app.route('/api', methods=['GET'])
-@app.route('/api/', methods=['GET'])
-def api_index():
-    """API 진입점: 사용 가능한 엔드포인트 안내."""
-    return jsonify({
-        'message': 'Starbucks CRM Query Builder API',
-        'endpoints': [
-            'GET  /health',
-            'GET  /api/list-tables',
-            'POST /api/describe-table',
-            'GET  /api/table-relationships',
-            'POST /api/execute-query',
-            'POST /api/explain-sql',
-            'POST /api/get-column-values',
-            'POST /api/query-stats',
-            'POST /api/dashboard/data',
-            'GET  /api/dashboard/filter-options/<table_id>',
-            'GET  /api/dashboard/tables',
-            'GET  /api/dashboard/required-columns',
-        ]
-    })
-
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        'error': 'API 엔드포인트를 찾을 수 없습니다',
-        'message': str(error)
-    }), 404
-
-
-@app.errorhandler(500)
-def internal_error(error):
-    return jsonify({
-        'error': '서버 내부 오류',
-        'message': str(error)
-    }), 500
-
-
-if __name__ == '__main__':
-    if sys.platform == 'win32':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+if __name__ == "__main__":
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
     backend = config.backend
-    host = getattr(backend, 'api_host', None)
+    host = getattr(backend, "api_host", None)
     if host is None or not str(host).strip():
-        raise ValueError('Env/config/config.json 에 backend.api_host 가 없거나 비어 있습니다.')
+        raise ValueError("Env/config/config.json 에 backend.api_host 가 없거나 비어 있습니다.")
     host = str(host).strip()
-    port = getattr(backend, 'api_port', None)
-    if port is None or port == '':
-        raise ValueError('Env/config/config.json 에 backend.api_port 가 없습니다.')
+    port = getattr(backend, "api_port", None)
+    if port is None or port == "":
+        raise ValueError("Env/config/config.json 에 backend.api_port 가 없습니다.")
     port = int(port)
     db_config = db.get_db_config()
     allowed = db.get_allowed_tables()
 
-    print('=' * 50)
-    print('Starbucks CRM NoCode Query Builder API')
-    print('=' * 50)
-    print(f'Database: {db_config.get("database")}@{db_config.get("host")}')
-    print(f'Allowed Tables: {len(allowed)}개')
-    print(f'Server: http://localhost:{port}')
-    print(f'Health Check: http://localhost:{port}/health')
-    print('=' * 50)
+    print("=" * 50)
+    print("Starbucks CRM NoCode Query Builder API (FastAPI)")
+    print("=" * 50)
+    print(f"Database: {db_config.get('database')}@{db_config.get('host')}")
+    print(f"Allowed Tables: {len(allowed)}개")
+    print(f"Server: http://localhost:{port}")
+    print(f"Health Check: http://localhost:{port}/health")
+    print("=" * 50)
 
-    app.run(host=host, port=port, debug=False)
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)

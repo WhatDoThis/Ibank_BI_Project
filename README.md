@@ -75,7 +75,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 ├── requirements.txt
 ├── README.md
 ├── Backend/
-│   └── api_server/     # Flask API (main.py, db.py, routes.py)
+│   └── api_server/     # FastAPI (main.py, db.py, routers/, dependencies.py, schemas.py, dashboard_service.py)
 ├── Frontend/
 │   ├── react-app/      # React 앱 (Vite) — 소스·빌드 시 dist/
 │   │   ├── src/        # 컴포넌트·API 클라이언트·스타일

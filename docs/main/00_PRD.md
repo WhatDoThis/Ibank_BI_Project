@@ -43,9 +43,11 @@ Project/
 │       └── main.py     # 정적 서버 (dist 서빙, /ibank-bi 요청 처리, SPA fallback, api-config.js 주입)
 ├── Backend/
 │   └── api_server/
-│       ├── main.py    # Flask 진입 (config.backend, host/port)
-│       ├── db.py      # DB 연결·검증·get_table_columns·get_table_columns_with_types
-│       ├── routes.py  # health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats, dashboard/* 
+│       ├── main.py       # FastAPI 진입 (config.backend, host/port, uvicorn)
+│       ├── db.py         # DB 연결·검증·get_table_columns·get_table_columns_with_types
+│       ├── dependencies.py  # get_db, get_config (요청 단위 주입)
+│       ├── schemas.py    # Pydantic 요청 스키마 (POST 바디 검증)
+│       ├── routers/     # health, query(쿼리 빌더 API), dashboard(대시보드 API)
 │       └── dashboard_service.py  # 대시보드 집계·필터 옵션·필수 컬럼(이름·타입) 검증
 └── Env/
     └── config/
@@ -55,7 +57,7 @@ Project/
 ```
 
 ### 2.2 실행 방식
-- `python run.py back`: Backend API (Flask, config.backend.api_port, 기본 5001)
+- `python run.py back`: Backend API (FastAPI, config.backend.api_port, 기본 5001)
 - `python run.py front`: Frontend/react-app 에서 `npm run build` 후 정적 서버 (config.frontend.static_port, 기본 8080)
 - `python run.py serve`: 빌드 없이 정적 서버만 (배포 시 502 방지용)
 - **접속 경로**: 로컬 `http://localhost:8080/ibank-bi/`, 리포트 `http://localhost:8080/ibank-bi/report`, 대시보드 `http://localhost:8080/ibank-bi/dashboard`

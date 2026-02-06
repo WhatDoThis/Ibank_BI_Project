@@ -1,5 +1,94 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 백엔드 Flask → FastAPI 전면 전환 완료
+
+### 완료 작업
+1. **구조 변경 (FastAPI에 맞게 효율화)**
+   - 단일 `routes.py`를 **routers/** 로 분리: `health.py`(/, /api, /health), `query.py`(쿼리 빌더 API), `dashboard.py`(대시보드 API)
+   - **dependencies.py**: `get_db`(요청 단위 DB 연결, yield 후 자동 close), `get_config`(config.backend 주입)
+   - **schemas.py**: POST 요청 바디 Pydantic 모델 (DescribeTableRequest, ExecuteQueryRequest, ExplainSqlRequest 등) — 검증·문서화
+
+2. **main.py**
+   - FastAPI 앱, CORSMiddleware, health/query/dashboard 라우터 등록, 404/500 JSON 예외 핸들러, uvicorn 기동
+   - config 로드는 기존과 동일 (`Env/config/config.json` → config.backend)
+
+3. **기존 파일**
+   - **db.py**, **dashboard_service.py**: 변경 없음 (프레임워크 무관)
+   - **routes.py**: 삭제 (라우터로 이전 완료)
+
+4. **문서·의존성**
+   - requirements.txt: flask/flask-cors 제거, fastapi·uvicorn[standard] 명시
+   - run.py: ModuleNotFoundError 시 fastapi/uvicorn 안내
+   - README.md, docs/main/00_PRD.md: 백엔드 구조를 FastAPI·routers 기준으로 수정
+
+5. **버그 수정**
+   - routers/query.py: `Query` import 추가 (table_relationships의 mode 파라미터용)
+
+### 수정/삭제/추가 파일
+- Backend/api_server/main.py (FastAPI 전환)
+- Backend/api_server/dependencies.py (신규)
+- Backend/api_server/schemas.py (신규)
+- Backend/api_server/routers/__init__.py, health.py, query.py, dashboard.py (신규)
+- Backend/api_server/routes.py (삭제)
+- requirements.txt, run.py, README.md, docs/main/00_PRD.md
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- API 경로·요청/응답 형식 기존과 동일 유지 → 프론트 수정 없음.
+- Lint: query.py 등 수정 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 가독성 개선 (ECharts 참고·기존 대시보드 반영)
+
+### 완료 작업
+1. **보고서 작성**
+   - `docs/report/01_ChartReadability.md`: 디멘션·메트릭 불명확 시 가독성 저하 원인, ECharts 참고 요소(yAxis min/max, axisLabel, dataZoom, stack, label), 기존 dashboard(ChartWidget Y축 Nice Numbers·Rate 구간 확대, AggregatedBarChart TOP_N·복합 라벨) 적용 사항, EChartsChart 개선 방안 정리
+
+2. **EChartsChart.jsx 개선 (dashboard2)**
+   - Y축 데이터 구간 확대: 값이 좁은 구간에 몰려 있을 때(range/dataMax < 0.2) yAxis.min/max를 데이터 구간+패딩으로 설정, nice 눈금 적용. 안내 문구 "Y축이 데이터 구간으로 확대되었습니다." 표시
+   - 스택 막대: 복수 메트릭 막대 템플릿(bar_both, bar_all)에 `stack: 'total'` 적용
+   - dataZoom: 카테고리 20개 초과 시 X축 slider·inside dataZoom으로 초기 20건만 표시
+   - 막대 데이터 라벨: 카테고리 15개 이하일 때 막대 위에 값 표시(한글 포맷)
+
+### 수정/추가 파일
+- docs/report/01_ChartReadability.md (신규)
+- docs/report/00_ReportIndex.md (01_ChartReadability.md 목록 추가)
+- Frontend/react-app/src/packages/dashboard2/components/EChartsChart.jsx (Y축 구간 확대, 스택, dataZoom, 라벨)
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: dashboard2 패키지 추가 (템플릿 ECharts 대시보드, 경로 /dashboard2)
+
+### 완료 작업
+1. **dashboard2 패키지 구성**
+   - `Frontend/react-app/src/packages/dashboard2/` 생성: index.jsx, Dashboard2Page.jsx, dashboard2.css
+   - 동일한 헤더/필터/데이터 조회: getDashboardTables, getDashboardFilterOptions, getDashboardData, DashboardHeader 재사용, 정렬·집계 기준·필터 동일
+
+2. **템플릿 선택 + ECharts 차트**
+   - `dashboard2/components/EChartsChart.jsx`: CHART_TEMPLATES(막대/선 템플릿 7종), aggregated_data → ECharts option 구성, echarts.init/setOption/resize/dispose 라이프사이클 처리
+   - 템플릿: 일자별 발송 성공/요청, 발송 요청·성공, 오픈/클릭, 오픈·클릭, 전 메트릭 막대 등
+
+3. **라우팅·의존성**
+   - App.jsx: /dashboard2 라우트 및 네비 "대시보드2" 추가
+   - echarts 패키지 npm 설치
+
+### 수정/추가 파일
+- Frontend/react-app/src/packages/dashboard2/index.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css (신규)
+- Frontend/react-app/src/packages/dashboard2/components/EChartsChart.jsx (신규)
+- Frontend/react-app/src/App.jsx (라우트·네비 추가)
+- package.json (echarts 의존성 추가)
+
+### 검수 결과
+- Lint: 수정·추가 파일 오류 없음.
+
+---
+
 ## 2025-02-02: Y축 Nice Numbers 전면 개편 (Chart.js 스타일)
 
 ### 완료 작업

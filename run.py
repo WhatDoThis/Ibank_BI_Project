@@ -2,7 +2,7 @@
 run (통합 진입점)
 ================
 프로젝트 루트에서 python run.py <back|front|serve> 로 백엔드 또는 프론트엔드 서버 실행.
-- back  : Backend/api_server/main.py (Flask API, config.backend)
+- back  : Backend/api_server/main.py (FastAPI, config.backend)
 - front : Frontend/react-app npm run build 후 Frontend/static_server/main.py (정적 HTTP, config.frontend)
 - serve : 빌드 없이 정적 서버만 기동 (배포 시 systemd 등에서 사용, 재시작 시 즉시 3500 응답)
 """
@@ -46,7 +46,7 @@ def main():
         try:
             runpy.run_path(str(_root / "Backend" / "api_server" / "main.py"), run_name="__main__")
         except ModuleNotFoundError as e:
-            if e.name and (e.name in ("flask", "flask_cors", "psycopg2", "requests") or "flask" in (e.name or "").lower()):
+            if e.name and (e.name in ("fastapi", "uvicorn", "psycopg2", "requests") or "fastapi" in (e.name or "").lower() or "uvicorn" in (e.name or "").lower()):
                 print(_DEPS_HINT.strip())
                 sys.exit(1)
             raise
