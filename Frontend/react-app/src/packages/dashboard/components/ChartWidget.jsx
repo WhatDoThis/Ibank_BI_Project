@@ -8,12 +8,13 @@
  * [주요 기능]
  * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황과 동일.
  * - 막대·선형·영역 공통: 범례·Y축 고정 + 오른쪽만 가로 스크롤, X축 minWidth(LABEL_SLOT_WIDTH×건수)·XAxisTickTruncate로 레이블 겹침/잘림 방지. 차트 영역 max-width 1200px. 스크롤 영역 차트에는 domain 적용을 위해 숨김 YAxis 사용.
+ * - X축 레이블 검색: 데이터 10건 초과 시 검색 입력 + 찾기/다음으로 해당 구간으로 스크롤 이동.
  *
  * [의존성]
  * - React, recharts, shared/api/client (getChartData)
  */
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { getChartData } from '@/shared/api/client'
 import {
   BarChart,
@@ -514,6 +515,44 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
 
   const chartData = useChartApi ? chartDataFromApi : chartDataFromProp
 
+  const scrollContainerRef = useRef(null)
+  const [chartSearchText, setChartSearchText] = useState('')
+  const [chartMatchIndex, setChartMatchIndex] = useState(-1)
+  /** 마우스로 강조 해제 후에도 Enter 시 '다음'으로 이어가기 위해 마지막으로 찾은 인덱스 유지 */
+  const [chartLastFoundIndex, setChartLastFoundIndex] = useState(-1)
+  const searchLower = chartSearchText.trim().toLowerCase()
+  const matchIndices = useMemo(
+    () =>
+      searchLower && chartData.length
+        ? chartData
+            .map((d, i) => (String(d.name ?? '').toLowerCase().includes(searchLower) ? i : -1))
+            .filter((i) => i >= 0)
+        : [],
+    [chartData, searchLower]
+  )
+  const scrollToIndex = useCallback((index) => {
+    const el = scrollContainerRef.current
+    if (!el || index < 0) return
+    const target = Math.max(0, index * LABEL_SLOT_WIDTH - 80)
+    el.scrollLeft = target
+  }, [])
+  const goToFirstMatch = useCallback(() => {
+    if (!searchLower || !matchIndices.length) return
+    const idx = matchIndices[0]
+    setChartMatchIndex(idx)
+    setChartLastFoundIndex(idx)
+    scrollToIndex(idx)
+  }, [searchLower, matchIndices, scrollToIndex])
+  const goToNextMatch = useCallback(() => {
+    if (!searchLower || !matchIndices.length) return
+    const current = chartMatchIndex >= 0 ? chartMatchIndex : chartLastFoundIndex
+    const next = matchIndices.find((i) => i > current)
+    const idx = next !== undefined ? next : matchIndices[0]
+    setChartMatchIndex(idx)
+    setChartLastFoundIndex(idx)
+    scrollToIndex(idx)
+  }, [searchLower, matchIndices, chartMatchIndex, chartLastFoundIndex, scrollToIndex])
+
   const dateOrderForBar = useMemo(() => {
     const dates = [...new Set(chartData.map((d) => d.delivery_date).filter(Boolean))].sort()
     return dates
@@ -627,7 +666,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         {legendRow}
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
           {fixedYAxisBlock}
-          <div className="chart-widget__chart-scroll">
+          <div className="chart-widget__chart-scroll" ref={scrollContainerRef} onMouseMove={() => chartMatchIndex >= 0 && setChartMatchIndex(-1)}>
             <div style={{ minWidth: scrollContentMinWidth }}>
               <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                 <LineChart {...commonProps} margin={marginRightOnly}>
@@ -635,7 +674,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
                   {gridEl}
                   <XAxis {...xAxisPropsBar} />
                   {tooltipEl}
-                  <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={{ r: 4, fill: '#0d9488' }} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
+                  <Line type="monotone" dataKey={metricField.label} stroke="#0d9488" strokeWidth={2.5} dot={(props) => <circle cx={props.cx} cy={props.cy} r={props.index === chartMatchIndex ? 8 : 4} fill="#0d9488" />} activeDot={{ r: 6, fill: '#0f766e' }} name={metricField.label} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -649,7 +688,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         {legendRow}
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
           {fixedYAxisBlock}
-          <div className="chart-widget__chart-scroll">
+          <div className="chart-widget__chart-scroll" ref={scrollContainerRef} onMouseMove={() => chartMatchIndex >= 0 && setChartMatchIndex(-1)}>
             <div style={{ minWidth: scrollContentMinWidth }}>
               <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                 <AreaChart {...commonProps} margin={marginRightOnly}>
@@ -657,7 +696,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
                   {gridEl}
                   <XAxis {...xAxisPropsBar} />
                   {tooltipEl}
-                  <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} name={metricField.label} />
+                  <Area type="monotone" dataKey={metricField.label} stroke="#7c3aed" strokeWidth={2} fill="#7c3aed" fillOpacity={0.35} dot={(props) => <circle cx={props.cx} cy={props.cy} r={props.index === chartMatchIndex ? 8 : 4} fill="#7c3aed" />} name={metricField.label} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -679,7 +718,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         )}
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
           {fixedYAxisBlock}
-          <div className="chart-widget__chart-scroll">
+          <div className="chart-widget__chart-scroll" ref={scrollContainerRef} onMouseMove={() => chartMatchIndex >= 0 && setChartMatchIndex(-1)}>
             <div style={{ minWidth: scrollContentMinWidth }}>
               <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                 <BarChart {...commonProps} margin={marginRightOnly} barCategoryGap="8%">
@@ -689,7 +728,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
                   {tooltipEl}
                   <Bar dataKey={metricField.label} radius={[4, 4, 0, 0]} name={metricField.label} maxBarSize={barMaxSize}>
                     {chartData.map((entry, i) => (
-                      <Cell key={i} fill={getBarFillByDate(entry.delivery_date)} />
+                      <Cell key={i} fill={i === chartMatchIndex ? '#6366f1' : getBarFillByDate(entry.delivery_date)} stroke={i === chartMatchIndex ? '#4f46e5' : undefined} strokeWidth={i === chartMatchIndex ? 2 : 0} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -802,6 +841,41 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
             ))}
           </select>
         </div>
+        {chartData.length > 10 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={chartSearchText}
+              onChange={(e) => { setChartSearchText(e.target.value); setChartMatchIndex(-1); setChartLastFoundIndex(-1) }}
+              onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              if (chartMatchIndex >= 0 || chartLastFoundIndex >= 0) goToNextMatch()
+              else goToFirstMatch()
+            }}
+              placeholder="X축 레이블 검색 (이동: 찾기 / 다음)"
+              style={{ padding: '6px 10px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6, minWidth: 180 }}
+            />
+            <button
+              type="button"
+              onClick={goToFirstMatch}
+              disabled={!searchLower || matchIndices.length === 0}
+              style={{ padding: '6px 12px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6, background: '#f9fafb', cursor: matchIndices.length ? 'pointer' : 'not-allowed' }}
+            >
+              찾기
+            </button>
+            <button
+              type="button"
+              onClick={goToNextMatch}
+              disabled={!searchLower || matchIndices.length === 0}
+              style={{ padding: '6px 12px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6, background: '#f9fafb', cursor: matchIndices.length ? 'pointer' : 'not-allowed' }}
+            >
+              다음
+            </button>
+            {searchLower && matchIndices.length > 0 && (
+              <span style={{ fontSize: 12, color: '#6b7280' }}>{matchIndices.length}건</span>
+            )}
+          </div>
+        )}
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed" style={{ padding: CHART_PADDING }}>
           {chartInner}
         </div>

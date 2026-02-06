@@ -6,13 +6,14 @@
  * [주요 기능]
  * - 템플릿 ID에 따라 xAxis/series 옵션 생성 (일자 또는 복합 라벨, 메트릭 시리즈)
  * - 막대: Y축 항상 0부터(막대 길이 직관 유지). 선형: 좁은 구간 시 Y축 데이터 구간 확대. 막대 복수 메트릭 시 스택, 카테고리 많을 때 dataZoom
+ * - X축 레이블 검색: 카테고리 10개 초과 시 검색 입력 + 찾기/다음으로 해당 구간으로 dataZoom 이동
  * - echarts.init / setOption / resize / dispose 로 라이프사이클 관리
  *
  * [의존성]
  * - React (useRef, useEffect), echarts
  */
 
-import { useRef, useEffect, useMemo } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import * as echarts from 'echarts'
 
 /**
@@ -134,12 +135,14 @@ function buildOption(rows, groupBy, template) {
   const isBar = template.chartType === 'bar'
   const useStack = isBar && (template.metricKeys || []).length > 1
 
+  const emphasisStyle = { itemStyle: { borderColor: '#1f2937', borderWidth: 2, shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.2)' } }
   const series = (template.metricKeys || []).map((key) => {
     const s = {
       name: METRIC_LABELS[key] || key,
       type: isBar ? 'bar' : 'line',
       data: rows.map((r) => r[key] ?? 0),
-      smooth: template.chartType === 'line'
+      smooth: template.chartType === 'line',
+      emphasis: emphasisStyle
     }
     if (useStack) s.stack = 'total'
     if (isBar && categories.length <= 15) {
@@ -154,7 +157,7 @@ function buildOption(rows, groupBy, template) {
     ...(yAxisBounds ? { min: yAxisBounds.min, max: yAxisBounds.max } : {})
   }
 
-  const showDataZoom = categories.length > 20
+  const showDataZoom = categories.length > 10
   const dataZoomEnd = showDataZoom ? Math.min(100, Math.round((20 / categories.length) * 100)) : 100
 
   const hasZoomHint = Boolean(yAxisBounds)
@@ -283,9 +286,12 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
   const gridLeft = rotateLabels ? 104 : 76
   const gridRight = 52
   const baseBottom = manyCategories ? 100 : 60
-  const gridBottom = baseBottom
+  const showDataZoom = categories.length > 10
+  const dataZoomEnd = showDataZoom ? Math.min(100, Math.round((20 / categories.length) * 100)) : 100
+  const gridBottom = showDataZoom ? baseBottom + 44 : baseBottom
   const gridTop = 52
 
+  const emphasisStyle = { itemStyle: { borderColor: '#1f2937', borderWidth: 2, shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.2)' } }
   const series = [
     {
       name: metricLabel || '값',
@@ -293,14 +299,15 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
       data: values,
       smooth: !isBar,
       areaStyle: isArea ? { opacity: 0.35 } : undefined,
-      stack: isArea ? 'total' : undefined
+      stack: isArea ? 'total' : undefined,
+      emphasis: emphasisStyle
     }
   ]
   if (isBar && categories.length <= 15) {
     series[0].label = { show: true, position: 'top', fontSize: 10, formatter: (params) => (params.value != null ? Number(params.value).toLocaleString('ko-KR') : '') }
   }
 
-  return {
+  const option = {
     tooltip: {
       trigger: 'axis',
       confine: true,
@@ -323,11 +330,32 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
     yAxis: { type: 'value', axisLabel: { margin: 12 }, splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } } },
     series
   }
+  if (showDataZoom) {
+    option.dataZoom = [
+      { type: 'slider', xAxisIndex: 0, start: 0, end: dataZoomEnd, bottom: 12, height: 24 },
+      { type: 'inside', xAxisIndex: 0, start: 0, end: dataZoomEnd }
+    ]
+  }
+  return option
+}
+
+/** dataZoom 구간 계산: 해당 인덱스가 보이도록 start/end 퍼센트 반환 */
+function computeDataZoomRange(index, total, windowPercent = 25) {
+  if (total <= 0 || index < 0) return null
+  const half = windowPercent / 2
+  let start = Math.max(0, (index / total) * 100 - half)
+  let end = Math.min(100, start + windowPercent)
+  if (end - start < windowPercent) start = Math.max(0, end - windowPercent)
+  return { start, end }
 }
 
 export default function EChartsChart({ data = [], groupBy = {}, templateId, customChartData, metricLabel, chartType }) {
   const chartRef = useRef(null)
   const instanceRef = useRef(null)
+  const [chartSearchText, setChartSearchText] = useState('')
+  const [chartMatchIndex, setChartMatchIndex] = useState(-1)
+  /** dataZoom 구간을 state로 두어 setOption(option, true) 시에도 유지되도록 함 */
+  const [dataZoomRange, setDataZoomRange] = useState(null)
 
   const useCustomMode = customChartData && metricLabel != null && chartType != null
 
@@ -335,13 +363,66 @@ export default function EChartsChart({ data = [], groupBy = {}, templateId, cust
     () => (useCustomMode ? null : CHART_TEMPLATES.find((t) => t.id === templateId) || CHART_TEMPLATES[0]),
     [useCustomMode, templateId]
   )
-  const option = useMemo(
+
+  const categories = useMemo(() => {
+    if (useCustomMode && customChartData?.length) {
+      return customChartData.map((d) => String(d.name ?? '-'))
+    }
+    if (!useCustomMode && data?.length && template) {
+      const g = { ...groupBy, date: true }
+      return data.map((r) => getCompositeXLabel(r, g))
+    }
+    return []
+  }, [useCustomMode, customChartData, data, groupBy, template])
+
+  const option = useMemo(() => {
+    const base = useCustomMode
+      ? buildOptionFromCustom(customChartData, metricLabel, chartType)
+      : buildOption(data, { ...groupBy, date: true }, template)
+    if (dataZoomRange && base.dataZoom && base.dataZoom.length >= 2) {
+      return {
+        ...base,
+        dataZoom: base.dataZoom.map((dz) => ({ ...dz, start: dataZoomRange.start, end: dataZoomRange.end }))
+      }
+    }
+    return base
+  }, [useCustomMode, customChartData, metricLabel, chartType, data, groupBy, template, dataZoomRange])
+
+  const showSearch = categories.length > 10
+  const searchLower = chartSearchText.trim().toLowerCase()
+  const matchIndices = useMemo(
     () =>
-      useCustomMode
-        ? buildOptionFromCustom(customChartData, metricLabel, chartType)
-        : buildOption(data, { ...groupBy, date: true }, template),
-    [useCustomMode, customChartData, metricLabel, chartType, data, groupBy, template]
+      searchLower
+        ? categories
+            .map((cat, i) => (String(cat).toLowerCase().includes(searchLower) ? i : -1))
+            .filter((i) => i >= 0)
+        : [],
+    [categories, searchLower]
   )
+
+  const goToFirstMatch = useCallback(() => {
+    if (!searchLower || !matchIndices.length) return
+    const idx = matchIndices[0]
+    setChartMatchIndex(idx)
+    const range = computeDataZoomRange(idx, categories.length)
+    if (range) setDataZoomRange(range)
+  }, [searchLower, matchIndices, categories.length])
+
+  const goToNextMatch = useCallback(() => {
+    if (!searchLower || !matchIndices.length) return
+    const current = chartMatchIndex < 0 ? -1 : chartMatchIndex
+    const next = matchIndices.find((i) => i > current)
+    const idx = next !== undefined ? next : matchIndices[0]
+    setChartMatchIndex(idx)
+    const range = computeDataZoomRange(idx, categories.length)
+    if (range) setDataZoomRange(range)
+  }, [searchLower, matchIndices, chartMatchIndex, categories.length])
+
+  const clearHighlight = useCallback(() => {
+    if (chartMatchIndex < 0) return
+    setChartMatchIndex(-1)
+    instanceRef.current?.dispatchAction({ type: 'downplay' })
+  }, [chartMatchIndex])
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -350,6 +431,15 @@ export default function EChartsChart({ data = [], groupBy = {}, templateId, cust
     }
     instanceRef.current.setOption(option, true)
   }, [option])
+
+  useEffect(() => {
+    if (chartMatchIndex >= 0 && instanceRef.current) {
+      const id = requestAnimationFrame(() => {
+        instanceRef.current?.dispatchAction({ type: 'highlight', dataIndex: chartMatchIndex })
+      })
+      return () => cancelAnimationFrame(id)
+    }
+  }, [chartMatchIndex, option])
 
   useEffect(() => {
     const chart = instanceRef.current
@@ -368,5 +458,46 @@ export default function EChartsChart({ data = [], groupBy = {}, templateId, cust
     }
   }, [])
 
-  return <div ref={chartRef} className="dashboard2-chart-wrap__inner" />
+  return (
+    <div className="dashboard2-chart-wrap__inner" style={{ display: 'flex', flexDirection: 'column' }} onMouseMove={clearHighlight}>
+      {showSearch && (
+        <div className="dashboard2-chart-search" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', flexShrink: 0 }}>
+          <input
+            type="text"
+            value={chartSearchText}
+            onChange={(e) => { setChartSearchText(e.target.value); setChartMatchIndex(-1); setDataZoomRange(null) }}
+            onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            if (chartMatchIndex >= 0) goToNextMatch()
+            else goToFirstMatch()
+          }}
+            placeholder="X축 레이블 검색 (이동: 찾기 / 다음)"
+            style={{ padding: '6px 10px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6, minWidth: 180 }}
+          />
+          <button
+            type="button"
+            onClick={goToFirstMatch}
+            disabled={!searchLower || matchIndices.length === 0}
+            style={{ padding: '6px 12px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6, background: '#f9fafb', cursor: matchIndices.length ? 'pointer' : 'not-allowed' }}
+          >
+            찾기
+          </button>
+          <button
+            type="button"
+            onClick={goToNextMatch}
+            disabled={!searchLower || matchIndices.length === 0}
+            style={{ padding: '6px 12px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6, background: '#f9fafb', cursor: matchIndices.length ? 'pointer' : 'not-allowed' }}
+          >
+            다음
+          </button>
+          {searchLower && matchIndices.length > 0 && (
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {matchIndices.length}건
+            </span>
+          )}
+        </div>
+      )}
+      <div ref={chartRef} style={{ width: '100%', flex: 1, minHeight: 0 }} />
+    </div>
+  )
 }
