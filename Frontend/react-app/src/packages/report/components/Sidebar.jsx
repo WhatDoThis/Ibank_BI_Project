@@ -8,17 +8,9 @@
  */
 
 import { useState } from 'react'
+import { isTableAvailableOrViaParent } from '../utils/joinRules'
 
-function isTableAvailable(tableName, addedTables, tableRelationships) {
-  if (addedTables.length === 0) return true
-  if (addedTables.includes(tableName)) return true
-  const last = addedTables[addedTables.length - 1]
-  const relLast = tableRelationships[last] || {}
-  const relTable = tableRelationships[tableName] || {}
-  return !!relLast[tableName] || !!relTable[last]
-}
-
-export default function Sidebar({ tables = [], tableRelationships = {}, addedTables = [], loading, dbStatus = {} }) {
+export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {} }) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [searchKeyword, setSearchKeyword] = useState('')
 
@@ -37,9 +29,12 @@ export default function Sidebar({ tables = [], tableRelationships = {}, addedTab
   }
 
   const keyword = (searchKeyword || '').trim().toLowerCase()
-  const filteredTables = keyword
+  const filteredByKeyword = keyword
     ? tables.filter((t) => String(t.table_name || '').toLowerCase().includes(keyword))
     : tables
+  const filteredTables = filteredByKeyword.filter((t) =>
+    isTableAvailable(t.table_name, addedTables, tableRelationships)
+  )
 
   return (
     <div className="sidebar">
@@ -63,7 +58,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, addedTab
             {filteredTables.map((t) => {
               const expanded = !!tableExpanded[t.table_name]
               const cols = t.columns || []
-              const disabled = !isTableAvailable(t.table_name, addedTables, tableRelationships)
+              const disabled = !isTableAvailableOrViaParent(t.table_name, addedTables, tableRelationships, relationshipOptions)
               return (
                 <div
                   key={t.table_name}

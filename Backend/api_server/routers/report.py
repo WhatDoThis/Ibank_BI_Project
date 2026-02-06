@@ -187,6 +187,49 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
                     relationships.append(row)
             finally:
                 cur.close()
+        if mode in ("fk", "all"):
+            allowed_set = set(allowed)
+            table_columns = {}
+            for table_name in allowed:
+                try:
+                    table_columns[table_name] = db.get_table_columns_with_types(table_name)
+                except Exception:
+                    table_columns[table_name] = []
+            for table_name in allowed:
+                for c in table_columns.get(table_name, []):
+                    col = c.get("column_name") or ""
+                    if col == "id" or not col.endswith("_id"):
+                        continue
+                    base = col[:-3].rstrip("_")
+                    if not base:
+                        continue
+                    to_table = None
+                    if base in allowed_set:
+                        to_table = base
+                    elif (base + "s") in allowed_set:
+                        to_table = base + "s"
+                    if not to_table:
+                        continue
+                    already = any(
+                        r.get("from_table") == table_name
+                        and r.get("from_column") == col
+                        and r.get("to_table") == to_table
+                        and r.get("to_column") == "id"
+                        for r in relationships
+                    )
+                    if already:
+                        continue
+                    rel = {
+                        "from_table": table_name,
+                        "from_column": col,
+                        "to_table": to_table,
+                        "to_column": "id",
+                        "source": "inferred" if mode == "all" else None,
+                    }
+                    if mode == "all":
+                        rel["confidence"] = "HIGH"
+                        rel["reason"] = "FK 미정의 시 _id 패턴 추론 (부모.id=자식.부모_id)"
+                    relationships.append(rel)
         if mode in ("column", "all"):
             table_columns = {}
             for table_name in allowed:
@@ -194,7 +237,6 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
                     table_columns[table_name] = db.get_table_columns_with_types(table_name)
                 except Exception:
                     table_columns[table_name] = []
-            allowed_set = set(allowed)
             for i, t1 in enumerate(allowed):
                 cols1 = {(c["column_name"], c["data_type"]) for c in table_columns.get(t1, [])}
                 for t2 in allowed[i + 1 :]:
@@ -208,10 +250,7 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
                             if "date" in t or "timestamp" in t or t == "time" or "interval" in t:
                                 continue
                         if col_name.endswith("_id"):
-                            base = col_name[:-3].rstrip("_")
-                            inferred_table = (base + "s") if base else ""
-                            if inferred_table and inferred_table in allowed_set:
-                                continue
+                            continue
                         rel1 = {
                             "from_table": t1, "to_table": t2,
                             "from_column": col_name, "to_column": col_name,

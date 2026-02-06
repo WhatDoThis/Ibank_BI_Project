@@ -17,6 +17,7 @@ import './report.css'
 import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
+import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
 import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
@@ -228,7 +229,23 @@ export default function ReportPage() {
         showToast('warning', '이미 추가된 컬럼입니다')
         return
       }
-      const newAddedTables = addedTables.includes(columnInfo.table) ? addedTables : [...addedTables, columnInfo.table]
+      const tableAlreadyAdded = addedTables.includes(columnInfo.table)
+      let newAddedTables
+      if (tableAlreadyAdded) {
+        newAddedTables = addedTables
+      } else if (canAddTableByColumn(addedTables, columnInfo.table, relationshipOptions)) {
+        newAddedTables = [...addedTables, columnInfo.table]
+      } else {
+        const lastTable = addedTables[addedTables.length - 1]
+        const parent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
+        if (parent) {
+          newAddedTables = [...addedTables, parent, columnInfo.table]
+          showToast('success', `부모 테이블 '${parent}'을(를) 자동으로 넣어 조인했습니다.`)
+        } else {
+          showToast('warning', '선택한 테이블과 조인할 수 없습니다. 부모 테이블을 먼저 추가하세요.')
+          return
+        }
+      }
       const tableAliasMap = {}
       newAddedTables.forEach((t, i) => {
         tableAliasMap[t] = 't' + (i + 1)
@@ -241,7 +258,7 @@ export default function ReportPage() {
       setCurrentPage(1)
       showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
     },
-    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast]
+    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions]
   )
 
   const [queryRunning, setQueryRunning] = useState(false)
@@ -536,6 +553,7 @@ export default function ReportPage() {
         <Sidebar
           tables={tables}
           tableRelationships={tableRelationships}
+          relationshipOptions={relationshipOptions}
           addedTables={addedTables}
           loading={loading}
           dbStatus={dbStatus}

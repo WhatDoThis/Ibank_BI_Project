@@ -7,7 +7,7 @@
  * - React, report/utils/constants, report/utils/helpers
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
 
@@ -172,6 +172,14 @@ export default function MainArea({
   const joinPairs = addedTables.length >= 2
     ? addedTables.slice(0, -1).map((prev, i) => ({ prevTable: prev, currTable: addedTables[i + 1] }))
     : []
+
+  const hasImpossibleJoin = joinPairs.some(({ prevTable, currTable }) => {
+    const key = `${prevTable}||${currTable}`
+    return (relationshipOptions[key] || []).length === 0
+  })
+  useEffect(() => {
+    if (hasImpossibleJoin) setFilterOrderBarOpen(false)
+  }, [hasImpossibleJoin])
 
   const joinConditionsBlock = joinPairs.length > 0 && (
     <div className="join-row">
