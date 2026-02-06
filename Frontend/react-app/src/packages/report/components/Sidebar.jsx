@@ -33,7 +33,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
     ? tables.filter((t) => String(t.table_name || '').toLowerCase().includes(keyword))
     : tables
   const filteredTables = filteredByKeyword.filter((t) =>
-    isTableAvailable(t.table_name, addedTables, tableRelationships)
+    isTableAvailableOrViaParent(t.table_name, addedTables, tableRelationships, relationshipOptions)
   )
 
   return (
