@@ -230,42 +230,6 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
                         rel["confidence"] = "HIGH"
                         rel["reason"] = "FK 미정의 시 _id 패턴 추론 (부모.id=자식.부모_id)"
                     relationships.append(rel)
-        if mode in ("column", "all"):
-            table_columns = {}
-            for table_name in allowed:
-                try:
-                    table_columns[table_name] = db.get_table_columns_with_types(table_name)
-                except Exception:
-                    table_columns[table_name] = []
-            for i, t1 in enumerate(allowed):
-                cols1 = {(c["column_name"], c["data_type"]) for c in table_columns.get(t1, [])}
-                for t2 in allowed[i + 1 :]:
-                    cols2 = {(c["column_name"], c["data_type"]) for c in table_columns.get(t2, [])}
-                    common = cols1 & cols2
-                    for col_name, data_type in sorted(common):
-                        if col_name in ("id", "created_at", "updated_at"):
-                            continue
-                        if data_type:
-                            t = data_type.lower()
-                            if "date" in t or "timestamp" in t or t == "time" or "interval" in t:
-                                continue
-                        if col_name.endswith("_id"):
-                            continue
-                        rel1 = {
-                            "from_table": t1, "to_table": t2,
-                            "from_column": col_name, "to_column": col_name,
-                            "source": "column" if mode == "all" else None,
-                        }
-                        rel2 = {
-                            "from_table": t2, "to_table": t1,
-                            "from_column": col_name, "to_column": col_name,
-                            "source": "column" if mode == "all" else None,
-                        }
-                        if mode == "all":
-                            rel1["confidence"] = rel2["confidence"] = "MEDIUM"
-                            rel1["reason"] = rel2["reason"] = "동일 컬럼명·타입"
-                        relationships.append(rel1)
-                        relationships.append(rel2)
         return {"relationships": relationships, "count": len(relationships)}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 관계 조회 실패"})
