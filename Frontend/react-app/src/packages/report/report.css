@@ -53,27 +53,6 @@
   margin-top: 0;
 }
 
-/* ─── 사이드바: 조인 기준 선택 ─── */
-.sidebar-join-mode {
-  margin-bottom: 10px;
-}
-.sidebar-join-mode-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-light, #6b7280);
-  margin-bottom: 4px;
-}
-.sidebar-join-mode-select {
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 12px;
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
-}
-
 /* ─── 조인 조건 (테이블별 선택) ─── */
 .join-conditions-bar {
   display: flex;
@@ -103,10 +82,53 @@
   align-items: center;
   gap: 8px;
 }
+.join-conditions-pair--multi {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.join-conditions-pair__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .join-conditions-pair__tables {
   font-size: 11px;
   color: var(--text-light, #6b7280);
   white-space: nowrap;
+}
+.join-conditions-pair__confidence {
+  font-size: 14px;
+  line-height: 1;
+}
+.join-conditions-pair__reason {
+  font-size: 10px;
+  color: var(--text-light, #6b7280);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.join-conditions-pair__join-type {
+  padding: 2px 6px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.join-conditions-pair__conditions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+.join-conditions-pair__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .join-conditions-pair__select {
   padding: 4px 8px;
@@ -116,6 +138,60 @@
   background: #fff;
   min-width: 140px;
   cursor: pointer;
+}
+.join-conditions-pair__remove-condition {
+  padding: 2px 6px;
+  font-size: 11px;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.join-conditions-pair__remove-condition:hover {
+  background: #fee2e2;
+}
+.join-conditions-pair__add-condition {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px dashed var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+.join-conditions-pair__add-condition:hover {
+  background: #f3f4f6;
+}
+.join-conditions-pair__row-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.join-conditions-pair__logical-op {
+  padding: 2px 4px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.filter-chips-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.filter-logical-op {
+  padding: 2px 4px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  margin: 0 2px;
 }
 
 .btn-report-secondary {
@@ -133,7 +209,31 @@
   border-color: #9ca3af;
 }
 
+/* 실행 버튼 로딩 스피너 */
+.btn-execute {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-execute:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+.btn-execute-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-execute-spin 0.7s linear infinite;
+}
+@keyframes btn-execute-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ─── filter-order-bar 행 레이아웃 (기준축/피벗/행별집계/HAVING/조건/정렬) ─── */
+.filter-order-bar .join-row,
 .filter-order-bar .groupby-row,
 .filter-order-bar .pivot-row,
 .filter-order-bar .pivot-agg-row,
@@ -144,6 +244,20 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
+}
+.filter-order-bar .join-row {
+  align-items: flex-start;
+}
+.filter-order-bar .join-row .bar-label {
+  padding-top: 2px;
+}
+.join-conditions-pair__impossible {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b91c1c;
+  background: #fef2f2;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 .filter-order-bar .order-row:last-child {
   margin-bottom: 0;

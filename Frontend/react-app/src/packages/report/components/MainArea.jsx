@@ -21,12 +21,40 @@ function joinOptionLabel(opt) {
   return opt ? `${opt.prevColumn} = ${opt.currColumn}` : ''
 }
 
+const JOIN_TYPE_OPTIONS = [
+  { value: 'LEFT', label: 'LEFT JOIN' },
+  { value: 'INNER', label: 'INNER JOIN' },
+  { value: 'RIGHT', label: 'RIGHT JOIN' }
+]
+
+function confidenceBadge(confidence) {
+  if (confidence === 'HIGH') return { char: '🟢', title: '높음 (FK)' }
+  if (confidence === 'MEDIUM') return { char: '🟡', title: '중간 (동일 컬럼·타입)' }
+  if (confidence === 'LOW') return { char: '🔴', title: '낮음' }
+  return { char: '⚪', title: '' }
+}
+
+/** 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시 */
+function getColumnDisplayName(col, gridColumns) {
+  if (!col || !gridColumns?.length) return col?.column ?? ''
+  const alias = col.alias ?? gridColumns.find((c) => c.table === col.table && c.column === col.column)?.alias
+  const sameNameCount = gridColumns.filter((c) => c.column === col.column).length
+  return sameNameCount > 1 ? `${alias || col.table}.${col.column}` : col.column
+}
+
 export default function MainArea({
   gridColumns = [],
   addedTables = [],
   relationshipOptions = {},
-  joinSelections = {},
-  onJoinSelection,
+  joinConditions = {},
+  joinTypes = {},
+  onSetJoinConditions,
+  onSetJoinConditionAt,
+  onAddJoinCondition,
+  onRemoveJoinCondition,
+  onSetJoinType,
+  joinLogicalOperators = {},
+  onSetJoinLogicalOperator,
   groupBy = [],
   pivot = null,
   pivotRowAggs = [],
@@ -44,18 +72,21 @@ export default function MainArea({
   onRemoveColumn,
   onMoveColumn,
   onExecute,
+  queryRunning = false,
   onClearAll,
   onToggleGroupBy,
   onSetDateGranularity,
   onChangeAggFunc,
   onAddHaving,
   onRemoveHaving,
+  onHavingLogicalOpChange,
   onFetchAndSetPivot,
   onRemovePivot,
   onAddPivotAgg,
   onRemovePivotAgg,
   onAddFilter,
   onRemoveFilter,
+  onFilterLogicalOpChange,
   onAddOrderBy,
   onRemoveOrderBy,
   onSetPage,
@@ -109,9 +140,10 @@ export default function MainArea({
   function applyFilter() {
     if (addFilterColumnIndex == null || !gridColumns[addFilterColumnIndex]) return
     const val = (addFilterVal || '').trim()
-    if (!val) return
+    const noValueOp = addFilterOp === 'IS NULL' || addFilterOp === 'IS NOT NULL'
+    if (!noValueOp && !val) return
     const c = gridColumns[addFilterColumnIndex]
-    onAddFilter?.({ table: c.table, column: c.column, operator: addFilterOp, value: val })
+    onAddFilter?.({ table: c.table, column: c.column, operator: addFilterOp, value: noValueOp ? '' : val })
     setAddFilterColumnIndex(null)
     setAddFilterVal('')
   }
@@ -132,58 +164,122 @@ export default function MainArea({
     if (!c) return ''
     if (isGroupByActive && !isGroupByColumn(groupBy, c.table, c.column) && c.aggFunc) {
       const aggLabel = AGG_FUNCTIONS.find((a) => a.value === c.aggFunc)?.label || c.aggFunc
-      return `${aggLabel}(${c.column})`
+      return `${aggLabel}(${getColumnDisplayName(c, gridColumns)})`
     }
-    return c.column
+    return getColumnDisplayName(c, gridColumns)
   }
 
   const joinPairs = addedTables.length >= 2
     ? addedTables.slice(0, -1).map((prev, i) => ({ prevTable: prev, currTable: addedTables[i + 1] }))
     : []
 
+  const joinConditionsBlock = joinPairs.length > 0 && (
+    <div className="join-row">
+      <span className="bar-label">조인 조건</span>
+      <div className="join-conditions-bar__pairs">
+        {joinPairs.map(({ prevTable, currTable }) => {
+          const key = `${prevTable}||${currTable}`
+          const opts = relationshipOptions[key] || []
+          const noJoinPossible = opts.length === 0
+          const conds = joinConditions[key]
+          const firstOpt = opts[0]
+          const confidence = firstOpt?.confidence
+          const reason = firstOpt?.reason
+          const badge = confidenceBadge(confidence)
+          const conditionsList = (conds && conds.length) ? conds : (firstOpt ? [{ prevColumn: firstOpt.prevColumn, currColumn: firstOpt.currColumn }] : [])
+          const joinType = joinTypes[key] || 'LEFT'
+          return (
+            <div key={key} className="join-conditions-pair join-conditions-pair--multi">
+              <div className="join-conditions-pair__head">
+                <span className="join-conditions-pair__tables">{prevTable} ↔ {currTable}</span>
+                {noJoinPossible ? (
+                  <span className="join-conditions-pair__impossible" title="두 테이블 간 조인 가능한 조건이 없습니다">조인 불가</span>
+                ) : (
+                  <>
+                    {confidence && (
+                      <span className="join-conditions-pair__confidence" title={badge.title}>{badge.char}</span>
+                    )}
+                    {reason && <span className="join-conditions-pair__reason">{reason}</span>}
+                    <select
+                      className="join-conditions-pair__join-type"
+                      value={joinType}
+                      onChange={(e) => onSetJoinType?.(key, e.target.value)}
+                      aria-label="조인 타입"
+                    >
+                      {JOIN_TYPE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
+              {!noJoinPossible && (
+                <div className="join-conditions-pair__conditions">
+                  {conditionsList.map((cond, idx) => {
+                    const selectedVal = cond ? `${cond.prevColumn}::${cond.currColumn}` : ''
+                    const valueInOpts = opts.some((o) => o.prevColumn === cond?.prevColumn && o.currColumn === cond?.currColumn)
+                    return (
+                      <span key={idx} className="join-conditions-pair__row-wrap">
+                        {idx > 0 && (
+                          <select
+                            className="join-conditions-pair__logical-op"
+                            value={joinLogicalOperators[key] || 'AND'}
+                            onChange={(e) => onSetJoinLogicalOperator?.(key, e.target.value)}
+                            aria-label="조건 연결"
+                          >
+                            <option value="AND">AND</option>
+                            <option value="OR">OR</option>
+                          </select>
+                        )}
+                        <div className="join-conditions-pair__row">
+                          <select
+                            className="join-conditions-pair__select"
+                            value={valueInOpts ? selectedVal : (opts[0] ? `${opts[0].prevColumn}::${opts[0].currColumn}` : '')}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              if (!v) return
+                              const [prevColumn, currColumn] = v.split('::')
+                              onSetJoinConditionAt?.(key, idx, { prevColumn, currColumn })
+                            }}
+                          >
+                            {opts.map((opt, i) => (
+                              <option key={i} value={`${opt.prevColumn}::${opt.currColumn}`}>
+                                {joinOptionLabel(opt)}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="join-conditions-pair__remove-condition"
+                            onClick={() => onRemoveJoinCondition?.(key, idx)}
+                            title="조건 삭제"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </span>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    className="join-conditions-pair__add-condition"
+                    onClick={() => onAddJoinCondition?.(key, opts[0] ? { prevColumn: opts[0].prevColumn, currColumn: opts[0].currColumn } : null)}
+                    title="조건 추가"
+                  >
+                    + 조건 추가
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   return (
     <div className="main-area">
       <div className="grid-area">
-        {joinPairs.length > 0 && (
-          <div className="join-conditions-bar">
-            <span className="join-conditions-bar__label">조인 조건</span>
-            <div className="join-conditions-bar__pairs">
-              {joinPairs.map(({ prevTable, currTable }) => {
-                const key = `${prevTable}||${currTable}`
-                const opts = relationshipOptions[key] || []
-                const selected = joinSelections[key] || opts[0]
-                const selectedVal = selected ? `${selected.prevColumn}::${selected.currColumn}` : ''
-                const valueInOpts = opts.some((o) => o.prevColumn === selected?.prevColumn && o.currColumn === selected?.currColumn)
-                return (
-                  <div key={key} className="join-conditions-pair">
-                    <span className="join-conditions-pair__tables">{prevTable} ↔ {currTable}</span>
-                    <select
-                      className="join-conditions-pair__select"
-                      value={valueInOpts ? selectedVal : (opts[0] ? `${opts[0].prevColumn}::${opts[0].currColumn}` : '')}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (!v) {
-                          onJoinSelection?.(prevTable, currTable, null)
-                          return
-                        }
-                        const [prevColumn, currColumn] = v.split('::')
-                        const opt = opts.find((o) => o.prevColumn === prevColumn && o.currColumn === currColumn)
-                        if (opt) onJoinSelection?.(prevTable, currTable, opt)
-                      }}
-                    >
-                      {opts.length === 0 && <option value="">조인 조건 없음</option>}
-                      {opts.map((opt, idx) => (
-                        <option key={idx} value={`${opt.prevColumn}::${opt.currColumn}`}>
-                          {joinOptionLabel(opt)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
         {gridColumns.length > 0 && (
           <div className={`filter-order-bar ${filterOrderBarOpen ? 'filter-order-bar--open' : ''}`}>
             <div className="filter-order-bar__header" onClick={() => setFilterOrderBarOpen((v) => !v)} role="button" tabIndex={0}>
@@ -197,14 +293,22 @@ export default function MainArea({
                   </button>
                 )}
                 {typeof onExecute === 'function' && (
-                  <button type="button" className="btn btn-primary" onClick={onExecute}>
-                    실행
+                  <button type="button" className="btn btn-primary btn-execute" onClick={onExecute} disabled={queryRunning}>
+                    {queryRunning ? (
+                      <>
+                        <span className="btn-execute-spinner" aria-hidden />
+                        실행 중…
+                      </>
+                    ) : (
+                      '실행'
+                    )}
                   </button>
                 )}
               </div>
             </div>
             {filterOrderBarOpen && (
               <div className="filter-order-bar__dropdown-content">
+                {joinConditionsBlock}
             {isGroupByActive && (
               <>
                 <div className="groupby-row">
@@ -212,7 +316,7 @@ export default function MainArea({
                   <div className="filter-chips">
                     {groupBy.map((g) => (
                       <span key={`${g.table}.${g.column}`} className="filter-chip gb-chip">
-                        {g.column}{' '}
+                        {getColumnDisplayName(g, gridColumns)}{' '}
                         <span className="chip-remove" onClick={() => onToggleGroupBy?.(g.table, g.column)} role="button" tabIndex={0}>×</span>
                       </span>
                     ))}
@@ -223,7 +327,7 @@ export default function MainArea({
                   <div className="filter-chips">
                     {pivot ? (
                       <span className="filter-chip pivot-chip">
-                        {pivot.column}{' '}
+                        {getColumnDisplayName(pivot, gridColumns)}{' '}
                         {pivot.values.map((v) => (
                           <span key={v} className="pivot-value-badge">{v}</span>
                         ))}{' '}
@@ -247,7 +351,7 @@ export default function MainArea({
                                     setAddPivotMenuOpen(false)
                                   }}
                                 >
-                                  {col.column}
+                                  {getColumnDisplayName(col, gridColumns)}
                                 </button>
                               ))
                             )}
@@ -265,7 +369,7 @@ export default function MainArea({
                         const aggLabel = AGG_FUNCTIONS.find((a) => a.value === agg.aggFunc)?.label || agg.aggFunc
                         return (
                           <span key={i} className="filter-chip pivot-agg-chip">
-                            {aggLabel}({agg.column}) <span className="chip-remove" onClick={() => onRemovePivotAgg?.(i)} role="button" tabIndex={0}>×</span>
+                            {aggLabel}({getColumnDisplayName(agg, gridColumns)}) <span className="chip-remove" onClick={() => onRemovePivotAgg?.(i)} role="button" tabIndex={0}>×</span>
                           </span>
                         )
                       })}
@@ -285,7 +389,7 @@ export default function MainArea({
                                     setAddPivotAggMenuOpen(false)
                                   }}
                                 >
-                                  {agg.label}({col.column})
+                                  {agg.label}({getColumnDisplayName(col, gridColumns)})
                                 </button>
                               ))
                             )
@@ -302,9 +406,22 @@ export default function MainArea({
                       const aggLabel = AGG_FUNCTIONS.find((a) => a.value === h.aggFunc)?.label || h.aggFunc
                       const opLabel = OPERATOR_LABELS[h.operator] || h.operator
                       return (
-                        <span key={i} className="filter-chip having-chip">
-                          {aggLabel}({h.column}) <span className="chip-op">{opLabel}</span> {h.value}{' '}
-                          <span className="chip-remove" onClick={() => onRemoveHaving?.(i)} role="button" tabIndex={0}>×</span>
+                        <span key={i} className="filter-chips-inline">
+                          {i > 0 && (
+                            <select
+                              className="filter-logical-op"
+                              value={havings[i - 1].logicalOperator || 'AND'}
+                              onChange={(e) => onHavingLogicalOpChange?.(i - 1, e.target.value)}
+                              aria-label="다음 조건과"
+                            >
+                              <option value="AND">AND</option>
+                              <option value="OR">OR</option>
+                            </select>
+                          )}
+                          <span className="filter-chip having-chip">
+                            {aggLabel}({getColumnDisplayName(h, gridColumns)}) <span className="chip-op">{opLabel}</span> {h.value}{' '}
+                            <span className="chip-remove" onClick={() => onRemoveHaving?.(i)} role="button" tabIndex={0}>×</span>
+                          </span>
                         </span>
                       )
                     })}
@@ -325,7 +442,7 @@ export default function MainArea({
                                   setAddHavingPopup({ table: c.table, column: c.column, aggFunc: c.aggFunc })
                                 }}
                               >
-                                {aggLabel}({c.column})
+                                {aggLabel}({getColumnDisplayName(c, gridColumns)})
                               </button>
                             )
                           })
@@ -343,10 +460,25 @@ export default function MainArea({
                   const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)
                   if (!c) return null
                   const opLabel = OPERATOR_LABELS[f.operator] || f.operator
+                  const noValueOp = f.operator === 'IS NULL' || f.operator === 'IS NOT NULL'
                   return (
-                    <span key={i} className="filter-chip">
-                      {f.column} <span className="chip-op">{opLabel}</span> {f.value}{' '}
-                      <span className="chip-remove" onClick={() => onRemoveFilter?.(i)} role="button" tabIndex={0}>×</span>
+                    <span key={i} className="filter-chips-inline">
+                      {i > 0 && (
+                        <select
+                          className="filter-logical-op"
+                          value={filters[i - 1].logicalOperator || 'AND'}
+                          onChange={(e) => onFilterLogicalOpChange?.(i - 1, e.target.value)}
+                          aria-label="다음 조건과"
+                        >
+                          <option value="AND">AND</option>
+                          <option value="OR">OR</option>
+                        </select>
+                      )}
+                      <span className="filter-chip">
+                        {getColumnDisplayName(c, gridColumns)} <span className="chip-op">{opLabel}</span>
+                        {!noValueOp && f.value != null && f.value !== '' && ` ${f.value}`}{' '}
+                        <span className="chip-remove" onClick={() => onRemoveFilter?.(i)} role="button" tabIndex={0}>×</span>
+                      </span>
                     </span>
                   )
                 })}
@@ -356,7 +488,7 @@ export default function MainArea({
                   <span className="filter-chip" style={{ flexWrap: 'nowrap' }}>
                     <select value={addFilterColumnIndex} onChange={(e) => setAddFilterColumnIndex(Number(e.target.value))}>
                       {gridColumns.map((c, i) => (
-                        <option key={i} value={i}>{c.column}</option>
+                        <option key={i} value={i}>{getColumnDisplayName(c, gridColumns)}</option>
                       ))}
                     </select>
                     <select value={addFilterOp} onChange={(e) => setAddFilterOp(e.target.value)}>
@@ -364,13 +496,15 @@ export default function MainArea({
                         <option key={val} value={val}>{label}</option>
                       ))}
                     </select>
-                    <input
-                      type={isDateTimeType(gridColumns[addFilterColumnIndex]?.type) ? 'datetime-local' : isDateType(gridColumns[addFilterColumnIndex]?.type) ? 'date' : 'text'}
-                      placeholder="값"
-                      value={addFilterVal}
-                      onChange={(e) => setAddFilterVal(e.target.value)}
-                      style={{ width: '120px', padding: '4px' }}
-                    />
+                    {(addFilterOp !== 'IS NULL' && addFilterOp !== 'IS NOT NULL') && (
+                      <input
+                        type={isDateTimeType(gridColumns[addFilterColumnIndex]?.type) ? 'datetime-local' : isDateType(gridColumns[addFilterColumnIndex]?.type) ? 'date' : 'text'}
+                        placeholder={addFilterOp === 'IN' ? 'a,b,c' : addFilterOp === 'BETWEEN' ? 'min,max' : '값'}
+                        value={addFilterVal}
+                        onChange={(e) => setAddFilterVal(e.target.value)}
+                        style={{ width: '120px', padding: '4px' }}
+                      />
+                    )}
                     <button type="button" className="btn-small primary" onClick={applyFilter}>적용</button>
                     <span className="chip-remove" onClick={() => setAddFilterColumnIndex(null)} role="button">×</span>
                   </span>
@@ -525,7 +659,7 @@ export default function MainArea({
                         }}
                       >
                         <div className="header-content">
-                          <span className="column-name">{c.column}</span>
+                          <span className="column-name">{getColumnDisplayName(c, gridColumns)}</span>
                           <span className="header-actions">
                             {isGB ? (
                               <span className="gb-badge" onClick={(ev) => { ev.stopPropagation(); onToggleGroupBy?.(c.table, c.column) }} role="button" tabIndex={0}>기준축 ×</span>
@@ -595,12 +729,12 @@ export default function MainArea({
             <table className="data-grid">
               <thead>
                 <tr>
-                  {groupBy.map((g) => (
-                    <th key={`${g.table}.${g.column}`}>{g.column}</th>
+                    {groupBy.map((g) => (
+                    <th key={`${g.table}.${g.column}`}>{getColumnDisplayName(g, gridColumns)}</th>
                   ))}
                   {pivotRowAggs.map((agg) => {
                     const aggLabel = AGG_FUNCTIONS.find((a) => a.value === agg.aggFunc)?.label || agg.aggFunc
-                    return <th key={`${agg.table}.${agg.column}.${agg.aggFunc}`}>{aggLabel}({agg.column})</th>
+                    return <th key={`${agg.table}.${agg.column}.${agg.aggFunc}`}>{aggLabel}({getColumnDisplayName(agg, gridColumns)})</th>
                   })}
                   {pivot.values.map((v) => (
                     <th key={v}>{v}</th>

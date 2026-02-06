@@ -16,7 +16,11 @@ export const OPERATOR_LABELS = {
   '<': '보다 작은',
   '>=': '이상인',
   '<=': '이하인',
-  LIKE: '포함하는'
+  LIKE: '포함하는',
+  IN: '목록 중 하나',
+  BETWEEN: '범위',
+  'IS NULL': '비어 있음',
+  'IS NOT NULL': '비어 있지 않음'
 }
 
 /** 집계 함수 목록 (value, label) */

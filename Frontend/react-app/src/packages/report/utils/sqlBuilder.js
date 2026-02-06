@@ -8,7 +8,8 @@
  * - generateSQL: SELECT + JOIN + WHERE + [GROUP BY + HAVING] + ORDER BY + LIMIT/OFFSET (피벗/날짜단위/집계 지원)
  * - generateCountSQL: COUNT(*) 쿼리 (GROUP BY 시 서브쿼리)
  *
- * [옵션] generateSQL/generateCountSQL 8번째 인자 options: { groupBy, dateGranularity, havings, pivot, pivotRowAggs }
+ * [옵션] generateSQL/generateCountSQL 8번째 인자 options: { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs }
+ *   joinConfigs: { "prevTable||currTable": { joinType: 'LEFT'|'INNER'|'RIGHT', conditions: [ { prevColumn, currColumn }, ... ] } }
  *
  * [의존성]
  * - 없음
@@ -32,6 +33,50 @@ function escapeValueForSql(val, operator) {
   if (operator === 'LIKE') return `'%${String(val).replace(/'/g, "''")}%'`
   if (!Number.isNaN(Number(val)) && String(val).trim() !== '') return val
   return `'${String(val).replace(/'/g, "''")}'`
+}
+
+/** 단일 값 SQL 이스케이프 (IN/BETWEEN용) */
+function escapeSingle(val) {
+  const s = String(val).trim()
+  if (s === '' || s.toLowerCase() === 'null') return 'NULL'
+  if (!Number.isNaN(Number(s))) return s
+  return `'${String(s).replace(/'/g, "''")}'`
+}
+
+/**
+ * 필터 하나에 대한 WHERE 절 조각 생성 (IS NULL, IN, BETWEEN 등 지원)
+ * @param {{ table: string, column: string, operator: string, value: string }} f
+ * @param {{ alias: string, column: string }} c
+ */
+function buildOneWhereClause(f, c) {
+  const colExpr = `${c.alias}.${c.column}`
+  const op = f.operator || '='
+  if (op === 'IS NULL') return `${colExpr} IS NULL`
+  if (op === 'IS NOT NULL') return `${colExpr} IS NOT NULL`
+  if (op === 'IN') {
+    const raw = (f.value || '').trim()
+    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+    if (parts.length === 0) return null
+    const inList = parts.map(escapeSingle).join(', ')
+    return `${colExpr} IN (${inList})`
+  }
+  if (op === 'BETWEEN') {
+    const raw = (f.value || '').trim()
+    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+    if (parts.length < 2) return null
+    const a = escapeSingle(parts[0])
+    const b = escapeSingle(parts[1])
+    return `${colExpr} BETWEEN ${a} AND ${b}`
+  }
+  const val = escapeValueForSql(f.value, op)
+  return `${colExpr} ${op} ${val}`
+}
+
+/** WHERE 절 배열을 logicalOperator로 연결 (filters[i].logicalOperator = i번과 i+1번 사이 연결) */
+function joinWhereClauses(clauses, filters) {
+  if (clauses.length === 0) return ''
+  if (clauses.length === 1) return clauses[0]
+  return clauses.reduce((acc, cl, i) => (i === 0 ? cl : `${acc} ${(filters[i - 1].logicalOperator || 'AND')} ${cl}`), '')
 }
 
 function getAlias(gridColumns, table) {
@@ -147,23 +192,36 @@ export function generateSQL(
   let sql = `SELECT\n    ${selectParts.join(',\n    ')}`
   const firstTable = addedTables[0]
   sql += `\nFROM ${firstTable} AS t1`
+  const joinConfigs = options.joinConfigs || {}
   for (let i = 1; i < addedTables.length; i++) {
     const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
-    const joinKey = getJoinKey(tableRelationships, prevTable, currTable)
-    if (!joinKey) throw new Error(`JOIN 관계 없음: ${prevTable} - ${currTable} (조인 조건 선택 필요)`)
-    sql += `\nLEFT JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+    const key = `${prevTable}||${currTable}`
+    const config = joinConfigs[key]
+    const joinType = (config?.joinType || 'LEFT').toUpperCase()
+    const conditions = config?.conditions?.length ? config.conditions : null
+    const joinKey = conditions ? null : getJoinKey(tableRelationships, prevTable, currTable)
+    if (conditions && conditions.length > 0) {
+      const op = (config.logicalOperator || 'AND').toUpperCase()
+      const onClause = conditions
+        .map((c) => `t${i}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .join(` ${op} `)
+      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
+    } else if (joinKey) {
+      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+    } else {
+      throw new Error(`JOIN 관계 없음: ${prevTable} - ${currTable} (조인 조건 선택 필요)`)
+    }
   }
 
   const whereClauses = filters
     .map((f) => {
       const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)
       if (!c) return null
-      const val = escapeValueForSql(f.value, f.operator)
-      return `${c.alias}.${c.column} ${f.operator} ${val}`
+      return buildOneWhereClause(f, c)
     })
     .filter(Boolean)
-  if (whereClauses.length > 0) sql += `\nWHERE ${whereClauses.join('\n  AND ')}`
+  if (whereClauses.length > 0) sql += `\nWHERE ${joinWhereClauses(whereClauses, filters)}`
 
   if (isGroupByActive) {
     const gbClauses = groupBy
@@ -174,16 +232,16 @@ export function generateSQL(
       .filter(Boolean)
     if (gbClauses.length > 0) {
       sql += `\nGROUP BY ${gbClauses.join(', ')}`
-      if (havings.length > 0) {
-        const havingClauses = havings
-          .map((h) => {
-            const alias = getAlias(gridColumns, h.table)
-            if (!alias) return null
-            return `${h.aggFunc}(${alias}.${h.column}) ${h.operator} ${h.value}`
-          })
-          .filter(Boolean)
-        if (havingClauses.length > 0) sql += `\nHAVING ${havingClauses.join('\n   AND ')}`
-      }
+        if (havings.length > 0) {
+          const havingClauses = havings
+            .map((h) => {
+              const alias = getAlias(gridColumns, h.table)
+              if (!alias) return null
+              return `${h.aggFunc}(${alias}.${h.column}) ${h.operator} ${h.value}`
+            })
+            .filter(Boolean)
+          if (havingClauses.length > 0) sql += `\nHAVING ${joinWhereClauses(havingClauses, havings)}`
+        }
     }
   }
 
@@ -222,24 +280,37 @@ export function generateCountSQL(
   const isGroupByActive = groupBy && groupBy.length > 0
 
   const firstTable = addedTables[0]
+  const joinConfigs = options.joinConfigs || {}
   let joinClauses = ''
   for (let i = 1; i < addedTables.length; i++) {
     const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
-    const joinKey = getJoinKey(tableRelationships, prevTable, currTable)
-    if (!joinKey) return null
-    joinClauses += `\nLEFT JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+    const key = `${prevTable}||${currTable}`
+    const config = joinConfigs[key]
+    const joinType = (config?.joinType || 'LEFT').toUpperCase()
+    const conditions = config?.conditions?.length ? config.conditions : null
+    const joinKey = conditions ? null : getJoinKey(tableRelationships, prevTable, currTable)
+    if (conditions && conditions.length > 0) {
+      const op = (config.logicalOperator || 'AND').toUpperCase()
+      const onClause = conditions
+        .map((c) => `t${i}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .join(` ${op} `)
+      joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
+    } else if (joinKey) {
+      joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+    } else {
+      return null
+    }
   }
 
   const whereClauses = filters
     .map((f) => {
       const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)
       if (!c) return null
-      const val = escapeValueForSql(f.value, f.operator)
-      return `${c.alias}.${c.column} ${f.operator} ${val}`
+      return buildOneWhereClause(f, c)
     })
     .filter(Boolean)
-  const whereStr = whereClauses.length > 0 ? `\nWHERE ${whereClauses.join('\n  AND ')}` : ''
+  const whereStr = whereClauses.length > 0 ? `\nWHERE ${joinWhereClauses(whereClauses, filters)}` : ''
 
   if (isGroupByActive) {
     const gbClauses = groupBy
@@ -258,7 +329,7 @@ export function generateCountSQL(
           return `${h.aggFunc}(${alias}.${h.column}) ${h.operator} ${h.value}`
         })
         .filter(Boolean)
-      if (havingClauses.length > 0) havingStr = `\nHAVING ${havingClauses.join('\n   AND ')}`
+      if (havingClauses.length > 0) havingStr = `\nHAVING ${joinWhereClauses(havingClauses, havings)}`
     }
     return `SELECT COUNT(*) as total FROM (\nSELECT ${gbClauses.join(', ')}\nFROM ${firstTable} AS t1${joinClauses}${whereStr}\nGROUP BY ${gbClauses.join(', ')}${havingStr}\n) AS _grp;`
   }
@@ -275,29 +346,42 @@ export function generateCountSQL(
  * @param {{ table: string, column: string, operator: string, value: string }[]} filters
  * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
  */
-export function generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships) {
+export function generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigs = {}) {
   const alias = gridColumns.find((c) => c.table === table)?.alias
   if (!alias || !addedTables.length) return null
   let sql = `SELECT DISTINCT ${alias}.${column}\nFROM ${addedTables[0]} AS t1`
   for (let i = 1; i < addedTables.length; i++) {
     const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
-    const joinKey = getJoinKey(tableRelationships, prevTable, currTable)
-    if (!joinKey) return null
-    sql += `\nLEFT JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+    const key = `${prevTable}||${currTable}`
+    const config = joinConfigs[key]
+    const joinType = (config?.joinType || 'LEFT').toUpperCase()
+    const conditions = config?.conditions?.length ? config.conditions : null
+    const joinKey = conditions ? null : getJoinKey(tableRelationships, prevTable, currTable)
+    if (conditions && conditions.length > 0) {
+      const op = (config.logicalOperator || 'AND').toUpperCase()
+      const onClause = conditions
+        .map((c) => `t${i}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .join(` ${op} `)
+      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
+    } else if (joinKey) {
+      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+    } else {
+      return null
+    }
   }
-  const whereClauses = [
+  const pivotWhereClauses = [
     `${alias}.${column} IS NOT NULL`,
     ...filters
       .map((f) => {
         const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)
         if (!c) return null
-        const val = escapeValueForSql(f.value, f.operator)
-        return `${c.alias}.${c.column} ${f.operator} ${val}`
+        return buildOneWhereClause(f, c)
       })
       .filter(Boolean)
   ]
-  sql += `\nWHERE ${whereClauses.join('\n  AND ')}`
+  const conns = [{ logicalOperator: 'AND' }, ...filters.map((f) => ({ logicalOperator: f.logicalOperator || 'AND' }))].slice(0, Math.max(0, pivotWhereClauses.length - 1))
+  sql += `\nWHERE ${joinWhereClauses(pivotWhereClauses, conns)}`
   sql += `\nORDER BY ${alias}.${column}\nLIMIT 20`
   return sql
 }

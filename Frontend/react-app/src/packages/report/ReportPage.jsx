@@ -49,8 +49,10 @@ export default function ReportPage() {
   const [explanation, setExplanation] = useState(null)
   const [toast, setToast] = useState(null)
   const [joinMode, setJoinMode] = useState('all') // 'fk' | 'column' | 'all'
-  const [relationshipOptions, setRelationshipOptions] = useState({}) // { "t1-t2": [ { prevColumn, currColumn }, ... ] }
-  const [joinSelections, setJoinSelections] = useState({}) // { "t1-t2": { prevColumn, currColumn } }
+  const [relationshipOptions, setRelationshipOptions] = useState({}) // { key: [ { prevColumn, currColumn, confidence?, reason? } ] }
+  const [joinConditions, setJoinConditions] = useState({}) // { key: [ { prevColumn, currColumn }, ... ] } 복합 조건
+  const [joinTypes, setJoinTypes] = useState({}) // { key: 'LEFT'|'INNER'|'RIGHT' }
+  const [joinLogicalOperators, setJoinLogicalOperators] = useState({}) // { key: 'AND'|'OR' } 조건 간 연결
 
   const tableRelationships = useMemo(() => {
     const resolved = {}
@@ -63,13 +65,33 @@ export default function ReportPage() {
       const parts = key.split('||')
       if (parts.length !== 2) return
       const [fromTable, toTable] = parts
-      const sel = joinSelections[key] || opts[0]
-      resolved[fromTable][toTable] = sel
+      const conds = joinConditions[key]
+      const first = (conds && conds[0]) ? conds[0] : (opts[0] && typeof opts[0] === 'object' && opts[0].prevColumn ? opts[0] : null)
+      if (!first) return
+      resolved[fromTable][toTable] = first
       if (!resolved[toTable]) resolved[toTable] = {}
-      resolved[toTable][fromTable] = { prevColumn: sel.currColumn, currColumn: sel.prevColumn }
+      resolved[toTable][fromTable] = { prevColumn: first.currColumn, currColumn: first.prevColumn }
     })
     return resolved
-  }, [tables, relationshipOptions, joinSelections])
+  }, [tables, relationshipOptions, joinConditions])
+
+  const joinConfigs = useMemo(() => {
+    const configs = {}
+    Object.keys(relationshipOptions).forEach((key) => {
+      const opts = relationshipOptions[key]
+      if (!opts || opts.length === 0) return
+      const conds = joinConditions[key]
+      const defaultFirst = opts[0] && (opts[0].prevColumn != null) ? opts[0] : null
+      const conditions = (conds && conds.length) ? conds : (defaultFirst ? [defaultFirst] : [])
+      if (conditions.length === 0) return
+      configs[key] = {
+        joinType: joinTypes[key] || 'LEFT',
+        logicalOperator: joinLogicalOperators[key] || 'AND',
+        conditions: conditions.map((c) => ({ prevColumn: c.prevColumn, currColumn: c.currColumn }))
+      }
+    })
+    return configs
+  }, [relationshipOptions, joinConditions, joinTypes, joinLogicalOperators])
 
   useEffect(() => {
     let cancelled = false
@@ -129,12 +151,18 @@ export default function ReportPage() {
           const toTable = r.to_table
           const prevCol = r.from_column
           const currCol = r.to_column
+          if (prevCol === 'id' && currCol === 'id') return
           const key = `${fromTable}||${toTable}`
           const optKey = `${key}::${prevCol}::${currCol}`
           if (seen.has(optKey)) return
           seen.add(optKey)
           if (!opts[key]) opts[key] = []
-          opts[key].push({ prevColumn: prevCol, currColumn: currCol })
+          opts[key].push({
+            prevColumn: prevCol,
+            currColumn: currCol,
+            confidence: r.confidence,
+            reason: r.reason
+          })
         })
         setRelationshipOptions(opts)
       })
@@ -142,9 +170,39 @@ export default function ReportPage() {
     return () => { cancelled = true }
   }, [joinMode, tables])
 
-  const setJoinSelection = useCallback((fromTable, toTable, value) => {
-    const key = `${fromTable}||${toTable}`
-    setJoinSelections((prev) => (value ? { ...prev, [key]: value } : (() => { const n = { ...prev }; delete n[key]; return n })()))
+  const setJoinConditionsForPair = useCallback((key, conditions) => {
+    setJoinConditions((prev) => (conditions?.length ? { ...prev, [key]: conditions } : (() => { const n = { ...prev }; delete n[key]; return n })()))
+  }, [])
+  const setJoinConditionAt = useCallback((key, index, value) => {
+    setJoinConditions((prev) => {
+      const arr = prev[key] ? [...prev[key]] : []
+      if (value) {
+        arr[index] = value
+        return { ...prev, [key]: arr }
+      }
+      arr.splice(index, 1)
+      return arr.length ? { ...prev, [key]: arr } : (() => { const n = { ...prev }; delete n[key]; return n })()
+    })
+  }, [])
+  const addJoinCondition = useCallback((key, value) => {
+    if (!value?.prevColumn || !value?.currColumn) return
+    setJoinConditions((prev) => {
+      const arr = prev[key] ? [...prev[key], value] : [value]
+      return { ...prev, [key]: arr }
+    })
+  }, [])
+  const removeJoinCondition = useCallback((key, index) => {
+    setJoinConditions((prev) => {
+      const arr = prev[key] ? [...prev[key]] : []
+      arr.splice(index, 1)
+      return arr.length ? { ...prev, [key]: arr } : (() => { const n = { ...prev }; delete n[key]; return n })()
+    })
+  }, [])
+  const setJoinTypeForPair = useCallback((key, joinType) => {
+    setJoinTypes((prev) => (joinType ? { ...prev, [key]: joinType } : (() => { const n = { ...prev }; delete n[key]; return n })()))
+  }, [])
+  const setJoinLogicalOperatorForPair = useCallback((key, logicalOperator) => {
+    setJoinLogicalOperators((prev) => (logicalOperator ? { ...prev, [key]: logicalOperator } : (() => { const n = { ...prev }; delete n[key]; return n })()))
   }, [])
 
   const showToast = useCallback((type, msg) => {
@@ -186,13 +244,16 @@ export default function ReportPage() {
     [gridColumns, addedTables, groupBy, syncAggFuncs, showToast]
   )
 
+  const [queryRunning, setQueryRunning] = useState(false)
+
   const runExecuteQuery = useCallback(async () => {
     if (gridColumns.length === 0) {
       showToast('warning', '최소 1개의 컬럼을 선택하세요')
       return
     }
+    setQueryRunning(true)
     try {
-      const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs }
+      const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs }
       const countSQL = generateCountSQL(gridColumns, addedTables, filters, tableRelationships, options)
       if (countSQL) {
         try {
@@ -210,8 +271,10 @@ export default function ReportPage() {
       showToast('success', `${res.count ?? res.data?.length ?? 0}건 조회 완료`)
     } catch (e) {
       showToast('error', e.message || '실행 실패')
+    } finally {
+      setQueryRunning(false)
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, groupBy, dateGranularity, havings, pivot, pivotRowAggs, showToast])
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs, showToast])
 
   useEffect(() => {
     if (gridColumns.length === 0) return
@@ -324,15 +387,20 @@ export default function ReportPage() {
 
   const addHaving = useCallback((having) => {
     setHavings((prev) => {
+      const withOp = { ...having, logicalOperator: having.logicalOperator || 'AND' }
       const idx = prev.findIndex((h) => h.table === having.table && h.column === having.column && h.aggFunc === having.aggFunc)
       if (idx >= 0) {
         const next = [...prev]
-        next[idx] = having
+        next[idx] = withOp
         return next
       }
-      return [...prev, having]
+      return [...prev, withOp]
     })
     setCurrentPage(1)
+  }, [])
+
+  const setHavingLogicalOperator = useCallback((index, logicalOperator) => {
+    setHavings((prev) => prev.map((h, i) => (i === index ? { ...h, logicalOperator } : h)))
   }, [])
 
   const removeHaving = useCallback((index) => {
@@ -349,7 +417,7 @@ export default function ReportPage() {
     async (table, column) => {
       const alias = gridColumns.find((c) => c.table === table)?.alias
       if (!alias) return
-      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships)
+      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigs)
       if (!sql) {
         showToast('error', '피벗 값 조회 SQL 생성 실패')
         return
@@ -369,7 +437,7 @@ export default function ReportPage() {
         showToast('error', '피벗 값 조회 실패: ' + (e.message || ''))
       }
     },
-    [gridColumns, addedTables, filters, tableRelationships, setPivotFromValues, showToast]
+    [gridColumns, addedTables, filters, tableRelationships, joinConfigs, setPivotFromValues, showToast]
   )
 
   const removePivotCallback = useCallback(() => {
@@ -392,8 +460,11 @@ export default function ReportPage() {
   }, [])
 
   const addFilter = useCallback((filter) => {
-    setFilters((prev) => [...prev, filter])
+    setFilters((prev) => [...prev, { ...filter, logicalOperator: filter.logicalOperator || 'AND' }])
     setCurrentPage(1)
+  }, [])
+  const setFilterLogicalOperator = useCallback((index, logicalOperator) => {
+    setFilters((prev) => prev.map((f, i) => (i === index ? { ...f, logicalOperator } : f)))
   }, [])
   const removeFilter = useCallback((index) => {
     setFilters((prev) => prev.filter((_, i) => i !== index))
@@ -468,15 +539,20 @@ export default function ReportPage() {
           addedTables={addedTables}
           loading={loading}
           dbStatus={dbStatus}
-          joinMode={joinMode}
-          setJoinMode={setJoinMode}
         />
         <MainArea
           gridColumns={gridColumns}
           addedTables={addedTables}
           relationshipOptions={relationshipOptions}
-          joinSelections={joinSelections}
-          onJoinSelection={setJoinSelection}
+          joinConditions={joinConditions}
+          joinTypes={joinTypes}
+          onSetJoinConditions={setJoinConditionsForPair}
+          onSetJoinConditionAt={setJoinConditionAt}
+          onAddJoinCondition={addJoinCondition}
+          onRemoveJoinCondition={removeJoinCondition}
+          onSetJoinType={setJoinTypeForPair}
+          joinLogicalOperators={joinLogicalOperators}
+          onSetJoinLogicalOperator={setJoinLogicalOperatorForPair}
           groupBy={groupBy}
           pivot={pivot}
           pivotRowAggs={pivotRowAggs}
@@ -494,18 +570,21 @@ export default function ReportPage() {
           onRemoveColumn={removeColumn}
           onMoveColumn={moveColumn}
           onExecute={runExecuteQuery}
+          queryRunning={queryRunning}
           onClearAll={clearAll}
           onToggleGroupBy={toggleGroupBy}
           onSetDateGranularity={setDateGranularityFor}
           onChangeAggFunc={changeAggFuncFor}
           onAddHaving={addHaving}
           onRemoveHaving={removeHaving}
+          onHavingLogicalOpChange={setHavingLogicalOperator}
           onFetchAndSetPivot={fetchAndSetPivot}
           onRemovePivot={removePivotCallback}
           onAddPivotAgg={addPivotAgg}
           onRemovePivotAgg={removePivotAgg}
           onAddFilter={addFilter}
           onRemoveFilter={removeFilter}
+          onFilterLogicalOpChange={setFilterLogicalOperator}
           onAddOrderBy={addOrderBy}
           onRemoveOrderBy={removeOrderBy}
           onSetPage={setPage}
