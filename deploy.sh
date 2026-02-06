@@ -20,9 +20,13 @@ echo "=========================================="
 echo "프로젝트 경로: $PROJECT_ROOT"
 echo ""
 
-# 1) Frontend 빌드
-echo "[1/3] Frontend/react-app 빌드 중..."
+# 1) Frontend 의존성 설치 후 빌드
+echo "[1/3] Frontend/react-app 의존성 설치 및 빌드..."
 cd "$REACT_APP_DIR"
+if ! npm install; then
+  echo "오류: npm install 실패" >&2
+  exit 1
+fi
 if ! npm run build; then
   echo "오류: npm run build 실패" >&2
   exit 1
