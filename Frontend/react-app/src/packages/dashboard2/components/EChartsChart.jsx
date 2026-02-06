@@ -152,8 +152,10 @@ function buildOption(rows, groupBy, template) {
   })
 
   const yAxisBounds = computeYAxisBounds(rows, template)
+  const isLineOrArea = template.chartType === 'line' || template.chartType === 'area'
   const yAxis = {
     type: 'value',
+    ...(isLineOrArea ? { scale: true } : {}),
     ...(yAxisBounds ? { min: yAxisBounds.min, max: yAxisBounds.max } : {})
   }
 
@@ -327,7 +329,12 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
       axisTick: { alignWithLabel: true },
       boundaryGap: isBar
     },
-    yAxis: { type: 'value', axisLabel: { margin: 12 }, splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } } },
+    yAxis: {
+      type: 'value',
+      scale: !isBar,
+      axisLabel: { margin: 12 },
+      splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
+    },
     series
   }
   if (showDataZoom) {
