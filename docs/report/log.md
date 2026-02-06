@@ -1,5 +1,91 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: Y축 Nice Numbers 전면 개편 (Chart.js 스타일)
+
+### 완료 작업
+1. **기존 Y축 함수 제거**
+   - `calculateNiceStepSize`, `calculateYAxisMax`, `calculateYAxisMin`, `calculateNiceStepSizeLineArea` 삭제.
+
+2. **새 알고리즘 적용**
+   - `niceNum(range, round)`: 1, 2, 5, 10 계열 nice 숫자 반환.
+   - `calculateYAxisScale(dataMin, dataMax, options)`: minTicks, maxTicks, paddingRatio, includeZero 옵션으로 min/max/stepSize/ticks/tickCount 반환.
+   - `calculateYAxisScaleForLineArea`: 선형/영역용 (minTicks 6, maxTicks 12, paddingRatio 0.05).
+   - `calculateYAxisScaleForBar`: 막대용 (includeZero: true, paddingRatio 0.1, minTicks 5, maxTicks 8).
+
+3. **yDomain 연동**
+   - 막대: `calculateYAxisScaleForBar` → [scale.min, scale.max].
+   - 선형/영역: `calculateYAxisScaleForLineArea` → [scale.min, scale.max].
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: recharts-surface·Y축 Max 잘림 방지 (막대·선형·영역 공통)
+
+### 완료 작업
+1. **overflow로 인한 잘림 제거**
+   - `.chart-widget__y-axis-fixed`: `overflow: hidden` → `overflow: visible` (Y축 상단/하단 레이블 잘림 방지).
+   - `.chart-widget__chart-scroll`: `overflow-y: visible` 명시.
+   - `.chart-widget__chart-wrap`: `overflow-y: visible` 추가.
+   - `.chart-widget__chart-block`: `overflow: visible` 추가.
+   - `.recharts-responsive-container`, `.recharts-wrapper`, `.recharts-surface`: `overflow: visible !important` (캔버스 잘림 방지).
+
+2. **Y축 레이블·여백**
+   - `formatYAxisTick`: 1e12 이상은 "Ne12", 1e9~1e12 "Ne9", 1e6~1e9 "Ne6" 등으로 축약해 좁은 영역에서도 잘리지 않도록 적용 (100000000000 → "100e9" 등).
+   - Y축 고정 영역 너비 56px → 80px, margin top 40 → 48, bottom 24 → 28로 상하 여유 확대.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 Y축 도메인 버퍼·숫자 파싱·범례 상단 배치
+
+### 완료 작업
+1. **Y축 도메인과 데이터 일치**
+   - `parseChartNumber(v)`: API/프롭 값이 문자열(쉼표 포함)이어도 숫자로 안전 파싱. 차트 데이터 저장 시와 yDomain 계산 시 동일 함수 사용.
+   - yMax 버퍼: `minBuffer = max(dataMax * 10%, 1)` 로 두고, 막대/선형/영역 모두 `yMax >= dataMax + minBuffer` 로 상단 여유 확보.
+
+2. **범례 위치**
+   - 범례를 Y축 옆이 아닌 **차트 블록 전체 상단 한 줄**로 이동. `chart-widget__chart-block`(flex column)으로 범례 행 + 차트 영역(Y축 고정 | 스크롤) 세로 배치. `.chart-widget__legend-top` 스타일 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
+## 2025-02-02: 차트 범례 recharts-surface 상단 배치 및 막대 Y축 nice number 강제
+
+### 완료 작업
+1. **범례 위치**
+   - 범례를 Y축 열이 아닌 **recharts-surface 상단**으로 이동. 스크롤 영역(`chart-scroll`) 내부 맨 위에 `chart-widget__legend-strip`을 두어 차트 캔버스 바로 위에 표시. 고정 Y축 열에는 같은 높이의 `chart-widget__legend-strip-spacer` 추가해 세로 정렬 유지.
+
+2. **막대 차트 Y축 nice number**
+   - 도메인 계산 시 메트릭 값을 `Number()`로 확실히 숫자화.
+   - 막대용 `yMax`: `dataMax + stepSize` 후 step 단위로 올림해 눈금에 맞춤 (`Math.ceil(rawMax / stepSize) * stepSize`).
+   - Recharts가 데이터로 domain을 넓히지 않도록 Y축(고정·스크롤 공통)에 `allowDataOverflow` 적용.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+
+### 검수 결과
+- Lint: 해당 파일 오류 없음.
+
+---
+
 ## 2025-02-02: 차트 위젯 범례 간격 및 막대 Y축 max 보정
 
 ### 완료 작업

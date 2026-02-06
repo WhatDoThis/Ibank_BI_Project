@@ -277,6 +277,91 @@ function calculateYAxisScaleForBar(dataMin, dataMax, options = {}) {
   return { min: niceMin, max: niceMax, stepSize, ticks, tickCount }
 }
 
+function generateTicks(min, max, step) {
+  const ticks = []
+  let current = min
+  while (current <= max + 0.001) {
+    ticks.push(Math.round(current * 100) / 100)
+    current += step
+  }
+  return ticks
+}
+
+/**
+ * Rate(비율) 데이터 + 막대 차트 전용 Y축
+ * - 범위가 좁을 때(5% 미만) 데이터 구간으로 확대해 미세한 차이 가독
+ * - 0부터 시작하지 않음. 백분율이면 0~100 내로 제한
+ */
+function calculateYAxisScaleForRate(dataMin, dataMax, options = {}) {
+  const { minTicks = 5, maxTicks = 8, isPercentage = true } = options
+
+  if (dataMin === dataMax) {
+    const value = dataMin
+    const padding = isPercentage ? 5 : Math.abs(value) * 0.1 || 1
+    const min = Math.max(isPercentage ? 0 : value - padding, value - padding)
+    const max = Math.min(isPercentage ? 100 : value + padding, value + padding)
+    const stepSize = (max - min) / 4 || 1
+    return { min, max, stepSize, ticks: generateTicks(min, max, stepSize), tickCount: 5 }
+  }
+
+  const range = dataMax - dataMin
+
+  if (range < 5) {
+    const center = (dataMin + dataMax) / 2
+    const expandedRange = Math.max(range * 3, 10)
+    let adjustedMin = center - expandedRange / 2
+    let adjustedMax = center + expandedRange / 2
+    if (isPercentage) {
+      adjustedMin = Math.max(0, adjustedMin)
+      adjustedMax = Math.min(100, adjustedMax)
+    }
+    const adjustedRange = adjustedMax - adjustedMin
+    const roughStep = adjustedRange / (minTicks - 1)
+    const stepSize = niceNum(roughStep, false)
+    const niceMin = Math.floor(adjustedMin / stepSize) * stepSize
+    const niceMax = Math.ceil(adjustedMax / stepSize) * stepSize
+    return {
+      min: niceMin,
+      max: niceMax,
+      stepSize,
+      ticks: generateTicks(niceMin, niceMax, stepSize),
+      tickCount: Math.round((niceMax - niceMin) / stepSize) + 1
+    }
+  }
+
+  const padding = range * 0.1
+  let adjustedMin = dataMin - padding
+  let adjustedMax = dataMax + padding
+  if (isPercentage) {
+    adjustedMin = Math.max(0, adjustedMin)
+    adjustedMax = Math.min(100, adjustedMax)
+  }
+  const adjustedRange = adjustedMax - adjustedMin
+  const roughStep = adjustedRange / (minTicks - 1)
+  const stepSize = niceNum(roughStep, false)
+  let niceMin = Math.floor(adjustedMin / stepSize) * stepSize
+  let niceMax = Math.ceil(adjustedMax / stepSize) * stepSize
+  let tickCount = Math.round((niceMax - niceMin) / stepSize) + 1
+
+  if (tickCount > maxTicks) {
+    const newStepSize = niceNum((niceMax - niceMin) / (maxTicks - 1), true)
+    const newNiceMin = Math.floor(adjustedMin / newStepSize) * newStepSize
+    const newNiceMax = Math.ceil(adjustedMax / newStepSize) * newStepSize
+    tickCount = Math.round((newNiceMax - newNiceMin) / newStepSize) + 1
+    const ticks = []
+    for (let i = 0; i < tickCount; i++) ticks.push(newNiceMin + newStepSize * i)
+    return { min: newNiceMin, max: newNiceMax, stepSize: newStepSize, ticks, tickCount }
+  }
+
+  return {
+    min: niceMin,
+    max: niceMax,
+    stepSize,
+    ticks: generateTicks(niceMin, niceMax, stepSize),
+    tickCount
+  }
+}
+
 /** 백분율 차트 전용: 0~100 고정 (필요 시 사용) */
 function calculateYAxisScaleForPercentage() {
   return {
@@ -436,19 +521,19 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: Nice Numbers 알고리즘 (막대=0 포함·패딩 10%, 선형/영역=패딩 5%) */
+  /* Y축 도메인: 막대+rate는 구간 확대(가독성), 막대+건수는 0 포함, 선형/영역=패딩 5% */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
     const values = chartData.map((d) => parseChartNumber(d[metricField.label]))
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
     if (chartType === 'bar') {
-      const scale = calculateYAxisScaleForBar(dataMin, dataMax)
+      const scale = isRate ? calculateYAxisScaleForRate(dataMin, dataMax) : calculateYAxisScaleForBar(dataMin, dataMax)
       return [scale.min, scale.max]
     }
     const scale = calculateYAxisScaleForLineArea(dataMin, dataMax)
     return [scale.min, scale.max]
-  }, [chartData, metricField.label, chartType])
+  }, [chartData, metricField.label, chartType, isRate])
 
   if (!chartData.length) {
     return (
@@ -578,11 +663,17 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
       </div>
     )
   } else {
-    /* 막대 차트: bar만 barCategoryGap·maxBarSize·Cell 적용, 나머지 레이아웃은 위와 동일 */
+    /* 막대 차트: bar만 barCategoryGap·maxBarSize·Cell 적용. Rate일 때 Y축 확대 시 안내 */
     const barMaxSize = Math.min(75, Math.floor(LABEL_SLOT_WIDTH * 0.55))
+    const showZoomHint = isRate && yDomain[0] > 0
     chartInner = (
       <div className="chart-widget__chart-block">
         {legendRow}
+        {showZoomHint && (
+          <p className="chart-widget__y-zoom-hint" style={{ fontSize: 12, color: '#6b7280', margin: '0 0 6px 0' }}>
+            Y축이 데이터 구간으로 확대되었습니다.
+          </p>
+        )}
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed">
           {fixedYAxisBlock}
           <div className="chart-widget__chart-scroll">
