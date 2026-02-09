@@ -507,7 +507,9 @@
 }
 
 .kpi-selector-wrap {
+  margin-top: 12px;
   margin-bottom: 12px;
+  padding: 16px;
 }
 
 .kpi-selector-trigger {

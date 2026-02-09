@@ -410,10 +410,11 @@ export default function Dashboard2Page() {
           />
           {data?.kpi && (
             <CollapsibleSection2 title="주요 지표" open={sectionOpen.kpi} onToggle={() => toggleSection('kpi')}>
-              <KPICards2 kpi={data.kpi} targetStatusByKey={targetStatusByKey} />
-              <p className="dashboard2-kpi-section-hint">
-                신호등 표시: 저장된 목표 중 현재 선택한 기간(날짜 범위)과 일치하는 지표에만 신호등(달성/주의/미달)이 표시됩니다.
-              </p>
+              <KPICards2 kpi={data.kpi} targetStatusByKey={targetStatusByKey}>
+                <p className="dashboard2-kpi-section-hint">
+                  신호등 표시: 저장된 목표 중 현재 선택한 기간(날짜 범위)과 일치하는 지표에만 신호등(달성/주의/미달)이 표시됩니다.
+                </p>
+              </KPICards2>
             </CollapsibleSection2>
           )}
           {data?.kpi && (

@@ -79,7 +79,7 @@ const STATUS_STYLE = {
   fail: { border: '#dc2626', bg: '#fee2e2', label: '미달' }
 }
 
-export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'dashboard2_kpi_visible' }) {
+export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'dashboard2_kpi_visible', children }) {
   const [visibleKeys, setVisibleKeys] = useState(() => loadVisibleKeys(storageKey))
   const [selectorOpen, setSelectorOpen] = useState(false)
 
@@ -103,30 +103,6 @@ export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'd
   if (!kpi) return null
   return (
     <section className="dashboard2-kpi-cards-section">
-      <div className="dashboard2-kpi-selector-wrap">
-        <button
-          type="button"
-          className="dashboard2-kpi-selector-trigger"
-          onClick={() => setSelectorOpen((o) => !o)}
-          aria-expanded={selectorOpen}
-        >
-          표시할 지표 선택 {selectorOpen ? '▲' : '▼'}
-        </button>
-        {selectorOpen && (
-          <div className="dashboard2-kpi-selector-checkboxes">
-            {CARD_CONFIG.map((c) => (
-              <label key={c.valueKey} className="dashboard2-kpi-selector-label">
-                <input
-                  type="checkbox"
-                  checked={visibleKeys.includes(c.valueKey)}
-                  onChange={() => toggleKey(c.valueKey)}
-                />
-                <span>{c.icon} {c.label}</span>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
       <div className="dashboard2-kpi-grid">
         {visibleConfig.map((c) => {
           const value = kpi[c.valueKey] ?? 0
@@ -170,6 +146,31 @@ export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'd
             </div>
           )
         })}
+      </div>
+      {children}
+      <div className="dashboard2-kpi-selector-wrap">
+        <button
+          type="button"
+          className="dashboard2-kpi-selector-trigger"
+          onClick={() => setSelectorOpen((o) => !o)}
+          aria-expanded={selectorOpen}
+        >
+          표시할 지표 선택 {selectorOpen ? '▲' : '▼'}
+        </button>
+        {selectorOpen && (
+          <div className="dashboard2-kpi-selector-checkboxes">
+            {CARD_CONFIG.map((c) => (
+              <label key={c.valueKey} className="dashboard2-kpi-selector-label">
+                <input
+                  type="checkbox"
+                  checked={visibleKeys.includes(c.valueKey)}
+                  onChange={() => toggleKey(c.valueKey)}
+                />
+                <span>{c.icon} {c.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )
