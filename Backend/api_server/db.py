@@ -18,7 +18,7 @@ Env/config/config.json 의 backend 만 사용. 환경 변수·기본값 없음. 
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, date
 
 import psycopg2
 from pathlib import Path
@@ -129,9 +129,11 @@ def get_table_columns_with_types(table_name):
 
 
 def get_db_connection():
-    """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증)."""
+    """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
     cfg = get_db_config()
-    return psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+    conn.set_client_encoding("UTF8")
+    return conn
 
 
 def format_value(value):
@@ -140,8 +142,11 @@ def format_value(value):
         return None
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, (int, float, bool)):
         return value
+    # Decimal, UUID 등 → 문자열로 (json.dumps 호환)
     return str(value)
 
 

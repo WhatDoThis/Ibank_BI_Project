@@ -153,17 +153,20 @@ export default function ReportPage() {
           const prevCol = r.from_column
           const currCol = r.to_column
           if (prevCol === 'id' && currCol === 'id') return
-          const key = `${fromTable}||${toTable}`
-          const optKey = `${key}::${prevCol}::${currCol}`
-          if (seen.has(optKey)) return
-          seen.add(optKey)
-          if (!opts[key]) opts[key] = []
-          opts[key].push({
-            prevColumn: prevCol,
-            currColumn: currCol,
-            confidence: r.confidence,
-            reason: r.reason
-          })
+          const push = (key, prev, curr) => {
+            const optKey = `${key}::${prev}::${curr}`
+            if (seen.has(optKey)) return
+            seen.add(optKey)
+            if (!opts[key]) opts[key] = []
+            opts[key].push({
+              prevColumn: prev,
+              currColumn: curr,
+              confidence: r.confidence,
+              reason: r.reason
+            })
+          }
+          push(`${fromTable}||${toTable}`, prevCol, currCol)
+          push(`${toTable}||${fromTable}`, currCol, prevCol)
         })
         setRelationshipOptions(opts)
       })
@@ -359,6 +362,33 @@ export default function ReportPage() {
     [gridColumns, groupBy, pivot, syncAggFuncs]
   )
 
+  /** 조인 해제: 해당 테이블을 addedTables에서 빼고, 해당 테이블 컬럼·관련 조건 전부 제거 */
+  const removeJoinedTable = useCallback(
+    (tableName) => {
+      if (!addedTables.includes(tableName)) return
+      const nextCols = gridColumns.filter((c) => c.table !== tableName)
+      setFilters((prev) => prev.filter((f) => f.table !== tableName))
+      setGroupBy((prev) => prev.filter((g) => g.table !== tableName))
+      setHavings((prev) => prev.filter((h) => h.table !== tableName))
+      setPivotRowAggs((prev) => prev.filter((a) => a.table !== tableName))
+      if (pivot && pivot.table === tableName) setPivot(null)
+      setAddedTables((tables) => tables.filter((t) => t !== tableName))
+      setOrderBy((prev) =>
+        prev
+          .filter((ob) => gridColumns[ob.columnIndex] && gridColumns[ob.columnIndex].table !== tableName)
+          .map((ob) => {
+            const c = gridColumns[ob.columnIndex]
+            const newIdx = nextCols.findIndex((n) => n.table === c.table && n.column === c.column)
+            return newIdx >= 0 ? { ...ob, columnIndex: newIdx } : null
+          })
+          .filter(Boolean)
+      )
+      setGridColumns(nextCols)
+      setCurrentPage(1)
+    },
+    [gridColumns, addedTables, groupBy, pivot]
+  )
+
   const toggleGroupBy = useCallback(
     (table, column) => {
       setGroupBy((prev) => {
@@ -434,7 +464,7 @@ export default function ReportPage() {
     async (table, column) => {
       const alias = gridColumns.find((c) => c.table === table)?.alias
       if (!alias) return
-      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigs)
+      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, { joinConfigs, dateGranularity })
       if (!sql) {
         showToast('error', '피벗 값 조회 SQL 생성 실패')
         return
@@ -454,7 +484,7 @@ export default function ReportPage() {
         showToast('error', '피벗 값 조회 실패: ' + (e.message || ''))
       }
     },
-    [gridColumns, addedTables, filters, tableRelationships, joinConfigs, setPivotFromValues, showToast]
+    [gridColumns, addedTables, filters, tableRelationships, joinConfigs, dateGranularity, setPivotFromValues, showToast]
   )
 
   const removePivotCallback = useCallback(() => {
@@ -568,6 +598,7 @@ export default function ReportPage() {
           onSetJoinConditionAt={setJoinConditionAt}
           onAddJoinCondition={addJoinCondition}
           onRemoveJoinCondition={removeJoinCondition}
+          onRemoveJoinedTable={removeJoinedTable}
           onSetJoinType={setJoinTypeForPair}
           joinLogicalOperators={joinLogicalOperators}
           onSetJoinLogicalOperator={setJoinLogicalOperatorForPair}

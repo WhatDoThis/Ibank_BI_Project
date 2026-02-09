@@ -52,6 +52,7 @@ export default function MainArea({
   onSetJoinConditionAt,
   onAddJoinCondition,
   onRemoveJoinCondition,
+  onRemoveJoinedTable,
   onSetJoinType,
   joinLogicalOperators = {},
   onSetJoinLogicalOperator,
@@ -200,6 +201,15 @@ export default function MainArea({
             <div key={key} className="join-conditions-pair join-conditions-pair--multi">
               <div className="join-conditions-pair__head">
                 <span className="join-conditions-pair__tables">{prevTable} ↔ {currTable}</span>
+                <button
+                  type="button"
+                  className="join-conditions-pair__remove-join"
+                  onClick={() => onRemoveJoinedTable?.(currTable)}
+                  title="조인 해제 (이 테이블 제거)"
+                  aria-label="조인 해제"
+                >
+                  ×
+                </button>
                 {noJoinPossible ? (
                   <span className="join-conditions-pair__impossible" title="두 테이블 간 조인 가능한 조건이 없습니다">조인 불가</span>
                 ) : (
@@ -226,6 +236,9 @@ export default function MainArea({
                   {conditionsList.map((cond, idx) => {
                     const selectedVal = cond ? `${cond.prevColumn}::${cond.currColumn}` : ''
                     const valueInOpts = opts.some((o) => o.prevColumn === cond?.prevColumn && o.currColumn === cond?.currColumn)
+                    const safeValue = (valueInOpts && selectedVal)
+                      ? selectedVal
+                      : (opts[0] ? `${opts[0].prevColumn}::${opts[0].currColumn}` : '')
                     return (
                       <span key={idx} className="join-conditions-pair__row-wrap">
                         {idx > 0 && (
@@ -242,7 +255,7 @@ export default function MainArea({
                         <div className="join-conditions-pair__row">
                           <select
                             className="join-conditions-pair__select"
-                            value={valueInOpts ? selectedVal : (opts[0] ? `${opts[0].prevColumn}::${opts[0].currColumn}` : '')}
+                            value={safeValue}
                             onChange={(e) => {
                               const v = e.target.value
                               if (!v) return

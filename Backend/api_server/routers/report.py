@@ -5,6 +5,7 @@ list-tables, describe-table, table-relationships, execute-query, explain-sql,
 get-column-values, query-stats. Depends(get_db), Depends(get_config) 활용.
 """
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 import psycopg2
 import requests
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from Backend.api_server import db
 from Backend.api_server.dependencies import get_db, get_config
@@ -261,7 +262,17 @@ def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(g
         rows = cur.fetchall()
         result = [dict((k, db.format_value(v)) for k, v in row.items()) for row in rows]
         cur.close()
-        return {"data": result, "count": len(result), "query": query}
+        payload = {"data": result, "count": len(result), "query": query}
+
+        def _json_default(obj):
+            """Decimal, date 등 JSON 미지원 타입을 문자열로."""
+            return str(obj)
+
+        body_bytes = json.dumps(payload, ensure_ascii=False, default=_json_default).encode("utf-8")
+        return Response(
+            content=body_bytes,
+            media_type="application/json; charset=utf-8",
+        )
     except psycopg2.errors.QueryCanceled:
         timeout = getattr(cfg, "query_timeout_seconds", None)
         sec = max(int(timeout or 0), 120) if timeout is not None else 120
@@ -275,6 +286,9 @@ def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(g
     except psycopg2.Error as e:
         return JSONResponse(status_code=500, content={"error": str(e), "message": "SQL 실행 오류"})
     except Exception as e:
+        _log("execute_query exception: %s", repr(e))
+        import traceback
+        _log("traceback: %s", traceback.format_exc())
         return JSONResponse(status_code=500, content={"error": str(e), "message": "쿼리 실행 실패"})
 
 

@@ -176,10 +176,15 @@ export function generateSQL(
       const alias = getAlias(gridColumns, agg.table)
       if (alias) selectParts.push(`${agg.aggFunc}(${alias}.${agg.column}) AS "${agg.aggFunc}(${agg.column})"`)
     })
+    const pivotCol = gridColumns.find((c) => c.table === pivot.table && c.column === pivot.column)
+    const pivotKey = `${pivot.table}.${pivot.column}`
+    const isPivotDate = pivotCol && isPivotColumnDateType(pivotCol.type)
+    const pivotGran = isPivotDate ? (dateGranularity[pivotKey] || 'YYYY-MM-DD') : null
+    const pivotCompareExpr = pivotGran ? `TO_CHAR(${pivotAlias}.${pivot.column}, '${pivotGran}')` : `${pivotAlias}.${pivot.column}`
     pivot.values.forEach((value) => {
       const safeVal = String(value).replace(/'/g, "''")
       selectParts.push(
-        `${aggFunc}(CASE WHEN ${pivotAlias}.${pivot.column} = '${safeVal}' THEN 1 END) AS "${value}"`
+        `${aggFunc}(CASE WHEN ${pivotCompareExpr} = '${safeVal}' THEN 1 END) AS "${value}"`
       )
     })
     selectParts.push(`${aggFunc}(*) AS "전체"`)
@@ -337,19 +342,43 @@ export function generateCountSQL(
   return `SELECT COUNT(*) as total\nFROM ${firstTable} AS t1${joinClauses}${whereStr};`
 }
 
+/** 피벗축이 날짜 컬럼인지 (타입 기준) */
+function isPivotColumnDateType(colType) {
+  if (!colType) return false
+  const t = String(colType).toLowerCase()
+  return t.includes('date') || t.includes('timestamp') || t === 'datetime' || t === 'datetime2'
+}
+
 /**
- * 피벗 축 값 조회용 DISTINCT 쿼리 생성
+ * 피벗 축 값 조회용 DISTINCT 쿼리 생성.
+ * 날짜 컬럼인 경우 dateGranularity(연/연월/연월일)와 걸린 조건(filters)을 반영한다.
  * @param {string} table
  * @param {string} column
- * @param {{ table: string, column: string, alias: string }[]} gridColumns
+ * @param {{ table: string, column: string, alias: string, type?: string }[]} gridColumns
  * @param {string[]} addedTables
  * @param {{ table: string, column: string, operator: string, value: string }[]} filters
  * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
+ * @param {{ joinConfigs?: object, dateGranularity?: Record<string, string> }} opts - joinConfigs 또는 { joinConfigs, dateGranularity }
  */
-export function generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigs = {}) {
-  const alias = gridColumns.find((c) => c.table === table)?.alias
+export function generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigsOrOpts = {}) {
+  const joinConfigs = joinConfigsOrOpts && typeof joinConfigsOrOpts.joinConfigs !== 'undefined'
+    ? joinConfigsOrOpts.joinConfigs
+    : joinConfigsOrOpts
+  const dateGranularity = (joinConfigsOrOpts && joinConfigsOrOpts.dateGranularity) || {}
+
+  const col = gridColumns.find((c) => c.table === table && c.column === column)
+  const alias = col?.alias
   if (!alias || !addedTables.length) return null
-  let sql = `SELECT DISTINCT ${alias}.${column}\nFROM ${addedTables[0]} AS t1`
+
+  const pivotKey = `${table}.${column}`
+  const isDate = col && isPivotColumnDateType(col.type)
+  const gran = isDate ? (dateGranularity[pivotKey] || 'YYYY-MM-DD') : null
+  const pivotSelectExpr = gran
+    ? `TO_CHAR(${alias}.${column}, '${gran}')`
+    : `${alias}.${column}`
+  const pivotSelectAlias = `"${alias}.${column}"`
+
+  let sql = `SELECT DISTINCT ${pivotSelectExpr} AS ${pivotSelectAlias}\nFROM ${addedTables[0]} AS t1`
   for (let i = 1; i < addedTables.length; i++) {
     const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
@@ -382,6 +411,6 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
   ]
   const conns = [{ logicalOperator: 'AND' }, ...filters.map((f) => ({ logicalOperator: f.logicalOperator || 'AND' }))].slice(0, Math.max(0, pivotWhereClauses.length - 1))
   sql += `\nWHERE ${joinWhereClauses(pivotWhereClauses, conns)}`
-  sql += `\nORDER BY ${alias}.${column}\nLIMIT 20`
+  sql += `\nORDER BY ${pivotSelectExpr}\nLIMIT 20`
   return sql
 }
