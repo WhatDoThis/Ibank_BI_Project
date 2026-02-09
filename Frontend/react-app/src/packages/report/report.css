@@ -139,6 +139,20 @@
   min-width: 140px;
   cursor: pointer;
 }
+.join-conditions-pair__remove-join {
+  margin-left: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.join-conditions-pair__remove-join:hover {
+  background: #fee2e2;
+}
 .join-conditions-pair__remove-condition {
   padding: 2px 6px;
   font-size: 11px;

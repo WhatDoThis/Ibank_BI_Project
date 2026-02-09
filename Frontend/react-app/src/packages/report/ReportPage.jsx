@@ -12,12 +12,13 @@
  * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Sidebar, MainArea)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
 import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
+import { canAddTableSafely, validateJoinPath } from './utils/safetyCheck'
 import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
@@ -153,17 +154,20 @@ export default function ReportPage() {
           const prevCol = r.from_column
           const currCol = r.to_column
           if (prevCol === 'id' && currCol === 'id') return
-          const key = `${fromTable}||${toTable}`
-          const optKey = `${key}::${prevCol}::${currCol}`
-          if (seen.has(optKey)) return
-          seen.add(optKey)
-          if (!opts[key]) opts[key] = []
-          opts[key].push({
-            prevColumn: prevCol,
-            currColumn: currCol,
-            confidence: r.confidence,
-            reason: r.reason
-          })
+          const push = (key, prev, curr) => {
+            const optKey = `${key}::${prev}::${curr}`
+            if (seen.has(optKey)) return
+            seen.add(optKey)
+            if (!opts[key]) opts[key] = []
+            opts[key].push({
+              prevColumn: prev,
+              currColumn: curr,
+              confidence: r.confidence,
+              reason: r.reason
+            })
+          }
+          push(`${fromTable}||${toTable}`, prevCol, currCol)
+          push(`${toTable}||${fromTable}`, currCol, prevCol)
         })
         setRelationshipOptions(opts)
       })
@@ -231,19 +235,39 @@ export default function ReportPage() {
       }
       const tableAlreadyAdded = addedTables.includes(columnInfo.table)
       let newAddedTables
+      let intermediateParent = null
       if (tableAlreadyAdded) {
         newAddedTables = addedTables
       } else if (canAddTableByColumn(addedTables, columnInfo.table, relationshipOptions)) {
         newAddedTables = [...addedTables, columnInfo.table]
       } else {
         const lastTable = addedTables[addedTables.length - 1]
-        const parent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
-        if (parent) {
-          newAddedTables = [...addedTables, parent, columnInfo.table]
-          showToast('success', `부모 테이블 '${parent}'을(를) 자동으로 넣어 조인했습니다.`)
+        intermediateParent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
+        if (intermediateParent) {
+          newAddedTables = [...addedTables, intermediateParent, columnInfo.table]
         } else {
           showToast('warning', '선택한 테이블과 조인할 수 없습니다. 부모 테이블을 먼저 추가하세요.')
           return
+        }
+      }
+      if (!tableAlreadyAdded) {
+        const safetyCheck = canAddTableSafely(
+          addedTables,
+          columnInfo.table,
+          intermediateParent,
+          relationshipOptions
+        )
+        if (!safetyCheck.ok) {
+          if (safetyCheck.severity === 'error') {
+            showToast('error', safetyCheck.reason)
+            if (safetyCheck.detail) console.error('Safety check:', safetyCheck.detail)
+            if (safetyCheck.suggestion) showToast('info', `💡 ${safetyCheck.suggestion}`)
+            return
+          }
+          if (safetyCheck.severity === 'warning') {
+            showToast('warning', safetyCheck.reason)
+            if (safetyCheck.suggestion) showToast('info', safetyCheck.suggestion)
+          }
         }
       }
       const tableAliasMap = {}
@@ -256,7 +280,11 @@ export default function ReportPage() {
       setAddedTables(newAddedTables)
       setGridColumns((prev) => syncAggFuncs([...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type, aggFunc }], groupBy))
       setCurrentPage(1)
-      showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
+      if (intermediateParent) {
+        showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${columnInfo.table}'를 추가했습니다`)
+      } else {
+        showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
+      }
     },
     [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions]
   )
@@ -268,6 +296,16 @@ export default function ReportPage() {
       showToast('warning', '최소 1개의 컬럼을 선택하세요')
       return
     }
+    const pathValidation = validateJoinPath(addedTables, relationshipOptions)
+    if (!pathValidation.valid) {
+      pathValidation.issues.filter((i) => i.severity === 'error').forEach((err) => {
+        showToast('error', err.message)
+      })
+      return
+    }
+    pathValidation.issues.filter((i) => i.severity === 'warning').forEach((warn) => {
+      showToast('warning', warn.message)
+    })
     setQueryRunning(true)
     try {
       const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs }
@@ -291,12 +329,14 @@ export default function ReportPage() {
     } finally {
       setQueryRunning(false)
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs, showToast])
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
 
+  const runExecuteQueryRef = useRef(runExecuteQuery)
+  runExecuteQueryRef.current = runExecuteQuery
   useEffect(() => {
     if (gridColumns.length === 0) return
-    runExecuteQuery()
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, runExecuteQuery])
+    runExecuteQueryRef.current()
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize])
 
   const moveColumn = useCallback((fromIndex, toIndex, insertBefore) => {
     setGridColumns((prev) => {
@@ -357,6 +397,33 @@ export default function ReportPage() {
       setCurrentPage(1)
     },
     [gridColumns, groupBy, pivot, syncAggFuncs]
+  )
+
+  /** 조인 해제: 해당 테이블을 addedTables에서 빼고, 해당 테이블 컬럼·관련 조건 전부 제거 */
+  const removeJoinedTable = useCallback(
+    (tableName) => {
+      if (!addedTables.includes(tableName)) return
+      const nextCols = gridColumns.filter((c) => c.table !== tableName)
+      setFilters((prev) => prev.filter((f) => f.table !== tableName))
+      setGroupBy((prev) => prev.filter((g) => g.table !== tableName))
+      setHavings((prev) => prev.filter((h) => h.table !== tableName))
+      setPivotRowAggs((prev) => prev.filter((a) => a.table !== tableName))
+      if (pivot && pivot.table === tableName) setPivot(null)
+      setAddedTables((tables) => tables.filter((t) => t !== tableName))
+      setOrderBy((prev) =>
+        prev
+          .filter((ob) => gridColumns[ob.columnIndex] && gridColumns[ob.columnIndex].table !== tableName)
+          .map((ob) => {
+            const c = gridColumns[ob.columnIndex]
+            const newIdx = nextCols.findIndex((n) => n.table === c.table && n.column === c.column)
+            return newIdx >= 0 ? { ...ob, columnIndex: newIdx } : null
+          })
+          .filter(Boolean)
+      )
+      setGridColumns(nextCols)
+      setCurrentPage(1)
+    },
+    [gridColumns, addedTables, groupBy, pivot]
   )
 
   const toggleGroupBy = useCallback(
@@ -434,7 +501,7 @@ export default function ReportPage() {
     async (table, column) => {
       const alias = gridColumns.find((c) => c.table === table)?.alias
       if (!alias) return
-      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigs)
+      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, { joinConfigs, dateGranularity })
       if (!sql) {
         showToast('error', '피벗 값 조회 SQL 생성 실패')
         return
@@ -454,7 +521,7 @@ export default function ReportPage() {
         showToast('error', '피벗 값 조회 실패: ' + (e.message || ''))
       }
     },
-    [gridColumns, addedTables, filters, tableRelationships, joinConfigs, setPivotFromValues, showToast]
+    [gridColumns, addedTables, filters, tableRelationships, joinConfigs, dateGranularity, setPivotFromValues, showToast]
   )
 
   const removePivotCallback = useCallback(() => {
@@ -568,6 +635,7 @@ export default function ReportPage() {
           onSetJoinConditionAt={setJoinConditionAt}
           onAddJoinCondition={addJoinCondition}
           onRemoveJoinCondition={removeJoinCondition}
+          onRemoveJoinedTable={removeJoinedTable}
           onSetJoinType={setJoinTypeForPair}
           joinLogicalOperators={joinLogicalOperators}
           onSetJoinLogicalOperator={setJoinLogicalOperatorForPair}
