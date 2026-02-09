@@ -39,17 +39,12 @@ const formatRate = (n) =>
     ? new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
     : '0.00'
 
-/** Y축 레이블용: 좁은 공간에서 잘리지 않도록 큰 수는 지수/축약 표기. rate일 때는 formatRate 사용 */
+/** Y축 레이블용: 축약 없이 쉼표 구분 숫자 표기. rate일 때는 formatRate 사용 */
 function formatYAxisTick(value, isRate = false) {
   if (isRate) return formatRate(value)
   if (value == null || Number.isNaN(value)) return '0'
   const n = Number(value)
-  const abs = Math.abs(n)
-  if (abs >= 1e12) return (n / 1e12).toFixed(0) + 'e12'
-  if (abs >= 1e9) return (n / 1e9).toFixed(0) + 'e9'
-  if (abs >= 1e6) return (n / 1e6).toFixed(0) + 'e6'
-  if (abs >= 1e3) return new Intl.NumberFormat('ko-KR').format(n)
-  return String(n)
+  return new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 }).format(n)
 }
 
 /** 차트 도메인/툴팁용: 문자열(쉼표 포함 등)을 숫자로 안전 파싱 */
@@ -466,6 +461,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
 
   const [chartDataFromApi, setChartDataFromApi] = useState([])
   const [chartDataLoading, setChartDataLoading] = useState(false)
+  const [showDimensionInfoModal, setShowDimensionInfoModal] = useState(false)
   const useChartApi = Boolean(tableId && chartDateRangeResolved?.length >= 2)
 
   useEffect(() => {
@@ -588,21 +584,133 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
           minHeight: CHART_HEIGHT + CHART_PADDING * 2
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <input
             type="text"
             value={title || ''}
             onChange={(e) => onUpdate(id, { title: e.target.value })}
             placeholder="차트 제목"
-            style={{ fontSize: 16, fontWeight: 600, color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', minWidth: 140 }}
+            style={{ fontSize: 16, fontWeight: 600, color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', minWidth: 140, flex: '1 1 140px', maxWidth: 280 }}
           />
-          <button type="button" className="chart-widget__delete-btn" onClick={() => onRemove(id)}>
-            삭제
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button type="button" className="chart-widget__save-btn" onClick={() => { /* 저장: DB 정립 후 구현 */ }}>
+              저장
+            </button>
+            <button type="button" className="chart-widget__delete-btn" onClick={() => onRemove(id)}>
+              삭제
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          {!isDateDimension && filters?.date_range?.length >= 2 && (
+            <>
+              <span style={{ fontSize: 13, color: '#374151', fontWeight: 500 }}>기준 기간</span>
+              <input
+                type="date"
+                value={(chartDateRange || filters.date_range)?.[0] ?? ''}
+                onChange={(e) => {
+                  const from = e.target.value
+                  const to = (chartDateRange || filters.date_range)?.[1] ?? from
+                  onUpdate(id, { chartDateRange: [from, to] })
+                }}
+                style={{ padding: '6px 8px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6 }}
+              />
+              <span style={{ fontSize: 13, color: '#6b7280' }}>~</span>
+              <input
+                type="date"
+                value={(chartDateRange || filters.date_range)?.[1] ?? ''}
+                onChange={(e) => {
+                  const to = e.target.value
+                  const from = (chartDateRange || filters.date_range)?.[0] ?? to
+                  onUpdate(id, { chartDateRange: [from, to] })
+                }}
+                style={{ padding: '6px 8px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 6 }}
+              />
+            </>
+          )}
+          <div className="chart-widget__option-row">
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label" aria-hidden="true" />
+              <div className="dashboard-header__info-btn-wrap">
+                <button
+                  type="button"
+                  className="dashboard-info-btn"
+                  onClick={() => setShowDimensionInfoModal(true)}
+                  title="Dimension(X축) 안내"
+                >
+                  info
+                </button>
+              </div>
+            </div>
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label">Dimension</span>
+              <select
+                value={effectiveXKey}
+                onChange={(e) => onUpdate(id, { xKey: e.target.value })}
+                className="chart-widget__option-select"
+              >
+                {dims.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label">Metric</span>
+              <select
+                value={yKey}
+                onChange={(e) => onUpdate(id, { yKey: e.target.value })}
+                className="chart-widget__option-select"
+              >
+                {METRIC_FIELDS.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label">차트 유형</span>
+              <select
+                value={chartType}
+                onChange={(e) => onUpdate(id, { chartType: e.target.value })}
+                className="chart-widget__option-select"
+              >
+                {CHART_TYPES.map((t) => (
+                  <option key={t.key} value={t.key}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
         <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
           {chartDataLoading ? '차트 데이터 조회 중...' : '표시할 데이터가 없습니다.'}
         </div>
+        {showDimensionInfoModal && (
+          <div
+            className="dashboard-modal-overlay"
+            onClick={() => setShowDimensionInfoModal(false)}
+            onKeyDown={(e) => e.key === 'Escape' && setShowDimensionInfoModal(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chart-dimension-info-title"
+          >
+            <div className="dashboard-modal" onClick={(e) => e.stopPropagation()}>
+              <h2 id="chart-dimension-info-title" className="dashboard-modal__title">
+                Dimension(X축) 안내
+              </h2>
+              <div className="dashboard-modal__body">
+                <p className="dashboard-modal__desc">
+                  X축에는 집계 기준 중 선택한 1개만 사용하고, 나머지는 합산해 표시합니다. 일자 선택 시 기간 내 일자별로, 캠페인/워크플로우/채널 선택 시 해당 기간 전체 합산이며, 비일자 디멘션일 때는 차트에서 기준 기간을 선택할 수 있습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="dashboard-modal__close"
+                onClick={() => setShowDimensionInfoModal(false)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -777,7 +885,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
           </button>
         </div>
       </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           {!isDateDimension && filters?.date_range?.length >= 2 && (
             <>
               <span style={{ fontSize: 13, color: '#374151', fontWeight: 500 }}>기준 기간</span>
@@ -804,42 +912,57 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
               />
             </>
           )}
-          <span style={{ fontSize: 13, color: '#6b7280' }}>
-            {dimField?.label
-              ? (() => {
-                  const otherDims = dims.filter((d) => d.key !== effectiveXKey).map((d) => d.label)
-                  const base = `${dimField.label}별 집계 결과가 반영됨.`
-                  return otherDims.length > 0 ? `${base} (${otherDims.join('·')}는 합산)` : base
-                })()
-              : ''}
-          </span>
-          <select
-            value={effectiveXKey}
-            onChange={(e) => onUpdate(id, { xKey: e.target.value })}
-            style={{ padding: '6px 10px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 6 }}
-          >
-            {dims.map((f) => (
-              <option key={f.key} value={f.key}>{f.label} (Dimension)</option>
-            ))}
-          </select>
-          <select
-            value={yKey}
-            onChange={(e) => onUpdate(id, { yKey: e.target.value })}
-            style={{ padding: '6px 10px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 6 }}
-          >
-            {METRIC_FIELDS.map((f) => (
-              <option key={f.key} value={f.key}>{f.label} (Metric)</option>
-            ))}
-          </select>
-          <select
-            value={chartType}
-            onChange={(e) => onUpdate(id, { chartType: e.target.value })}
-            style={{ padding: '6px 10px', fontSize: 14, border: '1px solid #e5e7eb', borderRadius: 6 }}
-          >
-            {CHART_TYPES.map((t) => (
-              <option key={t.key} value={t.key}>{t.label}</option>
-            ))}
-          </select>
+          <div className="chart-widget__option-row">
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label" aria-hidden="true" />
+              <div className="dashboard-header__info-btn-wrap">
+                <button
+                  type="button"
+                  className="dashboard-info-btn"
+                  onClick={() => setShowDimensionInfoModal(true)}
+                  title="Dimension(X축) 안내"
+                >
+                  info
+                </button>
+              </div>
+            </div>
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label">Dimension</span>
+              <select
+                value={effectiveXKey}
+                onChange={(e) => onUpdate(id, { xKey: e.target.value })}
+                className="chart-widget__option-select"
+              >
+                {dims.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label">Metric</span>
+              <select
+                value={yKey}
+                onChange={(e) => onUpdate(id, { yKey: e.target.value })}
+                className="chart-widget__option-select"
+              >
+                {METRIC_FIELDS.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="chart-widget__option-col">
+              <span className="chart-widget__option-label">차트 유형</span>
+              <select
+                value={chartType}
+                onChange={(e) => onUpdate(id, { chartType: e.target.value })}
+                className="chart-widget__option-select"
+              >
+                {CHART_TYPES.map((t) => (
+                  <option key={t.key} value={t.key}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
         {chartData.length > 10 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -879,6 +1002,35 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
         <div className="chart-widget__chart-wrap chart-widget__chart-wrap--y-fixed" style={{ padding: CHART_PADDING }}>
           {chartInner}
         </div>
+
+        {showDimensionInfoModal && (
+          <div
+            className="dashboard-modal-overlay"
+            onClick={() => setShowDimensionInfoModal(false)}
+            onKeyDown={(e) => e.key === 'Escape' && setShowDimensionInfoModal(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chart-dimension-info-title"
+          >
+            <div className="dashboard-modal" onClick={(e) => e.stopPropagation()}>
+              <h2 id="chart-dimension-info-title" className="dashboard-modal__title">
+                Dimension(X축) 안내
+              </h2>
+              <div className="dashboard-modal__body">
+                <p className="dashboard-modal__desc">
+                  X축에는 집계 기준 중 선택한 1개만 사용하고, 나머지는 합산해 표시합니다. 일자 선택 시 기간 내 일자별로, 캠페인/워크플로우/채널 선택 시 해당 기간 전체 합산이며, 비일자 디멘션일 때는 차트에서 기준 기간을 선택할 수 있습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="dashboard-modal__close"
+                onClick={() => setShowDimensionInfoModal(false)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        )}
     </div>
   )
 }
@@ -918,9 +1070,6 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
 
   return (
     <section className="chart-widget-section chart-widget">
-      <p className="chart-widget__desc">
-        Dimension(X축): 집계 기준 중 선택한 1개만 축으로 사용하고, 나머지 집계 기준은 합산하여 표시. 일자 선택 시 기간 내 일자별, 캠페인/워크플로우/채널 선택 시 해당 기간 전체 합산. 비일자 디멘션일 때는 차트 앞에서 기준 기간 선택 가능.
-      </p>
       <div className="chart-widget__header">
         <button type="button" className="chart-widget__add-btn" onClick={addWidget}>
           + 차트 생성

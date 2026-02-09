@@ -496,6 +496,7 @@
   width: 100%;
   max-width: 100%;
   margin-bottom: 24px;
+  padding: 16px;
 }
 
 .dashboard-kpi-section-hint {
@@ -507,9 +508,9 @@
 }
 
 .kpi-selector-wrap {
-  margin-top: 12px;
-  margin-bottom: 12px;
-  padding: 16px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+  padding: 6px;
 }
 
 .kpi-selector-trigger {
@@ -1019,6 +1020,41 @@
 
 .chart-widget__save-btn:hover {
   background: #0f766e;
+}
+
+/* 차트 옵션: 라벨-셀렉트 열 정렬 (Dimension / Metric / 차트 유형) */
+.chart-widget__option-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chart-widget__option-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.chart-widget__option-label {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+  line-height: 1.2;
+  min-height: 1.2em;
+}
+
+.chart-widget__option-label[aria-hidden="true"] {
+  visibility: hidden;
+}
+
+.chart-widget__option-select {
+  padding: 6px 10px;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  min-width: 140px;
 }
 
 /* 차트 영역: 가로 스크롤만 사용, 세로 스크롤 제거 */

@@ -214,6 +214,7 @@ export default function Dashboard2Page() {
     chartWidget: true
   })
   const [targets, setTargets] = useState([])
+  const [showDimensionInfoModal, setShowDimensionInfoModal] = useState(false)
 
   const toggleSection = useCallback((key) => {
     setSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -432,29 +433,77 @@ export default function Dashboard2Page() {
           </CollapsibleSection2>
           <CollapsibleSection2 title="차트 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
             <div className="dashboard2-chart-options">
-              <label htmlFor="dashboard2-dimension">Dimension</label>
-              <select id="dashboard2-dimension" className="dashboard2-option-select" value={effectiveDimensionKey} onChange={(e) => setDimensionKey(e.target.value)}>
-                {availableDimensions.map((d) => (
-                  <option key={d.key} value={d.key}>{d.label} (Dimension)</option>
-                ))}
-              </select>
-              <label htmlFor="dashboard2-metric">Metric</label>
-              <select id="dashboard2-metric" className="dashboard2-option-select" value={metricKey} onChange={(e) => setMetricKey(e.target.value)}>
-                {METRIC_FIELDS.map((f) => (
-                  <option key={f.key} value={f.key}>{f.label} (Metric)</option>
-                ))}
-              </select>
-              <label htmlFor="dashboard2-chart-type">차트 유형</label>
-              <select id="dashboard2-chart-type" className="dashboard2-option-select" value={chartType} onChange={(e) => setChartType(e.target.value)}>
-                {CHART_TYPES.map((t) => (
-                  <option key={t.key} value={t.key}>{t.label}</option>
-                ))}
-              </select>
+              <div className="dashboard2-chart-option-col">
+                <span className="dashboard2-chart-option-label" aria-hidden="true" />
+                <div className="dashboard2-header__info-btn-wrap">
+                  <button
+                    type="button"
+                    className="dashboard2-info-btn"
+                    onClick={() => setShowDimensionInfoModal(true)}
+                    title="Dimension(X축) 안내"
+                  >
+                    info
+                  </button>
+                </div>
+              </div>
+              <div className="dashboard2-chart-option-col">
+                <label htmlFor="dashboard2-dimension" className="dashboard2-chart-option-label">Dimension</label>
+                <select id="dashboard2-dimension" className="dashboard2-option-select" value={effectiveDimensionKey} onChange={(e) => setDimensionKey(e.target.value)}>
+                  {availableDimensions.map((d) => (
+                    <option key={d.key} value={d.key}>{d.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="dashboard2-chart-option-col">
+                <label htmlFor="dashboard2-metric" className="dashboard2-chart-option-label">Metric</label>
+                <select id="dashboard2-metric" className="dashboard2-option-select" value={metricKey} onChange={(e) => setMetricKey(e.target.value)}>
+                  {METRIC_FIELDS.map((f) => (
+                    <option key={f.key} value={f.key}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="dashboard2-chart-option-col">
+                <label htmlFor="dashboard2-chart-type" className="dashboard2-chart-option-label">차트 유형</label>
+                <select id="dashboard2-chart-type" className="dashboard2-option-select" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+                  {CHART_TYPES.map((t) => (
+                    <option key={t.key} value={t.key}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="dashboard2-chart-wrap">
               {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
               <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} />
             </div>
+
+            {showDimensionInfoModal && (
+              <div
+                className="dashboard2-modal-overlay"
+                onClick={() => setShowDimensionInfoModal(false)}
+                onKeyDown={(e) => e.key === 'Escape' && setShowDimensionInfoModal(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="dashboard2-dimension-info-title"
+              >
+                <div className="dashboard2-modal" onClick={(e) => e.stopPropagation()}>
+                  <h2 id="dashboard2-dimension-info-title" className="dashboard2-modal__title">
+                    Dimension(X축) 안내
+                  </h2>
+                  <div className="dashboard2-modal__body">
+                    <p className="dashboard2-modal__desc">
+                      X축에는 집계 기준 중 선택한 1개만 사용하고, 나머지는 합산해 표시합니다. 일자 선택 시 기간 내 일자별로, 캠페인/워크플로우/채널 선택 시 해당 기간 전체 합산이며, 비일자 디멘션일 때는 차트에서 기준 기간을 선택할 수 있습니다.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="dashboard2-modal__close"
+                    onClick={() => setShowDimensionInfoModal(false)}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            )}
           </CollapsibleSection2>
         </div>
       )}

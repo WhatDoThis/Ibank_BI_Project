@@ -232,7 +232,10 @@ function buildOption(rows, groupBy, template) {
     },
     yAxis: {
       ...yAxis,
-      axisLabel: { margin: 12 },
+      axisLabel: {
+        margin: 12,
+        formatter: (value) => (value != null && !Number.isNaN(Number(value)) ? Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : String(value ?? ''))
+      },
       splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
     },
     series
@@ -332,7 +335,10 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
     yAxis: {
       type: 'value',
       scale: !isBar,
-      axisLabel: { margin: 12 },
+      axisLabel: {
+        margin: 12,
+        formatter: (value) => (value != null && !Number.isNaN(Number(value)) ? Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : String(value ?? ''))
+      },
       splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
     },
     series
