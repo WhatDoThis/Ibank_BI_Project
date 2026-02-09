@@ -7,6 +7,7 @@ get-column-values, query-stats. Depends(get_db), Depends(get_config) 활용.
 
 import json
 import re
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 
 from Backend.api_server import db
+from Backend.api_server.pluralize import find_parent_table
 from Backend.api_server.dependencies import get_db, get_config
 from Backend.api_server.schemas import (
     DescribeTableRequest,
@@ -152,6 +154,12 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
 
 @router.get("/table-relationships")
 def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
+    """
+    개선된 관계 분석
+    - 복합 단어 처리 (primary_workflow_id)
+    - 대소문자 무관
+    - 관계 타입 명시
+    """
     try:
         allowed = list(db.get_allowed_tables())
         if not allowed:
@@ -160,6 +168,8 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
         if mode not in ("fk", "column", "all"):
             mode = "all"
         relationships = []
+
+        # ========== 1단계: FK 기반 관계 ==========
         if mode in ("fk", "all"):
             schema = db.get_table_schema()
             cur = conn.cursor()
@@ -184,55 +194,63 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
                     if mode == "all":
                         row["source"] = "fk"
                         row["confidence"] = "HIGH"
-                        row["reason"] = "FK 관계"
+                        row["reason"] = "DB FK 제약조건"
+                        row["relationship_type"] = "N:1"
                     relationships.append(row)
             finally:
                 cur.close()
-        if mode in ("fk", "all"):
-            allowed_set = set(allowed)
+
+        # ========== 2단계: _id 패턴 추론 ==========
+        if mode == "all":
             table_columns = {}
             for table_name in allowed:
                 try:
                     table_columns[table_name] = db.get_table_columns_with_types(table_name)
                 except Exception:
                     table_columns[table_name] = []
+            existing = {
+                (r["from_table"], r["from_column"], r["to_table"], r["to_column"])
+                for r in relationships
+            }
             for table_name in allowed:
-                for c in table_columns.get(table_name, []):
-                    col = c.get("column_name") or ""
-                    if col == "id" or not col.endswith("_id"):
+                for col_info in table_columns.get(table_name, []):
+                    col_name = col_info.get("column_name", "")
+                    if col_name == "id":
                         continue
-                    base = col[:-3].rstrip("_")
-                    if not base:
+                    if not col_name.endswith("_id"):
                         continue
-                    to_table = None
-                    if base in allowed_set:
-                        to_table = base
-                    elif (base + "s") in allowed_set:
-                        to_table = base + "s"
-                    if not to_table:
+                    parent_table = find_parent_table(col_name, allowed)
+                    if not parent_table:
                         continue
-                    already = any(
-                        r.get("from_table") == table_name
-                        and r.get("from_column") == col
-                        and r.get("to_table") == to_table
-                        and r.get("to_column") == "id"
-                        for r in relationships
-                    )
-                    if already:
+                    key = (table_name, col_name, parent_table, "id")
+                    if key in existing:
                         continue
-                    rel = {
+                    relationships.append({
                         "from_table": table_name,
-                        "from_column": col,
-                        "to_table": to_table,
+                        "from_column": col_name,
+                        "to_table": parent_table,
                         "to_column": "id",
-                        "source": "inferred" if mode == "all" else None,
-                    }
-                    if mode == "all":
-                        rel["confidence"] = "HIGH"
-                        rel["reason"] = "FK 미정의 시 _id 패턴 추론 (부모.id=자식.부모_id)"
-                    relationships.append(rel)
-        return {"relationships": relationships, "count": len(relationships)}
+                        "source": "inferred",
+                        "confidence": "HIGH",
+                        "reason": f"_id 패턴: {col_name} → {parent_table}.id",
+                        "relationship_type": "N:1",
+                    })
+                    existing.add(key)
+
+        # 같은 테이블 쌍(A-B / B-A) 양방향 중복 제거: 쌍당 한 방향만 유지
+        seen_pair = set()
+        deduped = []
+        for r in relationships:
+            a, b = r["from_table"], r["to_table"]
+            pair = (min(a, b), max(a, b))
+            if pair in seen_pair:
+                continue
+            seen_pair.add(pair)
+            deduped.append(r)
+
+        return {"relationships": deduped, "count": len(deduped)}
     except Exception as e:
+        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 관계 조회 실패"})
 
 

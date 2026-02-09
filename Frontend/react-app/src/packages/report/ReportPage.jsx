@@ -12,12 +12,13 @@
  * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Sidebar, MainArea)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
 import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
+import { canAddTableSafely, validateJoinPath } from './utils/safetyCheck'
 import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
@@ -234,19 +235,39 @@ export default function ReportPage() {
       }
       const tableAlreadyAdded = addedTables.includes(columnInfo.table)
       let newAddedTables
+      let intermediateParent = null
       if (tableAlreadyAdded) {
         newAddedTables = addedTables
       } else if (canAddTableByColumn(addedTables, columnInfo.table, relationshipOptions)) {
         newAddedTables = [...addedTables, columnInfo.table]
       } else {
         const lastTable = addedTables[addedTables.length - 1]
-        const parent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
-        if (parent) {
-          newAddedTables = [...addedTables, parent, columnInfo.table]
-          showToast('success', `부모 테이블 '${parent}'을(를) 자동으로 넣어 조인했습니다.`)
+        intermediateParent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
+        if (intermediateParent) {
+          newAddedTables = [...addedTables, intermediateParent, columnInfo.table]
         } else {
           showToast('warning', '선택한 테이블과 조인할 수 없습니다. 부모 테이블을 먼저 추가하세요.')
           return
+        }
+      }
+      if (!tableAlreadyAdded) {
+        const safetyCheck = canAddTableSafely(
+          addedTables,
+          columnInfo.table,
+          intermediateParent,
+          relationshipOptions
+        )
+        if (!safetyCheck.ok) {
+          if (safetyCheck.severity === 'error') {
+            showToast('error', safetyCheck.reason)
+            if (safetyCheck.detail) console.error('Safety check:', safetyCheck.detail)
+            if (safetyCheck.suggestion) showToast('info', `💡 ${safetyCheck.suggestion}`)
+            return
+          }
+          if (safetyCheck.severity === 'warning') {
+            showToast('warning', safetyCheck.reason)
+            if (safetyCheck.suggestion) showToast('info', safetyCheck.suggestion)
+          }
         }
       }
       const tableAliasMap = {}
@@ -259,7 +280,11 @@ export default function ReportPage() {
       setAddedTables(newAddedTables)
       setGridColumns((prev) => syncAggFuncs([...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type, aggFunc }], groupBy))
       setCurrentPage(1)
-      showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
+      if (intermediateParent) {
+        showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${columnInfo.table}'를 추가했습니다`)
+      } else {
+        showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
+      }
     },
     [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions]
   )
@@ -271,6 +296,16 @@ export default function ReportPage() {
       showToast('warning', '최소 1개의 컬럼을 선택하세요')
       return
     }
+    const pathValidation = validateJoinPath(addedTables, relationshipOptions)
+    if (!pathValidation.valid) {
+      pathValidation.issues.filter((i) => i.severity === 'error').forEach((err) => {
+        showToast('error', err.message)
+      })
+      return
+    }
+    pathValidation.issues.filter((i) => i.severity === 'warning').forEach((warn) => {
+      showToast('warning', warn.message)
+    })
     setQueryRunning(true)
     try {
       const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs }
@@ -294,12 +329,14 @@ export default function ReportPage() {
     } finally {
       setQueryRunning(false)
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs, showToast])
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
 
+  const runExecuteQueryRef = useRef(runExecuteQuery)
+  runExecuteQueryRef.current = runExecuteQuery
   useEffect(() => {
     if (gridColumns.length === 0) return
-    runExecuteQuery()
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, runExecuteQuery])
+    runExecuteQueryRef.current()
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize])
 
   const moveColumn = useCallback((fromIndex, toIndex, insertBefore) => {
     setGridColumns((prev) => {
