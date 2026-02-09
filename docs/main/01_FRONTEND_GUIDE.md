@@ -9,14 +9,13 @@
 ### 1.1 역할
 
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드). 공용 API·설정은 shared 에서 사용합니다.
+- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), dashboard2(ECharts 템플릿 대시보드). 공용 API·설정은 shared 에서 사용합니다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
 
-- 로컬: `http://localhost:8080/ibank-bi/`
-- 리포트: `http://localhost:8080/ibank-bi/report`
-- 대시보드: `http://localhost:8080/ibank-bi/dashboard`
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`
+- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
 
 ### 1.3 프론트와 설정
 
@@ -32,7 +31,7 @@
 | 프레임워크/빌드 | Vite | 7.x, React 플러그인 |
 | UI | React | 19.x |
 | 라우팅 | react-router-dom | 7.x |
-| 차트 | Recharts | 2.x (대시보드) |
+| 차트 | Recharts, ECharts | Recharts 2.x (대시보드), ECharts 6.x (대시보드2) |
 | 스타일 | CSS | report.css, dashboard.css, main.css |
 | API | fetch | shared/api/client.js 래퍼 |
 | 언어 | JavaScript (ESM) | JSX |
@@ -46,7 +45,7 @@
 ```
 Frontend/react-app/
 ├── src/
-│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard)
+│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard, /dashboard2)
 │   ├── main.jsx
 │   ├── index.css
 │   ├── packages/
@@ -75,7 +74,14 @@ Frontend/react-app/
 │   │           ├── ChannelDonutCharts.jsx
 │   │           ├── AggregatedBarChart.jsx
 │   │           ├── AggregatedDataTable.jsx
-│   │           └── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정)
+│   │           └── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·X축 검색 찾기/다음)
+│   │   │
+│   │   └── dashboard2/          # ECharts 대시보드
+│   │       ├── Dashboard2Page.jsx
+│   │       ├── index.jsx
+│   │       ├── dashboard2.css
+│   │       └── components/
+│   │           └── EChartsChart.jsx  # ECharts 템플릿·커스텀, dataZoom·X축 검색·강조·선형/영역 Y축 scale
 │   │
 │   ├── shared/
 │   │   ├── api/
@@ -120,14 +126,23 @@ Frontend/react-app/
 - **ChannelDonutCharts**: 채널별 도넛.
 - **AggregatedBarChart**: 기준별 발송 현황 막대 차트(상위 10건, success_count 기준).
 - **AggregatedDataTable**: 집계 데이터 테이블, 페이징·테이블 내 검색.
-- **ChartWidget**: 차트 생성. Dimension/Metric/막대·선형·영역 선택, 제목 편집. tableId·filters 있으면 `getChartData` 전용 API로 조회. 막대·선형·영역 공통: Y축 고정·오른쪽만 가로 스크롤·X축 minWidth·XAxisTickTruncate. 삭제 버튼(연한 빨간 배경·흰글씨).
+- **ChartWidget**: 차트 생성. Dimension/Metric/막대·선형·영역 선택, 제목 편집. tableId·filters 있으면 `getChartData` 전용 API로 조회(LIMIT 없음). 막대·선형·영역 공통: Y축 고정·가로 스크롤·X축 minWidth·XAxisTickTruncate. X축 레이블 검색(찾기/다음·Enter 연속·강조·마우스 이동 시 해제). 삭제 버튼(연한 빨간 배경·흰글씨).
+
+### 4.3 dashboard2 (ECharts 대시보드)
+
+- **Dashboard2Page.jsx**: 테이블·필터·집계 기준은 dashboard와 동일. 차트 유형(템플릿) 선택·커스텀 차트(디멘션·메트릭·유형) 선택. EChartsChart 로 렌더.
+- **EChartsChart.jsx**: 템플릿(일자별 발송 성공/요청/요청·성공, 오픈/클릭/오픈·클릭, 전 메트릭 등) 또는 customChartData·metricLabel·chartType 으로 단일 시리즈. dataZoom(카테고리 10개 초과 시 슬라이더·inside), X축 레이블 검색(찾기/다음·Enter·강조·마우스 이동 해제), emphasis 스타일. 선형/영역 시 Y축 scale:true(데이터 구간 기준). 차트 영역 패딩·검색 필터 패딩.
+
+**대시보드2 기능 요약**
+
+- 대시보드와 동일한 테이블·필터·집계. ECharts 기반 템플릿 차트 7종 또는 나만의 차트(디멘션·메트릭·막대/선형/영역). dataZoom 구간 선택·X축 검색으로 이동·찾은 항목 강조.
 
 **대시보드 기능 요약**
 
 - 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준·정렬 기준.
 - KPI 카드, 채널 도넛, 기준별 막대 차트, 집계 테이블(페이징·검색), 차트 생성 위젯(전용 API·Y축 고정·가로 스크롤). 필수 컬럼 안내 모달. 섹션 접기/펼치기.
 
-### 4.3 shared
+### 4.4 shared
 
 - **api/client.js**: health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData.
 - **config/api.js**: API 베이스 URL (환경·api-config 주입 반영).
@@ -166,7 +181,8 @@ Frontend/react-app/
 
 | 문서 | 용도 |
 |------|------|
-| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 (코드 수준 세부 없음) |
-| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·추가 기능 명세 (본 문서) |
+| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 (간결, 세부는 01/02 참고) |
+| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 (본 문서) |
+| 02_BACKEND_FASTAPI_MIGRATION_PLAN.md | 백엔드 FastAPI 구조·라우터·전환 계획·현재 구성 정밀 명세 |
 
 - docs/report: 배포·실행 로그·nginx 등.

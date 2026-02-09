@@ -10,14 +10,16 @@
 
 ## 1. 현재 백엔드 구조·의존성
 
-### 1.1 파일별 의존성 (낮은 순)
+### 1.1 파일별 의존성 (낮은 순) — 현재 구조 (FastAPI 전환 완료)
 
-| 순서 | 파일 | Flask 의존 | 기타 의존 | 비고 |
-|------|------|------------|-----------|------|
-| 1 | **db.py** | 없음 | Env.config, psycopg2 | 설정·DB만 사용 |
-| 2 | **dashboard_service.py** | 없음 | db | 비즈니스 로직만 |
-| 3 | **routes.py** | 있음 (app, request, jsonify) | db, dashboard_service, Env.config | 모든 API 핸들러 |
-| 4 | **main.py** | 있음 (Flask, CORS, app.run) | db, routes | 진입점·CORS·에러 핸들러 |
+| 순서 | 파일 | 비고 |
+|------|------|------|
+| 1 | **db.py** | Env.config, psycopg2. 설정·DB만 사용 |
+| 2 | **dashboard_service.py** | db. 비즈니스 로직만 |
+| 3 | **dependencies.py** | get_db, get_config (요청 단위 주입) |
+| 4 | **schemas.py** | Pydantic 요청 스키마 (POST 바디 검증) |
+| 5 | **routers/** | health(/, /api, /health), report(/api/*), dashboard(/api/dashboard/*). API 핸들러 |
+| 6 | **main.py** | FastAPI, CORS, 라우터 등록, config.backend, uvicorn |
 
 ### 1.2 설정 로드 방식 (유지)
 
@@ -26,8 +28,8 @@
 - **백엔드 사용처**:
   - **main.py**: `config.backend.api_host`, `config.backend.api_port` (서버 기동)
   - **db.py**: `config.backend` (db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema)
-  - **routes.py**: `config.backend` (query_timeout_seconds, claude_api_key, claude_api_url)
-- **전환 시**: 위 파일들에서 `from Env import config` 및 `config.backend` 접근은 **그대로 유지**. FastAPI 전용으로 바꿀 부분은 **main.py의 서버 기동 방식**만 (Flask `app.run` → `uvicorn.run`).
+  - **routers/report.py**: `config.backend` (query_timeout_seconds, claude_api_key, claude_api_url)
+- **현재**: `from Env import config` 및 `config.backend` 접근 유지. main.py는 uvicorn 기동.
 
 ### 1.3 API 엔드포인트 목록 (프론트 호환 유지)
 
@@ -47,9 +49,10 @@
 | GET | /api/dashboard/filter-options/{table_id} | 필터 옵션 |
 | GET | /api/dashboard/tables | 대시보드 테이블 목록 |
 | GET | /api/dashboard/required-columns | 필수 컬럼 |
-| POST | /api/dashboard/chart-data | 차트 데이터 |
+| POST | /api/dashboard/chart-data | 차트 데이터 (단일 디멘션·메트릭, LIMIT 없음·전건 반환) |
 
 - **요청/응답 형식**: 기존과 동일 유지 (JSON, 상태 코드, 에러 메시지 키). 프론트 수정 없음.
+- **라우터 구분**: health(prefix 없음), report(prefix=/api), dashboard(prefix=/api/dashboard).
 
 ---
 
@@ -82,41 +85,18 @@
 
 ---
 
-### Phase 3: routes.py → FastAPI 라우터 전환
-- **목표**: Flask 데코레이터·request/jsonify 제거 후 FastAPI `APIRouter`·의존성·응답으로 동일 API 제공
-- **대상**: `Backend/api_server/routes.py`
-- **작업**:
-  1. **라우터 생성**: `router = APIRouter()` (prefix 없음, 경로는 기존과 동일)
-  2. **엔드포인트 변환**:
-     - `@app.route('/health', methods=['GET'])` → `@router.get('/health')`
-     - `@app.route('/api/list-tables', methods=['GET'])` → `@router.get('/api/list-tables')`
-     - POST는 `request.json` 대신 `body: dict = Body(None)` 또는 Pydantic 모델로 수신
-     - `request.args.get` → `Query()` 파라미터
-     - path 파라미터 예: `@router.get('/api/dashboard/filter-options/{table_id}')` → `table_id: str`
-  3. **응답**:
-     - `return jsonify({...})` → `return { ... }` (dict 반환 시 FastAPI가 JSON 응답)
-     - `return jsonify({...}), 400` → `raise HTTPException(status_code=400, detail=...)` 또는 `return JSONResponse(content={...}, status_code=400)`
-  4. **내부 로직**: `_contains_dangerous_sql`, `_log`, `_parse_int_list` 등 유틸은 그대로 두고, 핸들러 시그니처와 반환만 FastAPI 방식으로 변경
-  5. **config 사용**: 기존처럼 `from Env import config` 및 `config.backend` 유지
-- **주의**: 응답 키(`error`, `message`, `data`, `tables` 등)와 상태 코드를 **기존과 동일**하게 유지해 프론트 호환
-- **검증**: Phase 4 완료 후 각 엔드포인트 수동/자동 호출로 동작·응답 형식 확인
-- **산출물**: `Backend/api_server/routes.py` (FastAPI용으로 전면 수정)
+### Phase 3: routes.py → FastAPI 라우터 전환 (완료)
+- **목표**: Flask 데코레이터·request/jsonify 제거 후 FastAPI `APIRouter`·의존성·응답으로 동일 API 제공.
+- **현재 구조**: `Backend/api_server/routers/` — health.py(/, /api, /health), report.py(prefix=/api), dashboard.py(prefix=/api/dashboard). dependencies.py(get_db, get_config), schemas.py(Pydantic).
+- **엔드포인트**: POST는 Pydantic 모델 또는 Body/Query. 응답은 dict 또는 JSONResponse. 금지 SQL 검사는 report 라우터.
+- **산출물**: routes.py 삭제, routers/·dependencies·schemas 적용 완료.
 
 ---
 
-### Phase 4: main.py → FastAPI 앱·서버 기동
-- **목표**: Flask 앱 제거, FastAPI 앱 생성·CORS·라우터 등록·예외 처리·uvicorn 기동
-- **대상**: `Backend/api_server/main.py`
-- **작업**:
-  1. **앱 생성**: `app = FastAPI(title="...", ...)`
-  2. **CORS**: `app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET","POST","OPTIONS"], allow_headers=["Content-Type"])`
-  3. **라우터**: `app.include_router(routes.router)` (prefix 없이, 기존 경로 그대로)
-  4. **루트·API 안내**: `@app.get('/')`, `@app.get('/api')`, `@app.get('/api/')` 로 기존와 동일 JSON 반환
-  5. **예외 처리**: `@app.exception_handler(404)`, `@app.exception_handler(500)` 또는 `HTTPException` 사용해 기존와 같은 JSON 에러 형식
-  6. **서버 기동**: `if __name__ == '__main__':` 에서 `config.backend.api_host`, `config.backend.api_port` 읽어 `uvicorn.run(app, host=..., port=...)` 호출
-  7. **config 로드**: 기존과 동일하게 `from Env import config` (프로젝트 루트 sys.path 유지)
-- **검증**: `python run.py back` 후 `/health`, `/api`, `/api/list-tables` 등 호출로 동작 확인
-- **산출물**: `Backend/api_server/main.py` (FastAPI 전용으로 교체)
+### Phase 4: main.py → FastAPI 앱·서버 기동 (완료)
+- **목표**: Flask 앱 제거, FastAPI 앱 생성·CORS·라우터 등록·예외 처리·uvicorn 기동.
+- **현재**: `app = FastAPI(...)`, CORSMiddleware, `app.include_router(health_router)`, `include_router(report_router)`, `include_router(dashboard_router)`. 404/500 JSONResponse. `uvicorn.run(app, host=..., port=...)` (config.backend).
+- **산출물**: main.py FastAPI·uvicorn 적용 완료.
 
 ---
 
@@ -181,8 +161,7 @@
 
 ## 4. 롤백 시 참고
 
-- Phase 3·4 완료 전: `routes.py`, `main.py`를 Git 등으로 Flask 버전 유지해 두면 즉시 복귀 가능
-- Phase 6 이후: `requirements.txt`에서 fastapi/uvicorn 제거 후 flask/flask-cors 복구, main·routes를 Flask 버전으로 되돌리면 됨
+- Phase 3·4 완료 후: 롤백 시 Git에서 main.py·routers/ 이전 커밋으로 복원 후 requirements.txt·run.py를 Flask 기준으로 되돌리면 됨
 
 ---
 

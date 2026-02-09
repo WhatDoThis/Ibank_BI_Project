@@ -29,23 +29,20 @@ sudo systemctl daemon-reload
 
 ---
 
-## 2. 배포 절차 (git pull 후)
+## 2. 배포 절차 (실제 사용: deploy.sh)
+
+**업데이트 배포 시** 프로젝트 루트의 **deploy.sh** 를 사용한다. (빌드 + report-api/report-front 일괄 재시작)
 
 ```bash
 cd /root/report
 git pull
-
-# 프론트 코드가 바뀐 경우에만: 빌드 후 재시작
-cd /root/report/Frontend/react-app
-npm run build
-cd /root/report
-sudo systemctl restart report-front
-
-# API만 바뀐 경우
-sudo systemctl restart report-api
+chmod +x deploy.sh   # 최초 1회
+./deploy.sh          # sudo 필요 시: sudo ./deploy.sh
 ```
 
-재시작 후 곧바로 3500에서 응답하므로 502가 나지 않는다.
+**deploy.sh 동작**: [1/3] Frontend/react-app 의존성 설치(npm install) 및 빌드(npm run build) → [2/3] report-api 재시작 → [3/3] report-front 재시작. report-front 서비스는 `run.py serve`로 기동되므로 재시작 시 빌드 없이 곧바로 3500 응답 → 502 없음.
+
+**수동 배포**(스크립트 없이): `git pull` 후 `cd Frontend/react-app && npm run build && cd ../..` → `sudo systemctl restart report-api report-front`.
 
 ---
 

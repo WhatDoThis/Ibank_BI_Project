@@ -7,6 +7,7 @@
  * - health, listTables, describeTable, tableRelationships
  * - executeQuery, explainSql, getColumnValues, queryStats
  * - getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData
+ * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2 DEV)
  *
  * [의존성]
  * - shared/config/api (getApiBase)
@@ -112,4 +113,37 @@ export async function getDashboardRequiredColumns() {
 /** POST /api/dashboard/chart-data - 차트 생성 전용 데이터 (단일 디멘션·메트릭 별도 조회) */
 export async function getChartData(body) {
   return request('POST', '/api/dashboard/chart-data', body);
+}
+
+// ---------- 대시보드2 (DEV용, /api/dashboard2 전용) ----------
+
+/** GET /api/dashboard2/tables - 대시보드2 사용 가능 테이블 목록 */
+export async function getDashboard2Tables() {
+  return request('GET', '/api/dashboard2/tables');
+}
+
+/** GET /api/dashboard2/filter-options/:table_id - 대시보드2 필터 옵션 */
+export async function getDashboard2FilterOptions(tableId, filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.campaign_ids?.length) params.set('campaign_ids', filters.campaign_ids.join(','));
+  if (filters.workflow_ids?.length) params.set('workflow_ids', filters.workflow_ids.join(','));
+  if (filters.channels?.length) params.set('channels', filters.channels.join(','));
+  const qs = params.toString();
+  const path = `/api/dashboard2/filter-options/${encodeURIComponent(tableId)}${qs ? '?' + qs : ''}`;
+  return request('GET', path);
+}
+
+/** POST /api/dashboard2/data - 대시보드2 집계·KPI */
+export async function getDashboard2Data(body) {
+  return request('POST', '/api/dashboard2/data', body);
+}
+
+/** GET /api/dashboard2/required-columns - 대시보드2 필수 컬럼 목록 */
+export async function getDashboard2RequiredColumns() {
+  return request('GET', '/api/dashboard2/required-columns');
+}
+
+/** POST /api/dashboard2/chart-data - 대시보드2 차트 데이터 */
+export async function getDashboard2ChartData(body) {
+  return request('POST', '/api/dashboard2/chart-data', body);
 }

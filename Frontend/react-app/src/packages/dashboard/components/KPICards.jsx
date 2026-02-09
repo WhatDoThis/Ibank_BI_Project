@@ -1,7 +1,7 @@
 /**
  * dashboard/components/KPICards.jsx (KPI 카드)
  * ============================================
- * 대시보드 KPI를 카드 형태로 시각화. 캠페인 수, 발송/성공/실패/오픈/클릭.
+ * 대시보드 KPI를 카드 형태로 시각화. 캠페인 수, 발송/성공/실패/오픈/클릭 + 성공률/실패률/오픈률/클릭률.
  *
  * [주요 기능]
  * - 숫자·단위·라벨, 카드별 색상·아이콘으로 비교·가독성 강화
@@ -21,7 +21,11 @@ const CARD_CONFIG = [
   { label: '발송 성공', valueKey: 'total_success', unit: '건', icon: '✅', bg: '#f0fdf4', color: '#15803d' },
   { label: '발송 실패', valueKey: 'total_failed', unit: '건', icon: '❌', bg: '#fef2f2', color: '#b91c1c' },
   { label: '오픈', valueKey: 'total_open', unit: '건', icon: '👁', bg: '#faf5ff', color: '#7c3aed' },
-  { label: '클릭', valueKey: 'total_click', unit: '건', icon: '👆', bg: '#fff7ed', color: '#c2410c' }
+  { label: '클릭', valueKey: 'total_click', unit: '건', icon: '👆', bg: '#fff7ed', color: '#c2410c' },
+  { label: '성공률', valueKey: 'success_rate', unit: '%', icon: '📊', bg: '#ecfdf5', color: '#047857' },
+  { label: '실패률', valueKey: 'failed_rate', unit: '%', icon: '⚠️', bg: '#fef2f2', color: '#dc2626' },
+  { label: '오픈률', valueKey: 'open_rate', unit: '%', icon: '📈', bg: '#f5f3ff', color: '#6d28d9' },
+  { label: '클릭률', valueKey: 'click_rate', unit: '%', icon: '🎯', bg: '#fffbeb', color: '#d97706' }
 ]
 
 export default function KPICards({ kpi }) {

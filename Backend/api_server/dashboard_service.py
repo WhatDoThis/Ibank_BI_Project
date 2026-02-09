@@ -228,8 +228,8 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
     """
     cur.execute(kpi_query, params)
     row = cur.fetchone()
-    total_send = row["total_send"] or 0
-    total_success = row["total_success"] or 0
+    total_send = int(row["total_send"] or 0)
+    total_success = int(row["total_success"] or 0)
 
     ch_query = f"""
         SELECT delivery_channel,
@@ -259,13 +259,24 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
             "value": r["success_count"] or 0,
             "percentage": round((r["success_count"] or 0) / total_success * 100, 2) if total_success else 0,
         })
+    total_failed = int(row["total_failed"] or 0)
+    total_open = int(row["total_open"] or 0)
+    total_click = int(row["total_click"] or 0)
+    success_rate = round(float(total_success) / total_send * 100, 2) if total_send else 0.0
+    failed_rate = round(float(total_failed) / total_send * 100, 2) if total_send else 0.0
+    open_rate = round(float(total_open) / total_success * 100, 2) if total_success else 0.0
+    click_rate = round(float(total_click) / total_success * 100, 2) if total_success else 0.0
     return {
-        "campaign_count": row["campaign_count"] or 0,
+        "campaign_count": int(row["campaign_count"] or 0),
         "total_send": total_send,
         "total_success": total_success,
-        "total_failed": row["total_failed"] or 0,
-        "total_open": row["total_open"] or 0,
-        "total_click": row["total_click"] or 0,
+        "total_failed": total_failed,
+        "total_open": total_open,
+        "total_click": total_click,
+        "success_rate": success_rate,
+        "failed_rate": failed_rate,
+        "open_rate": open_rate,
+        "click_rate": click_rate,
         "send_change_pct": None,
         "success_change_pct": None,
         "channel_distribution": {

@@ -1,5 +1,198 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: Phase 4 신호등 표시 (목표 대비 달성 여부)
+
+### 완료 작업
+1. **목표·기간 매칭 및 실적/목표 비율 계산 (Dashboard2Page.jsx)**
+   - `targetMatchesPeriod(target, dateRange)`: 목표의 periodType(년도/월/기간)과 현재 필터 기간(date_range) 일치 여부 판별.
+   - `METRIC_HIGHER_IS_BETTER`: 지표별 “높을수록 좋음” 여부(total_failed, failed_rate는 낮을수록 좋음).
+   - `getTargetStatusByKey(targets, dateRange, kpi)`: 매칭된 목표별로 실적/목표 비율 계산. 높을수록 좋은 지표는 ratio = actual/target×100, 낮을수록 좋은 지표는 ratio = target/actual×100. 구간 ≥100% → ok, 80~100% → warning, <80% → fail.
+   - `targetStatusByKey` useMemo로 계산 후 KPICards2에 전달.
+
+2. **KPICards2 신호등 UI**
+   - `targetStatusByKey` prop 추가. 매칭된 목표가 있는 카드에 대해: 테두리·배경 색상(초록/노랑/빨강), 뱃지 “달성 105%”/“주의 85%”/“미달 70%” 표시. 뱃지에 `title`로 목표 대비 비율 툴팁.
+   - dashboard2.css: `.dashboard2-kpi-card__badge`, `__badge--ok`, `__badge--warning`, `__badge--fail` 스타일 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint 오류 없음. 목표 저장 후 해당 기간·지표로 조회 시 주요 지표 카드에 달성/주의/미달 뱃지 및 테두리 색상 표시.
+
+---
+
+## 2025-02-02: 목표 섹션 간소화(리포트 기간 제거) + Phase 3 지표 정의 툴팁
+
+### 완료 작업
+1. **목표 저장 섹션에서 리포트 기간 제거**
+   - TargetContextSection: "리포트 기간: YYYY-MM-DD ~ YYYY-MM-DD" 표시 블록 및 `reportPeriodLabel` 변수 제거. 기간은 상단 필터에 이미 있으므로 중복 제거, 저장 섹션 간결화.
+
+2. **Phase 3: 지표 정의 툴팁**
+   - **KPICards2.jsx**: CARD_CONFIG 각 항목에 `definition` 문자열 추가(캠페인 수, 발송 요청/성공/실패, 오픈/클릭, 성공률/실패률/오픈률/클릭률의 정의·계산식). 카드 라벨 옆에 "?" 아이콘 추가, 호버 시 `title` 툴팁으로 정의 표시. `dashboard2-kpi-card__def-trigger` 스타일 추가.
+   - **AggregatedDataTable2.jsx**: TABLE_HEADER_DEFINITIONS 상수(캠페인/일자/워크플로우/채널·발송요청·발송성공·오픈·클릭·성공률·오픈률·클릭률 정의) 추가. ThWithDef 컴포넌트로 헤더 셀 + "?" 툴팁 렌더링. thead 모든 헤더를 ThWithDef로 교체. `dashboard2-aggregated-data-table__th-inner`, `__th-def` 스타일 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/TargetContextSection.jsx
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedDataTable2.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint 오류 없음. 대시보드2 목표 섹션에서 리포트 기간 미표시. 주요 지표 카드·집계 테이블 헤더에서 "?" 호버 시 지표 정의 툴팁 표시.
+
+---
+
+## 2025-02-02: 주요 지표 확장(성공률/실패률/오픈률/클릭률) + Phase 2
+
+### 완료 작업
+1. **주요 지표에 비율 지표 추가**
+   - **Backend dashboard_service._calculate_kpi**: 반환 객체에 `success_rate`, `failed_rate`, `open_rate`, `click_rate` 추가. 성공률=total_success/total_send*100, 실패률=total_failed/total_send*100, 오픈률=total_open/total_success*100, 클릭률=total_click/total_success*100 (소수 둘째 자리).
+   - **Frontend KPICards.jsx, KPICards2.jsx**: 카드 설정에 성공률·실패률·오픈률·클릭률 4개 추가(단위 %, 아이콘·색상 지정). 주요 지표 10개 표시.
+   - **TargetContextSection.jsx**: 목표 지표 옵션에 `failed_rate`(실패률) 추가.
+
+2. **Phase 2: 기간 표시 명시화 + Executive Summary**
+   - 리포트 기간 라벨("리포트 기간: YYYY-MM-DD ~ YYYY-MM-DD")은 Phase 1에서 이미 적용됨.
+   - **TargetContextSection**: Executive Summary 한 줄 요약 입력 필드 추가(로컬 state, placeholder "한 줄 요약 문구 (로컬 입력)").
+   - **dashboard2.css**: `.dashboard2-target-context__summary-wrap`, `__summary-input` 스타일 추가.
+
+### 수정/추가 파일
+- Backend/api_server/dashboard_service.py
+- Frontend/react-app/src/packages/dashboard/components/KPICards.jsx
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx, TargetContextSection.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint 오류 없음. 대시보드1·2 주요 지표에 10개 카드(건수 6 + 비율 4) 표시. 대시보드2 목표·컨텍스트 섹션에 Executive Summary 입력란 표시.
+
+---
+
+## 2025-02-02: 대시보드2 전용 백엔드 라우터 분리 및 프론트 연동
+
+### 완료 작업
+1. **Backend/api_server/routers/dashboard2.py 신규**
+   - prefix `/api/dashboard2`, tags `dashboard2`. dashboard_service·schemas 동일 사용.
+   - POST /data, GET /filter-options/{table_id}, GET /tables, GET /required-columns, POST /chart-data (기존 dashboard와 동일 로직, DEV용 분리).
+
+2. **main.py, routers/__init__.py**
+   - dashboard2_router import 및 `app.include_router(dashboard2_router)` 등록.
+
+3. **Frontend shared/api/client.js**
+   - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData 추가 (/api/dashboard2/* 호출).
+
+4. **Dashboard2Page.jsx, Dashboard2Header.jsx**
+   - getDashboardTables → getDashboard2Tables, getDashboardFilterOptions → getDashboard2FilterOptions, getDashboardData → getDashboard2Data, getChartData → getDashboard2ChartData, getDashboardRequiredColumns → getDashboard2RequiredColumns 로 변경하여 테이블 조회·데이터 로드가 대시보드2 전용 API로 연결되도록 수정.
+
+### 수정/추가 파일
+- Backend/api_server/routers/dashboard2.py (신규)
+- Backend/api_server/routers/__init__.py, main.py
+- Frontend/react-app/src/shared/api/client.js
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx, components/Dashboard2Header.jsx
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint 오류 없음. 대시보드2 페이지에서 테이블 선택 시 /api/dashboard2/tables, /api/dashboard2/data 등 호출로 데이터 로드 확인 권장.
+
+---
+
+## 2025-02-02: 대시보드2 Phase 1 — 목표·컨텍스트 섹션 + localStorage 저장/로드
+
+### 완료 작업
+1. **TargetContextSection.jsx 신규**
+   - 기간 유형(년도/월/기간), 지표(캠페인 수·발송 요청·성공·실패·오픈·클릭·성공률·오픈률·클릭률), 년도·월/기간(시작·종료), 목표값 입력·저장.
+   - 저장 시 동일 periodType+metric+year+month/range 조합이 있으면 덮어쓰기, 없으면 추가. 목표값 실수만 허용 유효성 검사.
+   - 저장된 목표 테이블 표시(기간 라벨·지표·목표값), 삭제 버튼. 리포트 기간 라벨( dateRange ) 표시.
+
+2. **Dashboard2Page.jsx**
+   - `TARGETS_STORAGE_KEY = 'dashboard2_targets'`. 마운트 시 localStorage에서 목표 배열 로드.
+   - `handleSaveTarget`: mergeTarget 후 localStorage 저장 및 setTargets. `handleDeleteTarget`: 인덱스 삭제 후 저장.
+   - 본문 상단(주요 지표 위)에 TargetContextSection 배치, dateRange=filters.date_range, targets, onSave, onDelete 전달.
+
+3. **dashboard2.css**
+   - 목표·컨텍스트 섹션 스타일: dashboard2-target-context-section, 폼·테이블·삭제 버튼.
+
+### 수정/추가 파일
+- Frontend/react-app/src/packages/dashboard2/components/TargetContextSection.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx (targets state, localStorage, TargetContextSection 연동)
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css (목표·컨텍스트 스타일)
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint: 오류 없음. 저장 후 새로고침 시 목표 유지(localStorage) 확인 권장.
+
+---
+
+## 2025-02-02: 대시보드2 Phase 0 — 대시보드1 구성 복사(공유 없음)
+
+### 완료 작업
+1. **dashboard2 전용 컴포넌트 신규 생성** (dashboard 패키지 참조 제거)
+   - `dashboard2/components/CollapsibleSection2.jsx`: 접기/펼치기 섹션
+   - `dashboard2/components/Dashboard2Header.jsx`: 테이블 선택·기간·집계 기준·정렬·필터·필수 컬럼 모달
+   - `dashboard2/components/KPICards2.jsx`: KPI 카드 6종
+   - `dashboard2/components/ChannelDonutCharts2.jsx`: 채널별 도넛(발송 요청·발송 성공)
+   - `dashboard2/components/AggregatedBarChart2.jsx`: 기준별 발송 현황 막대 차트(상위 10건)
+   - `dashboard2/components/AggregatedDataTable2.jsx`: 집계 데이터 테이블(페이징·테이블 내 검색)
+
+2. **dashboard2.css**
+   - Phase 0용 스타일 추가: collapsible, header, modal, KPI 카드, 채널 도넛, 막대 차트, 집계 테이블
+
+3. **Dashboard2Page.jsx 재구성**
+   - `../dashboard` import 제거. Dashboard2Header, CollapsibleSection2, KPICards2, ChannelDonutCharts2, AggregatedBarChart2, AggregatedDataTable2 로컬 import.
+   - 본문 순서: 주요 지표(KPI) → 채널별 분석 → 기준별 발송 현황 → 집계 데이터 테이블 → 차트 생성(ECharts). 섹션 접기/펼치기 상태(sectionOpen) 추가.
+
+4. **플랜 문서**
+   - 목표 저장: DEV용 localStorage 사용으로 적용 결정 반영. Phase 1 설명을 localStorage 기준으로 수정.
+
+### 수정/추가 파일
+- Frontend/react-app/src/packages/dashboard2/components/CollapsibleSection2.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/components/ChannelDonutCharts2.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedBarChart2.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedDataTable2.jsx (신규)
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css (스타일 추가)
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx (재구성)
+- docs/report/03_대시보드2_성과리포트_개선_플랜.md (Phase 1 localStorage 반영)
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint: dashboard2 패키지 오류 없음. dashboard 패키지 참조 없음.
+
+---
+
+## 2025-02-02: docs/main 문서–코드 동기화 및 PRD 간결화·01/02 정밀화
+
+### 완료 작업
+1. **문서–코드 동기화**
+   - 실제 구현 기준으로 개발문서(docs/main) 점검: 빠진 내용 추가, 달라진 내용 수정, 시스템에서 제거된 내용은 문서에서 삭제 반영 (이전 세션에서 00_PRD·01_FRONTEND_GUIDE 반영 완료).
+
+2. **02_BACKEND_FASTAPI_MIGRATION_PLAN.md**
+   - §1.1: routes.py 제거, 현재 구조(routers/, dependencies.py, schemas.py) 표로 정리.
+   - §1.2: config 사용처 routes.py → routers/report.py, "전환 시" → "현재" 문구로 수정.
+   - §1.3: chart-data에 "LIMIT 없음·전건 반환" 명시, 라우터 구분(health/report/dashboard) 추가.
+   - Phase 3·4: "완료" 상태로 요약, 산출물 routes.py 삭제·routers 적용 명시.
+   - 진행 순서 요약표: routes.py → routers/. 롤백 참고: routes.py/main.py → main·routers 복원 안내로 수정.
+
+3. **00_PRD.md 간결화**
+   - §2.1: 전체 디렉터리 트리 → 요약 불릿으로 축약, 상세는 01·02 참조 명시.
+   - §4: 프론트 요약만 유지, 상세는 01 참조.
+   - §5.2·§5.3: 엔드포인트·구성 상세 → 02 §1.3·§1.1·Phase 3·4 참조로 통합.
+   - 변경 이력: PRD 간결화·02 routes→routers 반영 항목 추가.
+
+### 수정 파일
+- docs/main/02_BACKEND_FASTAPI_MIGRATION_PLAN.md
+- docs/main/00_PRD.md
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- 00_PRD에 언급된 프론트/백엔드 내용이 01_FRONTEND_GUIDE·02_BACKEND_FASTAPI_MIGRATION_PLAN에 정밀하게 반영됨. PRD는 간결·참조 위주로 정리됨.
+
+---
+
 ## 2025-02-02: 차트 데이터 LIMIT 제거 (차트 신뢰성)
 
 ### 완료 작업

@@ -14,7 +14,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 1.2 핵심 가치
 - **리포트(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
-- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API 조회·Y축 고정·가로 스크롤)
+- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 검색 찾기/다음). **대시보드2**: ECharts 템플릿 차트, dataZoom·X축 검색·선형/영역 Y축 데이터 구간.
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -24,43 +24,20 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 2.1 패키지 구조 (루트 기준)
 
-```
-Project/
-├── run.py              # 통합 진입점 (python run.py back | front | serve)
-├── start.bat           # Windows: API·웹 서버 각각 새 창 실행
-├── requirements.txt
-├── README.md
-├── Frontend/
-│   ├── react-app/      # React 앱 (Vite), base: /ibank-bi/
-│   │   ├── src/
-│   │   │   ├── packages/
-│   │   │   │   ├── report/     # 쿼리 빌더 (ReportPage, Sidebar, MainArea, sqlBuilder)
-│   │   │   │   └── dashboard/  # 대시보드 (DashboardPage, KPI·차트·집계 테이블·ChartWidget)
-│   │   │   └── shared/         # API 클라이언트, config
-│   │   ├── index.html
-│   │   └── dist/       # npm run build 결과
-│   └── static_server/
-│       └── main.py     # 정적 서버 (dist 서빙, /ibank-bi 요청 처리, SPA fallback, api-config.js 주입)
-├── Backend/
-│   └── api_server/
-│       ├── main.py       # FastAPI 진입 (config.backend, host/port, uvicorn)
-│       ├── db.py         # DB 연결·검증·get_table_columns·get_table_columns_with_types
-│       ├── dependencies.py  # get_db, get_config (요청 단위 주입)
-│       ├── schemas.py    # Pydantic 요청 스키마 (POST 바디 검증)
-│       ├── routers/     # health, query(쿼리 빌더 API), dashboard(대시보드 API)
-│       └── dashboard_service.py  # 대시보드 집계·필터 옵션·필수 컬럼(이름·타입) 검증
-└── Env/
-    └── config/
-        ├── loader.py
-        ├── config.json
-        └── config.json.example
-```
+- **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), dashboard2(ECharts). shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
+- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard), dashboard_service.py. 상세는 **02_BACKEND_FASTAPI_MIGRATION_PLAN.md §1** 참고.
+- **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
 - `python run.py back`: Backend API (FastAPI, config.backend.api_port, 기본 5001)
 - `python run.py front`: Frontend/react-app 에서 `npm run build` 후 정적 서버 (config.frontend.static_port, 기본 8080)
-- `python run.py serve`: 빌드 없이 정적 서버만 (배포 시 502 방지용)
-- **접속 경로**: 로컬 `http://localhost:8080/ibank-bi/`, 리포트 `http://localhost:8080/ibank-bi/report`, 대시보드 `http://localhost:8080/ibank-bi/dashboard`
+- `python run.py serve`: 빌드 없이 정적 서버만 (report-front 서비스 기동용, 배포 시 502 방지)
+- **Linux 배포**: 실제 업데이트 배포 시 루트의 **deploy.sh** 사용 (빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md 참고.
+- **접속 경로**
+  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2 `.../dashboard2`
+  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
 
 ---
 
@@ -116,29 +93,12 @@ Project/
 ## 5. 백엔드 (Backend)
 
 ### 5.1 역할
-- Flask REST API: 리포트용(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats) + 대시보드용(dashboard/data, dashboard/filter-options, dashboard/tables, dashboard/required-columns, dashboard/chart-data).
+- **FastAPI** REST API: 리포트용(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats) + 대시보드용(dashboard/data, filter-options, tables, required-columns, chart-data).
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
-### 5.2 API 엔드포인트 요약
-- GET /health
-- GET /api/list-tables
-- POST /api/describe-table
-- GET /api/table-relationships
-- POST /api/execute-query
-- POST /api/explain-sql (Claude, config.backend.claude_api_key/url)
-- POST /api/get-column-values
-- POST /api/query-stats
-- POST /api/dashboard/data
-- GET /api/dashboard/filter-options/<table_id>
-- GET /api/dashboard/tables (필수 컬럼·타입 만족 테이블만)
-- GET /api/dashboard/required-columns
-- POST /api/dashboard/chart-data (차트 생성 전용: 단일 디멘션·메트릭 집계, limit 50)
-
-### 5.3 구성
-- **api_server/main.py**: Flask, CORS, 라우트 등록, config.backend 로 host/port.
-- **api_server/db.py**: get_db_config, get_allowed_tables, get_table_schema, get_table_columns, get_table_columns_with_types, get_db_connection, format_value, validate_table_name, validate_column_name.
-- **api_server/routes.py**: register_routes(app), 금지 SQL 검사(_contains_dangerous_sql).
-- **api_server/dashboard_service.py**: get_dashboard_data, get_filter_options, get_aggregatable_tables, get_required_columns, get_chart_data (이름·허용 타입, 차트 전용 단일 디멘션·메트릭 조회).
+### 5.2 API 엔드포인트·구성
+- 엔드포인트 목록(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats, dashboard/data·filter-options·tables·required-columns·chart-data) 및 요청/응답·라우터 구분은 **02_BACKEND_FASTAPI_MIGRATION_PLAN.md §1.3** 참고. chart-data는 차트 전용·LIMIT 없음(전건 반환).
+- main.py·db·routers·dependencies·schemas·dashboard_service 역할은 **02 §1.1·Phase 3·4** 참고.
 
 ---
 
@@ -153,7 +113,7 @@ Project/
 
 ### 6.2 대시보드
 - 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널) 체크.
-- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 차트 생성 위젯(Dimension/Metric/막대·선형·영역, 전용 API 조회, Y축 고정·가로 스크롤·X축 레이블 턱).
+- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 차트 생성 위젯(Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 레이블 검색 찾기/다음). 대시보드2: ECharts 템플릿·커스텀 차트, dataZoom·검색·강조.
 - 필수 컬럼 안내 모달(컬럼명·허용 타입 목록). 섹션 접기/펼치기(CollapsibleSection).
 
 ### 6.3 공통
@@ -166,8 +126,9 @@ Project/
 
 | 문서 | 용도 |
 |------|------|
-| 00_PRD.md | 제품 요구사항·아키텍처·패키지·설정·기능 요약 (본 문서, 코드 수준 세부 없음) |
-| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·추가 기능 명세 |
+| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 (본 문서, 간결·세부는 01/02 참고) |
+| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
+| 02_BACKEND_FASTAPI_MIGRATION_PLAN.md | 백엔드 FastAPI 구조·라우터·전환 계획·현재 구성 정밀 명세 |
 
 - docs/report: 배포·실행 로그·nginx 등. 개발 요구사항은 docs/main 에만 둠.
 
@@ -183,3 +144,5 @@ Project/
 | (문서 통합) | CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 유효 내용 PRD로 통합, 해당 두 파일 삭제. base /ibank-bi/, 대시보드 API·필수 컬럼 타입·금지 키워드 문맥 검사 반영 |
 | (문서 분리) | 프론트 상세를 01_FRONTEND_GUIDE.md 로 이관. 00_PRD는 요약만 유지. ADVANCED_FEATURES.md 내용 통합 후 삭제 |
 | (최신화) | 차트 생성 전용 API(chart-data), 차트 생성 위젯(전용 조회·Y축 고정·막대/선형/영역 동일 구성), CollapsibleSection 반영. 사용하지 않는 표현 정리 |
+| (문서-코드 동기화) | 백엔드 FastAPI·routers(health/report/dashboard)·dependencies·schemas 반영, chart-data LIMIT 제거, 대시보드2(ECharts)·접속 경로·문서 구성(02 추가) 반영 |
+| (PRD 간결화) | 00_PRD §2.1·§4·§5.2·§5.3을 요약으로 줄이고, 상세는 01·02 참조로 통일. 02 문서 routes.py→routers/report 반영·Phase 3·4 완료 상태 정리 |

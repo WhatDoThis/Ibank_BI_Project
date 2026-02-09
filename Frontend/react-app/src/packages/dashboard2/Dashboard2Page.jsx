@@ -1,23 +1,124 @@
 /**
- * dashboard2/Dashboard2Page.jsx (ECharts 대시보드 페이지)
+ * dashboard2/Dashboard2Page.jsx (성과리포트 대시보드 페이지)
  * =======================================================
- * 테이블·필터는 dashboard와 동일. 본문은 Dimension·Metric·차트 유형 자유 선택 + getChartData API + ECharts.
+ * 대시보드1과 동일 구성(KPI·채널 도넛·막대·집계 테이블) + 차트 생성(ECharts). dashboard2 전용 컴포넌트만 사용(공유 없음).
  *
  * [주요 기능]
  * - getDashboardTables / getDashboardFilterOptions / getDashboardData (헤더·집계용)
  * - getChartData: 단일 Dimension·Metric 조회 후 ECharts로 막대/선형/영역 차트
- * - 기존 대시보드와 동일하게 Dimension(일자·캠페인·워크플로우·채널), Metric(발송요청·성공·오픈·클릭·비율), 차트 유형(막대·선형·영역) 선택
+ * - Phase 0: KPI·채널 도넛·기준별 막대·집계 테이블·차트 생성 섹션
+ * - Phase 1: 목표·컨텍스트 섹션(기간 유형·지표·목표값 저장, localStorage)
  *
  * [의존성]
- * - React, shared/api/client, dashboard/components/DashboardHeader, dashboard2/components/EChartsChart
+ * - React, shared/api/client, dashboard2/components (Dashboard2Header, CollapsibleSection2, KPICards2, ChannelDonutCharts2, AggregatedBarChart2, AggregatedDataTable2, TargetContextSection, EChartsChart)
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getDashboardData, getDashboardFilterOptions, getDashboardTables, getChartData } from '@/shared/api/client'
-import '../dashboard/dashboard.css'
+import { getDashboard2Data, getDashboard2FilterOptions, getDashboard2Tables, getDashboard2ChartData } from '@/shared/api/client'
 import './dashboard2.css'
-import DashboardHeader from '../dashboard/components/DashboardHeader'
+import Dashboard2Header from './components/Dashboard2Header'
+import CollapsibleSection2 from './components/CollapsibleSection2'
+import KPICards2 from './components/KPICards2'
+import ChannelDonutCharts2 from './components/ChannelDonutCharts2'
+import AggregatedBarChart2 from './components/AggregatedBarChart2'
+import AggregatedDataTable2 from './components/AggregatedDataTable2'
+import TargetContextSection from './components/TargetContextSection'
 import EChartsChart from './components/EChartsChart'
+
+const TARGETS_STORAGE_KEY = 'dashboard2_targets'
+
+function loadTargetsFromStorage() {
+  try {
+    const raw = localStorage.getItem(TARGETS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveTargetsToStorage(targets) {
+  try {
+    localStorage.setItem(TARGETS_STORAGE_KEY, JSON.stringify(targets))
+  } catch (e) {
+    console.warn('dashboard2 targets save failed', e)
+  }
+}
+
+/** 동일 기간+지표면 덮어쓰기, 아니면 추가 */
+function mergeTarget(list, one) {
+  const key = (t) => `${t.periodType}|${t.metric}|${t.year}|${t.month ?? ''}|${t.rangeStart ?? ''}|${t.rangeEnd ?? ''}`
+  const oneKey = key(one)
+  const idx = list.findIndex((t) => key(t) === oneKey)
+  const next = [...list]
+  if (idx >= 0) next[idx] = one
+  else next.push(one)
+  return next
+}
+
+/** Phase 4: 목표가 현재 필터 기간과 일치하는지 */
+function targetMatchesPeriod(target, dateRange) {
+  if (!dateRange?.length || dateRange.length < 2) return false
+  const start = String(dateRange[0]).trim()
+  const end = String(dateRange[1]).trim()
+  const startYear = parseInt(start.slice(0, 4), 10)
+  const startMonth = start.length >= 7 ? parseInt(start.slice(5, 7), 10) : 0
+  const startMonthStr = start.length >= 7 ? start.slice(0, 7) : '' // YYYY-MM
+  const endMonthStr = end.length >= 7 ? end.slice(0, 7) : ''
+
+  if (target.periodType === 'year') {
+    return target.year === startYear
+  }
+  if (target.periodType === 'month') {
+    return target.year === startYear && target.month === startMonth
+  }
+  if (target.periodType === 'range' && target.rangeStart && target.rangeEnd) {
+    return !(endMonthStr < target.rangeStart || startMonthStr > target.rangeEnd)
+  }
+  return false
+}
+
+/** Phase 4: 지표별 "높을수록 좋음" 여부 (실패/실패률은 낮을수록 좋음) */
+const METRIC_HIGHER_IS_BETTER = {
+  campaign_count: true,
+  total_send: true,
+  total_success: true,
+  total_failed: false,
+  total_open: true,
+  total_click: true,
+  success_rate: true,
+  failed_rate: false,
+  open_rate: true,
+  click_rate: true
+}
+
+/** Phase 4: targets + dateRange + kpi → 지표별 목표 대비 status (달성/주의/미달) */
+function getTargetStatusByKey(targets, dateRange, kpi) {
+  if (!targets?.length || !dateRange?.length || !kpi) return {}
+  const result = {}
+  for (const target of targets) {
+    if (!targetMatchesPeriod(target, dateRange)) continue
+    const metric = target.metric
+    if (result[metric] != null) continue // 이미 해당 지표에 매칭된 목표 있음(첫 번째만 사용)
+    const targetValue = Number(target.targetValue)
+    if (!Number.isFinite(targetValue) || targetValue <= 0) continue
+    const actualValue = Number(kpi[metric])
+    if (!Number.isFinite(actualValue) && actualValue !== 0) continue
+
+    const higherIsBetter = METRIC_HIGHER_IS_BETTER[metric] !== false
+    const ratioPct = higherIsBetter
+      ? (actualValue / targetValue) * 100
+      : (targetValue / Math.max(actualValue, 1e-9)) * 100
+
+    let status = 'fail'
+    if (ratioPct >= 100) status = 'ok'
+    else if (ratioPct >= 80) status = 'warning'
+
+    result[metric] = { ratioPct, status, targetValue, actualValue }
+  }
+  return result
+}
 
 const DIMENSION_FIELDS = [
   { key: 'delivery_date', label: '일자' },
@@ -103,10 +204,26 @@ export default function Dashboard2Page() {
   const [chartType, setChartType] = useState('bar')
   const [chartData, setChartData] = useState([])
   const [chartDataLoading, setChartDataLoading] = useState(false)
+  const [sectionOpen, setSectionOpen] = useState({
+    kpi: true,
+    channel: true,
+    bar: true,
+    table: true,
+    chartWidget: true
+  })
+  const [targets, setTargets] = useState([])
+
+  const toggleSection = useCallback((key) => {
+    setSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }))
+  }, [])
+
+  useEffect(() => {
+    setTargets(loadTargetsFromStorage())
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    getDashboardTables()
+    getDashboard2Tables()
       .then((res) => {
         if (cancelled) return
         const list = res.tables || []
@@ -130,7 +247,7 @@ export default function Dashboard2Page() {
   useEffect(() => {
     if (!tableId) return
     let cancelled = false
-    getDashboardFilterOptions(tableId, {
+    getDashboard2FilterOptions(tableId, {
       campaign_ids: filters.campaign_ids || [],
       workflow_ids: filters.workflow_ids || [],
       channels: filters.channels || []
@@ -167,7 +284,7 @@ export default function Dashboard2Page() {
       ...filters,
       group_by: { ...(filters.group_by || defaultGroupBy), date: true }
     }
-    getDashboardData(payload)
+    getDashboard2Data(payload)
       .then((res) => {
         setData(res)
         setLoading(false)
@@ -194,6 +311,22 @@ export default function Dashboard2Page() {
     }))
   }, [])
 
+  const handleSaveTarget = useCallback((one) => {
+    setTargets((prev) => {
+      const next = mergeTarget(prev, one)
+      saveTargetsToStorage(next)
+      return next
+    })
+  }, [])
+
+  const handleDeleteTarget = useCallback((index) => {
+    setTargets((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      saveTargetsToStorage(next)
+      return next
+    })
+  }, [])
+
   const sortedAggregatedData = useMemo(
     () => sortAggregatedData(data?.aggregated_data ?? [], sortOrder),
     [data?.aggregated_data, sortOrder]
@@ -203,6 +336,12 @@ export default function Dashboard2Page() {
   const effectiveDimensionKey = availableDimensions.some((d) => d.key === dimensionKey) ? dimensionKey : (availableDimensions[0]?.key ?? 'delivery_date')
   const metricField = useMemo(() => METRIC_FIELDS.find((f) => f.key === metricKey) || METRIC_FIELDS[0], [metricKey])
 
+  /** Phase 4: 목표 대비 달성 여부(신호등) — targets·기간·kpi 매칭 */
+  const targetStatusByKey = useMemo(
+    () => getTargetStatusByKey(targets, filters.date_range, data?.kpi),
+    [targets, filters.date_range, data?.kpi]
+  )
+
   useEffect(() => {
     if (!tableId || !filters.date_range?.length || filters.date_range.length < 2) {
       setChartData([])
@@ -210,15 +349,14 @@ export default function Dashboard2Page() {
     }
     let cancelled = false
     setChartDataLoading(true)
-    getChartData({
+    getDashboard2ChartData({
       table_id: tableId,
       date_range: filters.date_range,
       campaign_ids: filters.campaign_ids || [],
       workflow_ids: filters.workflow_ids || [],
       channels: filters.channels || [],
       dimension: effectiveDimensionKey,
-      metric: metricKey,
-      limit: 50
+      metric: metricKey
     })
       .then((res) => {
         if (cancelled) return
@@ -237,7 +375,7 @@ export default function Dashboard2Page() {
   return (
     <div className="dashboard2-page">
       <div className="dashboard2-page__header-wrap">
-        <DashboardHeader
+        <Dashboard2Header
           tables={tables}
           tableId={tableId}
           onTableChange={setTableId}
@@ -262,49 +400,59 @@ export default function Dashboard2Page() {
 
       {tableId && (
         <div className="dashboard2-page__content">
-          <div className="dashboard2-chart-options">
-            <label htmlFor="dashboard2-dimension">Dimension</label>
-            <select
-              id="dashboard2-dimension"
-              className="dashboard2-option-select"
-              value={effectiveDimensionKey}
-              onChange={(e) => setDimensionKey(e.target.value)}
-            >
-              {availableDimensions.map((d) => (
-                <option key={d.key} value={d.key}>{d.label} (Dimension)</option>
-              ))}
-            </select>
-            <label htmlFor="dashboard2-metric">Metric</label>
-            <select
-              id="dashboard2-metric"
-              className="dashboard2-option-select"
-              value={metricKey}
-              onChange={(e) => setMetricKey(e.target.value)}
-            >
-              {METRIC_FIELDS.map((f) => (
-                <option key={f.key} value={f.key}>{f.label} (Metric)</option>
-              ))}
-            </select>
-            <label htmlFor="dashboard2-chart-type">차트 유형</label>
-            <select
-              id="dashboard2-chart-type"
-              className="dashboard2-option-select"
-              value={chartType}
-              onChange={(e) => setChartType(e.target.value)}
-            >
-              {CHART_TYPES.map((t) => (
-                <option key={t.key} value={t.key}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="dashboard2-chart-wrap">
-            {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
-            <EChartsChart
-              customChartData={chartData}
-              metricLabel={metricField.label}
-              chartType={chartType}
-            />
-          </div>
+          <TargetContextSection
+            dateRange={filters.date_range}
+            targets={targets}
+            onSave={handleSaveTarget}
+            onDelete={handleDeleteTarget}
+          />
+          {data?.kpi && (
+            <CollapsibleSection2 title="주요 지표" open={sectionOpen.kpi} onToggle={() => toggleSection('kpi')}>
+              <KPICards2 kpi={data.kpi} targetStatusByKey={targetStatusByKey} />
+              <p className="dashboard2-kpi-section-hint">
+                신호등 표시: 저장된 목표 중 현재 선택한 기간(날짜 범위)과 일치하는 지표에만 신호등(달성/주의/미달)이 표시됩니다.
+              </p>
+            </CollapsibleSection2>
+          )}
+          {data?.kpi && (
+            <CollapsibleSection2 title="채널별 분석" open={sectionOpen.channel} onToggle={() => toggleSection('channel')}>
+              <ChannelDonutCharts2 kpi={data.kpi} />
+            </CollapsibleSection2>
+          )}
+          {sortedAggregatedData.length > 0 && (
+            <CollapsibleSection2 title="기준별 발송 현황 (발송성공수 상위 10건)" open={sectionOpen.bar} onToggle={() => toggleSection('bar')}>
+              <AggregatedBarChart2 data={sortedAggregatedData} groupBy={groupBy} />
+            </CollapsibleSection2>
+          )}
+          <CollapsibleSection2 title="집계 데이터 테이블" open={sectionOpen.table} onToggle={() => toggleSection('table')}>
+            <AggregatedDataTable2 data={sortedAggregatedData} groupBy={groupBy} />
+          </CollapsibleSection2>
+          <CollapsibleSection2 title="차트 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
+            <div className="dashboard2-chart-options">
+              <label htmlFor="dashboard2-dimension">Dimension</label>
+              <select id="dashboard2-dimension" className="dashboard2-option-select" value={effectiveDimensionKey} onChange={(e) => setDimensionKey(e.target.value)}>
+                {availableDimensions.map((d) => (
+                  <option key={d.key} value={d.key}>{d.label} (Dimension)</option>
+                ))}
+              </select>
+              <label htmlFor="dashboard2-metric">Metric</label>
+              <select id="dashboard2-metric" className="dashboard2-option-select" value={metricKey} onChange={(e) => setMetricKey(e.target.value)}>
+                {METRIC_FIELDS.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label} (Metric)</option>
+                ))}
+              </select>
+              <label htmlFor="dashboard2-chart-type">차트 유형</label>
+              <select id="dashboard2-chart-type" className="dashboard2-option-select" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+                {CHART_TYPES.map((t) => (
+                  <option key={t.key} value={t.key}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="dashboard2-chart-wrap">
+              {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
+              <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} />
+            </div>
+          </CollapsibleSection2>
         </div>
       )}
     </div>

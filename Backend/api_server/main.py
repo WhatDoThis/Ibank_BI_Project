@@ -36,7 +36,7 @@ except ImportError:
     from Env import config
 
 from Backend.api_server import db
-from Backend.api_server.routers import health_router, report_router, dashboard_router
+from Backend.api_server.routers import health_router, report_router, dashboard_router, dashboard2_router
 
 app = FastAPI(
     title="Starbucks CRM NoCode Query Builder API",
@@ -54,6 +54,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(report_router)
 app.include_router(dashboard_router)
+app.include_router(dashboard2_router)
 
 
 @app.exception_handler(404)
