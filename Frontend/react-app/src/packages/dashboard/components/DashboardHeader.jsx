@@ -231,15 +231,18 @@ export default function DashboardHeader({
           <select
             multiple
             className="filter-select-campaign dashboard-header__filter-select"
-            value={(campaign_ids || []).map(String)}
-            onChange={(e) =>
+            value={(campaign_ids || []).length === 0 ? ['__all__'] : (campaign_ids || []).map(String)}
+            onChange={(e) => {
+              const selected = Array.from(e.target.selectedOptions, (o) => o.value)
+              const hasAll = selected.includes('__all__')
               onFiltersChange({
-                campaign_ids: Array.from(e.target.selectedOptions, (o) => Number(o.value))
+                campaign_ids: hasAll && selected.length === 1 ? [] : selected.filter((v) => v !== '__all__').map(Number)
               })
-            }
+            }}
             disabled={campaignDisabled}
             title={campaignDisabled ? '집계 기준에서 캠페인별을 선택하면 활성화됩니다' : ''}
           >
+            <option value="__all__">전체</option>
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
@@ -254,15 +257,18 @@ export default function DashboardHeader({
           <select
             multiple
             className="filter-select-workflow dashboard-header__filter-select"
-            value={(workflow_ids || []).map(String)}
-            onChange={(e) =>
+            value={(workflow_ids || []).length === 0 ? ['__all__'] : (workflow_ids || []).map(String)}
+            onChange={(e) => {
+              const selected = Array.from(e.target.selectedOptions, (o) => o.value)
+              const hasAll = selected.includes('__all__')
               onFiltersChange({
-                workflow_ids: Array.from(e.target.selectedOptions, (o) => Number(o.value))
+                workflow_ids: hasAll && selected.length === 1 ? [] : selected.filter((v) => v !== '__all__').map(Number)
               })
-            }
+            }}
             disabled={workflowDisabled}
             title={workflowDisabled ? '집계 기준에서 워크플로우별을 선택하면 활성화됩니다' : ''}
           >
+            <option value="__all__">전체</option>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.label}
@@ -277,15 +283,18 @@ export default function DashboardHeader({
           <select
             multiple
             className="filter-select-channel dashboard-header__filter-select"
-            value={(channels || []).map(String)}
-            onChange={(e) =>
+            value={(channels || []).length === 0 ? ['__all__'] : (channels || []).map(String)}
+            onChange={(e) => {
+              const selected = Array.from(e.target.selectedOptions, (o) => o.value)
+              const hasAll = selected.includes('__all__')
               onFiltersChange({
-                channels: Array.from(e.target.selectedOptions, (o) => Number(o.value))
+                channels: hasAll && selected.length === 1 ? [] : selected.filter((v) => v !== '__all__').map(Number)
               })
-            }
+            }}
             disabled={channelDisabled}
             title={channelDisabled ? '집계 기준에서 채널별을 선택하면 활성화됩니다' : ''}
           >
+            <option value="__all__">전체</option>
             {channelList.map((ch) => (
               <option key={ch.code} value={ch.code}>
                 {ch.name}

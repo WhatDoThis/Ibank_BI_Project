@@ -1,8 +1,8 @@
 /**
- * dashboard2/components/TargetContextSection.jsx (목표·컨텍스트 섹션)
- * ======================================================================
- * Phase 1: 기간 유형(연/월/기간) + 지표 + 목표값 입력·저장, 저장된 목표 목록 표시.
- * 저장소는 상위에서 관리(localStorage). 본 컴포넌트는 targets, onSave, onDelete만 받음.
+ * dashboard/components/TargetContextSection.jsx (목표·컨텍스트 섹션)
+ * ==========================================================================
+ * 대시보드1 전용. 기간 유형(연/월/기간) + 지표 + 목표값 입력·저장, 저장된 목표 목록 표시.
+ * 저장소는 상위에서 관리(localStorage). targets, onSave, onDelete props.
  *
  * [의존성]
  * - React
@@ -52,7 +52,6 @@ export function getTargetMetricLabel(metricKey) {
   return TARGET_METRIC_OPTIONS.find((m) => m.value === metricKey)?.label ?? metricKey
 }
 
-/** targetValue 실수 파싱. 빈 문자열·잘못된 값이면 null */
 function parseTargetValue(str) {
   if (str == null || String(str).trim() === '') return null
   const n = Number(String(str).trim().replace(/,/g, ''))
@@ -119,13 +118,13 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
   }, [periodType, metric, year, month, rangeStart, rangeEnd, targetValueInput, onSave])
 
   return (
-    <section className="dashboard2-target-context-section">
-      <div className="dashboard2-target-context__row">
-        <div className="dashboard2-target-context__right">
-          <div className="dashboard2-target-context__form">
-            <label className="dashboard2-target-context__label">기간 유형</label>
+    <section className="dashboard-target-context-section">
+      <div className="dashboard-target-context__row">
+        <div className="dashboard-target-context__right">
+          <div className="dashboard-target-context__form">
+            <label className="dashboard-target-context__label">기간 유형</label>
             <select
-              className="dashboard2-target-context__select"
+              className="dashboard-target-context__select"
               value={periodType}
               onChange={(e) => setPeriodType(e.target.value)}
             >
@@ -134,9 +133,9 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
               ))}
             </select>
 
-            <label className="dashboard2-target-context__label">지표</label>
+            <label className="dashboard-target-context__label">지표</label>
             <select
-              className="dashboard2-target-context__select"
+              className="dashboard-target-context__select"
               value={metric}
               onChange={(e) => setMetric(e.target.value)}
             >
@@ -145,10 +144,10 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
               ))}
             </select>
 
-            <label className="dashboard2-target-context__label">년도</label>
+            <label className="dashboard-target-context__label">년도</label>
             <input
               type="number"
-              className="dashboard2-target-context__input"
+              className="dashboard-target-context__input"
               min={2000}
               max={2100}
               value={year}
@@ -157,10 +156,10 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
 
             {periodType === 'month' && (
               <>
-                <label className="dashboard2-target-context__label">월</label>
+                <label className="dashboard-target-context__label">월</label>
                 <input
                   type="number"
-                  className="dashboard2-target-context__input"
+                  className="dashboard-target-context__input"
                   min={1}
                   max={12}
                   value={month}
@@ -171,28 +170,28 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
 
             {periodType === 'range' && (
               <>
-                <label className="dashboard2-target-context__label">시작</label>
+                <label className="dashboard-target-context__label">시작</label>
                 <input
                   type="month"
-                  className="dashboard2-target-context__input"
+                  className="dashboard-target-context__input"
                   value={rangeStart}
                   onChange={(e) => setRangeStart(e.target.value)}
                 />
-                <label className="dashboard2-target-context__label">종료</label>
+                <label className="dashboard-target-context__label">종료</label>
                 <input
                   type="month"
-                  className="dashboard2-target-context__input"
+                  className="dashboard-target-context__input"
                   value={rangeEnd}
                   onChange={(e) => setRangeEnd(e.target.value)}
                 />
               </>
             )}
 
-            <label className="dashboard2-target-context__label">목표값</label>
+            <label className="dashboard-target-context__label">목표값</label>
             <input
               type="text"
               inputMode="decimal"
-              className="dashboard2-target-context__input"
+              className="dashboard-target-context__input"
               placeholder="숫자 입력"
               value={targetValueInput}
               onChange={(e) => {
@@ -203,22 +202,22 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
 
             <button
               type="button"
-              className="dashboard2-target-context__save-btn"
+              className="dashboard-target-context__save-btn"
               onClick={handleSave}
             >
               저장
             </button>
           </div>
           {saveError && (
-            <div className="dashboard2-target-context__error">{saveError}</div>
+            <div className="dashboard-target-context__error">{saveError}</div>
           )}
         </div>
       </div>
 
       {targets.length > 0 && (
-        <div className="dashboard2-target-context__list-wrap">
-          <div className="dashboard2-target-context__list-title">저장된 목표</div>
-          <table className="dashboard2-target-context__table">
+        <div className="dashboard-target-context__list-wrap">
+          <div className="dashboard-target-context__list-title">저장된 목표</div>
+          <table className="dashboard-target-context__table">
             <thead>
               <tr>
                 <th>기간</th>
@@ -237,7 +236,7 @@ export default function TargetContextSection({ dateRange = [], targets = [], onS
                     <td>
                       <button
                         type="button"
-                        className="dashboard2-target-context__delete-btn"
+                        className="dashboard-target-context__delete-btn"
                         onClick={() => onDelete(idx)}
                       >
                         삭제

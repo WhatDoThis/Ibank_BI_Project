@@ -14,7 +14,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 1.2 핵심 가치
 - **리포트(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
-- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 검색 찾기/다음). **대시보드2**: ECharts 템플릿 차트, dataZoom·X축 검색·선형/영역 Y축 데이터 구간.
+- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 검색 찾기/다음).
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -25,7 +25,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), dashboard2(ECharts). shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
 - **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard), dashboard_service.py. 상세는 **02_BACKEND_FASTAPI_MIGRATION_PLAN.md §1** 참고.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
@@ -36,8 +36,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - `python run.py serve`: 빌드 없이 정적 서버만 (report-front 서비스 기동용, 배포 시 502 방지)
 - **Linux 배포**: 실제 업데이트 배포 시 루트의 **deploy.sh** 사용 (빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md 참고.
 - **접속 경로**
-  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2 `.../dashboard2`
-  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
+  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`
+  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
 
 ---
 
@@ -105,15 +105,18 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ## 6. 핵심 기능 요약 (현재 구현 기준)
 
 ### 6.1 리포트(쿼리 빌더)
+- **JOIN 규칙·안전성**: FK 기반 관계만 허용. `joinRules.js`: canAddTableByColumn(직접 관계만 추가 허용), findIntermediateParent(같은 부모_id 쓰는 두 테이블 시 끼워 넣을 부모), isTableAvailable(사이드바/드롭다운 노출 여부). `safetyCheck.js`: 순환 참조(detectCircularReference)·N:N(detectManyToMany) 감지, validateJoinPath·canAddTableSafely로 추가 전 검증. joinMode·relationshipOptions·joinConditions·joinTypes·joinLogicalOperators·joinConfigs(LEFT/INNER/RIGHT, 복합 조건·AND/OR) 지원.
 - 사이드바: 테이블 목록, 테이블별 컬럼(드래그 가능), JOIN 불가 테이블 비활성화.
-- 그리드: 컬럼 드롭 추가, 헤더 드래그로 순서 변경, 기준축·피벗·HAVING·조건·정렬·날짜 단위·집계 함수.
+- 그리드: 컬럼 드롭 추가, 헤더 드래그로 순서 변경, 기준축·피벗·HAVING·조건·정렬·날짜 단위·집계 함수. SQL 빌더: generateSQL, generateCountSQL, generateDistinctPivotSQL(피벗 시 고유 건수).
 - SQL 자동 생성: 별칭(t1, t2) 사용, WHERE/ORDER BY/GROUP BY/HAVING/LIMIT·OFFSET.
 - 실행·페이지네이션(건수 선택), 실행된 SQL 표시·복사·Claude 해석(백엔드 경유).
 - 초기화 시 그리드·필터·정렬·집계·피벗 등 전부 리셋.
 
 ### 6.2 대시보드
-- 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널) 체크.
-- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 차트 생성 위젯(Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 레이블 검색 찾기/다음). 대시보드2: ECharts 템플릿·커스텀 차트, dataZoom·검색·강조.
+- 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터(각 셀렉트 첫 옵션 "전체", 디폴트 전체), 집계 기준(일자/캠페인/워크플로우/채널) 체크.
+- 목표·컨텍스트 섹션: 기간 유형(연/월/기간)·지표·목표값 입력·저장(localStorage `dashboard_targets`), 저장된 목표 목록·삭제.
+- 주요 지표: 캠페인 수·워크플로우 수·채널 수, 발송/성공/실패/오픈/클릭, 성공률·실패률·오픈률·클릭률(00.00% 포맷). 표시할 지표 선택(접이식 체크박스, localStorage `dashboard_kpi_visible`). 목표 대비 신호등(달성/주의/미달, 현재 필터 기간과 일치하는 목표만 매칭).
+- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 차트 생성 위젯(Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 레이블 검색 찾기/다음).
 - 필수 컬럼 안내 모달(컬럼명·허용 타입 목록). 섹션 접기/펼치기(CollapsibleSection).
 
 ### 6.3 공통
@@ -144,5 +147,6 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (문서 통합) | CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 유효 내용 PRD로 통합, 해당 두 파일 삭제. base /ibank-bi/, 대시보드 API·필수 컬럼 타입·금지 키워드 문맥 검사 반영 |
 | (문서 분리) | 프론트 상세를 01_FRONTEND_GUIDE.md 로 이관. 00_PRD는 요약만 유지. ADVANCED_FEATURES.md 내용 통합 후 삭제 |
 | (최신화) | 차트 생성 전용 API(chart-data), 차트 생성 위젯(전용 조회·Y축 고정·막대/선형/영역 동일 구성), CollapsibleSection 반영. 사용하지 않는 표현 정리 |
-| (문서-코드 동기화) | 백엔드 FastAPI·routers(health/report/dashboard)·dependencies·schemas 반영, chart-data LIMIT 제거, 대시보드2(ECharts)·접속 경로·문서 구성(02 추가) 반영 |
+| (문서-코드 동기화) | 백엔드 FastAPI·routers(health/report/dashboard)·dependencies·schemas 반영, chart-data LIMIT 제거, 문서 구성(02 추가) 반영 |
+| (리포트 반영) | 리포트 패키지: JOIN 규칙(joinRules)·안전성(safetyCheck)·joinConfigs(LEFT/INNER/RIGHT·복합 조건)·generateDistinctPivotSQL 반영. docs/main 에서 대시보드2 언급 제거 |
 | (PRD 간결화) | 00_PRD §2.1·§4·§5.2·§5.3을 요약으로 줄이고, 상세는 01·02 참조로 통일. 02 문서 routes.py→routers/report 반영·Phase 3·4 완료 상태 정리 |

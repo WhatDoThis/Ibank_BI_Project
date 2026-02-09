@@ -218,6 +218,8 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
     kpi_query = f"""
         SELECT
             COUNT(DISTINCT campaign_id) AS campaign_count,
+            COUNT(DISTINCT workflow_id) AS workflow_count,
+            COUNT(DISTINCT delivery_channel) AS channel_count,
             COALESCE(SUM(total_count), 0)::bigint AS total_send,
             COALESCE(SUM(success_count), 0)::bigint AS total_success,
             COALESCE(SUM(failed_count), 0)::bigint AS total_failed,
@@ -268,6 +270,8 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
     click_rate = round(float(total_click) / total_success * 100, 2) if total_success else 0.0
     return {
         "campaign_count": int(row["campaign_count"] or 0),
+        "workflow_count": int(row["workflow_count"] or 0),
+        "channel_count": int(row["channel_count"] or 0),
         "total_send": total_send,
         "total_success": total_success,
         "total_failed": total_failed,

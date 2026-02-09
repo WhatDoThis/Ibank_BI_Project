@@ -82,6 +82,8 @@ function targetMatchesPeriod(target, dateRange) {
 /** Phase 4: 지표별 "높을수록 좋음" 여부 (실패/실패률은 낮을수록 좋음) */
 const METRIC_HIGHER_IS_BETTER = {
   campaign_count: true,
+  workflow_count: true,
+  channel_count: true,
   total_send: true,
   total_success: true,
   total_failed: false,

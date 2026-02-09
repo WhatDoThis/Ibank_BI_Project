@@ -1,5 +1,113 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: 대시보드2 기능 대시보드(1) 동기화 + 문서·Git
+
+### 완료 작업
+1. **대시보드(1)에 대시보드2와 동일 기능 적용 (코드 이중 유지)**
+   - **목표·컨텍스트 섹션**: `dashboard/components/TargetContextSection.jsx` 신규. 기간 유형·지표·목표값 저장/로드/삭제. localStorage `dashboard_targets`. 클래스명 `dashboard-target-context-*`. `dashboard.css`에 목표 섹션·삭제 버튼 스타일 추가.
+   - **DashboardPage.jsx**: targets state, loadTargetsFromStorage/saveTargetsToStorage, mergeTarget, targetMatchesPeriod, METRIC_HIGHER_IS_BETTER, getTargetStatusByKey, targetStatusByKey useMemo, handleSaveTarget, handleDeleteTarget. TargetContextSection 렌더, KPICards에 targetStatusByKey 전달. 신호등 안내 문구(.dashboard-kpi-section-hint).
+   - **KPICards.jsx**: targetStatusByKey prop, formatRatioPct, STATUS_STYLE. 카드별 달성/주의/미달 뱃지·테두리 색상. `.kpi-card__badge`, `--ok`/`--warning`/`--fail` 스타일 추가.
+   - 캠페인·워크플로우·채널 "전체" 옵션·워크플로우 수·채널 수·rate 00.00%·표시 지표 선택은 이전 작업에서 이미 대시보드1에 반영됨.
+
+2. **검수**
+   - Lint 오류 없음. 목표 저장·삭제·기간 매칭·신호등 표시 로직은 대시보드2와 동일 구조.
+
+3. **문서 업데이트 (대시보드1 기준)**
+   - **docs/main/00_PRD.md**: §6.2 대시보드에 목표 섹션·전체 옵션·표시 지표 선택·신호등 반영.
+   - **docs/main/01_FRONTEND_GUIDE.md**: §4.2 dashboard에 TargetContextSection, 목표 저장·신호등·전체 옵션, §3 디렉터리 트리에 TargetContextSection.jsx 추가.
+   - **README.md**: 대시보드에 목표(저장·신호등) 문구 추가.
+
+4. **Git**
+   - 위 변경 + 이전 미커밋 변경 일괄 커밋·푸시.
+
+### 수정/추가 파일
+- Frontend/react-app/src/packages/dashboard/components/TargetContextSection.jsx (신규)
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- Frontend/react-app/src/packages/dashboard/components/KPICards.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+- docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md
+- README.md
+- docs/report/log.md (본 로그)
+
+---
+
+## 2025-02-02: 주요 지표 표시 선택 + 컬럼 셀렉트 "전체" 옵션
+
+### 완료 작업
+1. **주요 지표 표시할 것만 선택 (접이식 체크박스 + localStorage)**
+   - **KPICards2.jsx**: "표시할 지표 선택 ▼/▲" 버튼 클릭 시 체크박스 목록 펼침. 체크된 지표만 카드로 표시. `storageKey` prop 기본값 `dashboard2_kpi_visible`. loadVisibleKeys/saveVisibleKeys로 localStorage 저장·로드. 추후 대시보드 테이블 시 동일 JSON 배열을 컬럼에 저장하면 됨.
+   - **KPICards.jsx**: 동일 기능, `storageKey` 기본값 `dashboard_kpi_visible`.
+   - **dashboard2.css / dashboard.css**: selector-wrap, selector-trigger, selector-checkboxes, selector-label 스타일 추가.
+
+2. **캠페인·워크플로우·채널 셀렉트에 "전체" 옵션 (디폴트)**
+   - **Dashboard2Header.jsx**, **DashboardHeader.jsx**: 각 multi-select 첫 번째 옵션으로 `<option value="__all__">전체</option>` 추가. `campaign_ids`/`workflow_ids`/`channels`가 빈 배열이면 value에 `['__all__']` 사용해 "전체"가 선택된 상태로 표시. onChange에서 "전체"만 선택된 경우 빈 배열로 설정, 그 외에는 `__all__` 제외 후 ID/코드만 전달. 집계 기준에서 해당 컬럼을 선택하기 전에는 디폴트로 전체(필터 없음)로 동작.
+
+3. **기타**
+   - Dashboard2Page: METRIC_HIGHER_IS_BETTER에 workflow_count, channel_count 추가.
+   - TargetContextSection: TARGET_METRIC_OPTIONS에 워크플로우 수·채널 수 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- Frontend/react-app/src/packages/dashboard/components/KPICards.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+- Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx
+- Frontend/react-app/src/packages/dashboard/components/DashboardHeader.jsx
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard2/components/TargetContextSection.jsx
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint 오류 없음. 주요 지표는 선택한 것만 표시·localStorage 유지. 캠페인/워크플로우/채널 셀렉트 기본 "전체" 선택.
+
+---
+
+## 2025-02-02: 주요 지표 섹션 개선 — rate 00.00% 포맷·워크플로우 수·채널 수
+
+### 완료 작업
+1. **rate 지표(성공률·실패률·오픈률·클릭률) 표시**
+   - KPICards2.jsx·KPICards.jsx: `formatRateDisplay(n)` 추가 — 소수 둘째 자리 반올림, 정수여도 `minimumFractionDigits: 2`로 00.00% 형식 표시. `unit === '%'`인 카드에만 적용.
+
+2. **워크플로우 수·채널 수 추가**
+   - Backend dashboard_service._calculate_kpi: KPI 쿼리에 `COUNT(DISTINCT workflow_id) AS workflow_count`, `COUNT(DISTINCT delivery_channel) AS channel_count` 추가. 반환 객체에 `workflow_count`, `channel_count` 포함.
+   - KPICards2.jsx: CARD_CONFIG에 워크플로우 수(workflow_count), 채널 수(channel_count) 카드 추가(캠페인 수 다음, 정의·아이콘·색상 포함).
+   - KPICards.jsx: 동일하게 워크플로우 수·채널 수 카드 및 rate 포맷 적용(대시보드1 동기화).
+
+### 수정 파일
+- Backend/api_server/dashboard_service.py
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx
+- Frontend/react-app/src/packages/dashboard/components/KPICards.jsx
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- Lint 오류 없음. 성공률~클릭률은 00.00% 형식, 캠페인 수·워크플로우 수·채널 수가 주요 지표에 표시됨.
+
+---
+
+## 2025-02-02: docs/main 문서 업데이트 (report 반영·대시보드2 미반영)
+
+### 완료 작업
+1. **00_PRD.md**
+   - 대시보드2 관련 문구 전부 제거(§1.2 핵심 가치, §2.1 패키지, §2.2 접속 경로, §6.2, §8 변경 이력).
+   - 리포트(§6.1): JOIN 규칙·안전성 반영 — joinRules(canAddTableByColumn, findIntermediateParent, isTableAvailable), safetyCheck(detectCircularReference, detectManyToMany, validateJoinPath, canAddTableSafely), joinMode·joinConfigs(LEFT/INNER/RIGHT·복합 조건·AND/OR), generateDistinctPivotSQL.
+
+2. **01_FRONTEND_GUIDE.md**
+   - 대시보드2 제거: §1.1 패키지·§1.2 접속 경로, §3 디렉터리 트리(dashboard2 폴더·라우트), §4.3 dashboard2 절 전체·대시보드2 기능 요약. 차트 스택에서 ECharts(대시보드2) 제거.
+   - report(§4.1) 상세 반영: ReportPage 상태(joinMode, relationshipOptions, joinConditions, joinConfigs, tableRelationships 등), utils/sqlBuilder(generateDistinctPivotSQL·joinConfigs 옵션), utils/joinRules, utils/safetyCheck, utils/constants·helpers, __tests__ (sqlBuilder.test.js, joinRules.test.js). 디렉터리 트리에 utils·__tests__ 추가. shared 절 번호 4.4→4.3.
+
+3. **02_BACKEND_FASTAPI_MIGRATION_PLAN.md**
+   - 대시보드2 언급 없음 확인. 수정 없음.
+
+### 수정 파일
+- docs/main/00_PRD.md
+- docs/main/01_FRONTEND_GUIDE.md
+- docs/report/log.md (본 로그)
+
+### 검수 결과
+- docs/main 기준 패키지: report, dashboard, shared만 명시. 대시보드2는 테스트용으로 본 문서에 반영하지 않음.
+
+---
+
 ## 2025-02-02: Phase 4 신호등 표시 (목표 대비 달성 여부)
 
 ### 완료 작업
