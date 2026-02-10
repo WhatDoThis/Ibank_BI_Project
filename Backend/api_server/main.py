@@ -1,21 +1,22 @@
 """
 Backend.api_server.main (FastAPI 앱 진입점)
 ===========================================
-CORS, 라우터 등록, 예외 핸들러. config.backend 로 host/port 사용.
+FastAPI 앱 생성, CORS, 라우터 등록, 예외 핸들러. config.backend 로 host/port 사용.
 
-[Main Functions]
+[App]
 ===========
-- 루트·API 안내, 404/500 JSON 응답 (기존 형식 유지)
+- app: FastAPI 인스턴스. 루트·API 안내, 404/500 JSON 응답 처리.
 
-[Endpoints]
+[Registered Routers]
 =======================
-- GET /, GET /api, GET /api/ → health 라우터
-- GET /health, /api/* → health·report·dashboard 라우터
+- health: GET /health, GET /, GET /api, GET /api/
+- report: /api/report/* (list-tables, describe-table, execute-query 등)
+- dashboard: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
+- dashboard2: /api/dashboard2/* (동일 엔드포인트)
 
 [Dependencies]
 =========
-- Env (config.backend)
-- Backend.api_server.db, Backend.api_server.routers
+- Env (config.backend), Backend.api_server.db, Backend.api_server.routers
 - fastapi, uvicorn
 """
 

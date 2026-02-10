@@ -2,7 +2,7 @@
 Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
 =============================================================
 캠페인/일자/워크플로우/채널별 GROUP BY 집계, KPI·필터 옵션 조회.
-config.backend·db 모듈 사용. report 라우트와 분리된 대시보드 전용 로직.
+FastAPI 라우터(dashboard, dashboard2)에서 호출. config.backend·db 사용. report 라우트와 분리된 대시보드 전용.
 
 [Main Functions]
 ===========
@@ -10,9 +10,9 @@ config.backend·db 모듈 사용. report 라우트와 분리된 대시보드 전
 - get_filter_options: 캠페인·워크플로우·채널 목록 반환
 - get_aggregatable_tables: 집계 가능(필수 컬럼 보유) 테이블만 반환
 - get_required_columns: 대시보드 조회 필수 컬럼 목록 반환
-- get_chart_data: 차트 생성 전용 단일 디멘션·메트릭 집계(별도 조회, 가독성 확보)
+- get_chart_data: 차트 생성 전용 단일 디멘션·메트릭 집계(별도 조회)
 
-[의존성]
+[Dependencies]
 =========
 - Backend.api_server.db (get_db_connection, get_table_schema, get_table_columns, get_table_columns_with_types, validate_table_name)
 - psycopg2

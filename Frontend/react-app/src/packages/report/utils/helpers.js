@@ -1,13 +1,15 @@
 /**
  * report/utils/helpers.js (리포트 쿼리 빌더 헬퍼)
  * ==============================================
- * 날짜 컬럼 판별, SQL 이스케이프, WHERE 값 포맷.
+ * 날짜 컬럼 판별, SQL 이스케이프, WHERE 값 포맷. ReportPage·MainArea 등에서 사용.
  *
  * [주요 함수]
- * - isDateColumn: 컬럼명/타입으로 날짜·시간 컬럼 여부
- * - isDateType / isDateTimeType: 타입만으로 날짜/날짜시간 여부
+ * - isDateColumn, isDateType, isDateTimeType: 날짜/시간 컬럼 여부
  * - escapeSqlString, escapeLikePattern: SQL injection 방지
  * - formatWhereValue: 연산자별 WHERE 값 문자열
+ *
+ * [의존성]
+ * - 없음
  */
 
 /**

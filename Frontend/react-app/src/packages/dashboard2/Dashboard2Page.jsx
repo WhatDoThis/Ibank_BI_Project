@@ -1,16 +1,15 @@
 /**
- * dashboard2/Dashboard2Page.jsx (성과리포트 대시보드 페이지)
- * =======================================================
- * 대시보드1과 동일 구성(KPI·채널 도넛·막대·집계 테이블) + 차트 생성(ECharts). dashboard2 전용 컴포넌트만 사용(공유 없음).
+ * dashboard2/Dashboard2Page.jsx (대시보드2·성과리포트 메인 페이지)
+ * ===============================================================
+ * React 페이지. KPI·채널 도넛·기준별 막대·집계 테이블·차트 생성(ECharts). Backend /api/dashboard2 사용.
+ * 목표·컨텍스트(기간 유형·지표·목표값, localStorage), 신호등(목표 대비 달성/주의/미달).
  *
  * [주요 기능]
- * - getDashboardTables / getDashboardFilterOptions / getDashboardData (헤더·집계용)
- * - getChartData: 단일 Dimension·Metric 조회 후 ECharts로 막대/선형/영역 차트
- * - Phase 0: KPI·채널 도넛·기준별 막대·집계 테이블·차트 생성 섹션
- * - Phase 1: 목표·컨텍스트 섹션(기간 유형·지표·목표값 저장, localStorage)
+ * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2ChartData
+ * - ECharts 막대/선형/영역 차트, 목표 저장·로드
  *
  * [의존성]
- * - React, shared/api/client, dashboard2/components (Dashboard2Header, CollapsibleSection2, KPICards2, ChannelDonutCharts2, AggregatedBarChart2, AggregatedDataTable2, TargetContextSection, EChartsChart)
+ * - React, @/shared/api/client, @/shared/utils/dateRange, dashboard2/components
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'

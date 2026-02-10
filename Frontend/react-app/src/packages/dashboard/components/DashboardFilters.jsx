@@ -8,7 +8,7 @@
  * - date_range, campaign_ids, workflow_ids, channels
  *
  * [의존성]
- * - React, shared/utils/dateRange (normalizeDateRange)
+ * - React, @/shared/utils/dateRange (normalizeDateRange)
  */
 
 import { normalizeDateRange } from '@/shared/utils/dateRange'

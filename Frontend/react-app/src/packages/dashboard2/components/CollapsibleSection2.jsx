@@ -1,8 +1,7 @@
 /**
  * dashboard2/components/CollapsibleSection2.jsx (접기/펼치기 섹션)
  * ================================================================
- * 대시보드2 전용. 제목 + 토글 버튼으로 본문 접기/펼치기.
- * Phase 0: dashboard CollapsibleSection 복사, 클래스명 dashboard2-* 사용.
+ * 대시보드2 전용. 제목 + 토글 버튼으로 본문 접기/펼치기. 클래스명 dashboard2-*.
  *
  * [의존성]
  * - React

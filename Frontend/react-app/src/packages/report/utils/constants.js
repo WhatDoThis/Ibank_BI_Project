@@ -1,11 +1,10 @@
 /**
  * report/utils/constants.js (리포트 쿼리 빌더 상수)
  * =================================================
- * 연산자 한국어 매핑, 집계 함수 목록.
+ * WHERE/HAVING 연산자 한글 라벨, 집계 함수 목록(AGG_FUNCTIONS).
  *
- * [내용]
- * - OPERATOR_LABELS: WHERE/HAVING 연산자 → 한글 라벨
- * - AGG_FUNCTIONS: 집계 함수 value/label
+ * [의존성]
+ * - 없음
  */
 
 /** WHERE/HAVING 연산자 → 한글 라벨 */

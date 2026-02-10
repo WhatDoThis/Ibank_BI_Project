@@ -1,14 +1,14 @@
 /**
  * App.jsx (앱 루트 — 라우팅·레이아웃)
  * ===================================
- * 공용 레이아웃(네비게이션) + 페이지 패키지 라우팅.
+ * React 앱. 공용 레이아웃(네비게이션) + 페이지 패키지 라우팅.
  * - / → /report 로 리다이렉트
- * - /report → 리포트(쿼리 빌더), 추후 도메인 적용 시에도 /report 경로 유지
- * - /dashboard → 대시보드, /dashboard2 → 템플릿 ECharts 대시보드
- * - 그 외 경로 → /report 로 리다이렉트
+ * - /report → 리포트(쿼리 빌더)
+ * - /dashboard → 대시보드1, /dashboard2 → 대시보드2(성과리포트·ECharts 차트)
+ * - 그 외 → /report 로 리다이렉트. base 경로는 Vite base 설정 반영.
  *
  * [의존성]
- * - react-router-dom, packages/report, packages/dashboard
+ * - React, react-router-dom, packages/report, packages/dashboard, packages/dashboard2
  */
 
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'

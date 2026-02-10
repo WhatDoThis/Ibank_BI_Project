@@ -1,5 +1,27 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2025-02-02: Frontend 코드 파일 상단 설명 정리 (React·현재 구조 반영)
+
+### 완료 작업
+1. **Backend와 동일하게 Frontend 전체 코드 파일 상단 설명을 현재 시스템·구성에 맞게 수정**
+   - **패키지 진입점**: `packages/dashboard`, `packages/dashboard2`, `packages/report` index.jsx — 플레이스홀더/과거 문구 제거, React 패키지·Export·Backend API 경로 명시.
+   - **페이지**: DashboardPage.jsx, Dashboard2Page.jsx, ReportPage.jsx — React 페이지·주요 기능·의존성(shared/api, dateRange, components) 정리.
+   - **헤더/컴포넌트**: DashboardHeader, Dashboard2Header — 기간·조회·필터 설명, @/shared 의존성 통일. DashboardFilters — @/shared/utils/dateRange. dashboard2 컴포넌트(CollapsibleSection2, AggregatedBarChart2, ChannelDonutCharts2, TargetContextSection, KPICards2, AggregatedDataTable2) — "Phase 0/1/3" 문구 제거, 현재 역할만 기술.
+   - **report**: joinRules.js, safetyCheck.js, constants.js, helpers.js, sqlBuilder.js — 경로·주요 함수·의존성 블록 통일. Sidebar.jsx, MainArea.jsx — [의존성]에 joinRules/constants/helpers 반영.
+   - **shared**: dateRange.js — React 대시보드·Backend 전송 전 사용 명시.
+
+2. **검수**
+   - 수정한 Frontend 파일들 린트 오류 없음.
+
+### 수정 파일 (Frontend)
+- src/App.jsx, main.jsx, shared/api/client.js, shared/config/api.js, shared/utils/dateRange.js
+- packages/dashboard/index.jsx, DashboardPage.jsx, components/DashboardHeader.jsx, DashboardFilters.jsx
+- packages/dashboard2/index.jsx, Dashboard2Page.jsx, components/Dashboard2Header.jsx, CollapsibleSection2.jsx, AggregatedBarChart2.jsx, ChannelDonutCharts2.jsx, TargetContextSection.jsx, KPICards2.jsx, AggregatedDataTable2.jsx
+- packages/report/index.jsx, ReportPage.jsx, utils/joinRules.js, safetyCheck.js, constants.js, helpers.js, sqlBuilder.js, components/Sidebar.jsx, MainArea.jsx
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2025-02-02: 대시보드2 기능 대시보드(1) 동기화 + 문서·Git
 
 ### 완료 작업

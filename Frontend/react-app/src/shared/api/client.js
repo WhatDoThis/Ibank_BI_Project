@@ -1,13 +1,12 @@
 /**
- * api/client.js (Backend API 클라이언트) — 공용
- * ==============================================
- * Backend API 호출용 fetch 래퍼. shared/config/api.getApiBase() 사용.
+ * shared/api/client.js (Backend API 클라이언트)
+ * =============================================
+ * FastAPI 백엔드 호출용 fetch 래퍼. shared/config/api.getApiBase() 사용.
  *
  * [주요 기능]
- * - health, listTables, describeTable, tableRelationships
- * - executeQuery, explainSql, getColumnValues, queryStats
- * - getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData
- * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2 DEV)
+ * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats (리포트)
+ * - getDashboardTables, getDashboardFilterOptions, getDashboardData, getDashboardRequiredColumns, getChartData (대시보드1)
+ * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2)
  *
  * [의존성]
  * - shared/config/api (getApiBase)

@@ -4,7 +4,7 @@
  * 그리드·드롭·기준축/피벗/행별집계/HAVING/조건/정렬·페이지네이션·SQL 패널.
  *
  * [의존성]
- * - React, report/utils/constants, report/utils/helpers
+ * - React, report/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), report/utils/helpers (isDateColumn, isDateType, isDateTimeType)
  */
 
 import { useState, useEffect } from 'react'

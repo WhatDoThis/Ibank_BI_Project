@@ -1,15 +1,14 @@
 /**
- * report/ReportPage.jsx (리포트 페이지)
- * ====================================
- * 쿼리 빌더: 데이터 로드, 그리드·필터·SQL·실행·페이지네이션 상태 및 레이아웃.
+ * report/ReportPage.jsx (리포트·쿼리 빌더 페이지)
+ * ==============================================
+ * React 페이지. 노코드 쿼리 빌더. 테이블/컬럼 선택, 필터·GROUP BY·HAVING·정렬·피벗·실행·페이지네이션. Backend /api/list-tables, describe-table, execute-query 등 사용.
  *
  * [주요 기능]
- * - 데이터 로드: health, listTables, describeTable, tableRelationships
- * - 상태: gridColumns(aggFunc), addedTables, filters, orderBy, groupBy, pivot, pivotRowAggs, dateGranularity, havings, resultData, pagination, executedSql, explanation
- * - 콜백: addColumn, moveColumn, toggleGroupBy, setDateGranularity, changeAggFunc, addHaving, removeHaving, pivot/행별집계, executeQuery, 필터/ORDER BY, 페이지, SQL 복사/해석, 초기화
+ * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql
+ * - 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, resultData, pagination
  *
  * [의존성]
- * - React, shared/api/client, report/utils/sqlBuilder, report/utils/constants, report/components (Sidebar, MainArea)
+ * - React, @/shared/api/client, @/shared/config/api, report/utils (sqlBuilder, joinRules, safetyCheck, constants), report/components (Sidebar, MainArea)
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'

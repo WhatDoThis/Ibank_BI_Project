@@ -1,7 +1,7 @@
 /**
  * dashboard2/components/ChannelDonutCharts2.jsx (채널별 도넛 차트)
  * ==================================================================
- * 대시보드2 전용. KPI channel_distribution 도넛 시각화. Phase 0: dashboard ChannelDonutCharts 복사, 클래스명 dashboard2-* 사용.
+ * 대시보드2 전용. KPI channel_distribution 도넛 시각화. 클래스명 dashboard2-*.
  *
  * [의존성]
  * - React, recharts

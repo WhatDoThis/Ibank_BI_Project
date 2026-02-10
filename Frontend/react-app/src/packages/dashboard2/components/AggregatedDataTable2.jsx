@@ -30,7 +30,7 @@ const SORT_OPTIONS = [
   { key: 'click_count', label: '클릭수' }
 ]
 
-/** Phase 3: 테이블 헤더별 지표 정의 (호버 시 툴팁) */
+/** 테이블 헤더별 지표 정의 (호버 시 툴팁) */
 const TABLE_HEADER_DEFINITIONS = {
   campaign: '집계 기준: 캠페인(campaign_label)',
   date: '집계 기준: 일자(delivery_date)',

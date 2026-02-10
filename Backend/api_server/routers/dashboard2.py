@@ -1,8 +1,8 @@
 """
-Backend.api_server.routers.dashboard2 (대시보드2 API, DEV용)
-============================================================
-dashboard2 전용: /api/dashboard2/data, filter-options, tables, required-columns, chart-data.
-기존 dashboard와 동일 로직·스키마 사용, prefix만 분리하여 대시보드2 프론트 전용 연결.
+Backend.api_server.routers.dashboard2 (대시보드2 API)
+====================================================
+FastAPI 라우터. prefix /api/dashboard2. POST /data, /filter-options, /tables, /required-columns, /chart-data.
+dashboard 서비스·스키마 공유, prefix만 분리하여 대시보드2 프론트 전용.
 """
 
 from typing import Optional

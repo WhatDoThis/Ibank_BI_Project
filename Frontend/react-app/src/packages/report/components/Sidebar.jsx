@@ -4,7 +4,7 @@
  * DB 상태, 테이블 목록(JOIN 가능만 활성화), 검색, 펼치기/접기, 컬럼 드래그.
  *
  * [의존성]
- * - React
+ * - React, report/utils/joinRules (isTableAvailableOrViaParent)
  */
 
 import { useState } from 'react'

@@ -1,7 +1,7 @@
 """
 Backend.api_server.schemas (요청 바디 스키마)
 ==============================================
-POST 엔드포인트 요청 검증·문서화용 Pydantic 모델. 프론트 전송 형식과 동일 유지.
+FastAPI POST 엔드포인트 요청 검증·문서화용 Pydantic 모델. 프론트 전송 형식과 동일 유지.
 
 [Main Models]
 ===========

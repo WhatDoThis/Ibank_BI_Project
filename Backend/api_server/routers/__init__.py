@@ -1,7 +1,7 @@
 """
-Backend.api_server.routers
-==========================
-FastAPI 라우터 모듈. health, report(리포트/쿼리 빌더), dashboard(대시보드1), dashboard2(대시보드2 DEV용).
+Backend.api_server.routers (FastAPI 라우터 모듈)
+=================================================
+health, report(리포트/쿼리 빌더), dashboard(대시보드1), dashboard2(대시보드2) 라우터 export.
 """
 
 from .health import router as health_router

@@ -1,16 +1,15 @@
 /**
- * dashboard/DashboardPage.jsx (대시보드 메인 페이지)
+ * dashboard/DashboardPage.jsx (대시보드1 메인 페이지)
  * ===================================================
- * 캠페인/일자/워크플로우/채널별 GROUP BY 집계 대시보드.
- * - 헤더: 테이블 선택 + 필터(기간·캠페인·워크플로우·채널 전체 옵션)·집계 기준
- * - 본문: 목표·컨텍스트 섹션, KPI 카드(목표 대비 신호등·표시 지표 선택), 채널 도넛, 막대 차트, 집계 테이블, 차트 위젯
+ * React 페이지. 캠페인/일자/워크플로우/채널별 GROUP BY 집계. Backend /api/dashboard 사용.
+ * 헤더(테이블·기간·집계 기준·정렬·필터), 목표·컨텍스트, KPI·채널 도넛·막대·집계 테이블·차트 위젯.
  *
  * [주요 기능]
- * - getDashboardTables, getDashboardData, getDashboardFilterOptions
- * - 목표 저장/로드(localStorage dashboard_targets), 목표 대비 신호등(달성/주의/미달)
+ * - getDashboardTables, getDashboardData, getDashboardFilterOptions, getChartData
+ * - 목표 저장/로드(localStorage), 목표 대비 신호등(달성/주의/미달)
  *
  * [의존성]
- * - React, shared/api/client, dashboard/components (DashboardHeader, TargetContextSection, KPICards, ChannelDonutCharts, AggregatedBarChart, AggregatedDataTable, ChartWidget)
+ * - React, @/shared/api/client, @/shared/utils/dateRange, dashboard/components
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'

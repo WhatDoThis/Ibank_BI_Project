@@ -1,6 +1,14 @@
 /**
- * safetyCheck.js
- * JOIN 안전성 검증
+ * report/utils/safetyCheck.js (JOIN 안전성 검증)
+ * ==============================================
+ * 리포트 쿼리 빌더. 테이블 추가 경로 순환 참조 감지·JOIN 안전성 검증.
+ *
+ * [주요 함수]
+ * - detectCircularReference: 순환 참조 감지
+ * - canAddTableSafely, validateJoinPath: 안전한 테이블 추가 여부
+ *
+ * [의존성]
+ * - 없음
  */
 
 /**

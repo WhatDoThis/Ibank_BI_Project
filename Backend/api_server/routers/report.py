@@ -1,8 +1,8 @@
 """
 Backend.api_server.routers.report (리포트/쿼리 빌더 API)
 ========================================================
-list-tables, describe-table, table-relationships, execute-query, explain-sql,
-get-column-values, query-stats. Depends(get_db), Depends(get_config) 활용.
+FastAPI 라우터. list-tables, describe-table, table-relationships, execute-query,
+explain-sql, get-column-values, query-stats. Depends(get_db), Depends(get_config) 사용.
 """
 
 import json

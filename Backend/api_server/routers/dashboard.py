@@ -1,7 +1,7 @@
 """
-Backend.api_server.routers.dashboard (대시보드 API)
-===================================================
-dashboard/data, filter-options, tables, required-columns, chart-data.
+Backend.api_server.routers.dashboard (대시보드1 API)
+====================================================
+FastAPI 라우터. prefix /api/dashboard. POST /data, /filter-options, /tables, /required-columns, /chart-data.
 """
 
 from typing import Optional

@@ -1,7 +1,7 @@
 """
 Backend.api_server.routers.health (헬스·루트·API 안내)
 =====================================================
-GET /health, GET /, GET /api, GET /api/
+FastAPI 라우터. GET /health (DB 연결 확인), GET /, GET /api, GET /api/ (API 안내).
 """
 
 from fastapi import APIRouter, Depends

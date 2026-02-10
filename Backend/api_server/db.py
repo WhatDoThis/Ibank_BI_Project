@@ -2,7 +2,7 @@
 Backend.api_server.db (DB 연결 및 검증)
 =======================================
 Env/config/config.json 의 backend 만 사용. 환경 변수·기본값 없음. 없으면 예외.
-프레임워크 무관(Flask/FastAPI 공통). 라우트 레이어에서 의존성 주입용으로 사용 가능.
+FastAPI 라우터에서 dependencies.get_db() 통해 의존성 주입용으로 사용.
 
 [Main Functions]
 ===========

@@ -1,6 +1,12 @@
 """
-pluralize.py
-단수/복수 변환 + 부모 테이블 찾기
+Backend.api_server.pluralize (단수/복수 변환·부모 테이블 찾기)
+=============================================================
+리포트/쿼리 빌더 등에서 테이블명·컬럼명 처리용. FastAPI 라우터에서 직접 참조.
+
+[Main Functions]
+===========
+- pluralize: 단수 → 복수 변환 (workflow → workflows 등)
+- find_parent_table: _id 컬럼명에서 허용 테이블 중 부모 테이블명 추론
 """
 
 

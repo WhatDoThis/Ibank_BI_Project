@@ -1,9 +1,15 @@
 /**
- * report/utils/joinRules.js
- * 부모 테이블 없이 n:n 자동 추가 방지용 규칙.
+ * report/utils/joinRules.js (조인 규칙·테이블 추가 가능 여부)
+ * ===========================================================
+ * 리포트 쿼리 빌더. 부모 테이블 없이 n:n 자동 추가 방지.
+ *
+ * [주요 함수]
  * - canAddTableByColumn: 컬럼 추가 시 해당 테이블을 addedTables에 넣어도 되는지
  * - findIntermediateParent: 같은 부모_id 쓰는 두 테이블일 때 끼워 넣을 부모 테이블
- * - isTableAvailable: 사이드바/드롭다운에 테이블을 선택 가능으로 보여줄지
+ * - isTableAvailable: 사이드바/드롭다운에 테이블 선택 가능 여부
+ *
+ * [의존성]
+ * - 없음
  */
 
 function getNeighborTables(tableName, relationshipOptions) {

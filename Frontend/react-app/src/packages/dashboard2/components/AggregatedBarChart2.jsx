@@ -1,7 +1,7 @@
 /**
  * dashboard2/components/AggregatedBarChart2.jsx (집계 막대 차트)
  * ==============================================================
- * 대시보드2 전용. aggregated_data 막대 차트. Phase 0: dashboard AggregatedBarChart 복사, 클래스명 dashboard2-* 사용.
+ * 대시보드2 전용. aggregated_data 막대 차트. 클래스명 dashboard2-*.
  *
  * [의존성]
  * - React, recharts

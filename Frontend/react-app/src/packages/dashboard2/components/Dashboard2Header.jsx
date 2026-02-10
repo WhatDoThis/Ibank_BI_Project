@@ -1,11 +1,10 @@
 /**
  * dashboard2/components/Dashboard2Header.jsx (대시보드2 헤더)
  * ============================================================
- * 대시보드2 전용. 테이블 선택 + 집계 기준 + 정렬 + 필터(캠페인·워크플로우·채널).
- * Phase 0: dashboard DashboardHeader 복사, 클래스명 dashboard2-* 사용. dashboard 패키지 미참조.
+ * 대시보드2 전용. 테이블 선택 + 기간 + 조회, 집계 기준, 정렬 기준, 캠페인·워크플로우·채널 필터. 클래스명 dashboard2-*.
  *
  * [의존성]
- * - React, @/shared/api/client (getDashboardRequiredColumns)
+ * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange)
  */
 
 import { useState, useEffect } from 'react'
