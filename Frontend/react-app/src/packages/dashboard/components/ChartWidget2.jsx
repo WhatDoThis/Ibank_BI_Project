@@ -1,12 +1,12 @@
 /**
  * dashboard/components/ChartWidget2.jsx (위젯 생성 beta)
  * ======================================================
- * 위젯 생성 확장판. 막대/선/영역 + 파이/도넛/레이더/산점도/KPI 카드.
- * BI·리포트 레퍼런스 기반 다중 위젯 타입 지원(Recharts Pie, Radar, Scatter, KPI 단일값).
+ * 위젯 생성 확장판. 막대/선/영역 + 파이/도넛/레이더/산점도.
+ * BI·리포트 레퍼런스 기반 다중 위젯 타입 지원(Recharts Pie, Radar, Scatter).
  *
  * [주요 기능]
  * - 기존: Dimension·Metric·막대/선/영역, API·로컬 데이터, X축 검색.
- * - beta: 파이·도넛(비율), 레이더(다축 비교, Recharts 기본 PolarAngleAxis/PolarRadiusAxis + domain), 산점도(분포), KPI(단일 수치 카드).
+ * - beta: 파이·도넛(비율), 레이더(다축 비교, Recharts 기본 PolarAngleAxis/PolarRadiusAxis + domain), 산점도(분포).
  *
  * [의존성]
  * - React, recharts, shared/api/client (getChartData)
@@ -417,8 +417,7 @@ const CHART_TYPES = [
   { key: 'pie', label: '파이' },
   { key: 'donut', label: '도넛' },
   { key: 'radar', label: '레이더' },
-  { key: 'scatter', label: '산점도' },
-  { key: 'kpi', label: 'KPI(단일값)' }
+  { key: 'scatter', label: '산점도' }
 ]
 
 /** 위젯 막대: 일자별 색상 구분용 팔레트 */
@@ -682,13 +681,13 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: 막대+rate는 구간 확대(가독성), 막대+건수는 0 포함, 선형/영역/산점도=패딩 5%, 파이/도넛/레이더/KPI 미사용 */
+  /* Y축 도메인: 막대+rate는 구간 확대(가독성), 막대+건수는 0 포함, 선형/영역/산점도=패딩 5%, 파이/도넛/레이더 미사용 */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
     const values = chartData.map((d) => parseChartNumber(d[metricField.label]))
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
-    if (['pie', 'donut', 'radar', 'kpi'].includes(chartType)) return [0, 1]
+    if (['pie', 'donut', 'radar'].includes(chartType)) return [0, 1]
     if (chartType === 'bar') {
       const scale = isRate ? calculateYAxisScaleForRate(dataMin, dataMax) : calculateYAxisScaleForBar(dataMin, dataMax)
       return [scale.min, scale.max]
@@ -842,6 +841,8 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   /* 기준별 발송 현황 차트와 동일 포맷: margin (상단 여유로 Y축·recharts-surface 잘림 방지) */
   const chartTopMargin = 48
   const chartBottomMargin = 28
+  /* Line/AreaChart는 X축이 플롯 하단 공간을 사용해 데이터 영역이 짧아짐. 고정 Y축은 X축이 없어 전체 높이를 쓰므로, 하단 마진을 X축 높이만큼 보정해 플롯 높이를 맞춤 */
+  const xAxisReservedHeight = 24
   const commonProps = {
     data: chartData,
     margin: { top: chartTopMargin, right: 16, left: 8, bottom: chartBottomMargin }
@@ -867,7 +868,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     />
   )
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-  const legendColor = chartType === 'line' ? '#0d9488' : chartType === 'area' ? '#7c3aed' : chartType === 'scatter' ? '#0d9488' : chartType === 'radar' ? '#4f46e5' : chartType === 'kpi' ? '#374151' : '#4f46e5'
+  const legendColor = chartType === 'line' ? '#0d9488' : chartType === 'area' ? '#7c3aed' : chartType === 'scatter' ? '#0d9488' : chartType === 'radar' ? '#4f46e5' : '#4f46e5'
   const legendRow = (
     <div className="chart-widget__legend-top">
       <span className="chart-widget__legend-top__mark" style={{ background: legendColor }} />
@@ -877,13 +878,15 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
 
   /* 막대·선형·영역 공통: 가로 스크롤 시 Y축 고정. 범례는 차트 블록 전체 상단 한 줄. 스크롤 차트는 domain 적용을 위해 숨김 YAxis 사용 */
   const marginLeftOnly = { top: chartTopMargin, right: 0, left: 8, bottom: chartBottomMargin }
+  /* 고정 Y축: X축이 없어 플롯이 전체 높이를 쓰므로, 하단 마진을 X축 높이만큼 늘려 Line/Area 차트의 데이터 영역과 세로 길이 일치 */
+  const marginLeftOnlyForFixedY = { top: chartTopMargin, right: 0, left: 8, bottom: chartBottomMargin + xAxisReservedHeight }
   const marginRightOnly = { top: chartTopMargin, right: 24, left: 32, bottom: chartBottomMargin }
   const scrollContentMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
   const hiddenYAxis = <YAxis domain={yDomain} hide width={0} allowDataOverflow />
   const fixedYAxisBlock = (
     <div className="chart-widget__y-axis-fixed" style={{ width: Y_AXIS_FIXED_WIDTH }}>
       <ResponsiveContainer width={Y_AXIS_FIXED_WIDTH} height={CHART_HEIGHT}>
-        <BarChart data={chartData} margin={marginLeftOnly}>
+        <BarChart data={chartData} margin={marginLeftOnlyForFixedY}>
           <YAxis domain={yDomain} tick={{ fontSize: 13 }} tickFormatter={(v) => formatYAxisTick(v, isRate)} width={Y_AXIS_FIXED_WIDTH - 16} allowDataOverflow />
           <Bar dataKey={metricField.label} barSize={0} fill="transparent" isAnimationActive={false} />
         </BarChart>
@@ -1029,16 +1032,6 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
             />
           </ScatterChart>
         </ResponsiveContainer>
-      </div>
-    )
-  } else if (chartType === 'kpi') {
-    const kpiValue = chartData.reduce((sum, d) => sum + parseChartNumber(d[metricField.label]), 0)
-    chartInner = (
-      <div className="chart-widget__chart-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
-        <div style={{ textAlign: 'center', padding: 24 }}>
-          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>{metricField.label} (합계)</div>
-          <div style={{ fontSize: 36, fontWeight: 700, color: '#111827' }}>{formatDisplay(kpiValue)}</div>
-        </div>
       </div>
     )
   } else {
@@ -1193,7 +1186,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
             </div>
           </div>
         </div>
-        {chartData.length > 10 && !['pie', 'donut', 'radar', 'kpi'].includes(chartType) && (
+        {chartData.length > 10 && !['pie', 'donut', 'radar'].includes(chartType) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <input
               type="text"
