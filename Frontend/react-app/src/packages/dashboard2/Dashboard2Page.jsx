@@ -434,7 +434,12 @@ export default function Dashboard2Page() {
             </CollapsibleSection2>
           )}
           <CollapsibleSection2 title="집계 데이터 테이블" open={sectionOpen.table} onToggle={() => toggleSection('table')}>
-            <AggregatedDataTable2 data={sortedAggregatedData} groupBy={groupBy} />
+            <AggregatedDataTable2
+              data={sortedAggregatedData}
+              groupBy={groupBy}
+              sortOrder={sortOrder}
+              onSortOrderChange={setSortOrder}
+            />
           </CollapsibleSection2>
           <CollapsibleSection2 title="차트 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
             <div className="dashboard2-chart-options">

@@ -387,6 +387,8 @@ export default function DashboardPage() {
             <AggregatedDataTable
               data={sortedAggregatedData}
               groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
+              sortOrder={sortOrder}
+              onSortOrderChange={setSortOrder}
             />
           </CollapsibleSection>
           <CollapsibleSection

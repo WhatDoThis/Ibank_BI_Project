@@ -23,6 +23,14 @@ const OPERATORS = [
   { key: 'lte', label: '이하 (≤)' }
 ]
 
+const SORT_OPTIONS = [
+  { key: 'delivery_date', label: '일자' },
+  { key: 'total_count', label: '발송수' },
+  { key: 'success_count', label: '성공수' },
+  { key: 'open_count', label: '오픈수' },
+  { key: 'click_count', label: '클릭수' }
+]
+
 function formatNum(num) {
   if (num == null) return '0'
   return new Intl.NumberFormat('ko-KR').format(num)
@@ -136,9 +144,9 @@ function rowMatchesFilters(row, filters, columnOptions) {
   })
 }
 
-const defaultFilterRow = () => ({ id: `f-${Date.now()}-${Math.random().toString(36).slice(2)}`, columnKey: '', operator: 'eq', value: '' })
+const defaultFilterRow = () => ({ id: `f-${Date.now()}-${Math.random().toString(36).slice(2)}`, columnKey: '', operator: 'contains', value: '' })
 
-export default function AggregatedDataTable({ data = [], groupBy = {} }) {
+export default function AggregatedDataTable({ data = [], groupBy = {}, sortOrder = [], onSortOrderChange }) {
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState([])
 
@@ -175,6 +183,29 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
   }
   const hasActiveFilters = filters.some((f) => !isFilterConditionEmpty(f))
 
+  const handleSortClick = (optionKey) => {
+    if (!onSortOrderChange) return
+    const idx = sortOrder.findIndex((s) => s.key === optionKey)
+    if (idx === -1) {
+      onSortOrderChange([...sortOrder, { key: optionKey, order: 'desc' }])
+    } else if (sortOrder[idx].order === 'desc') {
+      onSortOrderChange(sortOrder.map((s, i) => (i === idx ? { ...s, order: 'asc' } : s)))
+    } else {
+      onSortOrderChange(sortOrder.filter((_, i) => i !== idx))
+    }
+  }
+  const getSortState = (optionKey) => {
+    const entry = sortOrder.find((s) => s.key === optionKey)
+    return entry ? entry.order : null
+  }
+  const sortAppliedText = sortOrder.length
+    ? sortOrder.map((s, i) => {
+        const label = SORT_OPTIONS.find((o) => o.key === s.key)?.label ?? s.key
+        const orderText = s.order === 'desc' ? '내림차순' : '오름차순'
+        return `${i + 1}. ${label} - ${orderText}`
+      }).join('  ')
+    : ''
+
   /** 일자별 구분: 고유 일자 순서로 행 배경 음영(짝수 번째 일자 = 음영) */
   const dateOrder = useMemo(() => {
     if (!groupBy.date) return []
@@ -199,6 +230,31 @@ export default function AggregatedDataTable({ data = [], groupBy = {} }) {
 
   return (
     <section className="aggregated-data-table aggregated-data-table-section">
+      {onSortOrderChange && (
+        <div className="dashboard-header__sort-row aggregated-data-table__sort-row">
+          <span className="dashboard-header__sort-label">정렬 기준</span>
+          <div className="dashboard-header__sort-buttons">
+            {SORT_OPTIONS.map((opt) => {
+              const state = getSortState(opt.key)
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`dashboard-header__sort-btn ${state ? `dashboard-header__sort-btn--${state}` : ''}`}
+                  onClick={() => handleSortClick(opt.key)}
+                  title={state === 'desc' ? '다음 클릭: 오름차순' : state === 'asc' ? '다음 클릭: 정렬 해제' : '클릭: 내림차순'}
+                >
+                  {opt.label}
+                  {state && <span className="dashboard-header__sort-badge">{state === 'desc' ? ' ↓' : ' ↑'}</span>}
+                </button>
+              )
+            })}
+          </div>
+          {sortAppliedText && (
+            <span className="dashboard-header__sort-applied">{sortAppliedText}</span>
+          )}
+        </div>
+      )}
       <div className="aggregated-data-table__toolbar">
         <div className="aggregated-data-table__filters">
           {filters.map((f) => (
