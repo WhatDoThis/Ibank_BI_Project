@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from 'react'
 import { getDashboard2RequiredColumns } from '@/shared/api/client'
+import { normalizeDateRange } from '@/shared/utils/dateRange'
 
 const SORT_OPTIONS = [
   { key: 'delivery_date', label: '일자' },
@@ -131,14 +132,14 @@ export default function Dashboard2Header({
               type="date"
               className="dashboard2-header__date-input"
               value={date_range[0] || ''}
-              onChange={(e) => onFiltersChange({ date_range: [e.target.value, date_range[1] || ''] })}
+              onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([e.target.value, date_range[1] || '']) })}
             />
             <span className="dashboard2-header__date-sep">~</span>
             <input
               type="date"
               className="dashboard2-header__date-input"
               value={date_range[1] || ''}
-              onChange={(e) => onFiltersChange({ date_range: [date_range[0] || '', e.target.value] })}
+              onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([date_range[0] || '', e.target.value]) })}
             />
           </div>
         </div>

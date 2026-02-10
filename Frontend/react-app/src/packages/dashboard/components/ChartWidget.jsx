@@ -16,6 +16,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { getChartData } from '@/shared/api/client'
+import { normalizeDateRange } from '@/shared/utils/dateRange'
 import {
   BarChart,
   Bar,
@@ -473,7 +474,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     setChartDataLoading(true)
     getChartData({
       table_id: tableId,
-      date_range: chartDateRangeResolved,
+      date_range: normalizeDateRange(chartDateRangeResolved || []),
       campaign_ids: filters.campaign_ids || [],
       workflow_ids: filters.workflow_ids || [],
       channels: filters.channels || [],

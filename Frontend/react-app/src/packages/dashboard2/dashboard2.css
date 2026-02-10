@@ -281,6 +281,14 @@
 .dashboard2-aggregated-data-table__toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .dashboard2-aggregated-data-table__search-wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .dashboard2-aggregated-data-table__search-input { padding: 8px 12px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 8px; min-width: 160px; }
+.dashboard2-aggregated-data-table__filters { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.dashboard2-aggregated-data-table__filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dashboard2-aggregated-data-table__filter-select { padding: 6px 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; min-width: 120px; background: #fff; }
+.dashboard2-aggregated-data-table__filter-input { padding: 6px 10px; font-size: 14px; border: 1px solid #e5e7eb; border-radius: 6px; min-width: 120px; }
+.dashboard2-aggregated-data-table__filter-remove { padding: 6px 10px; font-size: 13px; color: #6b7280; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; cursor: pointer; }
+.dashboard2-aggregated-data-table__filter-remove:hover { color: #374151; background: #f9fafb; }
+.dashboard2-aggregated-data-table__filter-add { padding: 6px 12px; font-size: 14px; color: #0d9488; border: 1px dashed #0d9488; border-radius: 6px; background: #fff; cursor: pointer; align-self: flex-start; }
+.dashboard2-aggregated-data-table__filter-add:hover { background: #f0fdfa; }
 .dashboard2-aggregated-data-table__pagination-info { font-size: 14px; color: #6b7280; }
 .dashboard2-aggregated-data-table__table-wrap { overflow-x: auto; }
 .dashboard2-aggregated-data-table__table { width: 100%; border-collapse: collapse; font-size: 14px; }

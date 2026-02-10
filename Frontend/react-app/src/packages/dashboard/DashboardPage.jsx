@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getDashboardData, getDashboardFilterOptions, getDashboardTables } from '@/shared/api/client'
+import { normalizeDateRange } from '@/shared/utils/dateRange'
 import './dashboard.css'
 import DashboardHeader from './components/DashboardHeader'
 import CollapsibleSection from './components/CollapsibleSection'
@@ -268,6 +269,7 @@ export default function DashboardPage() {
     setError(null)
     const payload = {
       ...filters,
+      date_range: normalizeDateRange(filters.date_range || []),
       group_by: { ...(filters.group_by || defaultGroupBy), date: true }
     }
     getDashboardData(payload)
@@ -287,6 +289,9 @@ export default function DashboardPage() {
   }, [loadData])
 
   const updateFilters = useCallback((updates) => {
+    if (updates?.date_range != null && Array.isArray(updates.date_range)) {
+      updates = { ...updates, date_range: normalizeDateRange(updates.date_range) }
+    }
     setFilters((prev) => ({ ...prev, ...updates }))
   }, [])
 

@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getDashboard2Data, getDashboard2FilterOptions, getDashboard2Tables, getDashboard2ChartData } from '@/shared/api/client'
+import { normalizeDateRange } from '@/shared/utils/dateRange'
 import './dashboard2.css'
 import Dashboard2Header from './components/Dashboard2Header'
 import CollapsibleSection2 from './components/CollapsibleSection2'
@@ -285,6 +286,7 @@ export default function Dashboard2Page() {
     setError(null)
     const payload = {
       ...filters,
+      date_range: normalizeDateRange(filters.date_range || []),
       group_by: { ...(filters.group_by || defaultGroupBy), date: true }
     }
     getDashboard2Data(payload)
@@ -304,6 +306,9 @@ export default function Dashboard2Page() {
   }, [loadData])
 
   const updateFilters = useCallback((updates) => {
+    if (updates?.date_range != null && Array.isArray(updates.date_range)) {
+      updates = { ...updates, date_range: normalizeDateRange(updates.date_range) }
+    }
     setFilters((prev) => ({ ...prev, ...updates }))
   }, [])
 
@@ -354,7 +359,7 @@ export default function Dashboard2Page() {
     setChartDataLoading(true)
     getDashboard2ChartData({
       table_id: tableId,
-      date_range: filters.date_range,
+      date_range: normalizeDateRange(filters.date_range || []),
       campaign_ids: filters.campaign_ids || [],
       workflow_ids: filters.workflow_ids || [],
       channels: filters.channels || [],

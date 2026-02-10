@@ -8,8 +8,10 @@
  * - date_range, campaign_ids, workflow_ids, channels
  *
  * [의존성]
- * - React, shared/api (사용처에서 전달)
+ * - React, shared/utils/dateRange (normalizeDateRange)
  */
+
+import { normalizeDateRange } from '@/shared/utils/dateRange'
 
 export default function DashboardFilters({
   filters,
@@ -74,13 +76,13 @@ export default function DashboardFilters({
             <input
               type="date"
               value={date_range[0] || ''}
-              onChange={(e) => onFiltersChange({ date_range: [e.target.value, date_range[1] || ''] })}
+              onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([e.target.value, date_range[1] || '']) })}
               style={{ flex: 1, padding: '6px 8px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 4 }}
             />
             <input
               type="date"
               value={date_range[1] || ''}
-              onChange={(e) => onFiltersChange({ date_range: [date_range[0] || '', e.target.value] })}
+              onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([date_range[0] || '', e.target.value]) })}
               style={{ flex: 1, padding: '6px 8px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 4 }}
             />
           </div>
