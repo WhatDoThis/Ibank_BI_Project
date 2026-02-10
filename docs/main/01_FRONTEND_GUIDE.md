@@ -80,9 +80,12 @@ Frontend/react-app/
 │   │           ├── ChannelDonutCharts.jsx
 │   │           ├── AggregatedBarChart.jsx
 │   │           ├── AggregatedDataTable.jsx
-│   │           └── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·X축 검색 찾기/다음)
+│   │           ├── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·X축 검색 찾기/다음)
+│   │           └── ChartWidget2.jsx      # 위젯 생성 (beta): 파이·도넛·레이더·산점도·막대·선형·영역, 전용 API·Y축-플롯 세로 길이 일치
 │   │
 │   ├── shared/
+│   │   ├── components/
+│   │   │   └── PeriodLabel.jsx # 기간 표시 (기준일/기간 뱃지, dateRange.formatDateRangeLabel 연동)
 │   │   ├── api/
 │   │   │   └── client.js       # listTables, executeQuery, explainSql, getDashboardData 등
 │   │   └── config/
@@ -121,7 +124,7 @@ Frontend/react-app/
 
 ### 4.2 dashboard (대시보드)
 
-- **DashboardPage.jsx**: 테이블 ID·기간·캠페인·워크플로우·채널 필터·집계 기준 상태. 목표(targets) state·loadTargetsFromStorage/saveTargetsToStorage(`dashboard_targets`)·mergeTarget·targetMatchesPeriod·getTargetStatusByKey. `getDashboardData`, `getDashboardFilterOptions` 호출. TargetContextSection·KPI(targetStatusByKey)·도넛·막대·집계 테이블·ChartWidget 배치. CollapsibleSection으로 섹션 접기/펼치기.
+- **DashboardPage.jsx**: 테이블 ID·기간·캠페인·워크플로우·채널 필터·집계 기준 상태. 목표(targets) state·loadTargetsFromStorage/saveTargetsToStorage(`dashboard_targets`)·mergeTarget·targetMatchesPeriod·getTargetStatusByKey. `getDashboardData`, `getDashboardFilterOptions` 호출. TargetContextSection·KPI(targetStatusByKey)·도넛·막대·집계 테이블·ChartWidget·**ChartWidget2**(위젯 생성 beta) 배치. 주요 지표·채널별 분석 섹션 상단 **PeriodLabel**(dateRange). CollapsibleSection으로 섹션 접기/펼치기(sectionOpen.chartWidget, sectionOpen.chartWidget2, 차트 생성·위젯 생성 beta 기본 접힘).
 - **TargetContextSection**: 목표·컨텍스트 섹션. 기간 유형(연/월/기간)·지표·년도·월/기간·목표값 입력·저장. 저장된 목표 테이블·삭제. targets, onSave, onDelete props.
 - **DashboardHeader**: 테이블 셀렉트, 필수 컬럼 안내 모달, 캠페인·워크플로우·채널 multi-select(첫 옵션 "전체", 디폴트 전체). 초기화·실행 버튼.
 - **DashboardFilters**: 기간·캠페인·워크플로우·채널 필터·집계 기준 체크·정렬 기준. 선택 필터에 따른 옵션 연동.
@@ -131,12 +134,15 @@ Frontend/react-app/
 - **AggregatedBarChart**: 기준별 발송 현황 막대 차트(상위 10건, success_count 기준).
 - **AggregatedDataTable**: 집계 데이터 테이블, 페이징·테이블 내 검색.
 - **ChartWidget**: 차트 생성. Dimension/Metric/막대·선형·영역 선택, 제목 편집. tableId·filters 있으면 `getChartData` 전용 API로 조회(LIMIT 없음). 막대·선형·영역 공통: Y축 고정·가로 스크롤·X축 minWidth·XAxisTickTruncate. X축 레이블 검색(찾기/다음·Enter 연속·강조·마우스 이동 시 해제). 삭제 버튼(연한 빨간 배경·흰글씨).
+- **ChartWidget2**: 위젯 생성 (beta). Dimension/Metric, 차트 유형: 막대·선형·영역·파이·도넛·레이더·산점도. `getChartData` 전용 API. 막대·선형·영역: Y축 고정·가로 스크롤·**Y축-플롯 세로 길이 일치**(xAxisReservedHeight로 고정 Y축 하단 마진 보정). 레이더: 내부 링만 수치 표시·각도 분산(겹침 방지). 파이/도넛/레이더/산점도 툴팁 전체 이름. 위젯 추가/삭제/편집, 차트별 기간 선택. 기본 접힘 섹션.
+- **PeriodLabel** (shared/components/PeriodLabel.jsx): 기간 표시. filters.date_range → formatDateRangeLabel(단일일/기간 문자열) 뱃지. 주요 지표·채널별 분석 CollapsibleSection 본문 최상단에 배치.
 
 **대시보드 기능 요약**
 
 - 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터(전체 옵션·디폴트 전체), 집계 기준·정렬 기준.
 - 목표 섹션: 기간 유형·지표·목표값 저장(localStorage)·저장된 목표 목록·삭제.
-- KPI 카드(캠페인/워크플로우/채널 수·rate 00.00%·표시 지표 선택·목표 대비 신호등), 채널 도넛, 기준별 막대 차트, 집계 테이블(페이징·검색), 차트 생성 위젯(전용 API·Y축 고정·가로 스크롤). 필수 컬럼 안내 모달. 섹션 접기/펼치기.
+- **기간 표시**: 주요 지표·채널별 분석 섹션 상단 PeriodLabel(기준일/기간 뱃지).
+- KPI 카드(캠페인/워크플로우/채널 수·rate 00.00%·표시 지표 선택·목표 대비 신호등), 채널 도넛, 기준별 막대 차트, 집계 테이블(페이징·검색), 차트 생성 위젯(전용 API·Y축 고정·가로 스크롤), **위젯 생성 (beta)**(ChartWidget2: 파이·도넛·레이더·산점도·막대·선형·영역, Y축-플롯 세로 길이 일치). 필수 컬럼 안내 모달. 섹션 접기/펼치기(차트 생성·위젯 생성 beta 기본 접힘).
 
 ### 4.3 shared
 

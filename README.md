@@ -17,7 +17,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **필터**: 테이블 선택(필수 컬럼 만족 테이블만 노출), 기간·캠페인·워크플로우·채널(각 셀렉트 첫 옵션 "전체", 디폴트 전체), 집계 기준(일자/캠페인/워크플로우/채널).
 - **목표**: 기간 유형(연/월/기간)·지표·목표값 입력·저장(localStorage). 저장된 목표 목록·삭제. 현재 선택 기간과 일치하는 목표만 주요 지표에 신호등(달성/주의/미달) 표시.
 - **주요 지표**: 캠페인 수·워크플로우 수·채널 수, 발송/성공/실패/오픈/클릭, 성공률·실패률·오픈률·클릭률(00.00% 포맷). 표시할 지표만 선택 가능(localStorage). 목표 대비 신호등(뱃지·테두리 색상).
-- **시각화**: KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트 상위 10건), 집계 데이터 테이블(페이징·검색), 차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API·Y축 고정·X축 검색).
+- **시각화**: KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트 상위 10건), 집계 데이터 테이블(페이징·검색), 차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API·Y축 고정·X축 검색), **위젯 생성 (beta)**(파이·도넛·레이더·산점도·막대·선형·영역, 전용 API·Y축-차트 세로 길이 일치). 주요 지표·채널별 분석 섹션 상단 **기간 표시**(PeriodLabel).
 - **기타**: 필수 컬럼 안내 모달, 섹션 접기/펼치기.
 
 ### 공통
@@ -108,8 +108,8 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   │   │   ├── App.jsx
 │   │   │   └── packages/
 │   │   │       ├── report/    # 쿼리 빌더 (ReportPage, Sidebar, MainArea, sqlBuilder, joinRules, safetyCheck)
-│   │   │       ├── dashboard/ # 집계 대시보드 (DashboardPage, KPI·도넛·막대·테이블·ChartWidget)
-│   │   │       └── shared/    # api/client.js, config/api.js
+│   │   │       ├── dashboard/ # 집계 대시보드 (DashboardPage, KPI·도넛·막대·테이블·ChartWidget·ChartWidget2)
+│   │   │       └── shared/    # api/client.js, config/api.js, components/PeriodLabel.jsx
 │   │   ├── index.html
 │   │   └── dist/       # npm run build 결과 (정적 서버가 서빙)
 │   └── static_server/  # 정적 HTTP 서버 (SPA fallback, api-config.js 주입)
@@ -132,8 +132,8 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 ### 대시보드
 
 1. `/ibank-bi/dashboard` 접속 후 테이블·기간 선택, (선택) 캠페인·워크플로우·채널 필터·집계 기준 설정  
-2. **조회** 후 KPI·채널 도넛·막대 차트·집계 테이블 확인  
-3. 차트 생성 위젯에서 Dimension/Metric·차트 유형 선택 후 나만의 차트 추가  
+2. **조회** 후 주요 지표·채널별 분석 상단 기간 표시, KPI·채널 도넛·막대 차트·집계 테이블 확인  
+3. 차트 생성 위젯 또는 **위젯 생성 (beta)**에서 Dimension/Metric·차트 유형(막대·선형·영역·파이·도넛·레이더·산점도) 선택 후 위젯 추가  
 
 ---
 
