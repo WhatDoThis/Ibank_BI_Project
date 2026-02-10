@@ -1,7 +1,7 @@
 /**
  * packages/dashboard2 (대시보드2·성과리포트 패키지 진입점)
  * =======================================================
- * React 패키지. 대시보드2 전용(헤더·필터·집계·ECharts 차트 생성). Backend /api/dashboard2 사용.
+ * React 패키지. 대시보드2 전용(헤더·필터·집계·ECharts 위젯). Backend /api/dashboard2 사용.
  *
  * [Export]
  * - default, Dashboard2Page: Dashboard2Page.jsx

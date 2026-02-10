@@ -1,20 +1,18 @@
 /**
- * dashboard/components/ChartWidget.jsx (위젯 생성)
- * ===============================================
- * Dimension(축)·Metric(값)·차트 유형 선택으로 막대/선/영역 위젯 생성.
- * 차트 데이터는 별도 API(getChartData)로 단일 디멘션·메트릭 집계 조회(Adobe/GA 방식). tableId·filters 있으면 API 사용, 없으면 data prop 폴백.
- * Dimension: 집계 체크박스 기준. Metric: 실수형 지표만. Y축: Chart.js 스타일 Nice Numbers (niceNum·calculateYAxisScale·선형/영역·막대 전용).
+ * dashboard/components/ChartWidget2.jsx (위젯 생성 beta)
+ * ======================================================
+ * 위젯 생성 확장판. 막대/선/영역 + 파이/도넛/레이더/산점도/KPI 카드.
+ * BI·리포트 레퍼런스 기반 다중 위젯 타입 지원(Recharts Pie, Radar, Scatter, KPI 단일값).
  *
  * [주요 기능]
- * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황과 동일.
- * - 막대·선형·영역 공통: 범례·Y축 고정 + 오른쪽만 가로 스크롤, X축 minWidth(LABEL_SLOT_WIDTH×건수)·XAxisTickTruncate로 레이블 겹침/잘림 방지. 차트 영역 max-width 1200px. 스크롤 영역 차트에는 domain 적용을 위해 숨김 YAxis 사용.
- * - X축 레이블 검색: 데이터 10건 초과 시 검색 입력 + 찾기/다음으로 해당 구간으로 스크롤 이동.
+ * - 기존: Dimension·Metric·막대/선/영역, API·로컬 데이터, X축 검색.
+ * - beta: 파이·도넛(비율), 레이더(다축 비교, Recharts 기본 PolarAngleAxis/PolarRadiusAxis + domain), 산점도(분포), KPI(단일 수치 카드).
  *
  * [의존성]
  * - React, recharts, shared/api/client (getChartData)
  */
 
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, createContext, useContext } from 'react'
 import { getChartData } from '@/shared/api/client'
 import { normalizeDateRange } from '@/shared/utils/dateRange'
 import {
@@ -25,10 +23,20 @@ import {
   Line,
   AreaChart,
   Area,
+  PieChart,
+  Pie,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ScatterChart,
+  Scatter,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer
 } from 'recharts'
 
@@ -405,7 +413,12 @@ const METRIC_FIELDS = [
 const CHART_TYPES = [
   { key: 'bar', label: '막대' },
   { key: 'line', label: '선형' },
-  { key: 'area', label: '영역' }
+  { key: 'area', label: '영역' },
+  { key: 'pie', label: '파이' },
+  { key: 'donut', label: '도넛' },
+  { key: 'radar', label: '레이더' },
+  { key: 'scatter', label: '산점도' },
+  { key: 'kpi', label: 'KPI(단일값)' }
 ]
 
 /** 위젯 막대: 일자별 색상 구분용 팔레트 */
@@ -425,6 +438,115 @@ function truncateLabel(str, maxChars = MAX_LABEL_CHARS) {
   const s = String(str ?? '').trim()
   if (s.length <= maxChars) return s || '-'
   return s.slice(0, maxChars) + '...'
+}
+
+/** 파이/도넛 툴팁: 호버 시 전체 이름 표시(오버플로우 없음) */
+function PieTooltipContent({ active, payload, formatValue }) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  const displayName = p.fullName != null ? p.fullName : p.name
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', maxWidth: 360 }}>
+      <div style={{ color: '#374151', fontWeight: 600, marginBottom: 4, whiteSpace: 'normal', wordBreak: 'break-word' }}>{displayName}</div>
+      <div style={{ color: '#6b7280' }}>{formatValue ? formatValue(p.value) : p.value}</div>
+    </div>
+  )
+}
+
+/** 레이더 툴팁: 호버 시 전체 이름 표시(오버플로우 없음) */
+function RadarTooltipContent({ active, payload, metricLabel, formatValue }) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  const displayName = p.fullSubject != null ? p.fullSubject : p.subject
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', maxWidth: 360 }}>
+      <div style={{ color: '#374151', fontWeight: 600, marginBottom: 4, whiteSpace: 'normal', wordBreak: 'break-word' }}>{displayName}</div>
+      <div style={{ color: '#6b7280' }}>{metricLabel}: {formatValue ? formatValue(p.value) : p.value}</div>
+    </div>
+  )
+}
+
+/** 레이더 차트: 반지름축 틱 위치 계산용 (cx, cy, tickValues). 바깥쪽 링 제외 내부만 숫자 표시·각도 분산으로 겹침 방지 */
+const RadarChartCenterContext = createContext({ cx: 0, cy: 0, tickValues: [] })
+
+/** 반지름축 틱: Recharts 기본은 한 각도에만 그리므로, 틱별로 서로 다른 각도에 배치해 겹침·순서 이슈 회피 */
+function RadarRadiusAxisTickInner({ payload, x, y, formatValue }) {
+  const { cx, cy, tickValues } = useContext(RadarChartCenterContext)
+  const val = payload?.value
+  const idx = val == null ? -1 : tickValues.findIndex((t) => Math.abs(Number(t) - Number(val)) < 1e-6)
+  if (idx < 0) return null
+  const r = Math.hypot(x - cx, y - cy) || 1
+  // 4개 틱을 서로 다른 각도에 배치(상단·우상·우하·좌하). SVG: 270°=상단, 0°=우측
+  const angles = [270, 342, 54, 126]
+  const deg = angles[idx] ?? 270
+  const rad = (deg * Math.PI) / 180
+  const x2 = cx + r * Math.cos(rad)
+  const y2 = cy + r * Math.sin(rad)
+  const text = formatValue && payload?.value != null ? formatValue(payload.value) : (payload?.value != null ? String(payload.value) : '')
+  return (
+    <g transform={`translate(${x2}, ${y2})`}>
+      <text textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize={11}>
+        {text}
+      </text>
+    </g>
+  )
+}
+
+/** 레이더 래퍼: 중심(cx,cy) 측정 후 Context 제공. 내부 링만 틱 표시(바깥쪽 제외). */
+function RadarChartWithCenter({ margin, dataMax, tickValues, metricField, isRate, radarData, formatDisplay }) {
+  const wrapperRef = useRef(null)
+  const [center, setCenter] = useState({ cx: 250, cy: 220 })
+
+  useEffect(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    const update = () => {
+      const w = el.offsetWidth || 400
+      const h = el.offsetHeight || CHART_HEIGHT
+      const cx = margin.left + (w - margin.left - margin.right) / 2
+      const cy = margin.top + (h - margin.top - margin.bottom) / 2
+      setCenter({ cx, cy })
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [margin.top, margin.right, margin.bottom, margin.left])
+
+  return (
+    <div ref={wrapperRef} style={{ width: '100%', height: CHART_HEIGHT }}>
+      <RadarChartCenterContext.Provider value={{ ...center, tickValues }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RadarChart data={radarData} margin={margin}>
+            <PolarGrid />
+            <PolarAngleAxis dataKey="subject" />
+            <PolarRadiusAxis
+              angle={90}
+              domain={[0, dataMax]}
+              ticks={tickValues}
+              tick={<RadarRadiusAxisTickInner formatValue={(v) => formatYAxisTick(v, isRate)} />}
+            />
+            <Radar name={metricField.label} dataKey="value" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.4} strokeWidth={2} />
+            <Tooltip content={<RadarTooltipContent metricLabel={metricField.label} formatValue={(v) => formatDisplay(v)} />} />
+          </RadarChart>
+        </ResponsiveContainer>
+      </RadarChartCenterContext.Provider>
+    </div>
+  )
+}
+
+/** 산점도 툴팁: X축 항목(차원) 전체 이름 + 메트릭 값 */
+function ScatterTooltipContent({ active, payload, metricLabel, formatValue }) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  const displayName = p.fullName != null ? p.fullName : (p.name ?? p.index)
+  const value = p[metricLabel] ?? p.value
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', maxWidth: 360 }}>
+      <div style={{ color: '#374151', fontWeight: 600, marginBottom: 4, whiteSpace: 'normal', wordBreak: 'break-word' }}>{displayName}</div>
+      <div style={{ color: '#6b7280' }}>{metricLabel}: {formatValue ? formatValue(value) : value}</div>
+    </div>
+  )
 }
 
 /** 위젯 X축 틱: 레이블 길이 제한으로 겹침 방지 */
@@ -560,12 +682,13 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     return CHART_WIDGET_DATE_COLORS[idx % CHART_WIDGET_DATE_COLORS.length] ?? '#4f46e5'
   }
 
-  /* Y축 도메인: 막대+rate는 구간 확대(가독성), 막대+건수는 0 포함, 선형/영역=패딩 5% */
+  /* Y축 도메인: 막대+rate는 구간 확대(가독성), 막대+건수는 0 포함, 선형/영역/산점도=패딩 5%, 파이/도넛/레이더/KPI 미사용 */
   const yDomain = useMemo(() => {
     if (!chartData.length) return [0, 1]
     const values = chartData.map((d) => parseChartNumber(d[metricField.label]))
     const dataMin = Math.min(...values)
     const dataMax = Math.max(...values)
+    if (['pie', 'donut', 'radar', 'kpi'].includes(chartType)) return [0, 1]
     if (chartType === 'bar') {
       const scale = isRate ? calculateYAxisScaleForRate(dataMin, dataMax) : calculateYAxisScaleForBar(dataMin, dataMax)
       return [scale.min, scale.max]
@@ -682,7 +805,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
           </div>
         </div>
         <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
-          {chartDataLoading ? '차트 데이터 조회 중...' : '표시할 데이터가 없습니다.'}
+          {chartDataLoading ? '데이터 조회 중...' : '표시할 데이터가 없습니다.'}
         </div>
         {showDimensionInfoModal && (
           <div
@@ -744,7 +867,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
     />
   )
   const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-  const legendColor = chartType === 'line' ? '#0d9488' : chartType === 'area' ? '#7c3aed' : '#4f46e5'
+  const legendColor = chartType === 'line' ? '#0d9488' : chartType === 'area' ? '#7c3aed' : chartType === 'scatter' ? '#0d9488' : chartType === 'radar' ? '#4f46e5' : chartType === 'kpi' ? '#374151' : '#4f46e5'
   const legendRow = (
     <div className="chart-widget__legend-top">
       <span className="chart-widget__legend-top__mark" style={{ background: legendColor }} />
@@ -810,6 +933,111 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
               </ResponsiveContainer>
             </div>
           </div>
+        </div>
+      </div>
+    )
+  } else if (chartType === 'pie' || chartType === 'donut') {
+    const pieData = chartData.map((d) => ({
+      name: truncateLabel(String(d.name ?? '')),
+      fullName: String(d.name ?? '').trim() || '-',
+      value: parseChartNumber(d[metricField.label])
+    }))
+    chartInner = (
+      <div className="chart-widget__chart-block">
+        {legendRow}
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+          <PieChart margin={{ top: 32, right: 100, bottom: 32, left: 100 }}>
+            <Pie
+              data={pieData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={chartType === 'donut' ? 56 : 0}
+              outerRadius={100}
+              paddingAngle={2}
+              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+            >
+              {pieData.map((_, i) => (
+                <Cell key={i} fill={CHART_WIDGET_DATE_COLORS[i % CHART_WIDGET_DATE_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip content={<PieTooltipContent formatValue={(v) => formatDisplay(v)} />} />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    )
+  } else if (chartType === 'radar') {
+    const radarData = chartData.map((d) => ({
+      subject: truncateLabel(String(d.name ?? '')),
+      fullSubject: String(d.name ?? '').trim() || '-',
+      value: parseChartNumber(d[metricField.label])
+    }))
+    const radarValues = radarData.map((d) => Number(d.value)).filter((n) => Number.isFinite(n))
+    const dataMax = Math.max(1, ...radarValues)
+    // 바깥쪽 링(dataMax) 제외, 내부 4단계만 숫자 표시 → 각도축 레이블과 겹침 방지. 틱은 각도 분산으로 서로 겹치지 않음.
+    const radarTickValues = dataMax <= 0 ? [0] : [0, dataMax / 4, dataMax / 2, (3 * dataMax) / 4]
+    const radarMargin = { top: 64, right: 64, bottom: 72, left: 64 }
+    chartInner = (
+      <div className="chart-widget__chart-block">
+        {legendRow}
+        <RadarChartWithCenter
+          margin={radarMargin}
+          dataMax={dataMax}
+          tickValues={radarTickValues}
+          metricField={metricField}
+          isRate={isRate}
+          radarData={radarData}
+          formatDisplay={formatDisplay}
+        />
+      </div>
+    )
+  } else if (chartType === 'scatter') {
+    const scatterData = chartData.map((d, i) => ({
+      ...d,
+      index: i,
+      fullName: String(d.name ?? '').trim() || '-',
+      name: truncateLabel(String(d.name ?? '')),
+      [metricField.label]: parseChartNumber(d[metricField.label])
+    }))
+    chartInner = (
+      <div className="chart-widget__chart-block">
+        {legendRow}
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+          <ScatterChart margin={{ top: 20, right: 20, bottom: 48, left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis
+              type="number"
+              dataKey="index"
+              name={dimField?.label ?? '항목'}
+              tick={{ fontSize: 11 }}
+              tickFormatter={(idx) => {
+                const row = scatterData[Number(idx)]
+                return row ? truncateLabel(String(row.fullName ?? row.name ?? '')) : idx
+              }}
+            />
+            <YAxis type="number" dataKey={metricField.label} name={metricField.label} domain={yDomain} tick={{ fontSize: 12 }} tickFormatter={(v) => formatYAxisTick(v, isRate)} />
+            <Tooltip content={<ScatterTooltipContent metricLabel={metricField.label} formatValue={(v) => formatDisplay(v)} />} cursor={{ strokeDasharray: '3 3' }} />
+            <Scatter
+              name={metricField.label}
+              data={scatterData}
+              fill="#0d9488"
+              fillOpacity={0.7}
+              shape={({ cx, cy, ...rest }) => <circle cx={cx} cy={cy} r={12} fill="#0d9488" fillOpacity={0.7} {...rest} />}
+              activeShape={({ cx, cy, ...rest }) => <circle cx={cx} cy={cy} r={16} fill="#0d9488" fillOpacity={0.95} stroke="#0f766e" strokeWidth={2} {...rest} />}
+            />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+    )
+  } else if (chartType === 'kpi') {
+    const kpiValue = chartData.reduce((sum, d) => sum + parseChartNumber(d[metricField.label]), 0)
+    chartInner = (
+      <div className="chart-widget__chart-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+        <div style={{ textAlign: 'center', padding: 24 }}>
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>{metricField.label} (합계)</div>
+          <div style={{ fontSize: 36, fontWeight: 700, color: '#111827' }}>{formatDisplay(kpiValue)}</div>
         </div>
       </div>
     )
@@ -952,7 +1180,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
               </select>
             </div>
             <div className="chart-widget__option-col">
-              <span className="chart-widget__option-label">위젯 유형</span>
+              <span className="chart-widget__option-label">유형</span>
               <select
                 value={chartType}
                 onChange={(e) => onUpdate(id, { chartType: e.target.value })}
@@ -965,7 +1193,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
             </div>
           </div>
         </div>
-        {chartData.length > 10 && (
+        {chartData.length > 10 && !['pie', 'donut', 'radar', 'kpi'].includes(chartType) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <input
               type="text"
@@ -1036,7 +1264,7 @@ function SingleWidget({ widget, data, availableDimensions, onRemove, onUpdate, t
   )
 }
 
-export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onWidgetsChange, tableId, filters }) {
+export default function ChartWidget2({ data = [], groupBy = {}, widgets = [], onWidgetsChange, tableId, filters }) {
   const availableDimensions = useMemo(() => getAvailableDimensions(groupBy), [groupBy])
 
   // 집계 체크박스 변경 시, 현재 선택된 Dimension이 목록에 없으면 첫 번째로 맞춤
@@ -1055,7 +1283,7 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
     const defaultXKey = availableDimensions[0]?.key ?? 'delivery_date'
     onWidgetsChange([
       ...widgets,
-      { id, xKey: defaultXKey, yKey: 'total_count', chartType: 'bar', title: `위젯 ${widgets.length + 1}` }
+      { id, xKey: defaultXKey, yKey: 'total_count', chartType: 'bar', title: `위젯 (beta) ${widgets.length + 1}` }
     ])
   }
 
@@ -1070,10 +1298,10 @@ export default function ChartWidget({ data = [], groupBy = {}, widgets = [], onW
   }
 
   return (
-    <section className="chart-widget-section chart-widget">
+    <section className="chart-widget-section chart-widget chart-widget--beta">
       <div className="chart-widget__header">
         <button type="button" className="chart-widget__add-btn" onClick={addWidget}>
-          + 위젯 추가
+          + 위젯 추가 (beta)
         </button>
       </div>
       <div className="chart-widget__grid">

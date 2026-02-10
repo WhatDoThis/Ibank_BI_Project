@@ -1,5 +1,76 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-02: 레이더 차트 내부 수치값 복원(바깥 링 제외·각도 분산)
+
+### 완료 작업
+1. **반지름축 숫자 일부 복원 (ChartWidget2.jsx)**
+   - **배경**: 사용자 요청 — "대략적인 수치값도 있으면 좋을 것 같다". 이전에 겹침/순서 이슈로 `tick={false}` 적용해 전부 제거했음.
+   - **적용**: 바깥쪽 링(dataMax)은 레이블 미표시. **내부 4단계만** 숫자 표시: `ticks=[0, dataMax/4, dataMax/2, 3*dataMax/4]`.
+   - **겹침 방지**: Recharts 기본은 한 각도에만 틱을 그려 겹침 발생. 커스텀 `RadarRadiusAxisTickInner`로 각 틱을 서로 다른 각도(270°, 342°, 54°, 126°)에 배치.
+   - **구현**: `RadarChartCenterContext`·`RadarChartWithCenter`(cx,cy 측정)·`RadarRadiusAxisTickInner` 추가. 부동소수점 비교는 epsilon으로 처리.
+2. **문서**: 04_레이더차트_변경이력_데이터.md에 회차 3 반영, 최적 속성·적용 요약 갱신.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget2.jsx
+- docs/report/04_레이더차트_변경이력_데이터.md, docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 레이더 차트 변경 이력 데이터화 및 최적 속성 적용
+
+### 완료 작업
+1. **변경 이력 데이터화 (docs/report/04_레이더차트_변경이력_데이터.md)**
+   - 회차별 변경 요소·적용값·결과를 표로 정리. Recharts PolarRadiusAxis 동작(한 각도에만 틱 렌더 → 겹침/순서 이슈) 정리.
+   - 분석 결론: 반지름축 숫자 비표시, 각도축 기본 유지, 범례는 상단 legendRow만, margin으로 하단 여유 확보.
+2. **최적 속성 적용 (ChartWidget2.jsx)**
+   - **PolarRadiusAxis**: `tick={false}` 로 반지름축 숫자 레이블 비표시(겹침·순서 문제 제거). `domain={[0, dataMax]}` 유지. 툴팁에서만 값 확인.
+   - **margin**: `{ top: 64, right: 64, bottom: 72, left: 64 }` (각도 레이블·하단 여유).
+   - 차트 내부 Legend 미사용(기존 유지). 코드에 04_레이더차트_변경이력_데이터.md 참조 주석 추가.
+3. **인덱스·로그**: 00_ReportIndex.md에 04_레이더차트_변경이력_데이터.md 추가. 본 로그 갱신.
+
+### 수정/추가 파일
+- docs/report/04_레이더차트_변경이력_데이터.md (신규)
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget2.jsx
+- docs/report/00_ReportIndex.md, docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 레이더 차트 Recharts 기본 구성으로 재세팅 (이후 데이터 기반 추가 수정 있음)
+
+### 완료 작업
+1. **레이더 차트 단순화 (ChartWidget2.jsx)**
+   - **제거**: `RadarChartCenterContext`, `RadarChartWithCenter`(ResizeObserver·중심 계산), `RadarAngleAxisTick`, `RadarRadiusAxisTick` 커스텀 틱 컴포넌트 전부. 차트 내부 `<Legend />` 제거.
+   - **적용**: Recharts 기본 `PolarAngleAxis`·`PolarRadiusAxis`만 사용. `PolarRadiusAxis`에 `domain={[0, dataMax]}`만 지정(커스텀 ticks 배열 제거). 반지름축 숫자 순서·겹침 이슈는 당시 미해결 → 04_레이더차트_변경이력_데이터.md 기반으로 `tick={false}` 적용으로 해결.
+2. **검수**: 수정 파일 린트 오류 없음.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChartWidget2.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2025-02-02: 주요 지표·채널별 분석 섹션 상단 기간 표시 (단일일/기간)
+
+### 완료 작업
+1. **성과지표 핵심 요소인 "언제부터 언제까지" 기간 명시**
+   - **shared/utils/dateRange.js**: `formatDateRangeLabel(dateRange)` 추가. [시작일, 종료일] → 표시 문자열(단일일이면 "YYYY.MM.DD (단일일)", 기간이면 "YYYY.MM.DD ~ YYYY.MM.DD"). `toDisplayDate` 보조 함수(YYYY-MM-DD → YYYY.MM.DD).
+   - **shared/components/PeriodLabel.jsx** (신규): 필터에서 선택한 기간을 뱃지 형태로 표시. 캘린더 아이콘 + "기준일:" / "기간:" 접두어. Reporting period 패턴 패러디.
+   - **대시보드1**: "주요 지표"·"채널별 분석" CollapsibleSection 본문 최상단에 `<PeriodLabel dateRange={filters.date_range} className="dashboard-period-label" />` 추가.
+   - **대시보드2**: 동일하게 "주요 지표"·"채널별 분석" 섹션 상단에 `PeriodLabel` (className="dashboard2-period-label") 추가.
+   - **스타일**: dashboard.css / dashboard2.css에 `.dashboard-period-label`, `.dashboard2-period-label` — 연한 파란 배경·테두리·둥근 모서리·아이콘·텍스트 간격.
+
+2. **검수**
+   - 수정·추가 파일 린트 오류 없음.
+
+### 수정/추가 파일
+- Frontend/react-app/src/shared/utils/dateRange.js
+- Frontend/react-app/src/shared/components/PeriodLabel.jsx (신규)
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx, dashboard.css
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx, dashboard2.css
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2025-02-02: Frontend 코드 파일 상단 설명 정리 (React·현재 구조 반영)
 
 ### 완료 작업

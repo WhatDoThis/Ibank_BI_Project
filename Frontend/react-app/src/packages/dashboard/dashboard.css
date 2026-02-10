@@ -83,6 +83,29 @@
   padding: 0;
 }
 
+/* 섹션 상단 기간 표시 (단일일/기간) — 성과지표 핵심 요소 */
+.dashboard-period-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin: 12px 20px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dashboard-period-label .period-label__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.dashboard-period-label .period-label__text {
+  letter-spacing: 0.01em;
+}
+
 .dashboard-collapsible__body .kpi-cards-section,
 .dashboard-collapsible__body .channel-donut-charts-section,
 .dashboard-collapsible__body .aggregated-bar-chart-section,
@@ -758,6 +781,7 @@
   width: 100%;
   max-width: 100%;
   overflow: visible;
+  padding: 10px;
 }
 
 .channel-donut-charts-section .donut-row {
@@ -1177,7 +1201,7 @@
   min-width: 0;
   min-height: 500px;
   overflow-x: auto;
-  overflow-y: hidden;   /* 차트 생성: 오른쪽 세로 스크롤 제거 */
+  overflow-y: hidden;   /* 위젯 생성: 오른쪽 세로 스크롤 제거 */
   padding-left: 16px;
   padding-right: 16px;
 }

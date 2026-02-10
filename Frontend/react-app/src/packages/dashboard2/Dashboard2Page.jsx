@@ -9,7 +9,7 @@
  * - ECharts 막대/선형/영역 차트, 목표 저장·로드
  *
  * [의존성]
- * - React, @/shared/api/client, @/shared/utils/dateRange, dashboard2/components
+ * - React, @/shared/api/client, @/shared/utils/dateRange, @/shared/components/PeriodLabel, dashboard2/components
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -24,6 +24,7 @@ import AggregatedBarChart2 from './components/AggregatedBarChart2'
 import AggregatedDataTable2 from './components/AggregatedDataTable2'
 import TargetContextSection from './components/TargetContextSection'
 import EChartsChart from './components/EChartsChart'
+import PeriodLabel from '@/shared/components/PeriodLabel'
 
 const TARGETS_STORAGE_KEY = 'dashboard2_targets'
 
@@ -415,6 +416,7 @@ export default function Dashboard2Page() {
           />
           {data?.kpi && (
             <CollapsibleSection2 title="주요 지표" open={sectionOpen.kpi} onToggle={() => toggleSection('kpi')}>
+              <PeriodLabel dateRange={filters.date_range} className="dashboard2-period-label" />
               <KPICards2 kpi={data.kpi} targetStatusByKey={targetStatusByKey}>
                 <p className="dashboard2-kpi-section-hint">
                   신호등 표시: 저장된 목표 중 현재 선택한 기간(날짜 범위)과 일치하는 지표에만 신호등(달성/주의/미달)이 표시됩니다.
@@ -424,6 +426,7 @@ export default function Dashboard2Page() {
           )}
           {data?.kpi && (
             <CollapsibleSection2 title="채널별 분석" open={sectionOpen.channel} onToggle={() => toggleSection('channel')}>
+              <PeriodLabel dateRange={filters.date_range} className="dashboard2-period-label" />
               <ChannelDonutCharts2 kpi={data.kpi} />
             </CollapsibleSection2>
           )}
@@ -440,7 +443,7 @@ export default function Dashboard2Page() {
               onSortOrderChange={setSortOrder}
             />
           </CollapsibleSection2>
-          <CollapsibleSection2 title="차트 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
+          <CollapsibleSection2 title="위젯 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
             <div className="dashboard2-chart-options">
               <div className="dashboard2-chart-option-col">
                 <span className="dashboard2-chart-option-label" aria-hidden="true" />

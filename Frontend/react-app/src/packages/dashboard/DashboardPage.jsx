@@ -9,7 +9,7 @@
  * - 목표 저장/로드(localStorage), 목표 대비 신호등(달성/주의/미달)
  *
  * [의존성]
- * - React, @/shared/api/client, @/shared/utils/dateRange, dashboard/components
+ * - React, @/shared/api/client, @/shared/utils/dateRange, @/shared/components/PeriodLabel, dashboard/components
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -24,6 +24,8 @@ import ChannelDonutCharts from './components/ChannelDonutCharts'
 import AggregatedBarChart from './components/AggregatedBarChart'
 import AggregatedDataTable from './components/AggregatedDataTable'
 import ChartWidget from './components/ChartWidget'
+import ChartWidget2 from './components/ChartWidget2'
+import PeriodLabel from '@/shared/components/PeriodLabel'
 
 const TARGETS_STORAGE_KEY = 'dashboard_targets'
 
@@ -161,15 +163,17 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [chartWidgets, setChartWidgets] = useState([])
+  const [chartWidgets2, setChartWidgets2] = useState([])
   /** 정렬 기준: [{ key: 'delivery_date'|'total_count'|..., order: 'asc'|'desc' }, ...]. 미설정 시 기본: 일자 내림차순 */
   const [sortOrder, setSortOrder] = useState([{ key: 'delivery_date', order: 'desc' }])
-  /** 섹션 접기/펼치기: kpi, channel, bar, table, chartWidget */
+  /** 섹션 접기/펼치기: kpi, channel, bar, table, chartWidget, chartWidget2 */
   const [sectionOpen, setSectionOpen] = useState({
     kpi: true,
     channel: true,
     bar: true,
     table: true,
-    chartWidget: true
+    chartWidget: false,
+    chartWidget2: false
   })
   const [targets, setTargets] = useState([])
 
@@ -350,6 +354,7 @@ export default function DashboardPage() {
               open={sectionOpen.kpi}
               onToggle={() => toggleSection('kpi')}
             >
+              <PeriodLabel dateRange={filters.date_range} className="dashboard-period-label" />
               <KPICards kpi={data.kpi} targetStatusByKey={targetStatusByKey}>
                 <p className="dashboard-kpi-section-hint">
                   신호등 표시: 저장된 목표 중 현재 선택한 기간(날짜 범위)과 일치하는 지표에만 신호등(달성/주의/미달)이 표시됩니다.
@@ -363,6 +368,7 @@ export default function DashboardPage() {
               open={sectionOpen.channel}
               onToggle={() => toggleSection('channel')}
             >
+              <PeriodLabel dateRange={filters.date_range} className="dashboard-period-label" />
               <ChannelDonutCharts kpi={data.kpi} />
             </CollapsibleSection>
           )}
@@ -391,7 +397,7 @@ export default function DashboardPage() {
             />
           </CollapsibleSection>
           <CollapsibleSection
-            title="차트 생성"
+            title="위젯 생성"
             open={sectionOpen.chartWidget}
             onToggle={() => toggleSection('chartWidget')}
           >
@@ -400,6 +406,20 @@ export default function DashboardPage() {
               groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
               widgets={chartWidgets}
               onWidgetsChange={setChartWidgets}
+              tableId={tableId}
+              filters={filters}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            title="위젯 생성 (beta)"
+            open={sectionOpen.chartWidget2}
+            onToggle={() => toggleSection('chartWidget2')}
+          >
+            <ChartWidget2
+              data={sortedAggregatedData}
+              groupBy={{ ...(filters.group_by ?? defaultGroupBy), date: true }}
+              widgets={chartWidgets2}
+              onWidgetsChange={setChartWidgets2}
               tableId={tableId}
               filters={filters}
             />

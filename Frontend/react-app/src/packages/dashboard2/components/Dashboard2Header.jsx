@@ -222,11 +222,11 @@ export default function Dashboard2Header({
               const selected = Array.from(e.target.selectedOptions, (o) => o.value)
               const hasAll = selected.includes('__all__')
               onFiltersChange({
-                campaign_ids: hasAll && selected.length === 1 ? [] : selected.filter((v) => v !== '__all__').map(Number)
+                campaign_ids: hasAll ? [] : selected.filter((v) => v !== '__all__').map(Number)
               })
             }}
             disabled={campaignDisabled}
-            title={campaignDisabled ? '집계 기준에서 캠페인별을 선택하면 활성화됩니다' : ''}
+            title={campaignDisabled ? '집계 기준에서 캠페인별을 선택하면 활성화됩니다' : '여러 캠페인 선택 가능. 전체 선택 시 모두 해제'}
           >
             <option value="__all__">전체</option>
             {campaigns.map((c) => (
@@ -246,11 +246,11 @@ export default function Dashboard2Header({
               const selected = Array.from(e.target.selectedOptions, (o) => o.value)
               const hasAll = selected.includes('__all__')
               onFiltersChange({
-                workflow_ids: hasAll && selected.length === 1 ? [] : selected.filter((v) => v !== '__all__').map(Number)
+                workflow_ids: hasAll ? [] : selected.filter((v) => v !== '__all__').map(Number)
               })
             }}
             disabled={workflowDisabled}
-            title={workflowDisabled ? '집계 기준에서 워크플로우별을 선택하면 활성화됩니다' : ''}
+            title={workflowDisabled ? '집계 기준에서 워크플로우별을 선택하면 활성화됩니다' : '여러 워크플로우 선택 가능. 전체 선택 시 모두 해제'}
           >
             <option value="__all__">전체</option>
             {workflows.map((w) => (
@@ -270,11 +270,11 @@ export default function Dashboard2Header({
               const selected = Array.from(e.target.selectedOptions, (o) => o.value)
               const hasAll = selected.includes('__all__')
               onFiltersChange({
-                channels: hasAll && selected.length === 1 ? [] : selected.filter((v) => v !== '__all__').map(Number)
+                channels: hasAll ? [] : selected.filter((v) => v !== '__all__').map(Number)
               })
             }}
             disabled={channelDisabled}
-            title={channelDisabled ? '집계 기준에서 채널별을 선택하면 활성화됩니다' : ''}
+            title={channelDisabled ? '집계 기준에서 채널별을 선택하면 활성화됩니다' : '여러 채널 선택 가능. 전체 선택 시 모두 해제'}
           >
             <option value="__all__">전체</option>
             {channelList.map((ch) => (
