@@ -128,6 +128,41 @@ def get_table_columns_with_types(table_name):
         conn.close()
 
 
+def get_all_tables_columns_with_types(table_names):
+    """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [{ column_name, data_type }, ...] }. 테이블 수가 많을 때 분석 부하 감소용."""
+    allowed = get_allowed_tables()
+    names = [t for t in (table_names or []) if t in allowed]
+    if not names:
+        return {}
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        placeholders = ", ".join(["%s"] * len(names))
+        cur.execute(
+            """
+            SELECT table_name, column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name IN (""" + placeholders + """)
+            ORDER BY table_name, ordinal_position
+            """,
+            (schema,) + tuple(names),
+        )
+        out = {}
+        for row in cur.fetchall():
+            t = row["table_name"]
+            if t not in out:
+                out[t] = []
+            out[t].append({"column_name": row["column_name"], "data_type": row["data_type"]})
+        for t in names:
+            if t not in out:
+                out[t] = []
+        return out
+    finally:
+        cur.close()
+        conn.close()
+
+
 def get_db_connection():
     """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
     cfg = get_db_config()

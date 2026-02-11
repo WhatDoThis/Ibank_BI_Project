@@ -71,6 +71,11 @@
   color: var(--text-primary, #111827);
   flex-shrink: 0;
 }
+.join-conditions-bar__accuracy {
+  font-size: 12px;
+  color: var(--text-light, #6b7280);
+  flex-shrink: 0;
+}
 .join-conditions-bar__pairs {
   display: flex;
   align-items: center;
@@ -86,6 +91,25 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+}
+.join-conditions-pair--compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.join-conditions-pair__summary {
+  font-size: 12px;
+  color: var(--text-primary, #111827);
+}
+.join-conditions-pair__summary:not([title=""]) {
+  cursor: help;
+}
+.join-conditions-pair--compact .join-conditions-pair__remove-join {
+  flex-shrink: 0;
+}
+.join-conditions-pair--impossible .join-conditions-pair__summary {
+  color: var(--text-muted, #9ca3af);
 }
 .join-conditions-pair__head {
   display: flex;
@@ -109,6 +133,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.join-conditions-pair__rel-type {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary, #2563eb);
+  margin-right: 4px;
 }
 .join-conditions-pair__join-type {
   padding: 2px 6px;
@@ -478,4 +508,145 @@
 .filter-sentence select {
   flex: 1;
   min-width: 100px;
+}
+
+/* ─── 테이블 관계도 모달 (족보) ─── */
+.relationship-diagram-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.relationship-diagram-modal {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.relationship-diagram-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-weight: 600;
+  font-size: 14px;
+}
+.relationship-diagram-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0 4px;
+}
+.relationship-diagram-close:hover {
+  color: #111;
+}
+.relationship-diagram-body {
+  padding: 16px;
+  overflow: auto;
+}
+.relationship-diagram-caption {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-light, #6b7280);
+}
+.relationship-diagram-tree {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  white-space: pre;
+  border: 1px solid var(--border-color, #e5e7eb);
+}
+.relationship-diagram-mermaid-wrap {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.relationship-diagram-mermaid-wrap summary {
+  cursor: pointer;
+  color: var(--primary, #2563eb);
+}
+.relationship-diagram-mermaid {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  margin: 8px 0 0;
+  padding: 10px;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 6px;
+  white-space: pre;
+  overflow: auto;
+  max-height: 200px;
+}
+.relationship-diagram-btn {
+  white-space: nowrap;
+}
+
+/* 쿼리 결과를 테이블로 저장 모달 */
+.save-as-table-modal .save-as-table-caption {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-light, #6b7280);
+}
+.save-as-table-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+.save-as-table-input {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 12px;
+  margin-top: 4px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  font-size: 14px;
+}
+.save-as-table-input:focus {
+  outline: none;
+  border-color: var(--primary, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+.save-as-table-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.save-as-table-actions .btn-small.primary {
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border-color: var(--primary, #2563eb);
+}
+.save-as-table-actions .btn-small.primary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+/* 조인 불가 모달 */
+.join-impossible-modal .join-impossible-message {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+.join-impossible-modal .join-impossible-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-light, #6b7280);
 }

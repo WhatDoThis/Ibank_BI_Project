@@ -81,3 +81,33 @@ def test_execute_query_pivot_with_korean_column():
             assert "전체" in row, "한글 컬럼 '전체'가 응답에 있어야 함"
             assert "2026-02" in row, "피벗 컬럼 '2026-02'가 응답에 있어야 함"
             assert "t1.workflow_label" in row or "workflow_label" in row, "기준축 컬럼이 있어야 함"
+
+
+# ---------- join-order API (순환/검증 반영) ----------
+def test_join_order_post_empty_base_returns_400():
+    """POST /api/join-order, base_table 비어 있으면 400."""
+    resp = client.post("/api/join-order", json={"base_table": "", "required_tables": []})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "join_order" in data
+    assert "errors" in data
+    assert any("base_table" in (e or "") for e in data.get("errors", []))
+
+
+def test_join_order_post_returns_validation_structure():
+    """POST /api/join-order 성공 시 join_order, warnings, errors, valid 필드 존재 (순환/깊이 검증 반영)."""
+    resp = client.post(
+        "/api/join-order",
+        json={"base_table": "campaigns", "required_tables": ["test_deliveries_data"]},
+    )
+    # 허용 테이블 목록에 없으면 400, 있으면 200
+    assert resp.status_code in (200, 400)
+    data = resp.json()
+    assert "join_order" in data
+    assert "warnings" in data
+    assert "errors" in data
+    if resp.status_code == 200:
+        assert "valid" in data
+        # determine_join_order 결과는 순환 없음; valid True 및 errors 빈 배열 기대
+        assert data["valid"] is True
+        assert isinstance(data["errors"], list)

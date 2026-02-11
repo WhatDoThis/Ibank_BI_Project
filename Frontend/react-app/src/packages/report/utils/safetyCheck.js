@@ -12,6 +12,42 @@
  */
 
 /**
+ * baseTable에서 출발해 tables 내 테이블만으로 도달 가능한 테이블 집합 반환.
+ * relationshipOptions 키 "A||B" 로 A-B 연결 여부 판단.
+ * @param {string} baseTable
+ * @param {string[]} tables
+ * @param {Object} relationshipOptions
+ * @returns {string[]} 도달 가능한 테이블 목록 (순서 유지)
+ */
+export function getReachableTables(baseTable, tables, relationshipOptions) {
+  const set = new Set(tables)
+  if (!set.has(baseTable) || set.size <= 1) return tables
+  const adj = new Map()
+  for (const key of Object.keys(relationshipOptions || {})) {
+    if (!relationshipOptions[key]?.length) continue
+    const [a, b] = key.split('||')
+    if (set.has(a) && set.has(b)) {
+      if (!adj.has(a)) adj.set(a, new Set())
+      adj.get(a).add(b)
+      if (!adj.has(b)) adj.set(b, new Set())
+      adj.get(b).add(a)
+    }
+  }
+  const reachable = new Set([baseTable])
+  const queue = [baseTable]
+  while (queue.length) {
+    const cur = queue.shift()
+    for (const next of adj.get(cur) || []) {
+      if (!reachable.has(next)) {
+        reachable.add(next)
+        queue.push(next)
+      }
+    }
+  }
+  return tables.filter((t) => reachable.has(t))
+}
+
+/**
  * 순환 참조 감지
  *
  * @param {string[]} proposedPath - 제안된 테이블 경로
@@ -171,10 +207,12 @@ export function canAddTableSafely(
  *
  * @param {string[]} addedTables
  * @param {Object} relationshipOptions
+ * @param {{ join_order?: Array<{ from_table: string, table: string }> }} opts - join_order 있으면 해당 쌍만 검사 (A→B, A→C 브랜치)
  * @returns {{ valid: boolean, issues: Array }}
  */
-export function validateJoinPath(addedTables, relationshipOptions) {
+export function validateJoinPath(addedTables, relationshipOptions, opts = {}) {
   const issues = []
+  const joinOrder = opts.join_order || opts.joinOrder
 
   const circularCheck = detectCircularReference(addedTables)
   if (circularCheck.circular) {
@@ -186,10 +224,11 @@ export function validateJoinPath(addedTables, relationshipOptions) {
     })
   }
 
-  for (let i = 0; i < addedTables.length - 1; i++) {
-    const prev = addedTables[i]
-    const curr = addedTables[i + 1]
+  const pairsToCheck = joinOrder && joinOrder.length >= 1
+    ? joinOrder.filter((s) => s.from_table).map((s) => ({ prev: s.from_table, curr: s.table || s.to_table }))
+    : addedTables.slice(0, -1).map((prev, i) => ({ prev, curr: addedTables[i + 1] }))
 
+  for (const { prev, curr } of pairsToCheck) {
     const key1 = `${prev}||${curr}`
     const key2 = `${curr}||${prev}`
 
@@ -202,7 +241,7 @@ export function validateJoinPath(addedTables, relationshipOptions) {
         type: 'NO_RELATIONSHIP',
         severity: 'error',
         message: `${prev}와 ${curr} 사이에 관계가 없습니다`,
-        data: { prev, curr, index: i }
+        data: { prev, curr }
       })
     }
 

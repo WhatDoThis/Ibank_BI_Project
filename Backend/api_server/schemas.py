@@ -41,6 +41,17 @@ class QueryStatsRequest(BaseModel):
     query: str = Field(..., description="SELECT 쿼리")
 
 
+class JoinOrderRequest(BaseModel):
+    base_table: str = Field(..., description="기준 테이블")
+    required_tables: List[str] = Field(..., description="포함할 테이블 목록 (base_table 포함 가능)")
+    filter_tables: Optional[List[str]] = Field(default=None, description="필터가 걸린 테이블(해당 테이블 JOIN은 INNER 권장)")
+
+
+class SaveQueryAsTableRequest(BaseModel):
+    table_name: str = Field(..., description="생성할 테이블명 (영문/숫자/언더스코어)")
+    query: str = Field(..., description="실행했던 SELECT 쿼리 (결과가 해당 테이블에 저장됨)")
+
+
 class DashboardDataRequest(BaseModel):
     table_id: str = Field(..., description="테이블 ID")
     date_range: List[Any] = Field(..., min_length=2, description="[시작일, 종료일]")

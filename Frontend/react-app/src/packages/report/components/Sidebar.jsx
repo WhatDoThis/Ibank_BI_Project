@@ -32,6 +32,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
   const filteredByKeyword = keyword
     ? tables.filter((t) => String(t.table_name || '').toLowerCase().includes(keyword))
     : tables
+  /* 조인 불가능한 테이블은 목록에서 제외 (직접 조인 또는 같은 부모 경로로만 노출) */
   const filteredTables = filteredByKeyword.filter((t) =>
     isTableAvailableOrViaParent(t.table_name, addedTables, tableRelationships, relationshipOptions)
   )
@@ -58,29 +59,27 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
             {filteredTables.map((t) => {
               const expanded = !!tableExpanded[t.table_name]
               const cols = t.columns || []
-              const disabled = !isTableAvailableOrViaParent(t.table_name, addedTables, tableRelationships, relationshipOptions)
               return (
                 <div
                   key={t.table_name}
-                  className={`table-group ${disabled ? 'disabled' : ''}`}
+                  className="table-group"
                   data-table={t.table_name}
                 >
-                  <div className="table-header" onClick={() => !disabled && toggleTable(t.table_name)}>
+                  <div className="table-header" onClick={() => toggleTable(t.table_name)}>
                     <span className="toggle-icon">{expanded ? '▼' : '▶'}</span>
                     <span className="table-name">{t.table_name}</span>
                     <span className="table-count">({cols.length}개)</span>
-                    {disabled && <span className="disabled-hint">🚫 JOIN 불가</span>}
                   </div>
                   <div className={`column-list ${expanded ? 'expanded' : ''}`}>
                     {cols.map((c) => (
                       <div
                         key={c.name}
                         className="column-item"
-                        draggable={!disabled}
+                        draggable
                         data-table={t.table_name}
                         data-column={c.name}
                         data-type={c.type}
-                        onDragStart={(e) => !disabled && onColumnDragStart(e, t.table_name, c)}
+                        onDragStart={(e) => onColumnDragStart(e, t.table_name, c)}
                         onDragEnd={onColumnDragEnd}
                       >
                         <span className="drag-handle">⋮⋮</span>

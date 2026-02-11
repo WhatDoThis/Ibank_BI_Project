@@ -53,13 +53,27 @@ export async function describeTable(tableName) {
 
 /** GET /api/table-relationships - mode: 'fk' | 'column' | 'all' (다중 조인키 반환) */
 export async function tableRelationships(mode = 'all') {
-  const q = mode && mode !== 'all' ? `?mode=${encodeURIComponent(mode)}` : '';
+  const q = mode ? `?mode=${encodeURIComponent(mode)}` : '?mode=all';
   return request('GET', `/api/table-relationships${q}`);
+}
+
+/** POST /api/join-order - base_table 기준 JOIN 순서(엣지 정보). A→B, A→C 브랜치 지원 */
+export async function joinOrder(baseTable, requiredTables, filterTables = []) {
+  return request('POST', '/api/join-order', {
+    base_table: baseTable,
+    required_tables: requiredTables || [],
+    filter_tables: filterTables
+  });
 }
 
 /** POST /api/execute-query - SQL 실행 */
 export async function executeQuery(query) {
   return request('POST', '/api/execute-query', { query });
+}
+
+/** POST /api/save-query-as-table - 실행한 쿼리 결과를 지정한 이름의 테이블로 저장 */
+export async function saveQueryAsTable(tableName, query) {
+  return request('POST', '/api/save-query-as-table', { table_name: tableName, query });
 }
 
 /** POST /api/explain-sql - SQL 해석 (Claude) */

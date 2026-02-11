@@ -10,6 +10,7 @@
 import { useState, useEffect } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
+import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relationshipDiagram'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500]
 
@@ -45,6 +46,8 @@ function getColumnDisplayName(col, gridColumns) {
 export default function MainArea({
   gridColumns = [],
   addedTables = [],
+  joinOrder = null,
+  joinAccuracy = null,
   relationshipOptions = {},
   joinConditions = {},
   joinTypes = {},
@@ -94,7 +97,8 @@ export default function MainArea({
   onSetPageSize,
   onCopySql,
   onExplainSql,
-  onCloseExplanation
+  onCloseExplanation,
+  onOpenSaveAsTableModal
 }) {
   const [dropOverlayActive, setDropOverlayActive] = useState(false)
   const [draggedColumnIndex, setDraggedColumnIndex] = useState(null)
@@ -108,6 +112,7 @@ export default function MainArea({
   const [addHavingMenuOpen, setAddHavingMenuOpen] = useState(false)
   const [addHavingPopup, setAddHavingPopup] = useState(null)
   const [filterOrderBarOpen, setFilterOrderBarOpen] = useState(false)
+  const [showRelationshipDiagram, setShowRelationshipDiagram] = useState(false)
 
   const isGroupByActive = groupBy && groupBy.length > 0
   const hasPivot = pivot && pivot.values && pivot.values.length > 0
@@ -170,9 +175,11 @@ export default function MainArea({
     return getColumnDisplayName(c, gridColumns)
   }
 
-  const joinPairs = addedTables.length >= 2
-    ? addedTables.slice(0, -1).map((prev, i) => ({ prevTable: prev, currTable: addedTables[i + 1] }))
-    : []
+  const joinPairs = joinOrder && joinOrder.length >= 1
+    ? joinOrder.filter((s) => s.from_table).map((s) => ({ prevTable: s.from_table, currTable: s.table || s.to_table }))
+    : (addedTables.length >= 2
+        ? addedTables.slice(0, -1).map((prev, i) => ({ prevTable: prev, currTable: addedTables[i + 1] }))
+        : [])
 
   const hasImpossibleJoin = joinPairs.some(({ prevTable, currTable }) => {
     const key = `${prevTable}||${currTable}`
@@ -182,115 +189,50 @@ export default function MainArea({
     if (hasImpossibleJoin) setFilterOrderBarOpen(false)
   }, [hasImpossibleJoin])
 
+  const relationshipTree = buildRelationshipTree(joinOrder, addedTables)
+  const relationshipMermaid = buildRelationshipMermaid(joinOrder, addedTables)
+
   const joinConditionsBlock = joinPairs.length > 0 && (
     <div className="join-row">
       <span className="bar-label">조인 조건</span>
+      {joinAccuracy != null && (
+        <span className="join-conditions-bar__accuracy" title="JOIN 경로 정확도 (엣지별 신뢰도 평균)">
+          정확도 {Math.round(joinAccuracy * 100)}%
+        </span>
+      )}
+      <button
+        type="button"
+        className="btn-small relationship-diagram-btn"
+        onClick={() => setShowRelationshipDiagram(true)}
+        title="현재 테이블 기준 관계도 (족보)"
+      >
+        📊 테이블 관계도
+      </button>
       <div className="join-conditions-bar__pairs">
         {joinPairs.map(({ prevTable, currTable }) => {
           const key = `${prevTable}||${currTable}`
           const opts = relationshipOptions[key] || []
           const noJoinPossible = opts.length === 0
-          const conds = joinConditions[key]
           const firstOpt = opts[0]
-          const confidence = firstOpt?.confidence
-          const reason = firstOpt?.reason
-          const badge = confidenceBadge(confidence)
-          const conditionsList = (conds && conds.length) ? conds : (firstOpt ? [{ prevColumn: firstOpt.prevColumn, currColumn: firstOpt.currColumn }] : [])
-          const joinType = joinTypes[key] || 'LEFT'
+          const prevCol = firstOpt?.prevColumn ?? ''
+          const currCol = firstOpt?.currColumn ?? ''
+          const summary = noJoinPossible
+            ? `${prevTable} ↔ ${currTable}: 조인 불가`
+            : `${prevTable} → ${currTable}: ${prevCol} = ${currCol}`
           return (
-            <div key={key} className="join-conditions-pair join-conditions-pair--multi">
-              <div className="join-conditions-pair__head">
-                <span className="join-conditions-pair__tables">{prevTable} ↔ {currTable}</span>
-                <button
-                  type="button"
-                  className="join-conditions-pair__remove-join"
-                  onClick={() => onRemoveJoinedTable?.(currTable)}
-                  title="조인 해제 (이 테이블 제거)"
-                  aria-label="조인 해제"
-                >
-                  ×
-                </button>
-                {noJoinPossible ? (
-                  <span className="join-conditions-pair__impossible" title="두 테이블 간 조인 가능한 조건이 없습니다">조인 불가</span>
-                ) : (
-                  <>
-                    {confidence && (
-                      <span className="join-conditions-pair__confidence" title={badge.title}>{badge.char}</span>
-                    )}
-                    {reason && <span className="join-conditions-pair__reason">{reason}</span>}
-                    <select
-                      className="join-conditions-pair__join-type"
-                      value={joinType}
-                      onChange={(e) => onSetJoinType?.(key, e.target.value)}
-                      aria-label="조인 타입"
-                    >
-                      {JOIN_TYPE_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
-                  </>
-                )}
-              </div>
-              {!noJoinPossible && (
-                <div className="join-conditions-pair__conditions">
-                  {conditionsList.map((cond, idx) => {
-                    const selectedVal = cond ? `${cond.prevColumn}::${cond.currColumn}` : ''
-                    const valueInOpts = opts.some((o) => o.prevColumn === cond?.prevColumn && o.currColumn === cond?.currColumn)
-                    const safeValue = (valueInOpts && selectedVal)
-                      ? selectedVal
-                      : (opts[0] ? `${opts[0].prevColumn}::${opts[0].currColumn}` : '')
-                    return (
-                      <span key={idx} className="join-conditions-pair__row-wrap">
-                        {idx > 0 && (
-                          <select
-                            className="join-conditions-pair__logical-op"
-                            value={joinLogicalOperators[key] || 'AND'}
-                            onChange={(e) => onSetJoinLogicalOperator?.(key, e.target.value)}
-                            aria-label="조건 연결"
-                          >
-                            <option value="AND">AND</option>
-                            <option value="OR">OR</option>
-                          </select>
-                        )}
-                        <div className="join-conditions-pair__row">
-                          <select
-                            className="join-conditions-pair__select"
-                            value={safeValue}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              if (!v) return
-                              const [prevColumn, currColumn] = v.split('::')
-                              onSetJoinConditionAt?.(key, idx, { prevColumn, currColumn })
-                            }}
-                          >
-                            {opts.map((opt, i) => (
-                              <option key={i} value={`${opt.prevColumn}::${opt.currColumn}`}>
-                                {joinOptionLabel(opt)}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            className="join-conditions-pair__remove-condition"
-                            onClick={() => onRemoveJoinCondition?.(key, idx)}
-                            title="조건 삭제"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </span>
-                    )
-                  })}
-                  <button
-                    type="button"
-                    className="join-conditions-pair__add-condition"
-                    onClick={() => onAddJoinCondition?.(key, opts[0] ? { prevColumn: opts[0].prevColumn, currColumn: opts[0].currColumn } : null)}
-                    title="조건 추가"
-                  >
-                    + 조건 추가
-                  </button>
-                </div>
-              )}
+            <div key={key} className={`join-conditions-pair join-conditions-pair--compact${noJoinPossible ? ' join-conditions-pair--impossible' : ''}`}>
+              <span className="join-conditions-pair__summary" title={noJoinPossible ? '중간 테이블 추가 또는 다른 조합을 선택하세요' : undefined}>
+                {summary}
+              </span>
+              <button
+                type="button"
+                className="join-conditions-pair__remove-join"
+                onClick={() => onRemoveJoinedTable?.(currTable)}
+                title="조인 해제 (이 테이블 제거)"
+                aria-label="조인 해제"
+              >
+                ×
+              </button>
             </div>
           )
         })}
@@ -299,6 +241,7 @@ export default function MainArea({
   )
 
   return (
+    <>
     <div className="main-area">
       <div className="grid-area">
         {gridColumns.length > 0 && (
@@ -323,6 +266,11 @@ export default function MainArea({
                     ) : (
                       '실행'
                     )}
+                  </button>
+                )}
+                {onOpenSaveAsTableModal && (
+                  <button type="button" className="btn btn-report-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
+                    💾 저장
                   </button>
                 )}
               </div>
@@ -382,7 +330,8 @@ export default function MainArea({
                     )}
                   </div>
                 </div>
-                {hasPivot && (
+                {/* 행별집계: 일단 비활성화 */}
+                {false && hasPivot && (
                   <div className="pivot-agg-row">
                     <span className="bar-label">행별집계</span>
                     <div className="filter-chips">
@@ -841,5 +790,37 @@ export default function MainArea({
         )}
       </div>
     </div>
+
+    {showRelationshipDiagram && (
+      <div
+        className="relationship-diagram-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="테이블 관계도"
+        onClick={() => setShowRelationshipDiagram(false)}
+      >
+        <div className="relationship-diagram-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="relationship-diagram-header">
+            <span>📊 테이블 관계도 (족보)</span>
+            <button type="button" className="relationship-diagram-close" onClick={() => setShowRelationshipDiagram(false)} aria-label="닫기">×</button>
+          </div>
+          <div className="relationship-diagram-body">
+            {relationshipTree.baseTable && (
+              <p className="relationship-diagram-caption">기준 테이블: <strong>{relationshipTree.baseTable}</strong></p>
+            )}
+            <pre className="relationship-diagram-tree">{relationshipTree.lines.join('\n')}</pre>
+            {relationshipMermaid && (
+              <>
+                <details className="relationship-diagram-mermaid-wrap">
+                  <summary>Mermaid 코드 (복사용)</summary>
+                  <pre className="relationship-diagram-mermaid">{relationshipMermaid}</pre>
+                </details>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

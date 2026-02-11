@@ -8,23 +8,30 @@ explain-sql, get-column-values, query-stats. Depends(get_db), Depends(get_config
 import json
 import re
 import traceback
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
 import psycopg2
+from psycopg2 import sql as pg_sql
 import requests
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 
 from Backend.api_server import db
-from Backend.api_server.pluralize import find_parent_table
+from Backend.api_server import analysis_store
+from Backend.api_server.relationship_inference import infer_relationships
 from Backend.api_server.dependencies import get_db, get_config
+from Backend.api_server.join_path import determine_join_order, validate_join_order
+from Backend.api_server.join_metrics import join_accuracy_score
 from Backend.api_server.schemas import (
     DescribeTableRequest,
     ExecuteQueryRequest,
     ExplainSqlRequest,
     GetColumnValuesRequest,
+    JoinOrderRequest,
     QueryStatsRequest,
+    SaveQueryAsTableRequest,
 )
 
 _DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent / "execute_query_debug.log"
@@ -78,6 +85,126 @@ def _contains_dangerous_sql(query):
 
 
 router = APIRouter(prefix="/api", tags=["report"])
+
+
+def _fetch_relationships(conn, mode="fk", table_columns=None):
+    """관계 목록 반환 (dedup: 쌍당 한 방향). mode=all일 때 table_columns를 넘기면 컬럼 조회를 한 번만 수행."""
+    allowed = list(db.get_allowed_tables())
+    if not allowed:
+        return []
+    mode = (mode or "fk").strip().lower()
+    if mode not in ("fk", "column", "all"):
+        mode = "fk"
+    relationships = []
+    if mode in ("fk", "all"):
+        schema = db.get_table_schema()
+        cur = conn.cursor()
+        try:
+            placeholders = ", ".join(["%s"] * len(allowed))
+            sql = (
+                "SELECT tc.constraint_name, kcu.ordinal_position, "
+                "kcu.table_name AS from_table, kcu.column_name AS from_column, "
+                "ccu.table_name AS to_table, ccu.column_name AS to_column "
+                "FROM information_schema.table_constraints tc "
+                "JOIN information_schema.key_column_usage kcu "
+                "ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema "
+                "JOIN information_schema.constraint_column_usage ccu "
+                "ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema "
+                "WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s "
+                "AND kcu.table_name IN (" + placeholders + ") "
+                "AND ccu.table_name IN (" + placeholders + ") "
+                "ORDER BY tc.constraint_name, kcu.ordinal_position"
+            )
+            cur.execute(sql, (schema,) + tuple(allowed) + tuple(allowed))
+            fk_raw = [dict(r) for r in cur.fetchall()]
+
+            # UNIQUE 제약 조회: FK 컬럼이 단일 컬럼 UNIQUE이면 1:1, 아니면 N:1 (문서 5.1)
+            unique_pairs = set()
+            cur.execute(
+                """
+                SELECT tc.table_name, MAX(kcu.column_name) AS column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = %s
+                  AND tc.table_name IN (""" + placeholders + """)
+                GROUP BY tc.table_schema, tc.table_name, tc.constraint_name
+                HAVING COUNT(*) = 1
+                """,
+                (schema,) + tuple(allowed),
+            )
+            for r in cur.fetchall():
+                unique_pairs.add((r["table_name"], r["column_name"]))
+
+            # 제약별 그룹화 → from_columns / to_columns 배열 (복합키 지원, 문서 5.1)
+            by_constraint = OrderedDict()
+            for r in fk_raw:
+                key = r["constraint_name"]
+                if key not in by_constraint:
+                    by_constraint[key] = []
+                by_constraint[key].append(r)
+            for rows in by_constraint.values():
+                rows.sort(key=lambda x: (x["ordinal_position"], x["from_column"]))
+                from_cols = [x["from_column"] for x in rows]
+                to_cols = [x["to_column"] for x in rows]
+                first = rows[0]
+                fcol = first["from_column"]
+                role = (fcol[:-3] if fcol.endswith("_id") and len(fcol) > 3 else None)  # sender_id → sender (문서 5.3 역할)
+                rel = {
+                    "from_table": first["from_table"],
+                    "from_column": fcol,
+                    "to_table": first["to_table"],
+                    "to_column": first["to_column"],
+                    "from_columns": from_cols,
+                    "to_columns": to_cols,
+                    "role": role,
+                    "source": "fk",
+                    "confidence": "HIGH",
+                    "reason": "DB FK 제약조건",
+                    "relationship_type": "1:1" if (first["from_table"], fcol) in unique_pairs and len(from_cols) == 1 else "N:1",
+                }
+                if len(from_cols) > 1:
+                    rel["reason"] = "DB FK 제약조건(복합키)"
+                relationships.append(rel)
+        finally:
+            cur.close()
+    if mode == "all":
+        if table_columns is None:
+            table_columns = db.get_all_tables_columns_with_types(allowed)
+        existing = {
+            (r["from_table"], r["from_column"], r["to_table"], r["to_column"])
+            for r in relationships
+        }
+        inferred = infer_relationships(allowed, table_columns, existing_keys=existing)
+        relationships.extend(inferred)
+    seen_pair = set()
+    deduped = []
+    for r in relationships:
+        a, b = r["from_table"], r["to_table"]
+        pair = (min(a, b), max(a, b))
+        if pair in seen_pair:
+            continue
+        seen_pair.add(pair)
+        deduped.append(r)
+    return deduped
+
+
+def _get_or_compute_relationships_all(conn):
+    """저장된 분석이 있고 allowlist가 같으면 그대로 반환, 없으면 분석 후 저장하고 반환. mode=all 기준."""
+    current_allowed = set(db.get_allowed_tables())
+    try:
+        latest = analysis_store.get_latest_analysis_result()
+        if latest and set(latest.get("allowed_tables") or []) == current_allowed:
+            return latest["relationships"]
+    except Exception:
+        pass
+    table_columns = db.get_all_tables_columns_with_types(list(current_allowed))
+    rels = _fetch_relationships(conn, "all", table_columns=table_columns)
+    try:
+        analysis_store.save_analysis_result(list(current_allowed), table_columns, rels)
+    except Exception:
+        pass
+    return rels
 
 
 @router.get("/list-tables")
@@ -153,105 +280,121 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
 
 
 @router.get("/table-relationships")
-def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
-    """
-    개선된 관계 분석
-    - 복합 단어 처리 (primary_workflow_id)
-    - 대소문자 무관
-    - 관계 타입 명시
-    """
+def table_relationships(conn=Depends(get_db), mode: str = Query("fk", description="fk=FK만(문서기본), all=FK+_id추론")):
+    """개선된 관계 분석. mode=all이면 저장된 분석 결과가 있고 allowlist가 같으면 그대로 사용, 없으면 분석 후 저장."""
     try:
-        allowed = list(db.get_allowed_tables())
-        if not allowed:
-            return {"relationships": [], "count": 0}
-        mode = (mode or "all").strip().lower()
-        if mode not in ("fk", "column", "all"):
-            mode = "all"
-        relationships = []
-
-        # ========== 1단계: FK 기반 관계 ==========
-        if mode in ("fk", "all"):
-            schema = db.get_table_schema()
-            cur = conn.cursor()
-            try:
-                placeholders = ", ".join(["%s"] * len(allowed))
-                sql = (
-                    "SELECT kcu.table_name AS from_table, kcu.column_name AS from_column, "
-                    "ccu.table_name AS to_table, ccu.column_name AS to_column "
-                    "FROM information_schema.table_constraints tc "
-                    "JOIN information_schema.key_column_usage kcu "
-                    "ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema "
-                    "JOIN information_schema.constraint_column_usage ccu "
-                    "ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema "
-                    "WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s "
-                    "AND kcu.table_name IN (" + placeholders + ") "
-                    "AND ccu.table_name IN (" + placeholders + ") "
-                    "ORDER BY kcu.table_name, ccu.table_name, kcu.column_name"
-                )
-                cur.execute(sql, (schema,) + tuple(allowed) + tuple(allowed))
-                for r in cur.fetchall():
-                    row = dict(r)
-                    if mode == "all":
-                        row["source"] = "fk"
-                        row["confidence"] = "HIGH"
-                        row["reason"] = "DB FK 제약조건"
-                        row["relationship_type"] = "N:1"
-                    relationships.append(row)
-            finally:
-                cur.close()
-
-        # ========== 2단계: _id 패턴 추론 ==========
+        mode = (mode or "fk").strip().lower()
         if mode == "all":
-            table_columns = {}
-            for table_name in allowed:
-                try:
-                    table_columns[table_name] = db.get_table_columns_with_types(table_name)
-                except Exception:
-                    table_columns[table_name] = []
-            existing = {
-                (r["from_table"], r["from_column"], r["to_table"], r["to_column"])
-                for r in relationships
-            }
-            for table_name in allowed:
-                for col_info in table_columns.get(table_name, []):
-                    col_name = col_info.get("column_name", "")
-                    if col_name == "id":
-                        continue
-                    if not col_name.endswith("_id"):
-                        continue
-                    parent_table = find_parent_table(col_name, allowed)
-                    if not parent_table:
-                        continue
-                    key = (table_name, col_name, parent_table, "id")
-                    if key in existing:
-                        continue
-                    relationships.append({
-                        "from_table": table_name,
-                        "from_column": col_name,
-                        "to_table": parent_table,
-                        "to_column": "id",
-                        "source": "inferred",
-                        "confidence": "HIGH",
-                        "reason": f"_id 패턴: {col_name} → {parent_table}.id",
-                        "relationship_type": "N:1",
-                    })
-                    existing.add(key)
-
-        # 같은 테이블 쌍(A-B / B-A) 양방향 중복 제거: 쌍당 한 방향만 유지
-        seen_pair = set()
-        deduped = []
-        for r in relationships:
-            a, b = r["from_table"], r["to_table"]
-            pair = (min(a, b), max(a, b))
-            if pair in seen_pair:
-                continue
-            seen_pair.add(pair)
-            deduped.append(r)
-
-        return {"relationships": deduped, "count": len(deduped)}
+            rels = _get_or_compute_relationships_all(conn)
+            return {"relationships": rels, "count": len(rels)}
+        rels = _fetch_relationships(conn, mode)
+        return {"relationships": rels, "count": len(rels)}
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 관계 조회 실패"})
+
+
+@router.post("/join-order")
+def api_join_order(body: JoinOrderRequest, conn=Depends(get_db)):
+    """
+    JOIN 자동 생성 명세: base_table 기준 required_tables의 JOIN 순서 + 엣지 정보.
+    반환: join_order (각 단계 table, from_table, from_column, to_table, to_column), warnings, errors
+    """
+    try:
+        base_table = (body.base_table or "").strip()
+        required_tables = [t.strip() for t in (body.required_tables or []) if t and t.strip()]
+        if not base_table:
+            return JSONResponse(status_code=400, content={"error": "base_table 필요", "join_order": [], "warnings": [], "errors": ["base_table이 비어 있습니다."]})
+        allowed = list(db.get_allowed_tables())
+        if base_table not in allowed:
+            return JSONResponse(status_code=400, content={"error": "base_table이 허용 목록에 없음", "join_order": [], "warnings": [], "errors": [f"테이블 '{base_table}'을 사용할 수 없습니다."]})
+        for t in required_tables:
+            if t not in allowed:
+                return JSONResponse(status_code=400, content={"error": "required_tables에 허용되지 않은 테이블 있음", "join_order": [], "warnings": [], "errors": [f"테이블 '{t}'을 사용할 수 없습니다."]})
+        fk_list = _get_or_compute_relationships_all(conn)
+        join_order = determine_join_order(base_table, required_tables, fk_list)
+        validation = validate_join_order(join_order, max_depth=4)
+        filter_tables = set((body.filter_tables or []) if getattr(body, "filter_tables", None) else [])
+        # JOIN 타입 자동 제안: 필터 걸린 테이블 또는 1:1 관계 → INNER, 그 외 LEFT (문서 5.2)
+        for step in join_order:
+            ft, tt = step.get("from_table"), step.get("to_table")
+            if not ft or not tt:
+                step["suggested_join_type"] = "LEFT"
+                continue
+            rel = next((r for r in fk_list if r.get("from_table") == ft and r.get("to_table") == tt), None)
+            is_1_1 = rel and rel.get("relationship_type") == "1:1"
+            step["suggested_join_type"] = "INNER" if (tt in filter_tables) or is_1_1 else "LEFT"
+        # Base 테이블 점수화: required 내 직접 연결 수로 대안 제안 (문서 5.2)
+        required_set = set(required_tables)
+        base_scores = []
+        for t in required_set:
+            direct = 0
+            for r in fk_list:
+                a, b = r.get("from_table"), r.get("to_table")
+                if a == t and b in required_set and b != t:
+                    direct += 1
+                if b == t and a in required_set and a != t:
+                    direct += 1
+            base_scores.append({"table": t, "direct_connections": direct})
+        base_scores.sort(key=lambda x: -x["direct_connections"])
+        base_alternatives = base_scores[:5]
+        accuracy = join_accuracy_score(join_order, fk_list)
+        return {
+            "join_order": join_order,
+            "base_alternatives": base_alternatives,
+            "warnings": validation.get("warnings", []),
+            "errors": validation.get("errors", []),
+            "valid": validation.get("valid", True),
+            "join_accuracy": accuracy,
+        }
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 순서 계산 실패", "join_order": [], "warnings": [], "errors": [str(e)]})
+
+
+@router.post("/save-query-as-table")
+def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg=Depends(get_config)):
+    """
+    사용했던 SELECT 쿼리 결과를 지정한 이름의 테이블로 저장.
+    table_name: 영문/숫자/언더스코어만 허용 (1~128자).
+    """
+    try:
+        table_name = (body.table_name or "").strip()
+        if not table_name:
+            return JSONResponse(status_code=400, content={"error": "테이블명을 입력하세요."})
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{0,127}$", table_name):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "테이블명은 영문, 숫자, 언더스코어만 사용 가능합니다. (최대 128자)"},
+            )
+        query = (body.query or "").strip().rstrip(";").strip()
+        if not query:
+            return JSONResponse(status_code=400, content={"error": "저장할 쿼리가 비어 있습니다. 먼저 쿼리를 실행하세요."})
+        if not query.upper().startswith("SELECT"):
+            return JSONResponse(status_code=400, content={"error": "SELECT 쿼리만 테이블로 저장할 수 있습니다."})
+        dangerous = _contains_dangerous_sql(query)
+        if dangerous:
+            return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
+        schema = db.get_table_schema()
+        timeout = int(getattr(cfg, "query_timeout_seconds", None) or 120)
+        cur = conn.cursor()
+        try:
+            cur.execute(f"SET statement_timeout = '{timeout}s'")
+            cur.execute(pg_sql.SQL("CREATE TABLE {} AS ({})").format(pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)))
+            conn.commit()
+        finally:
+            cur.close()
+        return {"ok": True, "table_name": table_name, "schema": schema}
+    except psycopg2.Error as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 생성 실패"})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "저장 실패"})
 
 
 @router.post("/execute-query")
@@ -276,8 +419,11 @@ def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(g
             timeout = 120
         cur = conn.cursor()
         cur.execute(f"SET statement_timeout = '{timeout}s'")
+        _t0 = __import__("time").perf_counter()
         cur.execute(query)
         rows = cur.fetchall()
+        _db_ms = int((__import__("time").perf_counter() - _t0) * 1000)
+        _log("execute_query: DB 실행 %d ms, 행 %d", _db_ms, len(rows))
         result = [dict((k, db.format_value(v)) for k, v in row.items()) for row in rows]
         cur.close()
         payload = {"data": result, "count": len(result), "query": query}

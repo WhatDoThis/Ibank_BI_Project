@@ -17,6 +17,18 @@
  * @param {string} prevTable
  * @param {string} currTable
  */
+/** ON 조건 배열에서 (prevColumn, currColumn) 기준 중복 제거 → 중복 JOIN 조건 방지 */
+function dedupeConditions(conditions) {
+  if (!conditions?.length) return []
+  const seen = new Set()
+  return conditions.filter((c) => {
+    const key = `${c?.prevColumn ?? ''}|${c?.currColumn ?? ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export function getJoinKey(tableRelationships, prevTable, currTable) {
   const rel = tableRelationships[prevTable]?.[currTable]
   if (rel && rel.prevColumn != null && rel.currColumn != null) return rel
@@ -195,24 +207,36 @@ export function generateSQL(
   const firstTable = addedTables[0]
   sql += `\nFROM ${firstTable} AS t1`
   const joinConfigs = options.joinConfigs || {}
+  const joinOrder = options.joinOrder || []
+  const stepByTable = {}
+  joinOrder.forEach((step) => {
+    if (step && step.table) stepByTable[step.table] = step
+  })
   for (let i = 1; i < addedTables.length; i++) {
-    const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
-    const key = `${prevTable}||${currTable}`
+    const step = stepByTable[currTable]
+    const fromTable = (step && step.from_table) ? step.from_table : addedTables[i - 1]
+    const fromIdx = addedTables.indexOf(fromTable)
+    const prevAliasIdx = fromIdx >= 0 ? fromIdx : i - 1
+    const key = `${fromTable}||${currTable}`
     const config = joinConfigs[key]
     const joinType = (config?.joinType || 'LEFT').toUpperCase()
-    const conditions = config?.conditions?.length ? config.conditions : null
-    const joinKey = conditions ? null : getJoinKey(tableRelationships, prevTable, currTable)
+    const rawConditions = config?.conditions?.length ? config.conditions : null
+    const conditions = rawConditions?.length ? dedupeConditions(rawConditions) : null
+    let joinKey = conditions?.length ? null : getJoinKey(tableRelationships, fromTable, currTable)
+    if (!joinKey && step && step.from_column && step.to_column) {
+      joinKey = { prevColumn: step.from_column, currColumn: step.to_column }
+    }
     if (conditions && conditions.length > 0) {
       const op = (config.logicalOperator || 'AND').toUpperCase()
       const onClause = conditions
-        .map((c) => `t${i}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .map((c) => `t${prevAliasIdx + 1}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
         .join(` ${op} `)
       sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
     } else if (joinKey) {
-      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${prevAliasIdx + 1}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
     } else {
-      throw new Error(`JOIN 관계 없음: ${prevTable} - ${currTable} (조인 조건 선택 필요)`)
+      throw new Error(`JOIN 관계 없음: ${fromTable} - ${currTable} (조인 조건 선택 필요)`)
     }
   }
 
@@ -283,23 +307,35 @@ export function generateCountSQL(
 
   const firstTable = addedTables[0]
   const joinConfigs = options.joinConfigs || {}
+  const joinOrder = options.joinOrder || []
+  const stepByTable = {}
+  joinOrder.forEach((step) => {
+    if (step && step.table) stepByTable[step.table] = step
+  })
   let joinClauses = ''
   for (let i = 1; i < addedTables.length; i++) {
-    const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
-    const key = `${prevTable}||${currTable}`
+    const step = stepByTable[currTable]
+    const fromTable = (step && step.from_table) ? step.from_table : addedTables[i - 1]
+    const fromIdx = addedTables.indexOf(fromTable)
+    const prevAliasIdx = fromIdx >= 0 ? fromIdx : i - 1
+    const key = `${fromTable}||${currTable}`
     const config = joinConfigs[key]
     const joinType = (config?.joinType || 'LEFT').toUpperCase()
-    const conditions = config?.conditions?.length ? config.conditions : null
-    const joinKey = conditions ? null : getJoinKey(tableRelationships, prevTable, currTable)
+    const rawConditions = config?.conditions?.length ? config.conditions : null
+    const conditions = rawConditions?.length ? dedupeConditions(rawConditions) : null
+    let joinKey = conditions?.length ? null : getJoinKey(tableRelationships, fromTable, currTable)
+    if (!joinKey && step && step.from_column && step.to_column) {
+      joinKey = { prevColumn: step.from_column, currColumn: step.to_column }
+    }
     if (conditions && conditions.length > 0) {
       const op = (config.logicalOperator || 'AND').toUpperCase()
       const onClause = conditions
-        .map((c) => `t${i}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .map((c) => `t${prevAliasIdx + 1}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
         .join(` ${op} `)
       joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
     } else if (joinKey) {
-      joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+      joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${prevAliasIdx + 1}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
     } else {
       return null
     }
@@ -362,6 +398,9 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
     ? joinConfigsOrOpts.joinConfigs
     : joinConfigsOrOpts
   const dateGranularity = (joinConfigsOrOpts && joinConfigsOrOpts.dateGranularity) || {}
+  const joinOrder = (joinConfigsOrOpts && joinConfigsOrOpts.joinOrder) || []
+  const stepByTable = {}
+  joinOrder.forEach((step) => { if (step && step.table) stepByTable[step.table] = step })
 
   const col = gridColumns.find((c) => c.table === table && c.column === column)
   const alias = col?.alias
@@ -377,21 +416,28 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
 
   let sql = `SELECT DISTINCT ${pivotSelectExpr} AS ${pivotSelectAlias}\nFROM ${addedTables[0]} AS t1`
   for (let i = 1; i < addedTables.length; i++) {
-    const prevTable = addedTables[i - 1]
     const currTable = addedTables[i]
-    const key = `${prevTable}||${currTable}`
+    const step = stepByTable[currTable]
+    const fromTable = (step && step.from_table) ? step.from_table : addedTables[i - 1]
+    const fromIdx = addedTables.indexOf(fromTable)
+    const prevAliasIdx = fromIdx >= 0 ? fromIdx : i - 1
+    const key = `${fromTable}||${currTable}`
     const config = joinConfigs[key]
     const joinType = (config?.joinType || 'LEFT').toUpperCase()
-    const conditions = config?.conditions?.length ? config.conditions : null
-    const joinKey = conditions ? null : getJoinKey(tableRelationships, prevTable, currTable)
+    const rawConditions = config?.conditions?.length ? config.conditions : null
+    const conditions = rawConditions?.length ? dedupeConditions(rawConditions) : null
+    let joinKey = conditions?.length ? null : getJoinKey(tableRelationships, fromTable, currTable)
+    if (!joinKey && step && step.from_column && step.to_column) {
+      joinKey = { prevColumn: step.from_column, currColumn: step.to_column }
+    }
     if (conditions && conditions.length > 0) {
       const op = (config.logicalOperator || 'AND').toUpperCase()
       const onClause = conditions
-        .map((c) => `t${i}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .map((c) => `t${prevAliasIdx + 1}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
         .join(` ${op} `)
       sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
     } else if (joinKey) {
-      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${i}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${prevAliasIdx + 1}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
     } else {
       return null
     }

@@ -14,10 +14,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
 import { getApiBase } from '@/shared/config/api'
-import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, executeQuery as apiExecuteQuery, explainSql } from '@/shared/api/client'
+import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
-import { canAddTableSafely, validateJoinPath } from './utils/safetyCheck'
+import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils/safetyCheck'
 import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
@@ -49,11 +49,16 @@ export default function ReportPage() {
   const [executedSql, setExecutedSql] = useState('')
   const [explanation, setExplanation] = useState(null)
   const [toast, setToast] = useState(null)
+  const [showSaveAsTableModal, setShowSaveAsTableModal] = useState(false)
+  const [saveAsTableName, setSaveAsTableName] = useState('')
+  const [saveAsTableSubmitting, setSaveAsTableSubmitting] = useState(false)
+  const [showJoinImpossibleModal, setShowJoinImpossibleModal] = useState(false)
   const [joinMode, setJoinMode] = useState('all') // 'fk' | 'column' | 'all'
   const [relationshipOptions, setRelationshipOptions] = useState({}) // { key: [ { prevColumn, currColumn, confidence?, reason? } ] }
   const [joinConditions, setJoinConditions] = useState({}) // { key: [ { prevColumn, currColumn }, ... ] } 복합 조건
   const [joinTypes, setJoinTypes] = useState({}) // { key: 'LEFT'|'INNER'|'RIGHT' }
   const [joinLogicalOperators, setJoinLogicalOperators] = useState({}) // { key: 'AND'|'OR' } 조건 간 연결
+  const [joinOrderData, setJoinOrderData] = useState(null) // { join_order: [{ table, from_table, from_column, to_table, to_column }] } — A→B, A→C 브랜치
 
   const tableRelationships = useMemo(() => {
     const resolved = {}
@@ -162,7 +167,9 @@ export default function ReportPage() {
               prevColumn: prev,
               currColumn: curr,
               confidence: r.confidence,
-              reason: r.reason
+              reason: r.reason,
+              relationship_type: r.relationship_type,
+              role: r.role
             })
           }
           push(`${fromTable}||${toTable}`, prevCol, currCol)
@@ -173,6 +180,28 @@ export default function ReportPage() {
       .catch(() => setRelationshipOptions({}))
     return () => { cancelled = true }
   }, [joinMode, tables])
+
+  useEffect(() => {
+    if (addedTables.length < 2) {
+      setJoinOrderData(null)
+      return
+    }
+    let cancelled = false
+    const base = addedTables[0]
+    const required = addedTables.slice(1)
+    fetchJoinOrder(base, required)
+      .then((data) => {
+        if (cancelled) return
+        setJoinOrderData(data)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setJoinOrderData(null)
+          console.warn('[report] join-order API 실패, 순차 조인 fallback 사용:', err?.message || err)
+        }
+      })
+    return () => { cancelled = true }
+  }, [addedTables.join(',')])
 
   const setJoinConditionsForPair = useCallback((key, conditions) => {
     setJoinConditions((prev) => (conditions?.length ? { ...prev, [key]: conditions } : (() => { const n = { ...prev }; delete n[key]; return n })()))
@@ -243,9 +272,15 @@ export default function ReportPage() {
         const lastTable = addedTables[addedTables.length - 1]
         intermediateParent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
         if (intermediateParent) {
+          // 중간 부모가 이미 경로에 있으면 끼우지 않음 → 순환 참조 방지 (A, B 넣은 뒤 C 넣을 때 A 다시 넣지 않음)
+          if (addedTables.includes(intermediateParent)) {
+            newAddedTables = [...addedTables, columnInfo.table]
+            intermediateParent = null
+} else {
           newAddedTables = [...addedTables, intermediateParent, columnInfo.table]
+          }
         } else {
-          showToast('warning', '선택한 테이블과 조인할 수 없습니다. 부모 테이블을 먼저 추가하세요.')
+          setShowJoinImpossibleModal(true)
           return
         }
       }
@@ -295,7 +330,7 @@ export default function ReportPage() {
       showToast('warning', '최소 1개의 컬럼을 선택하세요')
       return
     }
-    const pathValidation = validateJoinPath(addedTables, relationshipOptions)
+    const pathValidation = validateJoinPath(addedTables, relationshipOptions, { join_order: joinOrderData?.join_order })
     if (!pathValidation.valid) {
       pathValidation.issues.filter((i) => i.severity === 'error').forEach((err) => {
         showToast('error', err.message)
@@ -307,7 +342,11 @@ export default function ReportPage() {
     })
     setQueryRunning(true)
     try {
-      const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs }
+      const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs, joinOrder: joinOrderData?.join_order }
+      // 1) 먼저 쿼리문 생성·표시 후 실행 (joinOrder 있으면 A→B, A→C 브랜치 지원)
+      const sql = generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, options)
+      setExecutedSql(sql)
+
       const countSQL = generateCountSQL(gridColumns, addedTables, filters, tableRelationships, options)
       if (countSQL) {
         try {
@@ -318,8 +357,6 @@ export default function ReportPage() {
           setTotalCount(0)
         }
       }
-      const sql = generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, options)
-      setExecutedSql(sql)
       const res = await apiExecuteQuery(sql)
       setResultData(res.data || [])
       showToast('success', `${res.count ?? res.data?.length ?? 0}건 조회 완료`)
@@ -328,14 +365,17 @@ export default function ReportPage() {
     } finally {
       setQueryRunning(false)
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, joinOrderData, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
 
   const runExecuteQueryRef = useRef(runExecuteQuery)
   runExecuteQueryRef.current = runExecuteQuery
   useEffect(() => {
     if (gridColumns.length === 0) return
-    runExecuteQueryRef.current()
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize])
+    const tid = setTimeout(() => {
+      runExecuteQueryRef.current()
+    }, 400)
+    return () => clearTimeout(tid)
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, joinOrderData, pivot, havings])
 
   const moveColumn = useCallback((fromIndex, toIndex, insertBefore) => {
     setGridColumns((prev) => {
@@ -398,20 +438,36 @@ export default function ReportPage() {
     [gridColumns, groupBy, pivot, syncAggFuncs]
   )
 
-  /** 조인 해제: 해당 테이블을 addedTables에서 빼고, 해당 테이블 컬럼·관련 조건 전부 제거 */
+  /** 조인 해제: 해당 테이블 + 그 테이블 컬럼 제거, 조인 경로에서 끊긴 테이블도 자동 제거 */
   const removeJoinedTable = useCallback(
     (tableName) => {
       if (!addedTables.includes(tableName)) return
-      const nextCols = gridColumns.filter((c) => c.table !== tableName)
-      setFilters((prev) => prev.filter((f) => f.table !== tableName))
-      setGroupBy((prev) => prev.filter((g) => g.table !== tableName))
-      setHavings((prev) => prev.filter((h) => h.table !== tableName))
-      setPivotRowAggs((prev) => prev.filter((a) => a.table !== tableName))
-      if (pivot && pivot.table === tableName) setPivot(null)
-      setAddedTables((tables) => tables.filter((t) => t !== tableName))
+      const afterRemove = addedTables.filter((t) => t !== tableName)
+      if (afterRemove.length === 0) {
+        setAddedTables([])
+        setGridColumns([])
+        setFilters([])
+        setGroupBy([])
+        setHavings([])
+        setPivot(null)
+        setPivotRowAggs([])
+        setOrderBy([])
+        setCurrentPage(1)
+        return
+      }
+      const reachable = getReachableTables(afterRemove[0], afterRemove, relationshipOptions)
+      const tablesToRemove = afterRemove.filter((t) => !reachable.includes(t))
+      const allRemoved = [tableName, ...tablesToRemove]
+      const nextCols = gridColumns.filter((c) => !allRemoved.includes(c.table))
+      setFilters((prev) => prev.filter((f) => !allRemoved.includes(f.table)))
+      setGroupBy((prev) => prev.filter((g) => !allRemoved.includes(g.table)))
+      setHavings((prev) => prev.filter((h) => !allRemoved.includes(h.table)))
+      setPivotRowAggs((prev) => prev.filter((a) => !allRemoved.includes(a.table)))
+      if (pivot && allRemoved.includes(pivot.table)) setPivot(null)
+      setAddedTables(reachable)
       setOrderBy((prev) =>
         prev
-          .filter((ob) => gridColumns[ob.columnIndex] && gridColumns[ob.columnIndex].table !== tableName)
+          .filter((ob) => gridColumns[ob.columnIndex] && !allRemoved.includes(gridColumns[ob.columnIndex].table))
           .map((ob) => {
             const c = gridColumns[ob.columnIndex]
             const newIdx = nextCols.findIndex((n) => n.table === c.table && n.column === c.column)
@@ -422,7 +478,7 @@ export default function ReportPage() {
       setGridColumns(nextCols)
       setCurrentPage(1)
     },
-    [gridColumns, addedTables, groupBy, pivot]
+    [gridColumns, addedTables, groupBy, pivot, relationshipOptions]
   )
 
   const toggleGroupBy = useCallback(
@@ -500,7 +556,7 @@ export default function ReportPage() {
     async (table, column) => {
       const alias = gridColumns.find((c) => c.table === table)?.alias
       if (!alias) return
-      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, { joinConfigs, dateGranularity })
+      const sql = generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, { joinConfigs, dateGranularity, joinOrder: joinOrderData?.join_order })
       if (!sql) {
         showToast('error', '피벗 값 조회 SQL 생성 실패')
         return
@@ -595,6 +651,38 @@ export default function ReportPage() {
     }
   }, [executedSql, showToast])
 
+  const openSaveAsTableModal = useCallback(() => {
+    if (!executedSql || !executedSql.trim()) {
+      showToast('warning', '먼저 쿼리를 실행한 뒤 저장하세요.')
+      return
+    }
+    setSaveAsTableName('')
+    setShowSaveAsTableModal(true)
+  }, [executedSql, showToast])
+
+  const confirmSaveAsTable = useCallback(async () => {
+    const name = (saveAsTableName || '').trim()
+    if (!name) {
+      showToast('warning', '테이블 이름을 입력하세요.')
+      return
+    }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,127}$/.test(name)) {
+      showToast('error', '테이블명은 영문, 숫자, 언더스코어만 사용 가능합니다. (최대 128자)')
+      return
+    }
+    setSaveAsTableSubmitting(true)
+    try {
+      await saveQueryAsTable(name, executedSql)
+      showToast('success', `테이블 "${name}"이(가) 생성되었습니다.`)
+      setShowSaveAsTableModal(false)
+      setSaveAsTableName('')
+    } catch (e) {
+      showToast('error', e.message || '테이블 저장 실패')
+    } finally {
+      setSaveAsTableSubmitting(false)
+    }
+  }, [saveAsTableName, executedSql, showToast])
+
   const clearAll = useCallback(() => {
     setGridColumns([])
     setAddedTables([])
@@ -627,6 +715,8 @@ export default function ReportPage() {
         <MainArea
           gridColumns={gridColumns}
           addedTables={addedTables}
+          joinOrder={joinOrderData?.join_order}
+          joinAccuracy={joinOrderData?.join_accuracy}
           relationshipOptions={relationshipOptions}
           joinConditions={joinConditions}
           joinTypes={joinTypes}
@@ -677,8 +767,69 @@ export default function ReportPage() {
           onCopySql={copySql}
           onExplainSql={runExplainSql}
           onCloseExplanation={() => setExplanation(null)}
+          onOpenSaveAsTableModal={openSaveAsTableModal}
         />
       </div>
+      {showJoinImpossibleModal && (
+        <div
+          className="relationship-diagram-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="조인 불가"
+          onClick={() => setShowJoinImpossibleModal(false)}
+        >
+          <div className="relationship-diagram-modal join-impossible-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="relationship-diagram-header">
+              <span>⚠️ 조인 불가</span>
+              <button type="button" className="relationship-diagram-close" onClick={() => setShowJoinImpossibleModal(false)} aria-label="닫기">×</button>
+            </div>
+            <div className="relationship-diagram-body">
+              <p className="join-impossible-message">조인 불가능한 컬럼입니다.</p>
+              <p className="join-impossible-hint">현재 선택한 테이블들과 조인 경로가 없습니다. 사이드바에는 조인 가능한 테이블만 표시됩니다.</p>
+              <div className="save-as-table-actions" style={{ marginTop: 16 }}>
+                <button type="button" className="btn-small primary" onClick={() => setShowJoinImpossibleModal(false)}>확인</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {showSaveAsTableModal && (
+        <div
+          className="relationship-diagram-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="쿼리 결과를 테이블로 저장"
+          onClick={() => !saveAsTableSubmitting && setShowSaveAsTableModal(false)}
+        >
+          <div className="relationship-diagram-modal save-as-table-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="relationship-diagram-header">
+              <span>💾 쿼리 결과를 테이블로 저장</span>
+              <button type="button" className="relationship-diagram-close" onClick={() => !saveAsTableSubmitting && setShowSaveAsTableModal(false)} aria-label="닫기">×</button>
+            </div>
+            <div className="relationship-diagram-body">
+              <p className="save-as-table-caption">실행했던 쿼리 결과가 지정한 이름의 테이블로 생성됩니다.</p>
+              <label className="save-as-table-label">
+                테이블 이름 (영문, 숫자, 언더스코어)
+                <input
+                  type="text"
+                  className="save-as-table-input"
+                  value={saveAsTableName}
+                  onChange={(e) => setSaveAsTableName(e.target.value)}
+                  placeholder="예: my_report_202501"
+                  disabled={saveAsTableSubmitting}
+                  autoFocus
+                />
+              </label>
+              <div className="save-as-table-actions">
+                <button type="button" className="btn-small" onClick={() => !saveAsTableSubmitting && setShowSaveAsTableModal(false)} disabled={saveAsTableSubmitting}>취소</button>
+                <button type="button" className="btn-small primary" onClick={confirmSaveAsTable} disabled={saveAsTableSubmitting || !saveAsTableName.trim()}>
+                  {saveAsTableSubmitting ? '저장 중…' : '저장'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && (
         <div className={`toast ${toast.type} show`}>
           <span>{toast.type === 'success' ? '✅' : toast.type === 'warning' ? '⚠️' : '❌'}</span>
