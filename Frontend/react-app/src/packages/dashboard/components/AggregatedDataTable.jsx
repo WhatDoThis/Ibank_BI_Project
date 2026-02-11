@@ -61,9 +61,9 @@ function getColumnOptions(groupBy) {
   list.push(
     { key: 'total_count', label: '발송요청', type: 'number' },
     { key: 'success_count', label: '발송성공', type: 'number' },
+    { key: 'success_rate', label: '성공률', type: 'number' },
     { key: 'open_count', label: '오픈', type: 'number' },
     { key: 'click_count', label: '클릭', type: 'number' },
-    { key: 'success_rate', label: '성공률', type: 'number' },
     { key: 'open_rate', label: '오픈률', type: 'number' },
     { key: 'click_rate', label: '클릭률', type: 'number' }
   )
@@ -330,9 +330,9 @@ export default function AggregatedDataTable({ data = [], groupBy = {}, sortOrder
               )}
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>발송요청</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>발송성공</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>성공률</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>오픈</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>클릭</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>성공률</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>오픈률</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>클릭률</th>
             </tr>
@@ -365,11 +365,26 @@ export default function AggregatedDataTable({ data = [], groupBy = {}, sortOrder
                 )}
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.total_count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.success_count)}</td>
+                <td className="aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 90 }}>
+                  <div className="aggregated-data-table__cell-fill-wrap">
+                    <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.success_rate) || 0)}%` }} aria-hidden />
+                    <span className="aggregated-data-table__cell-fill-text" style={{ color: '#059669' }}>{formatRate(row.success_rate)}%</span>
+                  </div>
+                </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.open_count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.click_count)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#059669' }}>{formatRate(row.success_rate)}%</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#2563eb' }}>{formatRate(row.open_rate)}%</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#7c3aed' }}>{formatRate(row.click_rate)}%</td>
+                <td className="aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 90 }}>
+                  <div className="aggregated-data-table__cell-fill-wrap">
+                    <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.open_rate) || 0)}%` }} aria-hidden />
+                    <span className="aggregated-data-table__cell-fill-text" style={{ color: '#2563eb' }}>{formatRate(row.open_rate)}%</span>
+                  </div>
+                </td>
+                <td className="aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 90 }}>
+                  <div className="aggregated-data-table__cell-fill-wrap">
+                    <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.click_rate) || 0)}%` }} aria-hidden />
+                    <span className="aggregated-data-table__cell-fill-text" style={{ color: '#7c3aed' }}>{formatRate(row.click_rate)}%</span>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

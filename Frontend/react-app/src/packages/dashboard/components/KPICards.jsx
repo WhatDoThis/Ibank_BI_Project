@@ -12,8 +12,9 @@ import { useState, useEffect, useMemo } from 'react'
 
 const ALL_KPI_KEYS = [
   'campaign_count', 'workflow_count', 'channel_count',
-  'total_send', 'total_success', 'total_failed', 'total_open', 'total_click',
-  'success_rate', 'failed_rate', 'open_rate', 'click_rate'
+  'total_send', 'total_success', 'total_failed',
+  'success_rate', 'failed_rate',
+  'total_open', 'total_click', 'open_rate', 'click_rate'
 ]
 
 function loadVisibleKeys(storageKey) {
@@ -68,12 +69,12 @@ const CARD_CONFIG = [
   { label: '워크플로우 수', valueKey: 'workflow_count', unit: '개', icon: '🔄', bg: '#f0fdfa', color: '#0d9488' },
   { label: '채널 수', valueKey: 'channel_count', unit: '개', icon: '📡', bg: '#fefce8', color: '#a16207' },
   { label: '발송 요청', valueKey: 'total_send', unit: '건', icon: '📤', bg: '#eff6ff', color: '#1d4ed8' },
-  { label: '발송 성공', valueKey: 'total_success', unit: '건', icon: '✅', bg: '#f0fdf4', color: '#15803d' },
-  { label: '발송 실패', valueKey: 'total_failed', unit: '건', icon: '❌', bg: '#fef2f2', color: '#b91c1c' },
+  { label: '성공수', valueKey: 'total_success', unit: '건', icon: '✅', bg: '#f0fdf4', color: '#15803d' },
+  { label: '실패수', valueKey: 'total_failed', unit: '건', icon: '❌', bg: '#fef2f2', color: '#b91c1c' },
+  { label: '성공률', valueKey: 'success_rate', unit: '%', icon: '📊', bg: '#ecfdf5', color: '#047857' },
+  { label: '실패율', valueKey: 'failed_rate', unit: '%', icon: '⚠️', bg: '#fef2f2', color: '#dc2626' },
   { label: '오픈', valueKey: 'total_open', unit: '건', icon: '👁', bg: '#faf5ff', color: '#7c3aed' },
   { label: '클릭', valueKey: 'total_click', unit: '건', icon: '👆', bg: '#fff7ed', color: '#c2410c' },
-  { label: '성공률', valueKey: 'success_rate', unit: '%', icon: '📊', bg: '#ecfdf5', color: '#047857' },
-  { label: '실패률', valueKey: 'failed_rate', unit: '%', icon: '⚠️', bg: '#fef2f2', color: '#dc2626' },
   { label: '오픈률', valueKey: 'open_rate', unit: '%', icon: '📈', bg: '#f5f3ff', color: '#6d28d9' },
   { label: '클릭률', valueKey: 'click_rate', unit: '%', icon: '🎯', bg: '#fffbeb', color: '#d97706' }
 ]

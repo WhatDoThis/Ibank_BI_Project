@@ -11,8 +11,9 @@ import { useState, useEffect, useMemo } from 'react'
 
 const ALL_KPI_KEYS = [
   'campaign_count', 'workflow_count', 'channel_count',
-  'total_send', 'total_success', 'total_failed', 'total_open', 'total_click',
-  'success_rate', 'failed_rate', 'open_rate', 'click_rate'
+  'total_send', 'total_success', 'total_failed',
+  'success_rate', 'failed_rate',
+  'total_open', 'total_click', 'open_rate', 'click_rate'
 ]
 
 function loadVisibleKeys(storageKey) {
@@ -60,12 +61,12 @@ const CARD_CONFIG = [
   { label: '워크플로우 수', valueKey: 'workflow_count', unit: '개', icon: '🔄', bg: '#f0fdfa', color: '#0d9488', definition: '집계 구간 내 서로 다른 워크플로우(workflow_id) 개수' },
   { label: '채널 수', valueKey: 'channel_count', unit: '개', icon: '📡', bg: '#fefce8', color: '#a16207', definition: '집계 구간 내 서로 다른 배송 채널(delivery_channel) 개수' },
   { label: '발송 요청', valueKey: 'total_send', unit: '건', icon: '📤', bg: '#eff6ff', color: '#1d4ed8', definition: '발송 요청 건수 합계 (total_count)' },
-  { label: '발송 성공', valueKey: 'total_success', unit: '건', icon: '✅', bg: '#f0fdf4', color: '#15803d', definition: '발송 성공 건수 합계 (success_count)' },
-  { label: '발송 실패', valueKey: 'total_failed', unit: '건', icon: '❌', bg: '#fef2f2', color: '#b91c1c', definition: '발송 실패 건수 합계 (failed_count)' },
+  { label: '성공수', valueKey: 'total_success', unit: '건', icon: '✅', bg: '#f0fdf4', color: '#15803d', definition: '발송 성공 건수 합계 (success_count)' },
+  { label: '실패수', valueKey: 'total_failed', unit: '건', icon: '❌', bg: '#fef2f2', color: '#b91c1c', definition: '발송 실패 건수 합계 (failed_count)' },
+  { label: '성공률', valueKey: 'success_rate', unit: '%', icon: '📊', bg: '#ecfdf5', color: '#047857', definition: '(발송 성공 / 발송 요청) × 100' },
+  { label: '실패율', valueKey: 'failed_rate', unit: '%', icon: '⚠️', bg: '#fef2f2', color: '#dc2626', definition: '(발송 실패 / 발송 요청) × 100' },
   { label: '오픈', valueKey: 'total_open', unit: '건', icon: '👁', bg: '#faf5ff', color: '#7c3aed', definition: '오픈 건수 합계 (open_count)' },
   { label: '클릭', valueKey: 'total_click', unit: '건', icon: '👆', bg: '#fff7ed', color: '#c2410c', definition: '클릭 건수 합계 (click_count)' },
-  { label: '성공률', valueKey: 'success_rate', unit: '%', icon: '📊', bg: '#ecfdf5', color: '#047857', definition: '(발송 성공 / 발송 요청) × 100' },
-  { label: '실패률', valueKey: 'failed_rate', unit: '%', icon: '⚠️', bg: '#fef2f2', color: '#dc2626', definition: '(발송 실패 / 발송 요청) × 100' },
   { label: '오픈률', valueKey: 'open_rate', unit: '%', icon: '📈', bg: '#f5f3ff', color: '#6d28d9', definition: '(오픈 / 발송 성공) × 100' },
   { label: '클릭률', valueKey: 'click_rate', unit: '%', icon: '🎯', bg: '#fffbeb', color: '#d97706', definition: '(클릭 / 발송 성공) × 100' }
 ]
@@ -77,7 +78,21 @@ const STATUS_STYLE = {
   fail: { border: '#dc2626', bg: '#fee2e2', label: '미달' }
 }
 
-export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'dashboard2_kpi_visible', children }) {
+/** 비교 KPI가 있을 때 전비(%) 또는 증감 표시. rate 지표는 전비(%) = (현재/비교)*100 - 100, 건수는 동일 */
+function getComparePct(current, previous, valueKey) {
+  const c = Number(current)
+  const p = Number(previous)
+  if (!Number.isFinite(p) || p === 0) return null
+  if (!Number.isFinite(c)) return null
+  const isRate = ['success_rate', 'failed_rate', 'open_rate', 'click_rate'].includes(valueKey)
+  if (isRate) {
+    const pct = ((c - p) / p) * 100
+    return pct
+  }
+  return ((c / p) * 100 - 100)
+}
+
+export default function KPICards2({ kpi, compareKpi, targetStatusByKey = {}, storageKey = 'dashboard2_kpi_visible', children }) {
   const [visibleKeys, setVisibleKeys] = useState(() => loadVisibleKeys(storageKey))
   const [selectorOpen, setSelectorOpen] = useState(false)
 
@@ -104,12 +119,14 @@ export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'd
       <div className="dashboard2-kpi-grid">
         {visibleConfig.map((c) => {
           const value = kpi[c.valueKey] ?? 0
+          const prevValue = compareKpi?.[c.valueKey] ?? null
+          const pct = compareKpi != null && prevValue != null ? getComparePct(value, prevValue, c.valueKey) : null
           const statusInfo = targetStatusByKey[c.valueKey]
           const style = statusInfo ? STATUS_STYLE[statusInfo.status] : null
           return (
             <div
               key={c.valueKey}
-              className={`dashboard2-kpi-card${style ? ` dashboard2-kpi-card--${statusInfo.status}` : ''}`}
+              className={`dashboard2-kpi-card${style ? ` dashboard2-kpi-card--${statusInfo.status}` : ''}${compareKpi ? ' dashboard2-kpi-card--compare' : ''}`}
               style={{
                 background: style?.bg ?? c.bg,
                 border: `2px solid ${style ? style.border : `${c.color}20`}`,
@@ -141,6 +158,19 @@ export default function KPICards2({ kpi, targetStatusByKey = {}, storageKey = 'd
                 {c.unit === '%' ? formatRateDisplay(value) : formatNum(value)}
                 <span className="dashboard2-kpi-card__unit">{c.unit}</span>
               </div>
+              {compareKpi && (
+                <div className="dashboard2-kpi-card__compare">
+                  <span className="dashboard2-kpi-card__compare-label">이전 기간</span>
+                  <span className="dashboard2-kpi-card__compare-value">
+                    {c.unit === '%' ? formatRateDisplay(prevValue) : formatNum(prevValue)}{c.unit}
+                  </span>
+                  {pct != null && (
+                    <span className={`dashboard2-kpi-card__compare-pct ${pct >= 0 ? 'dashboard2-kpi-card__compare-pct--up' : 'dashboard2-kpi-card__compare-pct--down'}`}>
+                      {pct >= 0 ? '+' : ''}{pct.toFixed(1)}% vs 이전기간
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}

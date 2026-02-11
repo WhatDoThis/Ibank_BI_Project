@@ -1,5 +1,69 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-02: 주간/월간 비교 시 비교 주·비교 월 선택 기능
+
+### 완료 작업
+1. **비교 주/비교 월 선택 UI (Dashboard2Header)**
+   - 주간 비교: “비교 주(날짜)” 입력 추가. 비어두면 **전 주**가 비교 기간(디폴트). 날짜 선택 시 해당 주가 비교 기간.
+   - 월간 비교: “비교 월” 입력(YYYY-MM) 추가. 비어두면 **전 월** 디폴트. 선택 시 해당 월이 비교 기간.
+   - filters에 `compare_week`, `compare_month` 추가. 모드 전환 시 둘 다 초기화.
+2. **데이터 조회·라벨 (Dashboard2Page)**
+   - loadData: `compare_week` 있으면 getWeekRange(compare_week), 없으면 getPreviousWeekRange(compare_base_week). `compare_month` 있으면 getMonthRange, 없으면 getPreviousMonthRange.
+   - 비교 기간 라벨: “비교: … (전 주)” / “(선택 주)” / “(전 월)” / “(선택 월)” 로 구분 표시.
+3. **플랜 문서**: 05_대시보드2_주간월간_비교리포팅_플랜.md 5.1절에 비교 주/비교 월 선택·디폴트 설명 반영.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- docs/report/05_대시보드2_주간월간_비교리포팅_플랜.md
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 집계 테이블 컬럼 순서 및 rate 컬럼 채우기 막대
+
+### 완료 작업
+1. **집계 테이블 컬럼 순서 통일 (대시보드1·2)**
+   - 컬럼 순서: **발송요청 → 발송성공 → 성공률 → 오픈 → 클릭 → 오픈률 → 클릭률** (7개).
+   - `getColumnOptions`·thead·tbody 순서를 위와 같이 수정. (AggregatedDataTable.jsx, AggregatedDataTable2.jsx)
+2. **rate 컬럼(성공률, 오픈률, 클릭률) 채우기 막대 표시**
+   - 셀 내 회색(#e5e7eb) 가로 막대를 값(0~100%)에 비례한 너비로 표시. 숫자는 기존 포맷(formatRate + %) 유지, 오른쪽 정렬로 막대 위에 표시.
+   - 구조: `td` → `cell-fill-wrap`(relative) → `cell-fill`(absolute, width: value%) + `cell-fill-text`.
+   - dashboard.css / dashboard2.css에 `*__cell-rate`, `*__cell-fill-wrap`, `*__cell-fill`, `*__cell-fill-text` 스타일 추가.
+3. **집계 테이블 내부 테두리선 (외곽선 없음)**
+   - 테이블 자체는 `border: none`. 셀마다 `border-right`, `border-bottom` 1px solid #e5e7eb 적용. 마지막 행·마지막 열은 해당 방향 border 제거하여 외곽선 없이 그리드만 보이도록 처리.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/AggregatedDataTable.jsx
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedDataTable2.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드2 주간/월간 비교 리포팅 (Phase 1~5)
+
+### 완료 작업
+1. **플랜 보완 (05_대시보드2_주간월간_비교리포팅_플랜.md)**
+   - 다중 이전 주·이전기간 평균(이미지 스타일) 구현 가능 여부 명시. Phase 6으로 N주 트렌드+미니 차트 추가 권장.
+2. **Phase 1**: `dashboard2/utils/periodCompare.js` — getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange (ISO 주 월~일, 월 1일~말일).
+3. **Phase 2**: Dashboard2Header — 보기 모드(일반/주간 비교/월간 비교), 주간 시 기준 주 날짜 선택·월간 시 기준 월(YYYY-MM) 선택, 선택 시 date_range 자동 계산.
+4. **Phase 3**: Dashboard2Page — view_mode, compare_base_week, compare_base_month, compareData state. 비교 모드 시 기준 기간 1회·비교 기간 1회 getDashboard2Data 호출.
+5. **Phase 4**: KPICards2 — compareKpi prop 시 카드에 이전 기간 값·"±n% vs 이전기간" 표시(전비 계산, rate/건수 구분).
+6. **Phase 5**: 비교 모드 시 "기준: YYYY.MM.DD ~ ... (이번 주/이번 달) / 비교: ... (이전 주/이전 달)" 라벨 표시.
+
+### 수정/추가 파일
+- docs/report/05_대시보드2_주간월간_비교리포팅_플랜.md
+- Frontend/react-app/src/packages/dashboard2/utils/periodCompare.js (신규)
+- Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx
+- Frontend/react-app/src/packages/dashboard2/components/KPICards2.jsx
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-02: 레이더 차트 내부 수치값 복원(바깥 링 제외·각도 분산)
 
 ### 완료 작업

@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getDashboard2Data, getDashboard2FilterOptions, getDashboard2Tables, getDashboard2ChartData } from '@/shared/api/client'
 import { normalizeDateRange } from '@/shared/utils/dateRange'
+import { getWeekRange, getMonthRange, getPreviousWeekRange, getPreviousMonthRange } from './utils/periodCompare'
 import './dashboard2.css'
 import Dashboard2Header from './components/Dashboard2Header'
 import CollapsibleSection2 from './components/CollapsibleSection2'
@@ -192,6 +193,11 @@ export default function Dashboard2Page() {
   const [filters, setFilters] = useState({
     table_id: '',
     date_range: getDefaultDateRange(),
+    view_mode: 'normal',
+    compare_base_week: '',
+    compare_base_month: '',
+    compare_week: '',
+    compare_month: '',
     campaign_ids: [],
     workflow_ids: [],
     channels: [],
@@ -199,6 +205,7 @@ export default function Dashboard2Page() {
   })
   const [filterOptions, setFilterOptions] = useState({ campaigns: [], workflows: [], channels: [] })
   const [data, setData] = useState(null)
+  const [compareData, setCompareData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [sortOrder, setSortOrder] = useState([{ key: 'delivery_date', order: 'desc' }])
@@ -284,19 +291,50 @@ export default function Dashboard2Page() {
     if (!filters.table_id || !filters.date_range?.length) return
     setLoading(true)
     setError(null)
-    const payload = {
-      ...filters,
-      date_range: normalizeDateRange(filters.date_range || []),
+    setCompareData(null)
+    const currentRange = normalizeDateRange(filters.date_range || [])
+    const basePayload = {
+      table_id: filters.table_id,
+      campaign_ids: filters.campaign_ids || [],
+      workflow_ids: filters.workflow_ids || [],
+      channels: filters.channels || [],
       group_by: { ...(filters.group_by || defaultGroupBy), date: true }
     }
-    getDashboard2Data(payload)
+    const isCompare = filters.view_mode === 'week_compare' || filters.view_mode === 'month_compare'
+    let compareRange = null
+    if (filters.view_mode === 'week_compare' && filters.compare_base_week) {
+      if (filters.compare_week) {
+        compareRange = getWeekRange(filters.compare_week)
+      } else {
+        compareRange = getPreviousWeekRange(filters.compare_base_week)
+      }
+    } else if (filters.view_mode === 'month_compare' && filters.compare_base_month) {
+      if (filters.compare_month) {
+        const [cy, cm] = filters.compare_month.split('-').map(Number)
+        if (cy && cm) compareRange = getMonthRange(cy, cm)
+      } else {
+        const [y, m] = filters.compare_base_month.split('-').map(Number)
+        if (y && m) compareRange = getPreviousMonthRange(y, m)
+      }
+    }
+    const payloadCurrent = { ...basePayload, date_range: currentRange }
+    getDashboard2Data(payloadCurrent)
       .then((res) => {
         setData(res)
+        if (!isCompare || !compareRange?.[0] || !compareRange?.[1]) {
+          setLoading(false)
+          return null
+        }
+        return getDashboard2Data({ ...basePayload, date_range: compareRange })
+      })
+      .then((resCompare) => {
+        if (resCompare != null) setCompareData(resCompare)
         setLoading(false)
       })
       .catch((e) => {
         setError(e.message || '대시보드 데이터 조회 실패')
         setData(null)
+        setCompareData(null)
         setLoading(false)
       })
   }, [filters])
@@ -349,6 +387,29 @@ export default function Dashboard2Page() {
     () => getTargetStatusByKey(targets, filters.date_range, data?.kpi),
     [targets, filters.date_range, data?.kpi]
   )
+
+  /** 비교 기간 라벨 (주간/월간 비교 모드). 비교 주/월 선택 시 해당 기간, 비어 있으면 전 주/전 월 */
+  const compareRange = useMemo(() => {
+    if (filters.view_mode === 'week_compare' && filters.compare_base_week) {
+      if (filters.compare_week) return getWeekRange(filters.compare_week)
+      return getPreviousWeekRange(filters.compare_base_week)
+    }
+    if (filters.view_mode === 'month_compare' && filters.compare_base_month) {
+      if (filters.compare_month) {
+        const [cy, cm] = filters.compare_month.split('-').map(Number)
+        return cy && cm ? getMonthRange(cy, cm) : null
+      }
+      const [y, m] = filters.compare_base_month.split('-').map(Number)
+      return y && m ? getPreviousMonthRange(y, m) : null
+    }
+    return null
+  }, [filters.view_mode, filters.compare_base_week, filters.compare_base_month, filters.compare_week, filters.compare_month])
+  const formatRangeLabel = (range) => {
+    if (!range?.[0] || !range?.[1]) return ''
+    const s = range[0]; const e = range[1]
+    const toD = (str) => str.length >= 10 ? `${str.slice(0, 4)}.${str.slice(5, 7)}.${str.slice(8, 10)}` : str
+    return `${toD(s)} ~ ${toD(e)}`
+  }
 
   useEffect(() => {
     if (!tableId || !filters.date_range?.length || filters.date_range.length < 2) {
@@ -416,8 +477,19 @@ export default function Dashboard2Page() {
           />
           {data?.kpi && (
             <CollapsibleSection2 title="주요 지표" open={sectionOpen.kpi} onToggle={() => toggleSection('kpi')}>
-              <PeriodLabel dateRange={filters.date_range} className="dashboard2-period-label" />
-              <KPICards2 kpi={data.kpi} targetStatusByKey={targetStatusByKey}>
+              {compareRange ? (
+                <div className="dashboard2-period-label dashboard2-compare-period-label" role="status">
+                  <span className="period-label__icon">📅</span>
+                  <span className="period-label__text">
+                    기준: {formatRangeLabel(filters.date_range)}
+                    {' / '}
+                    비교: {formatRangeLabel(compareRange)}
+                  </span>
+                </div>
+              ) : (
+                <PeriodLabel dateRange={filters.date_range} className="dashboard2-period-label" />
+              )}
+              <KPICards2 kpi={data.kpi} compareKpi={compareData?.kpi} targetStatusByKey={targetStatusByKey}>
                 <p className="dashboard2-kpi-section-hint">
                   신호등 표시: 저장된 목표 중 현재 선택한 기간(날짜 범위)과 일치하는 지표에만 신호등(달성/주의/미달)이 표시됩니다.
                 </p>
@@ -446,19 +518,6 @@ export default function Dashboard2Page() {
           <CollapsibleSection2 title="위젯 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
             <div className="dashboard2-chart-options">
               <div className="dashboard2-chart-option-col">
-                <span className="dashboard2-chart-option-label" aria-hidden="true" />
-                <div className="dashboard2-header__info-btn-wrap">
-                  <button
-                    type="button"
-                    className="dashboard2-info-btn"
-                    onClick={() => setShowDimensionInfoModal(true)}
-                    title="Dimension(X축) 안내"
-                  >
-                    info
-                  </button>
-                </div>
-              </div>
-              <div className="dashboard2-chart-option-col">
                 <label htmlFor="dashboard2-dimension" className="dashboard2-chart-option-label">Dimension</label>
                 <select id="dashboard2-dimension" className="dashboard2-option-select" value={effectiveDimensionKey} onChange={(e) => setDimensionKey(e.target.value)}>
                   {availableDimensions.map((d) => (
@@ -474,18 +533,28 @@ export default function Dashboard2Page() {
                   ))}
                 </select>
               </div>
-              <div className="dashboard2-chart-option-col">
+              <div className="dashboard2-chart-option-col dashboard2-chart-option-col--chart-type">
                 <label htmlFor="dashboard2-chart-type" className="dashboard2-chart-option-label">차트 유형</label>
-                <select id="dashboard2-chart-type" className="dashboard2-option-select" value={chartType} onChange={(e) => setChartType(e.target.value)}>
-                  {CHART_TYPES.map((t) => (
-                    <option key={t.key} value={t.key}>{t.label}</option>
-                  ))}
-                </select>
+                <div className="dashboard2-chart-type-wrap">
+                  <select id="dashboard2-chart-type" className="dashboard2-option-select" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+                    {CHART_TYPES.map((t) => (
+                      <option key={t.key} value={t.key}>{t.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="dashboard2-info-btn"
+                    onClick={() => setShowDimensionInfoModal(true)}
+                    title="Dimension(X축) 안내"
+                  >
+                    info
+                  </button>
+                </div>
               </div>
             </div>
             <div className="dashboard2-chart-wrap">
               {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
-              <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} />
+              <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} metricKey={metricKey} />
             </div>
 
             {showDimensionInfoModal && (

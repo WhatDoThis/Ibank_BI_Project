@@ -93,9 +93,9 @@ function getColumnOptions(groupBy) {
   list.push(
     { key: 'total_count', label: '발송요청', type: 'number' },
     { key: 'success_count', label: '발송성공', type: 'number' },
+    { key: 'success_rate', label: '성공률', type: 'number' },
     { key: 'open_count', label: '오픈', type: 'number' },
     { key: 'click_count', label: '클릭', type: 'number' },
-    { key: 'success_rate', label: '성공률', type: 'number' },
     { key: 'open_rate', label: '오픈률', type: 'number' },
     { key: 'click_rate', label: '클릭률', type: 'number' }
   )
@@ -342,9 +342,9 @@ export default function AggregatedDataTable2({ data = [], groupBy = {}, sortOrde
               {groupBy.channel && <ThWithDef defKey="channel">채널</ThWithDef>}
               <ThWithDef defKey="total_count" align="right">발송요청</ThWithDef>
               <ThWithDef defKey="success_count" align="right">발송성공</ThWithDef>
+              <ThWithDef defKey="success_rate" align="right">성공률</ThWithDef>
               <ThWithDef defKey="open_count" align="right">오픈</ThWithDef>
               <ThWithDef defKey="click_count" align="right">클릭</ThWithDef>
-              <ThWithDef defKey="success_rate" align="right">성공률</ThWithDef>
               <ThWithDef defKey="open_rate" align="right">오픈률</ThWithDef>
               <ThWithDef defKey="click_rate" align="right">클릭률</ThWithDef>
             </tr>
@@ -371,11 +371,26 @@ export default function AggregatedDataTable2({ data = [], groupBy = {}, sortOrde
                 )}
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.total_count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.success_count)}</td>
+                <td className="dashboard2-aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 90 }}>
+                  <div className="dashboard2-aggregated-data-table__cell-fill-wrap">
+                    <div className="dashboard2-aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.success_rate) || 0)}%` }} aria-hidden />
+                    <span className="dashboard2-aggregated-data-table__cell-fill-text" style={{ color: '#059669' }}>{formatRate(row.success_rate)}%</span>
+                  </div>
+                </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.open_count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.click_count)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#059669' }}>{formatRate(row.success_rate)}%</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#2563eb' }}>{formatRate(row.open_rate)}%</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#7c3aed' }}>{formatRate(row.click_rate)}%</td>
+                <td className="dashboard2-aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 90 }}>
+                  <div className="dashboard2-aggregated-data-table__cell-fill-wrap">
+                    <div className="dashboard2-aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.open_rate) || 0)}%` }} aria-hidden />
+                    <span className="dashboard2-aggregated-data-table__cell-fill-text" style={{ color: '#2563eb' }}>{formatRate(row.open_rate)}%</span>
+                  </div>
+                </td>
+                <td className="dashboard2-aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 90 }}>
+                  <div className="dashboard2-aggregated-data-table__cell-fill-wrap">
+                    <div className="dashboard2-aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.click_rate) || 0)}%` }} aria-hidden />
+                    <span className="dashboard2-aggregated-data-table__cell-fill-text" style={{ color: '#7c3aed' }}>{formatRate(row.click_rate)}%</span>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

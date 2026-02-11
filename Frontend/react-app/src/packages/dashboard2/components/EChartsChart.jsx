@@ -260,11 +260,14 @@ function buildOption(rows, groupBy, template) {
   return option
 }
 
+/** rate형 지표 키 (Y축·툴팁 소수점 둘째 자리 표시) */
+const RATE_METRIC_KEYS = ['success_rate', 'open_rate', 'click_rate', 'failed_rate']
+
 /**
  * 단일 시리즈 차트 옵션 (Dimension·Metric·차트 유형 자유 선택 시 getChartData 연동).
- * chartData = [{ name, value }], metricLabel, chartType('bar'|'line'|'area').
+ * chartData = [{ name, value }], metricLabel, chartType('bar'|'line'|'area'), metricKey(선택, rate형이면 Y축 소수점 둘째자리).
  */
-function buildOptionFromCustom(chartData, metricLabel, chartType) {
+function buildOptionFromCustom(chartData, metricLabel, chartType, metricKey) {
   if (!chartData?.length) {
     return { title: { text: '데이터 없음', left: 'center', top: 'middle' } }
   }
@@ -272,6 +275,11 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
   const values = chartData.map((d) => (d.value != null ? Number(d.value) : 0))
   const isBar = chartType === 'bar'
   const isArea = chartType === 'area'
+  const isRateMetric = metricKey && RATE_METRIC_KEYS.includes(metricKey)
+  const formatValue = (v) => {
+    if (v == null || Number.isNaN(Number(v))) return '-'
+    return isRateMetric ? Number(v).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(v).toLocaleString('ko-KR', { maximumFractionDigits: 0 })
+  }
 
   const manyCategories = categories.length > 8
   const rotateLabels = manyCategories
@@ -309,7 +317,7 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
     }
   ]
   if (isBar && categories.length <= 15) {
-    series[0].label = { show: true, position: 'top', fontSize: 10, formatter: (params) => (params.value != null ? Number(params.value).toLocaleString('ko-KR') : '') }
+    series[0].label = { show: true, position: 'top', fontSize: 10, formatter: (params) => (params.value != null ? formatValue(params.value) : '') }
   }
 
   const option = {
@@ -319,7 +327,7 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
       formatter: (params) => {
         if (!params?.length) return ''
         const lines = [params[0].axisValue]
-        params.forEach((p) => lines.push(`${p.marker} ${p.seriesName}: ${p.value != null ? Number(p.value).toLocaleString('ko-KR') : '-'}`))
+        params.forEach((p) => lines.push(`${p.marker} ${p.seriesName}: ${formatValue(p.value)}`))
         return lines.join('<br/>')
       }
     },
@@ -337,7 +345,7 @@ function buildOptionFromCustom(chartData, metricLabel, chartType) {
       scale: !isBar,
       axisLabel: {
         margin: 12,
-        formatter: (value) => (value != null && !Number.isNaN(Number(value)) ? Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : String(value ?? ''))
+        formatter: (value) => (value != null && !Number.isNaN(Number(value)) ? formatValue(value) : String(value ?? ''))
       },
       splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
     },
@@ -362,7 +370,7 @@ function computeDataZoomRange(index, total, windowPercent = 25) {
   return { start, end }
 }
 
-export default function EChartsChart({ data = [], groupBy = {}, templateId, customChartData, metricLabel, chartType }) {
+export default function EChartsChart({ data = [], groupBy = {}, templateId, customChartData, metricLabel, chartType, metricKey }) {
   const chartRef = useRef(null)
   const instanceRef = useRef(null)
   const [chartSearchText, setChartSearchText] = useState('')
@@ -390,7 +398,7 @@ export default function EChartsChart({ data = [], groupBy = {}, templateId, cust
 
   const option = useMemo(() => {
     const base = useCustomMode
-      ? buildOptionFromCustom(customChartData, metricLabel, chartType)
+      ? buildOptionFromCustom(customChartData, metricLabel, chartType, metricKey)
       : buildOption(data, { ...groupBy, date: true }, template)
     if (dataZoomRange && base.dataZoom && base.dataZoom.length >= 2) {
       return {
@@ -399,7 +407,7 @@ export default function EChartsChart({ data = [], groupBy = {}, templateId, cust
       }
     }
     return base
-  }, [useCustomMode, customChartData, metricLabel, chartType, data, groupBy, template, dataZoomRange])
+  }, [useCustomMode, customChartData, metricLabel, chartType, metricKey, data, groupBy, template, dataZoomRange])
 
   const showSearch = categories.length > 10
   const searchLower = chartSearchText.trim().toLowerCase()

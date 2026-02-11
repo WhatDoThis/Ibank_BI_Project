@@ -1,15 +1,17 @@
 /**
  * dashboard2/components/Dashboard2Header.jsx (대시보드2 헤더)
  * ============================================================
- * 대시보드2 전용. 테이블 선택 + 기간 + 조회, 집계 기준, 정렬 기준, 캠페인·워크플로우·채널 필터. 클래스명 dashboard2-*.
+ * 대시보드2 전용. 테이블 선택 + 기간 + 조회, 집계 기준, 정렬 기준, 캠페인·워크플로우·채널 필터.
+ * 보기 모드: 일반 보기 / 주간 비교 / 월간 비교 (05_대시보드2_주간월간_비교리포팅_플랜 Phase 2).
  *
  * [의존성]
- * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange)
+ * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange), dashboard2/utils/periodCompare
  */
 
 import { useState, useEffect } from 'react'
 import { getDashboard2RequiredColumns } from '@/shared/api/client'
 import { normalizeDateRange } from '@/shared/utils/dateRange'
+import { getWeekRange, getMonthRange } from '../utils/periodCompare'
 
 const SORT_OPTIONS = [
   { key: 'delivery_date', label: '일자' },
@@ -34,6 +36,11 @@ export default function Dashboard2Header({
 }) {
   const {
     date_range = ['', ''],
+    view_mode = 'normal',
+    compare_base_week = '',
+    compare_base_month = '',
+    compare_week = '',
+    compare_month = '',
     campaign_ids = [],
     workflow_ids = [],
     channels = [],
@@ -125,23 +132,127 @@ export default function Dashboard2Header({
           </div>
         </div>
         <div className="dashboard2-header__date-cell">
-          <label className="dashboard2-header__date-label">기간</label>
-          <div className="dashboard2-header__date-inputs">
-            <input
-              type="date"
-              className="dashboard2-header__date-input"
-              value={date_range[0] || ''}
-              onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([e.target.value, date_range[1] || '']) })}
-            />
-            <span className="dashboard2-header__date-sep">~</span>
-            <input
-              type="date"
-              className="dashboard2-header__date-input"
-              value={date_range[1] || ''}
-              onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([date_range[0] || '', e.target.value]) })}
-            />
+          <span className="dashboard2-header__view-mode-label">보기</span>
+          <div className="dashboard2-header__view-mode">
+            <label className="dashboard2-header__view-mode-radio">
+              <input
+                type="radio"
+                name="view_mode"
+                checked={view_mode === 'normal'}
+                onChange={() => onFiltersChange({ view_mode: 'normal', compare_base_week: '', compare_base_month: '', compare_week: '', compare_month: '' })}
+              />
+              <span>일반</span>
+            </label>
+            <label className="dashboard2-header__view-mode-radio">
+              <input
+                type="radio"
+                name="view_mode"
+                checked={view_mode === 'week_compare'}
+                onChange={() => {
+                  const base = date_range[0] || compare_base_week || new Date().toISOString().slice(0, 10)
+                  const [s, e] = getWeekRange(base)
+                  onFiltersChange({ view_mode: 'week_compare', compare_base_week: base, compare_base_month: '', compare_week: '', compare_month: '', date_range: [s, e] })
+                }}
+              />
+              <span>주간 비교</span>
+            </label>
+            <label className="dashboard2-header__view-mode-radio">
+              <input
+                type="radio"
+                name="view_mode"
+                checked={view_mode === 'month_compare'}
+                onChange={() => {
+                  const ym = compare_base_month || (date_range[0] ? date_range[0].slice(0, 7) : new Date().toISOString().slice(0, 7))
+                  const [y, m] = ym.split('-').map(Number)
+                  const [s, e] = getMonthRange(y, m)
+                  onFiltersChange({ view_mode: 'month_compare', compare_base_week: '', compare_base_month: ym, compare_week: '', compare_month: '', date_range: [s, e] })
+                }}
+              />
+              <span>월간 비교</span>
+            </label>
           </div>
         </div>
+        <div className="dashboard2-header__date-cell">
+          <label className="dashboard2-header__date-label">
+            {view_mode === 'normal' ? '기간' : view_mode === 'week_compare' ? '기준 주(날짜)' : '기준 월'}
+          </label>
+          <div className="dashboard2-header__date-inputs">
+            {view_mode === 'normal' && (
+              <>
+                <input
+                  type="date"
+                  className="dashboard2-header__date-input"
+                  value={date_range[0] || ''}
+                  onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([e.target.value, date_range[1] || '']) })}
+                />
+                <span className="dashboard2-header__date-sep">~</span>
+                <input
+                  type="date"
+                  className="dashboard2-header__date-input"
+                  value={date_range[1] || ''}
+                  onChange={(e) => onFiltersChange({ date_range: normalizeDateRange([date_range[0] || '', e.target.value]) })}
+                />
+              </>
+            )}
+            {view_mode === 'week_compare' && (
+              <input
+                type="date"
+                className="dashboard2-header__date-input"
+                value={compare_base_week || date_range[0] || ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!v) return
+                  const [start, end] = getWeekRange(v)
+                  onFiltersChange({ compare_base_week: v, date_range: [start, end] })
+                }}
+                title="해당 주 아무 날짜 선택 시 그 주 월~일이 기준 기간으로 설정됩니다"
+              />
+            )}
+            {view_mode === 'month_compare' && (
+              <input
+                type="month"
+                className="dashboard2-header__date-input"
+                value={compare_base_month || (date_range[0] ? date_range[0].slice(0, 7) : '')}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!v) return
+                  const [y, m] = v.split('-').map(Number)
+                  const [start, end] = getMonthRange(y, m)
+                  onFiltersChange({ compare_base_month: v, date_range: [start, end] })
+                }}
+                title="기준 월 선택 시 해당 월 1일~말일이 기준 기간으로 설정됩니다"
+              />
+            )}
+          </div>
+        </div>
+        {view_mode === 'week_compare' && (
+          <div className="dashboard2-header__date-cell">
+            <label className="dashboard2-header__date-label" title="비어두면 전 주가 비교 기간으로 사용됩니다">비교 주(날짜)</label>
+            <div className="dashboard2-header__date-inputs">
+              <input
+                type="date"
+                className="dashboard2-header__date-input"
+                value={compare_week || ''}
+                onChange={(e) => onFiltersChange({ compare_week: e.target.value || '' })}
+                title="비교할 주의 아무 날짜. 비어두면 기준 주의 전 주가 사용됩니다."
+              />
+            </div>
+          </div>
+        )}
+        {view_mode === 'month_compare' && (
+          <div className="dashboard2-header__date-cell">
+            <label className="dashboard2-header__date-label" title="비어두면 전 월이 비교 기간으로 사용됩니다">비교 월</label>
+            <div className="dashboard2-header__date-inputs">
+              <input
+                type="month"
+                className="dashboard2-header__date-input"
+                value={compare_month || ''}
+                onChange={(e) => onFiltersChange({ compare_month: e.target.value || '' })}
+                title="비교할 월. 비어두면 기준 월의 전 월이 사용됩니다."
+              />
+            </div>
+          </div>
+        )}
         <button
           type="button"
           className="dashboard2-header__load-btn"

@@ -977,11 +977,11 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  border: none;
 }
 
 .aggregated-data-table__thead tr {
   background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
 }
 
 .aggregated-data-table__thead th {
@@ -989,6 +989,12 @@
   text-align: left;
   font-weight: 600;
   color: #374151;
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.aggregated-data-table__thead th:last-child {
+  border-right: none;
 }
 
 .aggregated-data-table__thead th:nth-last-child(-n+7) {
@@ -996,15 +1002,53 @@
 }
 
 .aggregated-data-table__tbody tr {
-  border-bottom: 1px solid #e5e7eb;
+  /* 행 구분은 td border-bottom으로 */
 }
 
 .aggregated-data-table__tbody td {
   padding: 10px 12px;
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.aggregated-data-table__tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.aggregated-data-table__tbody td:last-child {
+  border-right: none;
 }
 
 .aggregated-data-table__tbody td:nth-last-child(-n+7) {
   text-align: right;
+}
+
+/* rate 컬럼: 값에 비례한 가로 채우기 막대 */
+.aggregated-data-table__cell-rate {
+  vertical-align: middle;
+}
+.aggregated-data-table__cell-fill-wrap {
+  position: relative;
+  width: 100%;
+  min-height: 1.5em;
+  overflow: hidden;
+}
+.aggregated-data-table__cell-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.aggregated-data-table__cell-fill-text {
+  position: relative;
+  z-index: 1;
+  display: block;
+  text-align: right;
+  font-weight: 500;
 }
 
 .aggregated-data-table__pagination {
