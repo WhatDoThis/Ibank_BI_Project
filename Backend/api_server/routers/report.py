@@ -38,6 +38,7 @@ from fastapi.responses import JSONResponse, Response
 
 from Backend.api_server import db
 from Backend.api_server import analysis_store
+from Env.config.loader import add_allowed_table as add_allowed_table_to_config
 from Backend.api_server.relationship_inference import infer_relationships
 from Backend.api_server.dependencies import get_db, get_config
 from Backend.api_server.join_path import determine_join_order, validate_join_order
@@ -370,16 +371,26 @@ def api_join_order(body: JoinOrderRequest, conn=Depends(get_db)):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 순서 계산 실패", "join_order": [], "warnings": [], "errors": [str(e)]})
 
 
+REPORT_SAVED_TABLE_PREFIX = "test_report_"
+
+
 @router.post("/save-query-as-table")
 def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg=Depends(get_config)):
     """
     사용했던 SELECT 쿼리 결과를 지정한 이름의 테이블로 저장.
-    table_name: 영문/숫자/언더스코어만 허용 (1~128자).
+    table_name: 영문/숫자/언더스코어만 허용. test_report_ 접두사가 없으면 자동으로 붙임 (대시보드3 등에서 선택 가능).
     """
     try:
         table_name = (body.table_name or "").strip()
         if not table_name:
             return JSONResponse(status_code=400, content={"error": "테이블명을 입력하세요."})
+        if not table_name.startswith(REPORT_SAVED_TABLE_PREFIX):
+            table_name = REPORT_SAVED_TABLE_PREFIX + table_name
+        if len(table_name) > 128:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "테이블명이 너무 깁니다. (접두사 test_report_ 포함 최대 128자)"},
+            )
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{0,127}$", table_name):
             return JSONResponse(
                 status_code=400,
@@ -402,7 +413,16 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
             conn.commit()
         finally:
             cur.close()
-        return {"ok": True, "table_name": table_name, "schema": schema}
+        added, err = add_allowed_table_to_config(table_name)
+        if added:
+            try:
+                from Env import config
+                if hasattr(config, "backend") and hasattr(config.backend, "allowed_tables") and isinstance(config.backend.allowed_tables, list):
+                    if table_name not in config.backend.allowed_tables:
+                        config.backend.allowed_tables.append(table_name)
+            except Exception:
+                pass
+        return {"ok": True, "table_name": table_name, "schema": schema, "allowed_tables_updated": added}
     except psycopg2.Error as e:
         if conn:
             try:

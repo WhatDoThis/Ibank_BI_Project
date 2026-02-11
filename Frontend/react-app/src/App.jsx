@@ -23,7 +23,7 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-do
 import ReportPage from './packages/report'
 import DashboardPage from './packages/dashboard'
 import Dashboard2Page from './packages/dashboard2'
-import Dashboard3Page from './packages/dashboard3'
+import WidgetboardPage from './packages/widgetboard'
 
 /** 도메인/서브경로 적용 시 vite.config base 설정 시 자동 반영 (끝 슬래시 제거) */
 const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || ''
@@ -55,11 +55,11 @@ function AppLayout() {
           대시보드2
         </NavLink>
         <NavLink
-          to="/dashboard3"
+          to="/widgetboard"
           className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
           style={({ isActive }) => ({ color: 'white', textDecoration: 'none', opacity: isActive ? 1 : 0.85 })}
         >
-          대시보드3
+          위젯보드
         </NavLink>
       </nav>
       <main className="app-main" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
@@ -68,7 +68,7 @@ function AppLayout() {
           <Route path="/report" element={<ReportPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/dashboard2" element={<Dashboard2Page />} />
-          <Route path="/dashboard3" element={<Dashboard3Page />} />
+          <Route path="/widgetboard" element={<WidgetboardPage />} />
           <Route path="*" element={<Navigate to="/report" replace />} />
         </Routes>
       </main>

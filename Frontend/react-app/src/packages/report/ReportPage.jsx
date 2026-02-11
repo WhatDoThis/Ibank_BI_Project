@@ -672,14 +672,15 @@ export default function ReportPage() {
       showToast('warning', '테이블 이름을 입력하세요.')
       return
     }
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,127}$/.test(name)) {
-      showToast('error', '테이블명은 영문, 숫자, 언더스코어만 사용 가능합니다. (최대 128자)')
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,116}$/.test(name)) {
+      showToast('error', '테이블명은 영문, 숫자, 언더스코어만 사용 가능합니다. (저장 시 test_report_ 가 붙어 최대 116자)')
       return
     }
     setSaveAsTableSubmitting(true)
     try {
       await saveQueryAsTable(name, executedSql)
-      showToast('success', `테이블 "${name}"이(가) 생성되었습니다.`)
+      const actualName = name.startsWith('test_report_') ? name : `test_report_${name}`
+      showToast('success', `테이블 "${actualName}"이(가) 생성되었습니다.`)
       setShowSaveAsTableModal(false)
       setSaveAsTableName('')
     } catch (e) {
@@ -813,7 +814,7 @@ export default function ReportPage() {
               <button type="button" className="relationship-diagram-close" onClick={() => !saveAsTableSubmitting && setShowSaveAsTableModal(false)} aria-label="닫기">×</button>
             </div>
             <div className="relationship-diagram-body">
-              <p className="save-as-table-caption">실행했던 쿼리 결과가 지정한 이름의 테이블로 생성됩니다.</p>
+              <p className="save-as-table-caption">실행했던 쿼리 결과가 지정한 이름의 테이블로 생성됩니다. 저장 시 <strong>test_report_</strong> 접두사가 자동으로 붙습니다.</p>
               <label className="save-as-table-label">
                 테이블 이름 (영문, 숫자, 언더스코어)
                 <input
@@ -821,7 +822,7 @@ export default function ReportPage() {
                   className="save-as-table-input"
                   value={saveAsTableName}
                   onChange={(e) => setSaveAsTableName(e.target.value)}
-                  placeholder="예: my_report_202501"
+                  placeholder="예: my_report_202501 → test_report_my_report_202501"
                   disabled={saveAsTableSubmitting}
                   autoFocus
                 />
