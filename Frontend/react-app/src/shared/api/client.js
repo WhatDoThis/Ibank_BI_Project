@@ -78,9 +78,14 @@ export async function executeQuery(query) {
   return request('POST', '/api/execute-query', { query });
 }
 
-/** POST /api/save-query-as-table - 실행한 쿼리 결과를 지정한 이름의 테이블로 저장 */
+/** POST /api/save-query-as-table - 쿼리 결과를 테이블로 저장 (큐 등록, 백그라운드 실행). 반환: job_id, status: "queued" */
 export async function saveQueryAsTable(tableName, query) {
   return request('POST', '/api/save-query-as-table', { table_name: tableName, query });
+}
+
+/** GET /api/save-query-as-table/status/:job_id - 백그라운드 저장 작업 상태 */
+export async function getSaveQueryAsTableStatus(jobId) {
+  return request('GET', `/api/save-query-as-table/status/${encodeURIComponent(jobId)}`);
 }
 
 /** POST /api/explain-sql - SQL 해석 (Claude) */

@@ -20,7 +20,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
 import { getApiBase } from '@/shared/config/api'
-import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable } from '@/shared/api/client'
+import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
 import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils/safetyCheck'
@@ -678,13 +678,36 @@ export default function ReportPage() {
     }
     setSaveAsTableSubmitting(true)
     try {
-      await saveQueryAsTable(name, executedSql)
-      const actualName = name.startsWith('test_report_') ? name : `test_report_${name}`
-      showToast('success', `테이블 "${actualName}"이(가) 생성되었습니다.`)
+      const res = await saveQueryAsTable(name, executedSql)
       setShowSaveAsTableModal(false)
       setSaveAsTableName('')
+      showToast('success', res.message || '저장이 대기열에 등록되었습니다. 백그라운드에서 처리됩니다.')
+      const jobId = res.job_id
+      if (jobId) {
+        const maxPolls = 60
+        let polls = 0
+        const interval = setInterval(async () => {
+          polls += 1
+          if (polls > maxPolls) {
+            clearInterval(interval)
+            return
+          }
+          try {
+            const statusRes = await getSaveQueryAsTableStatus(jobId)
+            if (statusRes.status === 'completed') {
+              clearInterval(interval)
+              showToast('success', `테이블 "${statusRes.table_name || name}"이(가) 생성되었습니다.`)
+            } else if (statusRes.status === 'failed') {
+              clearInterval(interval)
+              showToast('error', statusRes.error || '테이블 저장 실패')
+            }
+          } catch {
+            // ignore poll errors
+          }
+        }, 2000)
+      }
     } catch (e) {
-      showToast('error', e.message || '테이블 저장 실패')
+      showToast('error', e.message || '테이블 저장 요청 실패')
     } finally {
       setSaveAsTableSubmitting(false)
     }

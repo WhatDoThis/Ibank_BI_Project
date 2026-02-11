@@ -25,7 +25,10 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 import json
 import re
+import threading
+import time
 import traceback
+import uuid
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -373,12 +376,173 @@ def api_join_order(body: JoinOrderRequest, conn=Depends(get_db)):
 
 REPORT_SAVED_TABLE_PREFIX = "test_report_"
 
+# ---------- 큐 테이블 기반 저장 (report_save_queue) ----------
+REPORT_SAVE_QUEUE_TABLE = "report_save_queue"
+_worker_poll_interval = 3
+
+
+def _ensure_queue_table(conn):
+    """큐 테이블이 없으면 생성 (allowed_tables와 무관, 내부용)."""
+    schema = db.get_table_schema()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            pg_sql.SQL("""
+                CREATE TABLE IF NOT EXISTS {schema_table} (
+                    id UUID PRIMARY KEY,
+                    table_name VARCHAR(255) NOT NULL,
+                    query TEXT NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'queued',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    started_at TIMESTAMPTZ,
+                    completed_at TIMESTAMPTZ,
+                    error TEXT,
+                    result_table_name VARCHAR(255)
+                )
+            """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
+        conn.commit()
+    finally:
+        cur.close()
+
+
+def _save_table_worker():
+    """큐 테이블에서 status='queued'인 행을 확인해 하나씩 CREATE TABLE 실행."""
+    from Env import config as env_config
+    while True:
+        conn_sel = None
+        conn_create = None
+        try:
+            conn_sel = db.get_db_connection()
+            _ensure_queue_table(conn_sel)
+            schema = db.get_table_schema()
+            cur = conn_sel.cursor()
+            cur.execute(
+                pg_sql.SQL("""
+                    SELECT id, table_name, query
+                    FROM {schema_table}
+                    WHERE status = 'queued'
+                    ORDER BY created_at
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
+            )
+            row = cur.fetchone()
+            cur.close()
+            if not row:
+                conn_sel.close()
+                time.sleep(_worker_poll_interval)
+                continue
+            job_id = str(row["id"])
+            table_name = row["table_name"]
+            query = row["query"]
+            cur = conn_sel.cursor()
+            cur.execute(
+                pg_sql.SQL("UPDATE {schema_table} SET status = 'running', started_at = NOW() WHERE id = %s").format(
+                    schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)
+                ),
+                (job_id,),
+            )
+            conn_sel.commit()
+            cur.close()
+            conn_sel.close()
+            conn_sel = None
+
+            timeout = int(getattr(env_config.backend, "query_timeout_seconds", None) or 120)
+            conn_create = db.get_db_connection()
+            cur_create = conn_create.cursor()
+            try:
+                cur_create.execute(f"SET statement_timeout = '{timeout}s'")
+                cur_create.execute(pg_sql.SQL("CREATE TABLE {} AS ({})").format(pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)))
+                conn_create.commit()
+                cur_create.close()
+                conn_create.close()
+                conn_create = None
+                added, _ = add_allowed_table_to_config(table_name)
+                if added:
+                    try:
+                        from Env import config
+                        if hasattr(config, "backend") and hasattr(config.backend, "allowed_tables") and isinstance(config.backend.allowed_tables, list):
+                            if table_name not in config.backend.allowed_tables:
+                                config.backend.allowed_tables.append(table_name)
+                    except Exception:
+                        pass
+                conn_up = db.get_db_connection()
+                cur_up = conn_up.cursor()
+                cur_up.execute(
+                    pg_sql.SQL("""
+                        UPDATE {schema_table}
+                        SET status = 'completed', completed_at = NOW(), result_table_name = %s
+                        WHERE id = %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (table_name, job_id),
+                )
+                conn_up.commit()
+                cur_up.close()
+                conn_up.close()
+            except psycopg2.Error as e:
+                if conn_create:
+                    try:
+                        conn_create.rollback()
+                        conn_create.close()
+                    except Exception:
+                        pass
+                    conn_create = None
+                conn_up = db.get_db_connection()
+                cur_up = conn_up.cursor()
+                cur_up.execute(
+                    pg_sql.SQL("""
+                        UPDATE {schema_table}
+                        SET status = 'failed', completed_at = NOW(), error = %s
+                        WHERE id = %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (str(e), job_id),
+                )
+                conn_up.commit()
+                cur_up.close()
+                conn_up.close()
+            except Exception as e:
+                traceback.print_exc()
+                if conn_create:
+                    try:
+                        conn_create.close()
+                    except Exception:
+                        pass
+                conn_up = db.get_db_connection()
+                cur_up = conn_up.cursor()
+                cur_up.execute(
+                    pg_sql.SQL("""
+                        UPDATE {schema_table}
+                        SET status = 'failed', completed_at = NOW(), error = %s
+                        WHERE id = %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (str(e), job_id),
+                )
+                conn_up.commit()
+                cur_up.close()
+                conn_up.close()
+        except Exception as e:
+            traceback.print_exc()
+            if conn_sel:
+                try:
+                    conn_sel.close()
+                except Exception:
+                    pass
+            if conn_create:
+                try:
+                    conn_create.close()
+                except Exception:
+                    pass
+        time.sleep(0.5)
+
+
+_save_table_worker_thread = threading.Thread(target=_save_table_worker, daemon=True)
+_save_table_worker_thread.start()
+
 
 @router.post("/save-query-as-table")
 def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg=Depends(get_config)):
     """
-    사용했던 SELECT 쿼리 결과를 지정한 이름의 테이블로 저장.
-    table_name: 영문/숫자/언더스코어만 허용. test_report_ 접두사가 없으면 자동으로 붙임 (대시보드3 등에서 선택 가능).
+    쿼리 결과를 테이블로 저장. 요청은 큐 테이블(report_save_queue)에 INSERT 후 즉시 반환. 워커가 큐를 확인해 CREATE TABLE 실행.
     """
     try:
         table_name = (body.table_name or "").strip()
@@ -404,35 +568,70 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
         dangerous = _contains_dangerous_sql(query)
         if dangerous:
             return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
+
+        _ensure_queue_table(conn)
+        job_id = uuid.uuid4()
         schema = db.get_table_schema()
-        timeout = int(getattr(cfg, "query_timeout_seconds", None) or 120)
         cur = conn.cursor()
         try:
-            cur.execute(f"SET statement_timeout = '{timeout}s'")
-            cur.execute(pg_sql.SQL("CREATE TABLE {} AS ({})").format(pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)))
+            cur.execute(
+                pg_sql.SQL("""
+                    INSERT INTO {schema_table} (id, table_name, query, status)
+                    VALUES (%s, %s, %s, 'queued')
+                """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                (job_id, table_name, query),
+            )
             conn.commit()
         finally:
             cur.close()
-        added, err = add_allowed_table_to_config(table_name)
-        if added:
-            try:
-                from Env import config
-                if hasattr(config, "backend") and hasattr(config.backend, "allowed_tables") and isinstance(config.backend.allowed_tables, list):
-                    if table_name not in config.backend.allowed_tables:
-                        config.backend.allowed_tables.append(table_name)
-            except Exception:
-                pass
-        return {"ok": True, "table_name": table_name, "schema": schema, "allowed_tables_updated": added}
-    except psycopg2.Error as e:
+        return {
+            "ok": True,
+            "job_id": str(job_id),
+            "status": "queued",
+            "message": "저장이 큐 테이블에 등록되었습니다. 백그라운드에서 순서대로 처리됩니다.",
+        }
+    except Exception as e:
+        traceback.print_exc()
         if conn:
             try:
                 conn.rollback()
             except Exception:
                 pass
-        return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 생성 실패"})
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "저장 요청 실패"})
+
+
+@router.get("/save-query-as-table/status/{job_id}")
+def save_query_as_table_status(job_id: str, conn=Depends(get_db)):
+    """백그라운드 저장 작업 상태 조회 (큐 테이블에서 조회)."""
+    try:
+        _ensure_queue_table(conn)
+        schema = db.get_table_schema()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                pg_sql.SQL("""
+                    SELECT id, status, table_name, result_table_name, error, created_at, started_at, completed_at
+                    FROM {schema_table}
+                    WHERE id = %s
+                """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                (job_id,),
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "해당 job_id를 찾을 수 없습니다."})
+        return {
+            "job_id": job_id,
+            "status": row.get("status", "unknown"),
+            "table_name": row.get("result_table_name") or row.get("table_name"),
+            "error": row.get("error"),
+            "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+            "completed_at": row.get("completed_at").isoformat() if row.get("completed_at") else None,
+        }
     except Exception as e:
         traceback.print_exc()
-        return JSONResponse(status_code=500, content={"error": str(e), "message": "저장 실패"})
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "상태 조회 실패"})
 
 
 @router.post("/execute-query")
