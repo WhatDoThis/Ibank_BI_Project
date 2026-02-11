@@ -400,6 +400,7 @@ def _ensure_queue_table(conn):
                     result_table_name VARCHAR(255)
                 )
             """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
+        )
         conn.commit()
     finally:
         cur.close()
@@ -579,7 +580,7 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
                     INSERT INTO {schema_table} (id, table_name, query, status)
                     VALUES (%s, %s, %s, 'queued')
                 """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
-                (job_id, table_name, query),
+                (str(job_id), table_name, query),
             )
             conn.commit()
         finally:
