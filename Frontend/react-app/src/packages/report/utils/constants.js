@@ -1,9 +1,18 @@
 /**
  * report/utils/constants.js (리포트 쿼리 빌더 상수)
  * =================================================
- * WHERE/HAVING 연산자 한글 라벨, 집계 함수 목록(AGG_FUNCTIONS).
+ * WHERE/HAVING 연산자 한글 라벨(OPERATOR_LABELS), 집계 함수 목록(AGG_FUNCTIONS).
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - (상수만 export, 함수 없음)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - OPERATOR_LABELS, AGG_FUNCTIONS (export)
+ *
+ * [Dependencies]
+ * =========
  * - 없음
  */
 

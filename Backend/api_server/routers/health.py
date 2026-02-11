@@ -1,7 +1,23 @@
 """
 Backend.api_server.routers.health (헬스·루트·API 안내)
 =====================================================
-FastAPI 라우터. GET /health (DB 연결 확인), GET /, GET /api, GET /api/ (API 안내).
+FastAPI 라우터. DB 연결 확인·루트·API 엔드포인트 목록 안내. tags=["health"].
+
+[Main Functions]
+===========
+- health_check: GET /health (DB SELECT 1 포함)
+- index: GET / (루트 안내)
+- api_index: GET /api, GET /api/ (엔드포인트 목록 JSON, 리포트·대시보드1·대시보드2 포함)
+
+[Endpoints/Classes/Functions]
+=======================
+- GET /health: 헬스체크 (db 연결 확인)
+- GET /, GET /api, GET /api/: API 안내·엔드포인트 목록
+
+[Dependencies]
+=========
+- Backend.api_server.db, Backend.api_server.dependencies.get_db
+- fastapi
 """
 
 from fastapi import APIRouter, Depends
@@ -63,5 +79,10 @@ def api_index():
             "GET  /api/dashboard/tables",
             "GET  /api/dashboard/required-columns",
             "POST /api/dashboard/chart-data",
+            "POST /api/dashboard2/data",
+            "GET  /api/dashboard2/filter-options/<table_id>",
+            "GET  /api/dashboard2/tables",
+            "GET  /api/dashboard2/required-columns",
+            "POST /api/dashboard2/chart-data",
         ],
     }

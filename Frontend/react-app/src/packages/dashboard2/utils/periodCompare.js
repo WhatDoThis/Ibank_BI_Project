@@ -1,17 +1,22 @@
 /**
  * dashboard2/utils/periodCompare.js (주간/월간 비교 기간 계산)
  * =============================================================
- * 주간(월~일)·월간 기준 기간·이전 주/이전 월 [시작일, 종료일] 계산. docs/report/05_대시보드2_주간월간_비교리포팅_플랜.md Phase 1.
+ * 주간(월~일)·월간 [시작일, 종료일] 계산. ISO 주(월요일=주 시작)·달력 월 1일~말일.
  *
- * [주요 함수]
- * - getWeekRange: 해당 주 월요일~일요일 [start, end] (YYYY-MM-DD)
- * - getPreviousWeekRange: 이전 주 [start, end]
- * - getMonthRange: 해당 월 1일~말일 [start, end]
- * - getPreviousMonthRange: 이전 월 [start, end]
+ * [Main Functions]
+ * ===========
+ * - getWeekRange(anchorDate): 해당 주 월요일~일요일 [start, end] (YYYY-MM-DD)
+ * - getPreviousWeekRange(anchorDate): 이전 주 [start, end]
+ * - getMonthRange(year, month): 해당 월 1일~말일 [start, end]
+ * - getPreviousMonthRange(year, month): 이전 월 [start, end]
  *
- * [규칙]
- * - 주: ISO 8601 (월요일=주 시작). anchorDate가 속한 주의 월~일.
- * - 월: 달력 월 1일~말일.
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange (export)
+ *
+ * [Dependencies]
+ * =========
+ * - 없음 (표준 Date)
  */
 
 /** YYYY-MM-DD 문자열로 포맷 (로컬 날짜) */

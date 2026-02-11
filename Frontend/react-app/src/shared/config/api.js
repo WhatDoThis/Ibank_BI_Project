@@ -1,14 +1,19 @@
 /**
  * shared/config/api.js (API 기본 URL 설정)
  * =========================================
- * React(Vite) 프론트엔드에서 FastAPI 백엔드 base URL 제공.
- * Env/config/config.json frontend.api_base_url 사용. 정적 서빙 시 window.APP_CONFIG.apiBaseUrl, Vite 시 VITE_API_BASE 주입.
+ * FastAPI 백엔드 base URL 제공. 정적 서빙 시 window.APP_CONFIG.apiBaseUrl, Vite 시 VITE_API_BASE.
  *
- * [주요 기능]
- * - getApiBase(): Backend API 기본 URL 반환
+ * [Main Functions]
+ * ===========
+ * - getApiBase(): Backend API 기본 URL 반환 (window.APP_CONFIG?.apiBaseUrl || DEFAULT_API_BASE)
  *
- * [의존성]
- * - 없음 (브라우저 window 또는 Vite define 주입 또는 기본값)
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - getApiBase (export)
+ *
+ * [Dependencies]
+ * =========
+ * - 없음 (브라우저 window 또는 Vite import.meta.env.VITE_API_BASE, 기본값 http://localhost:5001)
  */
 
 // Vite define(vite.config)로 Env/config/config.json frontend.api_base_url 주입. 없으면 기본값

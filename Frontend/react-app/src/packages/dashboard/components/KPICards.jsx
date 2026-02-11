@@ -1,10 +1,18 @@
 /**
  * dashboard/components/KPICards.jsx (KPI 카드)
  * ============================================
- * 대시보드 KPI를 카드 형태로 시각화. 캠페인 수·워크플로우 수·채널 수, 발송/성공/실패/오픈/클릭 + 성공률/실패률/오픈률/클릭률.
- * 표시할 지표 선택: 접이식 체크박스, localStorage(storageKey) 저장.
+ * KPI 카드 시각화. 캠페인/워크플로우/채널 수·발송/성공/실패/오픈/클릭·성공률/실패률/오픈률/클릭률. 표시 지표 선택(접이식, localStorage).
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - KPICards: kpi, targetStatusByKey, storageKey. ALL_KPI_KEYS 순서·CARD_CONFIG. rate 00.00% 포맷·목표 대비 신호등(달성/주의/미달)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - KPICards (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

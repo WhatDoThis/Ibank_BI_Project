@@ -1,10 +1,19 @@
 /**
  * dashboard2/components/ChannelDonutCharts2.jsx (채널별 도넛 차트)
  * ==================================================================
- * 대시보드2 전용. KPI channel_distribution 도넛 시각화. 클래스명 dashboard2-*.
+ * 대시보드2 KPI channel_distribution 도넛. 발송 요청·발송 성공 채널별 비중. 클래스명 dashboard2-*.
  *
- * [의존성]
- * - React, recharts
+ * [Main Functions]
+ * ===========
+ * - ChannelDonutCharts2: kpi prop. DonutBlock(send·success). PieChart (Recharts)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - ChannelDonutCharts2 (default export)
+ *
+ * [Dependencies]
+ * =========
+ * - React, recharts (PieChart, Pie, Cell, Legend, ResponsiveContainer, Tooltip)
  */
 
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer, Tooltip } from 'recharts'

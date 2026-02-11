@@ -18,7 +18,7 @@
 | 2 | **dashboard_service.py** | db. 비즈니스 로직만 |
 | 3 | **dependencies.py** | get_db, get_config (요청 단위 주입) |
 | 4 | **schemas.py** | Pydantic 요청 스키마 (POST 바디 검증) |
-| 5 | **routers/** | health(/, /api, /health), report(/api/*), dashboard(/api/dashboard/*). API 핸들러 |
+| 5 | **routers/** | health(/, /api, /health), report(/api/*), dashboard(/api/dashboard/*), dashboard2(/api/dashboard2/*). API 핸들러 |
 | 6 | **main.py** | FastAPI, CORS, 라우터 등록, config.backend, uvicorn |
 
 ### 1.2 설정 로드 방식 (유지)
@@ -45,14 +45,19 @@
 | POST | /api/explain-sql | Claude SQL 해석 |
 | POST | /api/get-column-values | 컬럼 고유값 |
 | POST | /api/query-stats | 쿼리 통계 |
-| POST | /api/dashboard/data | 대시보드 집계 |
-| GET | /api/dashboard/filter-options/{table_id} | 필터 옵션 |
-| GET | /api/dashboard/tables | 대시보드 테이블 목록 |
-| GET | /api/dashboard/required-columns | 필수 컬럼 |
-| POST | /api/dashboard/chart-data | 차트 데이터 (단일 디멘션·메트릭, LIMIT 없음·전건 반환) |
+| POST | /api/dashboard/data | 대시보드1 집계 |
+| GET | /api/dashboard/filter-options/{table_id} | 대시보드1 필터 옵션 |
+| GET | /api/dashboard/tables | 대시보드1 테이블 목록 |
+| GET | /api/dashboard/required-columns | 대시보드1 필수 컬럼 |
+| POST | /api/dashboard/chart-data | 대시보드1 차트 데이터 (단일 디멘션·메트릭, LIMIT 없음·전건 반환) |
+| POST | /api/dashboard2/data | 대시보드2 집계·KPI |
+| GET | /api/dashboard2/filter-options/{table_id} | 대시보드2 필터 옵션 |
+| GET | /api/dashboard2/tables | 대시보드2 테이블 목록 |
+| GET | /api/dashboard2/required-columns | 대시보드2 필수 컬럼 |
+| POST | /api/dashboard2/chart-data | 대시보드2 차트 데이터 |
 
 - **요청/응답 형식**: 기존과 동일 유지 (JSON, 상태 코드, 에러 메시지 키). 프론트 수정 없음.
-- **라우터 구분**: health(prefix 없음), report(prefix=/api), dashboard(prefix=/api/dashboard).
+- **라우터 구분**: health(prefix 없음), report(prefix=/api), dashboard(prefix=/api/dashboard), **dashboard2**(prefix=/api/dashboard2).
 
 ---
 
@@ -87,7 +92,7 @@
 
 ### Phase 3: routes.py → FastAPI 라우터 전환 (완료)
 - **목표**: Flask 데코레이터·request/jsonify 제거 후 FastAPI `APIRouter`·의존성·응답으로 동일 API 제공.
-- **현재 구조**: `Backend/api_server/routers/` — health.py(/, /api, /health), report.py(prefix=/api), dashboard.py(prefix=/api/dashboard). dependencies.py(get_db, get_config), schemas.py(Pydantic).
+- **현재 구조**: `Backend/api_server/routers/` — health.py(/, /api, /health), report.py(prefix=/api), dashboard.py(prefix=/api/dashboard), **dashboard2.py**(prefix=/api/dashboard2). dependencies.py(get_db, get_config), schemas.py(Pydantic).
 - **엔드포인트**: POST는 Pydantic 모델 또는 Body/Query. 응답은 dict 또는 JSONResponse. 금지 SQL 검사는 report 라우터.
 - **산출물**: routes.py 삭제, routers/·dependencies·schemas 적용 완료.
 

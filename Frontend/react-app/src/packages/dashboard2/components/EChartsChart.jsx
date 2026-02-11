@@ -1,16 +1,20 @@
 /**
- * dashboard2/components/EChartsChart.jsx (ECharts 템플릿 차트)
- * =============================================================
- * aggregated_data를 ECharts API로 시각화. 템플릿별 bar/line 옵션 구성.
+ * dashboard2/components/EChartsChart.jsx (ECharts 템플릿·커스텀 차트)
+ * ===================================================================
+ * aggregated_data 또는 customChartData를 ECharts로 시각화. 템플릿 bar/line·커스텀(위젯) Dimension/Metric/차트 유형. rate형 Y축·툴팁 소수점 둘째자리.
  *
- * [주요 기능]
- * - 템플릿 ID에 따라 xAxis/series 옵션 생성 (일자 또는 복합 라벨, 메트릭 시리즈)
- * - 막대: Y축 항상 0부터(막대 길이 직관 유지). 선형: 좁은 구간 시 Y축 데이터 구간 확대. 막대 복수 메트릭 시 스택, 카테고리 많을 때 dataZoom
- * - X축 레이블 검색: 카테고리 10개 초과 시 검색 입력 + 찾기/다음으로 해당 구간으로 dataZoom 이동
- * - echarts.init / setOption / resize / dispose 로 라이프사이클 관리
+ * [Main Functions]
+ * ===========
+ * - buildOption: 템플릿 기반 xAxis/series. buildOptionFromCustom: chartData, metricLabel, chartType, metricKey. RATE_METRIC_KEYS 시 formatValue 소수 둘째자리
+ * - X축 레이블 검색(카테고리 10건 초과): 찾기/다음 dataZoom. computeYAxisBounds, computeDataZoomRange
  *
- * [의존성]
- * - React (useRef, useEffect), echarts
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - EChartsChart (default export). CHART_TEMPLATES (export)
+ *
+ * [Dependencies]
+ * =========
+ * - React (useRef, useEffect, useMemo, useState, useCallback), echarts
  */
 
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react'

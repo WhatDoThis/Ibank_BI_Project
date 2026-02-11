@@ -1,14 +1,21 @@
 /**
  * report/utils/sqlBuilder.js (SQL 생성 유틸)
  * ===========================================
- * 리포트 쿼리 빌더 전용. SELECT/JOIN/WHERE/GROUP BY/HAVING/ORDER BY/LIMIT 생성.
+ * 리포트 쿼리 빌더 전용. SELECT/JOIN/WHERE/GROUP BY/HAVING/ORDER BY/LIMIT 생성. 별칭 t1, t2 사용.
  *
- * [주요 함수]
- * - getJoinKey: 테이블 관계로 JOIN 키 반환
- * - generateSQL: 전체 SELECT 쿼리 (피벗·날짜단위·집계 지원)
+ * [Main Functions]
+ * ===========
+ * - getJoinKey: tableRelationships에서 prevTable-currTable JOIN 키(prevColumn, currColumn) 반환
+ * - generateSQL: 전체 SELECT 쿼리 (joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs)
  * - generateCountSQL: COUNT(*) 쿼리 (GROUP BY 시 서브쿼리)
+ * - generateDistinctPivotSQL: 피벗 시 고유 건수용
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - getJoinKey, generateSQL, generateCountSQL, generateDistinctPivotSQL (export)
+ *
+ * [Dependencies]
+ * =========
  * - 없음
  */
 

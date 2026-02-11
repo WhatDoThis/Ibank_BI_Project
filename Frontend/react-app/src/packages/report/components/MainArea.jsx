@@ -1,10 +1,19 @@
 /**
  * report/components/MainArea.jsx (리포트 페이지 메인 영역)
  * =======================================================
- * 그리드·드롭·기준축/피벗/행별집계/HAVING/조건/정렬·페이지네이션·SQL 패널.
+ * 그리드·드롭 존·기준축/피벗/HAVING/조건/정렬·페이지네이션·SQL 패널·해석·JOIN 설정 UI·관계 다이어그램.
  *
- * [의존성]
- * - React, report/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), report/utils/helpers (isDateColumn, isDateType, isDateTimeType)
+ * [Main Functions]
+ * ===========
+ * - MainArea: gridColumns, addedTables, joinOrder, relationshipOptions, joinConditions, joinTypes, resultData, executedSql, explanation, pagination 등 props. buildRelationshipTree, buildRelationshipMermaid(relationshipDiagram)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - MainArea (default export)
+ *
+ * [Dependencies]
+ * =========
+ * - React, report/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), report/utils/helpers (isDateColumn, isDateType, isDateTimeType), report/utils/relationshipDiagram (buildRelationshipTree, buildRelationshipMermaid)
  */
 
 import { useState, useEffect } from 'react'

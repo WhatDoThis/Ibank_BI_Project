@@ -1,10 +1,19 @@
 /**
  * dashboard2/components/AggregatedBarChart2.jsx (집계 막대 차트)
  * ==============================================================
- * 대시보드2 전용. aggregated_data 막대 차트. 클래스명 dashboard2-*.
+ * 대시보드2 aggregated_data 막대 차트. 기준별 발송 요청·발송 성공. 상위 10건(success_count). 클래스명 dashboard2-*.
  *
- * [의존성]
- * - React, recharts
+ * [Main Functions]
+ * ===========
+ * - AggregatedBarChart2: data, groupBy. getCompositeXLabel, total_count·success_count 막대 (Recharts BarChart)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - AggregatedBarChart2 (default export)
+ *
+ * [Dependencies]
+ * =========
+ * - React, recharts (BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer)
  */
 
 import {

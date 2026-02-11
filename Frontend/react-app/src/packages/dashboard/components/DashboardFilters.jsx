@@ -1,13 +1,18 @@
 /**
  * dashboard/components/DashboardFilters.jsx (대시보드 필터)
  * ==========================================================
- * 집계 기준(GROUP BY)·날짜·캠페인·워크플로우·채널 필터 UI.
+ * 집계 기준(group_by)·기간(date_range)·캠페인·워크플로우·채널 필터 UI.
  *
- * [주요 기능]
- * - group_by: 캠페인별/일자별/워크플로우별/채널별 체크
- * - date_range, campaign_ids, workflow_ids, channels
+ * [Main Functions]
+ * ===========
+ * - DashboardFilters: filters, onFiltersChange. group_by 체크박스, date_range 입력, campaign_ids/workflow_ids/channels 멀티 셀렉트
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - DashboardFilters (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React, @/shared/utils/dateRange (normalizeDateRange)
  */
 

@@ -1,14 +1,18 @@
 /**
  * dashboard/components/ChartWidget2.jsx (위젯 생성 beta)
  * ======================================================
- * 위젯 생성 확장판. 막대/선/영역 + 파이/도넛/레이더/산점도.
- * BI·리포트 레퍼런스 기반 다중 위젯 타입 지원(Recharts Pie, Radar, Scatter).
+ * Dimension·Metric·차트 유형(막대/선/영역/파이/도넛/레이더/산점도). getChartData API. Y축-플롯 세로 길이 일치·레이더 내부 링만 틱.
  *
- * [주요 기능]
- * - 기존: Dimension·Metric·막대/선/영역, API·로컬 데이터, X축 검색.
- * - beta: 파이·도넛(비율), 레이더(다축 비교, Recharts 기본 PolarAngleAxis/PolarRadiusAxis + domain), 산점도(분포).
+ * [Main Functions]
+ * ===========
+ * - ChartWidget2: 위젯 추가/삭제/편집, Dimension·Metric·차트 유형. 막대/선/영역: Y축 고정·가로 스크롤. 파이/도넛/레이더/산점도. 레이더: domain·내부 링만 수치·각도 분산
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - ChartWidget2 (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React, recharts, shared/api/client (getChartData)
  */
 

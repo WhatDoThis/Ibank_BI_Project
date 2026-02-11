@@ -1,9 +1,18 @@
 /**
  * report/components/Sidebar.jsx (리포트 페이지 사이드바)
  * =====================================================
- * DB 상태, 테이블 목록(JOIN 가능만 활성화), 검색, 펼치기/접기, 컬럼 드래그.
+ * DB 상태·테이블 목록(JOIN 가능만 노출)·검색·펼치기/접기·컬럼 드래그.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. onColumnDragStart 데이터 전달
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - Sidebar (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React, report/utils/joinRules (isTableAvailableOrViaParent)
  */
 

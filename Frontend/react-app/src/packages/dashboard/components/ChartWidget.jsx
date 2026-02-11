@@ -1,16 +1,18 @@
 /**
  * dashboard/components/ChartWidget.jsx (위젯 생성)
  * ===============================================
- * Dimension(축)·Metric(값)·차트 유형 선택으로 막대/선/영역 위젯 생성.
- * 차트 데이터는 별도 API(getChartData)로 단일 디멘션·메트릭 집계 조회(Adobe/GA 방식). tableId·filters 있으면 API 사용, 없으면 data prop 폴백.
- * Dimension: 집계 체크박스 기준. Metric: 실수형 지표만. Y축: Chart.js 스타일 Nice Numbers (niceNum·calculateYAxisScale·선형/영역·막대 전용).
+ * Dimension·Metric·차트 유형(막대/선/영역) 선택. getChartData API 또는 data prop. Y축 Nice Numbers·X축 검색(찾기/다음).
  *
- * [주요 기능]
- * - 위젯 추가/삭제, Dimension·Metric·차트 유형 선택. 차트 포맷은 기준별 발송 현황과 동일.
- * - 막대·선형·영역 공통: 범례·Y축 고정 + 오른쪽만 가로 스크롤, X축 minWidth(LABEL_SLOT_WIDTH×건수)·XAxisTickTruncate로 레이블 겹침/잘림 방지. 차트 영역 max-width 1200px. 스크롤 영역 차트에는 domain 적용을 위해 숨김 YAxis 사용.
- * - X축 레이블 검색: 데이터 10건 초과 시 검색 입력 + 찾기/다음으로 해당 구간으로 스크롤 이동.
+ * [Main Functions]
+ * ===========
+ * - ChartWidget: tableId, filters, data. 위젯 추가/삭제, Dimension·Metric·차트 유형. Y축 고정·가로 스크롤·XAxisTickTruncate. X축 레이블 검색(10건 초과 시)
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - ChartWidget (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React, recharts, shared/api/client (getChartData)
  */
 

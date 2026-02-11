@@ -1,14 +1,21 @@
 /**
  * report/utils/joinRules.js (조인 규칙·테이블 추가 가능 여부)
  * ===========================================================
- * 리포트 쿼리 빌더. 부모 테이블 없이 n:n 자동 추가 방지.
+ * 리포트 쿼리 빌더. 직접 관계·중간 부모 끼워 넣기·사이드바 노출 여부. relationshipOptions 기반.
  *
- * [주요 함수]
- * - canAddTableByColumn: 컬럼 추가 시 해당 테이블을 addedTables에 넣어도 되는지
- * - findIntermediateParent: 같은 부모_id 쓰는 두 테이블일 때 끼워 넣을 부모 테이블
- * - isTableAvailable: 사이드바/드롭다운에 테이블 선택 가능 여부
+ * [Main Functions]
+ * ===========
+ * - canAddTableByColumn: addedTables, newTable, relationshipOptions → 새 테이블 추가 허용 여부 (직접 관계만)
+ * - findIntermediateParent: lastTable, newTable, relationshipOptions → 끼워 넣을 부모 테이블명 (같은 부모_id)
+ * - isTableAvailable: 테이블 단독 노출 여부 (직접 조인 가능한 경우만)
+ * - isTableAvailableOrViaParent: addedTables 기준으로 직접 또는 같은 부모 경로로 노출 여부 (Sidebar용)
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - canAddTableByColumn, findIntermediateParent, isTableAvailable, isTableAvailableOrViaParent (export)
+ *
+ * [Dependencies]
+ * =========
  * - 없음
  */
 

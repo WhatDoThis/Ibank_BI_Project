@@ -1,10 +1,19 @@
 /**
  * dashboard2/components/AggregatedDataTable2.jsx (집계 데이터 테이블)
  * ===================================================================
- * 대시보드2 전용. GROUP BY 기준 집계 테이블, 페이징.
- * 테이블 필터: 컬럼 선택 + 연산자(같다/같지않다/포함/보다 큼/이상/보다 작음/이하) + 값, 다중 조건(AND) + 필터 추가.
+ * 대시보드2 집계 테이블. 페이징·검색·필터. 컬럼 순서 발송요청→발송성공→성공률→오픈→클릭→오픈률→클릭률. rate 셀 채우기 막대·내부 테두리.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - getColumnOptions, getCellValue, rowMatchesFilters. ThWithDef(TABLE_HEADER_DEFINITIONS 툴팁), formatNum, formatRate. 정렬·페이징·필터
+ * - rate 컬럼: cell-fill-wrap·cell-fill(width: value%)·cell-fill-text
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - AggregatedDataTable2 (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

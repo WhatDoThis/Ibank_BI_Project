@@ -1,14 +1,21 @@
 /**
  * shared/api/client.js (Backend API 클라이언트)
  * =============================================
- * FastAPI 백엔드 호출용 fetch 래퍼. shared/config/api.getApiBase() 사용.
+ * FastAPI 백엔드 호출용 fetch 래퍼. request(method, path, body), getApiBase() 사용.
  *
- * [주요 기능]
+ * [Main Functions]
+ * ===========
+ * - request: method, path, body로 JSON 요청·파싱 (에러 시 Error 객체 throw)
  * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats (리포트)
  * - getDashboardTables, getDashboardFilterOptions, getDashboardData, getDashboardRequiredColumns, getChartData (대시보드1)
  * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2)
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - GET /health, GET/POST /api/* (list-tables, describe-table, execute-query, explain-sql 등), /api/dashboard/*, /api/dashboard2/*
+ *
+ * [Dependencies]
+ * =========
  * - shared/config/api (getApiBase)
  */
 

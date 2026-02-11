@@ -1,9 +1,18 @@
 /**
  * dashboard2/components/CollapsibleSection2.jsx (접기/펼치기 섹션)
  * ================================================================
- * 대시보드2 전용. 제목 + 토글 버튼으로 본문 접기/펼치기. 클래스명 dashboard2-*.
+ * 제목·토글 버튼으로 본문 접기/펼치기. 클래스명 dashboard2-collapsible*.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - CollapsibleSection2: title, open, onToggle, children props
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - CollapsibleSection2 (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

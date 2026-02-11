@@ -1,11 +1,19 @@
 /**
  * dashboard2/components/Dashboard2Header.jsx (대시보드2 헤더)
  * ============================================================
- * 대시보드2 전용. 테이블 선택 + 기간 + 조회, 집계 기준, 정렬 기준, 캠페인·워크플로우·채널 필터.
- * 보기 모드: 일반 보기 / 주간 비교 / 월간 비교 (05_대시보드2_주간월간_비교리포팅_플랜 Phase 2).
+ * 테이블·보기 모드(일반/주간/월간)·기준 주·비교 주·기준 월·비교 월·집계·정렬·캠페인/워크플로우/채널 필터.
  *
- * [의존성]
- * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange), dashboard2/utils/periodCompare
+ * [Main Functions]
+ * ===========
+ * - view_mode, compare_base_week, compare_week, compare_base_month, compare_month. getWeekRange, getMonthRange로 date_range 계산. getDashboard2RequiredColumns 모달
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - Dashboard2Header (default export)
+ *
+ * [Dependencies]
+ * =========
+ * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange), dashboard2/utils/periodCompare (getWeekRange, getMonthRange)
  */
 
 import { useState, useEffect } from 'react'

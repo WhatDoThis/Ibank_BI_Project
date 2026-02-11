@@ -1,8 +1,26 @@
 """
 Backend.api_server.routers.report (리포트/쿼리 빌더 API)
 ========================================================
-FastAPI 라우터. list-tables, describe-table, table-relationships, execute-query,
-explain-sql, get-column-values, query-stats. Depends(get_db), Depends(get_config) 사용.
+FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 실행·Claude 해석·컬럼 고유값·쿼리 통계.
+
+[Main Functions]
+===========
+- (라우트 핸들러: list_tables, describe_table, table_relationships, execute_query, explain_sql, get_column_values, query_stats)
+
+[Endpoints/Classes/Functions]
+=======================
+- GET /api/list-tables: 테이블 목록 (allowed_tables)
+- POST /api/describe-table: 테이블 구조 (컬럼·타입)
+- GET /api/table-relationships: JOIN 관계 (relationshipOptions)
+- POST /api/execute-query: SELECT 실행 (금지 키워드 검사)
+- POST /api/explain-sql: Claude SQL 해석
+- POST /api/get-column-values: 컬럼 고유값
+- POST /api/query-stats: 쿼리 통계
+
+[Dependencies]
+=========
+- Backend.api_server.db, dependencies.get_db, get_config, schemas, pluralize.find_parent_table
+- fastapi, psycopg2, requests
 """
 
 import json

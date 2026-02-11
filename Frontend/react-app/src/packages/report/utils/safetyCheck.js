@@ -1,13 +1,22 @@
 /**
  * report/utils/safetyCheck.js (JOIN 안전성 검증)
  * ==============================================
- * 리포트 쿼리 빌더. 테이블 추가 경로 순환 참조 감지·JOIN 안전성 검증.
+ * 리포트 쿼리 빌더. 순환 참조·N:N 감지, 테이블 추가 전 경로 검증.
  *
- * [주요 함수]
- * - detectCircularReference: 순환 참조 감지
- * - canAddTableSafely, validateJoinPath: 안전한 테이블 추가 여부
+ * [Main Functions]
+ * ===========
+ * - getReachableTables: baseTable에서 tables 내 도달 가능한 테이블 집합 (relationshipOptions 기반)
+ * - detectCircularReference: proposedPath 순환 참조 감지 (circular, duplicate, path, circularPart)
+ * - detectManyToMany: 두 테이블 간 N:N 여부
+ * - validateJoinPath: 추가 후 경로 유효성
+ * - canAddTableSafely: 순환·N:N 검사 후 추가 허용 여부
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - getReachableTables, detectCircularReference, detectManyToMany, validateJoinPath, canAddTableSafely (export)
+ *
+ * [Dependencies]
+ * =========
  * - 없음
  */
 

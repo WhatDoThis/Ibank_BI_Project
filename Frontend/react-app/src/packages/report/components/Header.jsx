@@ -1,9 +1,18 @@
 /**
  * report/components/Header.jsx (리포트 페이지 헤더)
  * ================================================
- * 쿼리 빌더 제목, 초기화/실행 버튼.
+ * 쿼리 빌더 제목·초기화/실행 버튼.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - Header: onExecute, onClearAll props → 버튼 클릭 시 콜백
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - Header (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

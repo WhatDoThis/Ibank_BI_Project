@@ -1,13 +1,19 @@
 /**
  * report/ReportPage.jsx (리포트·쿼리 빌더 페이지)
  * ==============================================
- * React 페이지. 노코드 쿼리 빌더. 테이블/컬럼 선택, 필터·GROUP BY·HAVING·정렬·피벗·실행·페이지네이션. Backend /api/list-tables, describe-table, execute-query 등 사용.
+ * 노코드 쿼리 빌더. 그리드·테이블/컬럼·필터·GROUP BY·피벗·HAVING·정렬·실행·페이지네이션·JOIN 설정·Claude 해석·저장.
  *
- * [주요 기능]
- * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql
- * - 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, resultData, pagination
+ * [Main Functions]
+ * ===========
+ * - 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination
+ * - runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - ReportPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
+ *
+ * [Dependencies]
+ * =========
  * - React, @/shared/api/client, @/shared/config/api, report/utils (sqlBuilder, joinRules, safetyCheck, constants), report/components (Sidebar, MainArea)
  */
 

@@ -1,14 +1,18 @@
 /**
  * dashboard/components/AggregatedBarChart.jsx (집계 막대 차트)
  * ===========================================================
- * aggregated_data를 막대 차트로 시각화. 기준(일자/캠페인/채널 등)별 발송·성공 비교.
+ * aggregated_data 막대 차트. 기준별(일자/캠페인/워크플로우/채널) 발송 요청·발송 성공. 상위 10건(success_count 기준).
  *
- * [주요 기능]
- * - groupBy 전체 조합으로 X축 라벨 명확 규정(일자+캠페인+워크플로우+채널 순). 복수 값은 줄바꿈으로 표시.
- * - 상위 10건만 표시(정렬 기준: 발송성공 수). 발송 요청(total_count)·발송 성공(success_count) 막대 표시.
- * - 차트 폭: 컨테이너 100%, min-width 70%·max-width 980px (Recharts/대시보드 권장 비율 유지).
+ * [Main Functions]
+ * ===========
+ * - AggregatedBarChart: data, groupBy. buildXLabel로 X축 라벨(일자+캠페인+워크플로우+채널 순). total_count·success_count 막대
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - AggregatedBarChart (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React, recharts (BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer)
  */
 

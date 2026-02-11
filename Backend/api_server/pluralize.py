@@ -1,12 +1,20 @@
 """
 Backend.api_server.pluralize (단수/복수 변환·부모 테이블 찾기)
 =============================================================
-리포트/쿼리 빌더 등에서 테이블명·컬럼명 처리용. FastAPI 라우터에서 직접 참조.
+리포트·쿼리 빌더에서 테이블명·컬럼명 처리. report 라우터에서 find_parent_table 사용.
 
 [Main Functions]
 ===========
-- pluralize: 단수 → 복수 변환 (workflow → workflows 등)
-- find_parent_table: _id 컬럼명에서 허용 테이블 중 부모 테이블명 추론
+- pluralize: 단수 → 복수 변환 (workflow→workflows, company→companies 등, 자음+y→ies 규칙)
+- find_parent_table: _id 컬럼명과 allowed_tables로 부모 테이블명 추론 (relationshipOptions용)
+
+[Endpoints/Classes/Functions]
+=======================
+- (엔드포인트 없음. report 라우터에서 import하여 사용)
+
+[Dependencies]
+=========
+- 표준 라이브러리만 사용 (외부 패키지 없음)
 """
 
 

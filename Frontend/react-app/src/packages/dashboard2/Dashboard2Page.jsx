@@ -1,15 +1,20 @@
 /**
  * dashboard2/Dashboard2Page.jsx (대시보드2·성과리포트 메인 페이지)
  * ===============================================================
- * React 페이지. KPI·채널 도넛·기준별 막대·집계 테이블·차트 생성(ECharts). Backend /api/dashboard2 사용.
- * 목표·컨텍스트(기간 유형·지표·목표값, localStorage), 신호등(목표 대비 달성/주의/미달).
+ * KPI·채널 도넛·기준별 막대·집계 테이블·위젯(ECharts). 보기 모드(일반/주간/월간 비교), 기준·비교 주/월 선택. 목표·신호등.
  *
- * [주요 기능]
- * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2ChartData
- * - ECharts 막대/선형/영역 차트, 목표 저장·로드
+ * [Main Functions]
+ * ===========
+ * - loadData: 기준 1회·비교 1회 getDashboard2Data. compareRange(compare_week/compare_month 또는 전 주/전 월). formatRangeLabel(기준/비교)
+ * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2ChartData. TargetContextSection·KPICards2(compareKpi)·EChartsChart(metricKey)
  *
- * [의존성]
- * - React, @/shared/api/client, @/shared/utils/dateRange, @/shared/components/PeriodLabel, dashboard2/components
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - Dashboard2Page: Dashboard2Header, CollapsibleSection2, TargetContextSection, KPICards2, ChannelDonutCharts2, AggregatedBarChart2, AggregatedDataTable2, EChartsChart, PeriodLabel
+ *
+ * [Dependencies]
+ * =========
+ * - React, @/shared/api/client, @/shared/utils/dateRange, @/shared/components/PeriodLabel, dashboard2/utils/periodCompare, dashboard2/components
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'

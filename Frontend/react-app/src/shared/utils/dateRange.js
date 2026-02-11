@@ -1,11 +1,21 @@
 /**
  * shared/utils/dateRange.js (기간 유틸)
  * ========================================
- * React 대시보드에서 기간 선택 시 선행일/후행일 순서 보장용 정규화. Backend 전송 전·기간 표시 라벨용.
+ * 대시보드 기간 정규화·표시 라벨. Backend 전송 전·PeriodLabel 등에서 사용.
  *
- * [주요 함수]
- * - normalizeDateRange: [시작일, 종료일]을 시작일 <= 종료일이 되도록 정렬해 반환.
- * - formatDateRangeLabel: [시작일, 종료일]을 화면 표시용 문자열로 반환(단일일/기간 구분).
+ * [Main Functions]
+ * ===========
+ * - normalizeDateRange: [시작일, 종료일]을 시작일 <= 종료일 순으로 정렬 반환
+ * - formatDateRangeLabel: [시작일, 종료일] → { label, isSingleDay } (YYYY.MM.DD 형식)
+ * - toDisplayDate: YYYY-MM-DD → YYYY.MM.DD (내부)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - normalizeDateRange, formatDateRangeLabel (export)
+ *
+ * [Dependencies]
+ * =========
+ * - 없음 (순수 유틸)
  */
 
 /**

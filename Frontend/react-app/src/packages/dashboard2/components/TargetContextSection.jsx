@@ -1,9 +1,18 @@
 /**
  * dashboard2/components/TargetContextSection.jsx (목표·컨텍스트 섹션)
  * ======================================================================
- * 기간 유형(연/월/기간) + 지표 + 목표값 입력·저장, 저장된 목표 목록 표시. 저장소는 상위에서 관리(localStorage).
+ * 기간 유형(연/월/기간)·지표·목표값 입력·저장. 저장된 목표 목록·삭제. targets/onSave/onDelete 상위(localStorage) 관리.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - TargetContextSection: periodType, metric, year, month, rangeStart, rangeEnd, targetValue. getTargetPeriodLabel, getTargetMetricLabel (export)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - TargetContextSection (default export), getTargetPeriodLabel, getTargetMetricLabel (export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

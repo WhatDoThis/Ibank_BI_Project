@@ -1,11 +1,19 @@
 /**
  * shared/components/PeriodLabel.jsx (기간 표시 라벨)
  * ================================================
- * 대시보드 섹션 상단에 "언제부터 언제까지" 기간을 표시. 필터에서 선택한 단일일/기간 반영.
- * 패러디: 리포트·분석 대시보드의 Reporting period 뱃지/라벨 패턴.
+ * 대시보드 섹션 상단에 기준일/기간 뱃지 표시. dateRange → formatDateRangeLabel 연동.
  *
- * [의존성]
- * - React, @/shared/utils/dateRange (formatDateRangeLabel)
+ * [Main Functions]
+ * ===========
+ * - PeriodLabel: dateRange, className props → 뱃지(기준일: / 기간: + label)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - PeriodLabel (default export)
+ *
+ * [Dependencies]
+ * =========
+ * - @/shared/utils/dateRange (formatDateRangeLabel)
  */
 
 import { formatDateRangeLabel } from '@/shared/utils/dateRange'

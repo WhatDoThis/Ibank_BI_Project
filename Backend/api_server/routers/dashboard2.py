@@ -1,8 +1,25 @@
 """
 Backend.api_server.routers.dashboard2 (대시보드2 API)
-====================================================
-FastAPI 라우터. prefix /api/dashboard2. POST /data, /filter-options, /tables, /required-columns, /chart-data.
-dashboard 서비스·스키마 공유, prefix만 분리하여 대시보드2 프론트 전용.
+=====================================================
+FastAPI 라우터. prefix /api/dashboard2. 대시보드2(성과리포트) 전용. dashboard_service·schemas 공유, prefix만 분리.
+
+[Main Functions]
+===========
+- dashboard2_data, dashboard2_filter_options, dashboard2_tables, dashboard2_required_columns, dashboard2_chart_data: 라우트 핸들러
+- _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
+
+[Endpoints/Classes/Functions]
+=======================
+- POST /api/dashboard2/data: 집계 데이터·KPI (DashboardDataRequest)
+- GET /api/dashboard2/filter-options/{table_id}: 캠페인·워크플로우·채널 옵션
+- GET /api/dashboard2/tables: 집계 가능 테이블 목록
+- GET /api/dashboard2/required-columns: 필수 컬럼 목록
+- POST /api/dashboard2/chart-data: 차트용 단일 dimension·metric 집계 (ChartDataRequest)
+
+[Dependencies]
+=========
+- Backend.api_server.dashboard_service, Backend.api_server.schemas
+- fastapi
 """
 
 from typing import Optional

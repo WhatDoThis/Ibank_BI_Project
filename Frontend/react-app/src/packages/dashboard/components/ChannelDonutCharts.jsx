@@ -1,12 +1,18 @@
 /**
  * dashboard/components/ChannelDonutCharts.jsx (채널별 도넛 차트)
  * =================================================================
- * KPI channel_distribution을 도넛 차트로 시각화. 발송 요청·발송 성공 등 채널별 비중 비교.
+ * KPI channel_distribution을 도넛 차트로 시각화. 발송 요청·발송 성공 채널별 비중.
  *
- * [주요 기능]
- * - 발송 요청(send)·발송 성공(success) 채널별 분포 도넛 차트
+ * [Main Functions]
+ * ===========
+ * - ChannelDonutCharts: kpi prop. send·success 채널별 분포 PieChart (Recharts)
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - ChannelDonutCharts (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React, recharts (PieChart, Pie, Cell, Legend, ResponsiveContainer, Tooltip)
  */
 

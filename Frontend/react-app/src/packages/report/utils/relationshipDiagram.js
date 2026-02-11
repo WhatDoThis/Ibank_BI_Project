@@ -1,7 +1,20 @@
 /**
- * relationshipDiagram.js
- * ======================
- * joinOrder 또는 relationshipOptions + addedTables 로 "족보" 형태 테이블 관계도 텍스트·Mermaid 생성.
+ * report/utils/relationshipDiagram.js (테이블 관계도 텍스트·Mermaid)
+ * ==================================================================
+ * joinOrder 또는 relationshipOptions + addedTables로 족보 형태 관계도 텍스트·Mermaid 생성. MainArea 관계도 패널용.
+ *
+ * [Main Functions]
+ * ===========
+ * - buildRelationshipTree: joinOrder, addedTables → { lines, baseTable } (트리 라인 배열)
+ * - buildRelationshipMermaid: joinOrder, addedTables → Mermaid ER 텍스트
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - buildRelationshipTree, buildRelationshipMermaid (export)
+ *
+ * [Dependencies]
+ * =========
+ * - 없음
  */
 
 /**

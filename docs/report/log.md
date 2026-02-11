@@ -1,5 +1,29 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-02: docs/main 갱신 및 코드 파일 설명 주석 전수검사·보강
+
+### 완료 작업
+1. **docs/main**
+   - 00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_FASTAPI_MIGRATION_PLAN: 대시보드2 패키지·API·주간/월간 비교·KPI·집계 테이블·rate 채우기·위젯 rate Y축·info 버튼 등 이미 반영됨 확인. 추가 수정 없음.
+2. **백엔드 코드 파일 설명 주석 (user rule 포맷)**
+   - pluralize.py: [Dependencies] 섹션 추가.
+   - routers/health.py, report.py, dashboard.py, dashboard2.py: [Endpoints], [Dependencies] 섹션 보강.
+   - schemas.py: [Endpoints/Classes/Functions](Pydantic 모델 목록), [Dependencies] 정리.
+3. **프론트엔드 코드 파일 설명 주석**
+   - dashboard2/utils/periodCompare.js: [Main Functions] 정리, [Dependencies] 추가.
+   - Dashboard2Page.jsx: 보기 모드·기준/비교 주·월, compareRange, loadData 반영. [Main Functions], [Dependencies] 보강.
+   - EChartsChart.jsx: customChartData·metricKey·rate형 소수점 둘째자리 반영. [Main Functions], [Dependencies] 보강.
+   - Dashboard2Header.jsx, AggregatedDataTable2.jsx: [Main Functions], [Dependencies] 또는 설명문 보강(컬럼 순서·rate 채우기·내부 테두리).
+   - dashboard/components/AggregatedDataTable.jsx: 컬럼 순서·rate 채우기·내부 테두리·[Main Functions], [Dependencies] 보강.
+
+### 수정 파일
+- Backend/api_server/pluralize.py, schemas.py, routers/health.py, routers/report.py, routers/dashboard.py, routers/dashboard2.py
+- Frontend/react-app/src/packages/dashboard2/utils/periodCompare.js, Dashboard2Page.jsx, components/EChartsChart.jsx, Dashboard2Header.jsx, AggregatedDataTable2.jsx
+- Frontend/react-app/src/packages/dashboard/components/AggregatedDataTable.jsx
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-02: 주간/월간 비교 시 비교 주·비교 월 선택 기능
 
 ### 완료 작업

@@ -1,15 +1,18 @@
 """
 Backend.api_server.db (DB 연결 및 검증)
 =======================================
-Env/config/config.json 의 backend 만 사용. 환경 변수·기본값 없음. 없으면 예외.
-FastAPI 라우터에서 dependencies.get_db() 통해 의존성 주입용으로 사용.
+Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.get_db()로 연결 주입.
 
 [Main Functions]
 ===========
-- get_db_config: config.backend 에서만 DB 연결용 dict (필수 키 없으면 ValueError)
-- get_allowed_tables, get_table_schema, get_table_columns, get_table_columns_with_types: config.backend 에서만
-- get_db_connection: DB 연결 생성
-- format_value, validate_table_name, validate_column_name
+- get_db_config: config.backend에서 DB 연결용 dict 반환 (필수 키 없으면 ValueError)
+- get_allowed_tables: 허용 테이블 목록 (allowed_tables)
+- get_table_schema: 테이블 스키마명 (table_schema)
+- get_table_columns: 테이블 컬럼명 목록 (information_schema)
+- get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
+- get_db_connection: DB 연결 생성 (UTF-8 인코딩)
+- format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
+- validate_table_name, validate_column_name: 허용 패턴·허용 테이블 검증
 
 [Dependencies]
 =========

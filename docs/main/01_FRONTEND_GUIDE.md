@@ -9,13 +9,13 @@
 ### 1.1 역할
 
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드). 공용 API·설정은 shared 에서 사용합니다.
+- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·주간/월간 비교). 공용 API·설정은 shared 에서 사용합니다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
 
-- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`
-- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`
+- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
 
 ### 1.3 프론트와 설정
 
@@ -45,7 +45,7 @@
 ```
 Frontend/react-app/
 ├── src/
-│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard)
+│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard, /dashboard2)
 │   ├── main.jsx
 │   ├── index.css
 │   ├── packages/
@@ -67,21 +67,37 @@ Frontend/react-app/
 │   │   │       ├── sqlBuilder.test.js
 │   │   │       └── joinRules.test.js
 │   │   │
-│   │   └── dashboard/          # 대시보드
-│   │       ├── DashboardPage.jsx
+│   │   ├── dashboard/          # 대시보드1
+│   │   │   ├── DashboardPage.jsx
+│   │   │   ├── index.jsx
+│   │   │   ├── dashboard.css
+│   │   │   └── components/
+│   │   │       ├── DashboardHeader.jsx   # 테이블 선택·필수 컬럼 안내·캠페인/워크플로우/채널(전체 옵션)
+│   │   │       ├── DashboardFilters.jsx  # 기간·캠페인·워크플로우·채널·집계 기준
+│   │   │       ├── TargetContextSection.jsx  # 목표(기간 유형·지표·목표값)·저장된 목표 목록
+│   │   │       ├── CollapsibleSection.jsx
+│   │   │       ├── KPICards.jsx   # KPI 카드·표시 지표 선택·목표 대비 신호등
+│   │   │       ├── ChannelDonutCharts.jsx
+│   │   │       ├── AggregatedBarChart.jsx
+│   │   │       ├── AggregatedDataTable.jsx
+│   │   │       ├── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·X축 검색 찾기/다음)
+│   │   │       └── ChartWidget2.jsx      # 위젯 생성 (beta): 파이·도넛·레이더·산점도·막대·선형·영역, 전용 API·Y축-플롯 세로 길이 일치
+│   │   │
+│   │   └── dashboard2/        # 대시보드2 (성과리포트·주간/월간 비교)
+│   │       ├── Dashboard2Page.jsx
 │   │       ├── index.jsx
-│   │       ├── dashboard.css
+│   │       ├── dashboard2.css
+│   │       ├── utils/
+│   │       │   └── periodCompare.js   # getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange
 │   │       └── components/
-│   │           ├── DashboardHeader.jsx   # 테이블 선택·필수 컬럼 안내·캠페인/워크플로우/채널(전체 옵션)
-│   │           ├── DashboardFilters.jsx  # 기간·캠페인·워크플로우·채널·집계 기준
-│   │           ├── TargetContextSection.jsx  # 목표(기간 유형·지표·목표값)·저장된 목표 목록
-│   │           ├── CollapsibleSection.jsx
-│   │           ├── KPICards.jsx   # KPI 카드·표시 지표 선택·목표 대비 신호등
-│   │           ├── ChannelDonutCharts.jsx
-│   │           ├── AggregatedBarChart.jsx
-│   │           ├── AggregatedDataTable.jsx
-│   │           ├── ChartWidget.jsx       # 차트 생성 (Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·X축 검색 찾기/다음)
-│   │           └── ChartWidget2.jsx      # 위젯 생성 (beta): 파이·도넛·레이더·산점도·막대·선형·영역, 전용 API·Y축-플롯 세로 길이 일치
+│   │           ├── Dashboard2Header.jsx   # 테이블·보기 모드(일반/주간/월간)·기준 주·비교 주·기준 월·비교 월·집계·정렬·필터
+│   │           ├── KPICards2.jsx   # KPI 카드·비교 시 전 기간 대비 ±n%
+│   │           ├── AggregatedDataTable2.jsx   # 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리)
+│   │           ├── EChartsChart.jsx   # ECharts 옵션(템플릿/커스텀)·rate형 Y축 소수점 둘째자리
+│   │           ├── AggregatedBarChart2.jsx
+│   │           ├── ChannelDonutCharts2.jsx
+│   │           ├── CollapsibleSection2.jsx
+│   │           └── TargetContextSection.jsx
 │   │
 │   ├── shared/
 │   │   ├── components/
@@ -137,6 +153,20 @@ Frontend/react-app/
 - **ChartWidget2**: 위젯 생성 (beta). Dimension/Metric, 차트 유형: 막대·선형·영역·파이·도넛·레이더·산점도. `getChartData` 전용 API. 막대·선형·영역: Y축 고정·가로 스크롤·**Y축-플롯 세로 길이 일치**(xAxisReservedHeight로 고정 Y축 하단 마진 보정). 레이더: 내부 링만 수치 표시·각도 분산(겹침 방지). 파이/도넛/레이더/산점도 툴팁 전체 이름. 위젯 추가/삭제/편집, 차트별 기간 선택. 기본 접힘 섹션.
 - **PeriodLabel** (shared/components/PeriodLabel.jsx): 기간 표시. filters.date_range → formatDateRangeLabel(단일일/기간 문자열) 뱃지. 주요 지표·채널별 분석 CollapsibleSection 본문 최상단에 배치.
 
+### 4.3 dashboard2 (성과리포트)
+
+- **Dashboard2Page.jsx**: 테이블 ID·필터·view_mode(일반/week_compare/month_compare)·compare_base_week, compare_base_month, **compare_week, compare_month**. loadData 시 기준 기간 1회·비교 기간 1회 getDashboard2Data 호출. compareRange useMemo(비교 주/월 선택 시 getWeekRange/getMonthRange, 비어 있으면 getPreviousWeekRange/getPreviousMonthRange). 기간 라벨 "기준: … / 비교: …". TargetContextSection·KPICards2(compareKpi)·채널 도넛·막대·AggregatedDataTable2·위젯 생성(EChartsChart, dimensionKey, metricKey, chartType, getDashboard2ChartData).
+- **Dashboard2Header.jsx**: 테이블 셀렉트·필수 컬럼 info. 보기 모드 라디오(일반/주간 비교/월간 비교). 기준 주(날짜)·**비교 주(날짜)**(비어두면 전 주), 기준 월(YYYY-MM)·**비교 월**(비어두면 전 월). 집계 기준·정렬·캠페인·워크플로우·채널 필터.
+- **utils/periodCompare.js**: getWeekRange(anchorDate), getPreviousWeekRange(anchorDate), getMonthRange(year, month), getPreviousMonthRange(year, month). ISO 주(월~일)·달력 월 1일~말일.
+- **KPICards2.jsx**: KPI 순서(캠페인→워크플로우→채널→발송요청→성공수→실패수→성공률→실패율→오픈→클릭→오픈률→클릭률). compareKpi 시 이전 기간 값·±n% vs 이전기간 표시.
+- **AggregatedDataTable2.jsx**: 컬럼 순서 발송요청→발송성공→성공률→오픈→클릭→오픈률→클릭률. **rate 컬럼(성공률·오픈률·클릭률)** 셀에 채우기 막대(cell-fill-wrap·cell-fill·cell-fill-text). 테이블 내부 테두리만(외곽선 없음).
+- **EChartsChart.jsx**: buildOptionFromCustom(chartData, metricLabel, chartType, **metricKey**). **rate형 지표**(success_rate, open_rate, click_rate, failed_rate) 시 Y축·툴팁·막대 라벨 **소수점 둘째자리**(formatValue). 위젯 생성 시 Dimension/Metric/차트 유형 선택·info 버튼은 차트유형 셀렉트 오른쪽(dashboard2-chart-type-wrap).
+
+**대시보드2 기능 요약**
+
+- 보기 모드: 일반 / 주간 비교(기준 주+비교 주 선택, 디폴트 전 주) / 월간 비교(기준 월+비교 월 선택, 디폴트 전 월). 기간 라벨 "기준: … / 비교: …".
+- KPI 순서 통일·비교 시 전 기간 대비 ±n%. 집계 테이블 컬럼 순서·rate 채우기 막대·내부 테두리. 위젯: rate형 Y축 소수점 둘째자리·info 버튼 차트유형 오른쪽.
+
 **대시보드 기능 요약**
 
 - 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터(전체 옵션·디폴트 전체), 집계 기준·정렬 기준.
@@ -144,9 +174,9 @@ Frontend/react-app/
 - **기간 표시**: 주요 지표·채널별 분석 섹션 상단 PeriodLabel(기준일/기간 뱃지).
 - KPI 카드(캠페인/워크플로우/채널 수·rate 00.00%·표시 지표 선택·목표 대비 신호등), 채널 도넛, 기준별 막대 차트, 집계 테이블(페이징·검색), 차트 생성 위젯(전용 API·Y축 고정·가로 스크롤), **위젯 생성 (beta)**(ChartWidget2: 파이·도넛·레이더·산점도·막대·선형·영역, Y축-플롯 세로 길이 일치). 필수 컬럼 안내 모달. 섹션 접기/펼치기(차트 생성·위젯 생성 beta 기본 접힘).
 
-### 4.3 shared
+### 4.4 shared
 
-- **api/client.js**: health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData.
+- **api/client.js**: health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, **getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData** (대시보드2).
 - **config/api.js**: API 베이스 URL (환경·api-config 주입 반영).
 
 ---
@@ -174,7 +204,8 @@ Frontend/react-app/
 ## 6. 스타일링
 
 - **report.css**: 리포트 패키지 전용 (사이드바, 그리드, SQL 패널, 필터/정렬 칩, 페이지네이션 바, 해석 영역 등).
-- **dashboard.css**: 대시보드 패키지 전용 (헤더, 필터, KPI, 차트, 테이블, 모달 등).
+- **dashboard.css**: 대시보드1 패키지 전용 (헤더, 필터, KPI, 차트, 테이블, 모달, 집계 테이블 rate 채우기·내부 테두리 등).
+- **dashboard2.css**: 대시보드2 패키지 전용 (헤더, 보기 모드·기준/비교 주·월, KPI, 집계 테이블 rate 채우기·내부 테두리, 위젯·차트유형 wrap 등).
 - **main.css / index.css**: 앱 공통. 별도 유틸리티 CSS 프레임워크 없음.
 
 ---

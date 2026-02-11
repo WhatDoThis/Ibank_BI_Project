@@ -1,10 +1,19 @@
 /**
  * dashboard/components/AggregatedDataTable.jsx (집계 데이터 테이블)
  * ===============================================================
- * GROUP BY 기준에 따른 집계 행 테이블. 50건 단위 페이징.
- * 테이블 필터: 컬럼 선택 + 연산자(같다/같지않다/포함/보다 큼/이상/보다 작음/이하) + 값, 다중 조건(AND) + 필터 추가.
+ * 대시보드1 집계 테이블. 페이징·검색·필터(컬럼+연산자+값 AND). 컬럼 순서 발송요청→발송성공→성공률→오픈→클릭→오픈률→클릭률. rate 셀 채우기 막대.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - getColumnOptions, getCellValue, matchOne, rowMatchesFilters, formatNum, formatRate. 정렬·페이징·필터 추가/삭제.
+ * - rate 컬럼: cell-fill-wrap·cell-fill·cell-fill-text (값 비례 막대)
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - AggregatedDataTable (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 
@@ -43,7 +52,7 @@ function formatRate(num) {
 }
 
 function getColumnCount(groupBy) {
-  let n = 7 // 발송요청·발송성공·오픈·클릭·성공률·오픈률·클릭률
+  let n = 7 // 발송요청·발송성공·성공률·오픈·클릭·오픈률·클릭률
   if (groupBy.campaign) n += 1
   if (groupBy.date) n += 1
   if (groupBy.workflow) n += 1

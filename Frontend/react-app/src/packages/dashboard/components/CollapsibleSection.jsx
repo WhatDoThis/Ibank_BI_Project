@@ -1,9 +1,18 @@
 /**
  * dashboard/components/CollapsibleSection.jsx (접기/펼치기 섹션)
  * ==============================================================
- * 제목 + 토글 버튼으로 본문 접기/펼치기.
+ * 제목·토글 버튼으로 본문 접기/펼치기.
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - CollapsibleSection: title, open, onToggle, children props
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - CollapsibleSection (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

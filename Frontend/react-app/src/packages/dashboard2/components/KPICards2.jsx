@@ -1,9 +1,18 @@
 /**
  * dashboard2/components/KPICards2.jsx (KPI 카드)
  * ================================================
- * 대시보드2 전용. KPI 카드 시각화(캠페인/워크플로우/채널 수, 발송·성공·오픈·클릭·비율). 표시 지표 선택은 localStorage(storageKey) 저장.
+ * KPI 카드. 캠페인/워크플로우/채널 수·발송·성공·실패·비율·오픈·클릭. compareKpi 시 이전 기간 값·±n% vs 이전기간. 표시 지표 선택(localStorage).
  *
- * [의존성]
+ * [Main Functions]
+ * ===========
+ * - KPICards2: kpi, compareKpi, targetStatusByKey, storageKey. ALL_KPI_KEYS 순서(CARD_CONFIG). rate 포맷·전비(%) 계산
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - KPICards2 (default export)
+ *
+ * [Dependencies]
+ * =========
  * - React
  */
 

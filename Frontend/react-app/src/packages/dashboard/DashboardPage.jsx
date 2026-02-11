@@ -1,14 +1,20 @@
 /**
  * dashboard/DashboardPage.jsx (대시보드1 메인 페이지)
  * ===================================================
- * React 페이지. 캠페인/일자/워크플로우/채널별 GROUP BY 집계. Backend /api/dashboard 사용.
- * 헤더(테이블·기간·집계 기준·정렬·필터), 목표·컨텍스트, KPI·채널 도넛·막대·집계 테이블·차트 위젯.
+ * 캠페인/일자/워크플로우/채널별 집계. 헤더·목표·KPI·채널 도넛·막대·집계 테이블·차트 생성·위젯 생성(beta). /api/dashboard 사용.
  *
- * [주요 기능]
- * - getDashboardTables, getDashboardData, getDashboardFilterOptions, getChartData
- * - 목표 저장/로드(localStorage), 목표 대비 신호등(달성/주의/미달)
+ * [Main Functions]
+ * ===========
+ * - 상태: tableId, filters(date_range, campaign_ids, workflow_ids, channels, group_by), sortOrder, data, targets, sectionOpen
+ * - loadData: getDashboardData, getDashboardFilterOptions. loadTargetsFromStorage, saveTargetsToStorage, mergeTarget, targetMatchesPeriod, getTargetStatusByKey
+ * - PeriodLabel(기간 뱃지), KPICards(targetStatusByKey), ChartWidget, ChartWidget2
  *
- * [의존성]
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - DashboardPage: DashboardHeader, CollapsibleSection, TargetContextSection, KPICards, ChannelDonutCharts, AggregatedBarChart, AggregatedDataTable, ChartWidget, ChartWidget2, PeriodLabel
+ *
+ * [Dependencies]
+ * =========
  * - React, @/shared/api/client, @/shared/utils/dateRange, @/shared/components/PeriodLabel, dashboard/components
  */
 

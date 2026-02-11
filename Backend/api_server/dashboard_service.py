@@ -1,20 +1,23 @@
 """
 Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
 =============================================================
-캠페인/일자/워크플로우/채널별 GROUP BY 집계, KPI·필터 옵션 조회.
-FastAPI 라우터(dashboard, dashboard2)에서 호출. config.backend·db 사용. report 라우트와 분리된 대시보드 전용.
+캠페인/일자/워크플로우/채널별 GROUP BY 집계·KPI·필터 옵션·차트 데이터 조회. dashboard·dashboard2 라우터에서 공통 호출.
 
 [Main Functions]
 ===========
-- get_dashboard_data: 필터·GROUP BY 기준으로 집계 데이터·KPI 반환
-- get_filter_options: 캠페인·워크플로우·채널 목록 반환
-- get_aggregatable_tables: 집계 가능(필수 컬럼 보유) 테이블만 반환
-- get_required_columns: 대시보드 조회 필수 컬럼 목록 반환
-- get_chart_data: 차트 생성 전용 단일 디멘션·메트릭 집계(별도 조회)
+- get_dashboard_data: 필터·group_by 기준 집계 데이터·KPI 반환 (aggregated_data, kpi 등)
+- get_filter_options: 캠페인·워크플로우·채널 목록 (테이블·필터 조건 기반)
+- get_aggregatable_tables: 필수 컬럼·타입 만족 테이블만 반환 (대시보드 셀렉트용)
+- get_required_columns: DASHBOARD_REQUIRED_COLUMNS 기반 필수 컬럼 목록 (API·안내용)
+- get_chart_data: 단일 dimension·metric 집계 (차트 전용, LIMIT 없음)
+
+[Endpoints/Classes/Functions]
+=======================
+- DASHBOARD_REQUIRED_COLUMNS, CHANNEL_MAPPING: 상수. get_required_columns, get_dashboard_data 등에서 사용.
 
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection, get_table_schema, get_table_columns, get_table_columns_with_types, validate_table_name)
+- Backend.api_server.db (get_db_connection, get_table_schema, get_table_columns_with_types, validate_table_name 등)
 - psycopg2
 """
 
