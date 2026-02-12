@@ -14,9 +14,17 @@
       "campaign_offer_log"
     ],
     "table_schema": "public",
+    "query_timeout_seconds": 10,
     "claude_api_key": "",
     "claude_api_url": "https://api.anthropic.com/v1/messages",
-    "query_timeout_seconds": 10
+    "system_db": {
+      "db_host": "",
+      "db_port": 5432,
+      "db_name": "ibank_system_data",
+      "db_user": "",
+      "db_password": "",
+      "table_schema": "public"
+    }
   },
   "frontend": {
     "static_port": 8080,

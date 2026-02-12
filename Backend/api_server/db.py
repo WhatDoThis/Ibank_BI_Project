@@ -6,11 +6,14 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 [Main Functions]
 ===========
 - get_db_config: config.backend에서 DB 연결용 dict 반환 (필수 키 없으면 ValueError)
+- get_system_db_config: config.backend.system_db에서 시스템 DB(ibank_system_data 등) 연결용 dict 반환
+- get_system_table_schema: 시스템 DB의 table_schema (ETL 메타 등 테이블 스키마)
 - get_allowed_tables: 허용 테이블 목록 (allowed_tables)
 - get_table_schema: 테이블 스키마명 (table_schema)
 - get_table_columns: 테이블 컬럼명 목록 (information_schema)
 - get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
 - get_db_connection: DB 연결 생성 (UTF-8 인코딩)
+- get_db_connection_system: 시스템 DB 연결 생성 (ETL 메타·로그인·세션 등용)
 - format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
 - validate_table_name, validate_column_name: 허용 패턴·허용 테이블 검증
 
@@ -67,6 +70,55 @@ def get_db_config():
         'user': str(user).strip(),
         'password': str(password).strip() if password is not None else '',
     }
+
+
+def get_system_db_config():
+    """
+    config.backend.system_db 에서 시스템 DB 연결 설정 읽기.
+    시스템 관련 테이블(ETL 메타, 로그인·세션·프로젝트 등)용 DB(예: ibank_system_data).
+    system_db 가 없으면 ValueError.
+    """
+    backend = config.backend
+    sys_db = getattr(backend, 'system_db', None)
+    if sys_db is None:
+        raise ValueError(
+            'Env/config/config.json 에 backend.system_db 가 없습니다. '
+            '시스템 DB(ibank_system_data 등) 연결을 위해 system_db 를 추가하세요.'
+        )
+    host = getattr(sys_db, 'db_host', None)
+    port = getattr(sys_db, 'db_port', None)
+    database = getattr(sys_db, 'db_name', None)
+    user = getattr(sys_db, 'db_user', None)
+    password = getattr(sys_db, 'db_password', None)
+
+    if not host or not str(host).strip():
+        raise ValueError('backend.system_db.db_host 가 없거나 비어 있습니다.')
+    if database is None or not str(database).strip():
+        raise ValueError('backend.system_db.db_name 이 없거나 비어 있습니다.')
+    if not user or not str(user).strip():
+        raise ValueError('backend.system_db.db_user 가 없거나 비어 있습니다.')
+    if port is None or port == '':
+        raise ValueError('backend.system_db.db_port 가 없습니다.')
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise ValueError('backend.system_db.db_port 는 숫자여야 합니다.')
+
+    return {
+        'host': str(host).strip(),
+        'port': port,
+        'database': str(database).strip(),
+        'user': str(user).strip(),
+        'password': str(password).strip() if password is not None else '',
+    }
+
+
+def get_system_table_schema():
+    """시스템 DB의 table_schema. backend.system_db.table_schema 가 있으면 사용, 없으면 'public'."""
+    sys_db = getattr(config.backend, 'system_db', None)
+    if sys_db is None:
+        return 'public'
+    return getattr(sys_db, 'table_schema', None) or 'public'
 
 
 def get_allowed_tables():
@@ -169,6 +221,14 @@ def get_all_tables_columns_with_types(table_names):
 def get_db_connection():
     """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
     cfg = get_db_config()
+    conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+    conn.set_client_encoding("UTF8")
+    return conn
+
+
+def get_db_connection_system():
+    """시스템 DB 연결 생성. config.backend.system_db 사용. ETL 메타·로그인·세션 등 시스템 테이블용."""
+    cfg = get_system_db_config()
     conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
     conn.set_client_encoding("UTF8")
     return conn
