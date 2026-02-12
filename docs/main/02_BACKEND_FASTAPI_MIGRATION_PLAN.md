@@ -2,7 +2,7 @@
 
 ## 문서 정보
 - **목적**: Flask 기반 Backend API를 FastAPI로 전면 교체하는 단계별 계획
-- **상태**: **전환 완료** (2025-02-02). 상세 로그는 docs/report/log.md 참고.
+- **상태**: **전환 완료**. 상세 로그는 docs/report/log.md 참고.
 - **원칙**: 환경은 `Env/config/config.json` 로드 방식 유지, 프론트엔드 영향 최소화, 의존성이 낮은 파일부터 순차 적용
 - **범위**: Backend/api_server, run.py, requirements.txt, README.md, docs/main
 
@@ -41,6 +41,9 @@
 | GET | /api/list-tables | 테이블 목록 |
 | POST | /api/describe-table | 테이블 구조 |
 | GET | /api/table-relationships | JOIN 관계 |
+| POST | /api/join-order | JOIN 순서 제안 |
+| POST | /api/save-query-as-table | 쿼리 결과를 테이블로 저장 요청(백그라운드 큐) |
+| GET | /api/save-query-as-table/status/{job_id} | 저장 작업 상태 조회 |
 | POST | /api/execute-query | 쿼리 실행 |
 | POST | /api/explain-sql | Claude SQL 해석 |
 | POST | /api/get-column-values | 컬럼 고유값 |

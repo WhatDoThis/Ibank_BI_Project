@@ -14,8 +14,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 1.2 핵심 가치
 - **리포트(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
-- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), KPI·채널 도넛·기준별 막대 차트·집계 테이블·차트 생성 위젯(Dimension/Metric, 막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 검색 찾기/다음)·**위젯 생성 (beta)**(파이·도넛·레이더·산점도·막대·선형·영역, 전용 API·Y축-플롯 세로 길이 일치). 주요 지표·채널별 분석 섹션 상단 **기간 표시**(PeriodLabel, 기준일/기간 뱃지).
-- **대시보드2**(성과리포트): 보기 모드(일반/주간 비교/월간 비교), 기준·비교 주/월 선택(비어두면 전 주/전 월), KPI 순서 통일, 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리), 위젯 rate형 Y축 소수점 둘째자리·info 버튼(차트유형 오른쪽). 상세는 §6.2.1.
+- **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), **비교 모드**(일반/일간/주간/월간/연간)·**디멘션별 비교(B)/요약 보기(A)** 토글, KPI·채널 도넛·기준별 막대 차트(복수 차원 시 X축 단일 차원·**일자 제외** 캠페인/워크플로우/채널만)·집계 테이블·차트 생성 위젯·**위젯 생성 (beta)**. 주요 지표·채널별 분석 섹션 상단 **기간 표시**(PeriodLabel).
+- **대시보드2**(성과리포트): 보기 모드(일반/일간·주간·월간·연간 비교), 기준·비교 주/월/일/연 선택(비어두면 전 주/전 월/전일/전년), **디멘션별 비교(B)/요약 보기(A)** 토글, 기준별 발송 현황·집계 테이블 복수 차원 시 **X축 단일 차원(일자 제외)**. KPI 순서 통일, 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리), 위젯 rate형 Y축 소수점 둘째자리·info 버튼. 상세는 §6.2.1.
+- **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드 대시보드. 기존 대시보드 API·데이터 유틸 활용.
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -26,7 +27,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·주간/월간 비교), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
 - **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·**dashboard2**), dashboard_service.py. 상세는 **02_BACKEND_FASTAPI_MIGRATION_PLAN.md §1** 참고.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
@@ -37,8 +38,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - `python run.py serve`: 빌드 없이 정적 서버만 (report-front 서비스 기동용, 배포 시 502 방지)
 - **Linux 배포**: 실제 업데이트 배포 시 루트의 **deploy.sh** 사용 (빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md 참고.
 - **접속 경로**
-  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2(성과리포트) `.../dashboard2`
-  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
+  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2(성과리포트) `.../dashboard2`, 위젯보드 `.../widgetboard`
+  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
 
 ---
 
@@ -86,7 +87,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ## 4. 프론트엔드 (Frontend)
 
-- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·주간/월간 비교). 공용 API·설정은 shared. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
+- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드). 공용 API·설정은 shared. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
 - 상세 구조·패키지·추가 기능(Claude 해석·페이지네이션)은 **01_FRONTEND_GUIDE.md** 참고.
 
 ---
@@ -94,11 +95,11 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ## 5. 백엔드 (Backend)
 
 ### 5.1 역할
-- **FastAPI** REST API: 리포트용(health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats) + 대시보드1(dashboard/data, filter-options, tables, required-columns, chart-data) + **대시보드2**(dashboard2/data, filter-options, tables, required-columns, chart-data).
+- **FastAPI** REST API: 리포트용(health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, save-query-as-table/status/{job_id}, execute-query, explain-sql, get-column-values, query-stats) + 대시보드1(dashboard/*) + 대시보드2(dashboard2/*). 위젯보드는 별도 라우터 없이 기존 API 활용.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성
-- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, **dashboard2/** (data, filter-options, tables, required-columns, chart-data). 요청/응답·라우터 구분은 **02_BACKEND_FASTAPI_MIGRATION_PLAN.md §1.3** 참고. chart-data는 차트 전용·LIMIT 없음(전건 반환).
+- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, **save-query-as-table/status/{job_id}**, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, dashboard2/*. 요청/응답·라우터 구분은 **02_BACKEND_FASTAPI_MIGRATION_PLAN.md §1.3** 참고. chart-data는 차트 전용·LIMIT 없음(전건 반환).
 - main.py·db·routers·dependencies·schemas·dashboard_service 역할은 **02 §1.1·Phase 3·4** 참고.
 
 ---
@@ -115,17 +116,25 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 6.2 대시보드1
 - 테이블 선택(필수 컬럼·타입 만족 테이블만 노출), 기간·캠페인·워크플로우·채널 필터(각 셀렉트 첫 옵션 "전체", 디폴트 전체), 집계 기준(일자/캠페인/워크플로우/채널) 체크.
+- **비교 모드**: 보기(일반/일간 비교/주간 비교/월간 비교/연간 비교). 기준·비교 일/주/월/연 선택(비어두면 전일/전 주/전 월/전년). `dashboard/utils/periodCompare.js`(getWeekRange, getMonthRange, getYearRange, getPrevious* 등) 사용.
+- **디멘션별 비교(B)/요약 보기(A)** 토글: 기준별 발송 현황·집계 테이블에서 비교 시 "디멘션별 비교" 또는 "요약 보기" 전환. 기준별 발송 차트는 복수 차원 시 **X축 단일 차원**(캠페인/워크플로우/채널만, 일자 제외)으로 합산 표시.
 - 목표·컨텍스트 섹션: 기간 유형(연/월/기간)·지표·목표값 입력·저장(localStorage `dashboard_targets`), 저장된 목표 목록·삭제.
-- 주요 지표: 캠페인 수·워크플로우 수·채널 수, 발송/성공/실패/오픈/클릭, 성공률·실패률·오픈률·클릭률(00.00% 포맷). 표시할 지표 선택(접이식 체크박스, localStorage `dashboard_kpi_visible`). 목표 대비 신호등(달성/주의/미달, 현재 필터 기간과 일치하는 목표만 매칭).
-- KPI 카드, 채널별 도넛, 기준별 발송 현황(막대 차트, 상위 10건·발송성공 수 기준), 집계 데이터 테이블(페이징·테이블 내 검색), 차트 생성 위젯(Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·가로 스크롤·X축 레이블 검색 찾기/다음), **위젯 생성 (beta)**(ChartWidget2: Dimension/Metric, 파이·도넛·레이더·산점도·막대·선형·영역, 전용 API·Y축-플롯 세로 길이 일치).
+- 주요 지표: 캠페인 수·워크플로우 수·채널 수, 발송/성공/실패/오픈/클릭, 성공률·실패률·오픈률·클릭률(00.00% 포맷). 표시할 지표 선택(접이식 체크박스, `dashboard_kpi_visible`). 목표 대비 신호등(달성/주의/미달). 비교 모드 시 compareKpi·±n% vs 비교기간 표시.
+- KPI 카드, 채널별 도넛(비교 시 기준/비교 블록 구분), 기준별 발송 현황(막대, 상위 10건·발송성공 기준·복수 차원 시 X축 단일 차원·일자 제외), 집계 데이터 테이블(페이징·검색·비교 시 merged/summary 모드·필터 툴바), 차트 생성 위젯, **위젯 생성 (beta)**(ChartWidget2). 비교 모드 시 위젯은 **기준 기간/비교 기간** 셀렉트로 선택한 기간만 표시.
 - **기간 표시**: 주요 지표·채널별 분석 섹션 상단 PeriodLabel(기준일/기간 뱃지). shared/utils/dateRange.formatDateRangeLabel, shared/components/PeriodLabel.jsx.
 - 필수 컬럼 안내 모달(컬럼명·허용 타입 목록). 섹션 접기/펼치기(CollapsibleSection, 차트 생성·위젯 생성 beta 기본 접힘).
 
 ### 6.2.1 대시보드2 (성과리포트, /dashboard2)
-- 보기 모드: 일반 / 주간 비교 / 월간 비교. 주간 비교 시 기준 주(날짜)·비교 주(날짜, 비어두면 전 주). 월간 비교 시 기준 월(YYYY-MM)·비교 월(비어두면 전 월). 기준·비교 기간 라벨 간결 표시(기준: … / 비교: …).
+- 보기 모드: 일반 / **일간 비교** / 주간 비교 / 월간 비교 / **연간 비교**. 일간: 기준일·비교일(비어두면 전일). 주간: 기준 주(날짜)·비교 주(비어두면 전 주). 월간: 기준 월(YYYY-MM)·비교 월(비어두면 전 월). 연간: 기준 연도·비교 연도(비어두면 전년). 기준·비교 기간 라벨 간결 표시(기준: … / 비교: …). `dashboard2/utils/periodCompare.js`: getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange, getPreviousDay, getYearRange, getPreviousYearRange.
+- **디멘션별 비교(B)/요약 보기(A)** 토글: 기준별 발송 현황·집계 데이터 테이블에서 비교 시 "디멘션별 비교"(MergedBarChart·CompareMergedTable) 또는 "요약 보기"(SummaryBarChart·CompareSummaryTable) 전환. **기준별 발송 차트**: 복수 차원 선택 시 **X축 단일 차원**(캠페인/워크플로우/채널만, **일자 제외**)으로 합산해 레이블 겹침 방지·기간 비교 의미 유지.
 - KPI 순서: 캠페인 수→워크플로우 수→채널 수→발송요청→성공수→실패수→성공률→실패율→오픈→클릭→오픈률→클릭률. 비교 모드 시 이전 기간 값·전비(%) 표시.
-- 집계 테이블: 컬럼 순서 발송요청→발송성공→성공률→오픈→클릭→오픈률→클릭률. 성공률·오픈률·클릭률 셀에 값 비례 채우기 막대(회색)·내부 테두리만(외곽선 없음).
-- 위젯 생성: Dimension/Metric/차트 유형(막대·선형·영역). rate형 지표(success_rate, open_rate, click_rate 등) 시 Y축·툴팁 소수점 둘째자리. info 버튼은 차트유형 셀렉트 오른쪽. periodCompare.js: getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange.
+- 집계 테이블: 컬럼 순서 발송요청→발송성공→성공률→오픈→클릭→오픈률→클릭률. 성공률·오픈률·클릭률 셀에 값 비례 채우기 막대(회색)·내부 테두리만. 디멘션별 비교 시 기준/비교 컬럼 배경 구분·필터 툴바·정렬 행.
+- 채널별 도넛: 비교 시 기준/비교 블록 배경·테두리·색상 구분. 비교 기간 데이터 없을 때 "해당 기간 데이터가 없습니다." 표시.
+- 위젯 생성: Dimension/Metric/차트 유형(막대·선형·영역). rate형 지표 시 Y축·툴팁 소수점 둘째자리. info 버튼은 차트유형 셀렉트 오른쪽. 비교 모드 시 기준 기간/비교 기간 차트 각각 렌더.
+
+### 6.2.2 위젯보드 (/widgetboard)
+- **역할**: 드래그 앤 드롭으로 위젯을 배치·저장하는 그리드 대시보드. 레이아웃·위젯 설정은 localStorage 저장(widgetboard_layout, widgetboard_widget_configs). 기존 대시보드·리포트 API 및 shared 데이터 유틸 활용.
+- **구성**: `packages/widgetboard` (Dashboard3Page.jsx, index.jsx, utils/dataUtils.js, widgetboard.css). 라우트 `/widgetboard`, 네비 "위젯보드". 상세는 **01_FRONTEND_GUIDE.md §4.4** 참고.
 
 ### 6.3 공통
 - API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
@@ -161,3 +170,4 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (문서-구현 동기화) | 대시보드(대시보드2 제외): 위젯 생성 (beta)(ChartWidget2)·기간 표시(PeriodLabel)·Y축-플롯 세로 길이 일치·차트 생성/위젯 생성 beta 기본 접힘 반영. 01_FRONTEND_GUIDE §3·§4.2·README 갱신 |
 | (대시보드2 반영) | 대시보드2 패키지·API(dashboard2/*)·주간/월간 비교(기준·비교 주/월 선택)·KPI·집계 테이블 순서·rate 채우기 막대·내부 테두리·위젯 rate Y축 소수점·info 버튼 위치 반영. 00_PRD §2.1·§4·§5·§6.2/6.3, 01_FRONTEND_GUIDE §3·§4, 02 §1.3 갱신 |
 | (접속 경로·Phase3 보완) | 00_PRD §2.2 접속 경로에 .../dashboard2 명시. 02 Phase 3 현재 구조에 dashboard2.py 반영 |
+| (2026-02-02) | 위젯보드 패키지·/widgetboard 경로 반영. 대시보드1: 비교 모드(일/주/월/연), 디멘션별 비교(B)/요약 보기(A) 토글, 기준별 발송 X축 단일 차원(일자 제외), periodCompare.js, 위젯 기간 선택. 대시보드2: 일간/연간 비교, 디멘션별 비교/요약, X축 단일 차원(일자 제외), merged/summary·필터 툴바. 리포트 API: join-order, save-query-as-table·status. §6.2.2 위젯보드, 01·02 문서 갱신 |

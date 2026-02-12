@@ -493,31 +493,33 @@ export default function AggregatedDataTable({
       </div>
     ) : null
 
-  const renderToolbar = (options, filteredCount = null) => (
+  const renderToolbar = (options, filteredCount = null, showFilterUI = true) => (
     <div className="aggregated-data-table__toolbar">
-      <div className="aggregated-data-table__filters">
-        {filters.map((f) => (
-          <div key={f.id} className="aggregated-data-table__filter-row">
-            <select className="aggregated-data-table__filter-select" value={f.columnKey} onChange={(e) => updateFilter(f.id, { columnKey: e.target.value })} aria-label="컬럼 선택">
-              <option value="">컬럼 선택</option>
-              {options.map((c) => (
-                <option key={c.key} value={c.key}>{c.label}</option>
-              ))}
-            </select>
-            <select className="aggregated-data-table__filter-select" value={f.operator} onChange={(e) => updateFilter(f.id, { operator: e.target.value })} aria-label="조건">
-              {OPERATORS.map((o) => (
-                <option key={o.key} value={o.key}>{o.label}</option>
-              ))}
-            </select>
-            <input type="text" className="aggregated-data-table__filter-input" placeholder="값" value={f.value ?? ''} onChange={(e) => updateFilter(f.id, { value: e.target.value })} aria-label="검색값" />
-            <button type="button" className="aggregated-data-table__filter-remove" onClick={() => removeFilter(f.id)} title="이 조건 제거" aria-label="조건 제거">삭제</button>
-          </div>
-        ))}
-        <button type="button" className="aggregated-data-table__filter-add" onClick={addFilter}>+ 필터 추가</button>
-      </div>
+      {showFilterUI && (
+        <div className="aggregated-data-table__filters">
+          {filters.map((f) => (
+            <div key={f.id} className="aggregated-data-table__filter-row">
+              <select className="aggregated-data-table__filter-select" value={f.columnKey} onChange={(e) => updateFilter(f.id, { columnKey: e.target.value })} aria-label="컬럼 선택">
+                <option value="">컬럼 선택</option>
+                {options.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+              <select className="aggregated-data-table__filter-select" value={f.operator} onChange={(e) => updateFilter(f.id, { operator: e.target.value })} aria-label="조건">
+                {OPERATORS.map((o) => (
+                  <option key={o.key} value={o.key}>{o.label}</option>
+                ))}
+              </select>
+              <input type="text" className="aggregated-data-table__filter-input" placeholder="값" value={f.value ?? ''} onChange={(e) => updateFilter(f.id, { value: e.target.value })} aria-label="검색값" />
+              <button type="button" className="aggregated-data-table__filter-remove" onClick={() => removeFilter(f.id)} title="이 조건 제거" aria-label="조건 제거">삭제</button>
+            </div>
+          ))}
+          <button type="button" className="aggregated-data-table__filter-add" onClick={addFilter}>+ 필터 추가</button>
+        </div>
+      )}
       <span className="aggregated-data-table__pagination-info">
         {filteredCount != null ? `${filteredCount}건` : ''}
-        {filteredCount != null && hasActiveFilters ? ' · 필터 적용 중' : hasActiveFilters ? '필터 적용 중' : ''}
+        {showFilterUI && (filteredCount != null && hasActiveFilters ? ' · 필터 적용 중' : hasActiveFilters ? '필터 적용 중' : '')}
       </span>
     </div>
   )
@@ -535,7 +537,7 @@ export default function AggregatedDataTable({
     return (
       <section className="aggregated-data-table aggregated-data-table-section">
         {renderSortRow()}
-        {renderToolbar(summaryColumnOptions, filteredSummaryData.length)}
+        {renderToolbar(summaryColumnOptions, filteredSummaryData.length, false)}
         <CompareSummaryTable data={filteredSummaryData} formatNum={formatNum} formatRate={formatRate} />
       </section>
     )

@@ -1,5 +1,50 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-02: README 갱신·대시보드1 미사용 코드 정리
+
+### 완료 작업
+1. **README.md**: 대시보드 섹션에 비교 모드(일간/주간/월간/연간)·디멘션별 비교(B)/요약 보기(A)·X축 단일 차원(일자 제외)·위젯 기간 선택 반영. 대시보드2·위젯보드 섹션 및 접속 경로·프로젝트 구조(dashboard2, widgetboard, routers) 추가. 사용 흐름에 대시보드2·위젯보드 안내 추가.
+2. **requirements.txt**: 점검 완료. FastAPI·uvicorn·psycopg2-binary·requests 유지(변경 없음).
+3. **대시보드1**: **DashboardFilters.jsx** 삭제 — DashboardPage에서 사용하지 않음(필터·집계 기준·정렬은 DashboardHeader에 통합됨).
+4. **docs/main/01_FRONTEND_GUIDE.md**: 디렉터리 구조 및 §4.2에서 DashboardFilters 참조 제거.
+
+### 수정/삭제 파일
+- README.md
+- docs/main/01_FRONTEND_GUIDE.md
+- Frontend/react-app/src/packages/dashboard/components/DashboardFilters.jsx (삭제)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: docs/main 문서 정리·보강 (최종 검토 반영)
+
+### 완료 작업
+1. **00_PRD.md**: §6.2.2 위젯보드 중복 블록 제거(하나로 통합). 변경 이력 2026-02-02 항목 2줄 → 1줄로 통합.
+2. **01_FRONTEND_GUIDE.md**: §4.4 widgetboard에 localStorage 키(widgetboard_layout, widgetboard_widget_configs)·index.jsx·widgetboard.css 설명 보강.
+3. **02_BACKEND_FASTAPI_MIGRATION_PLAN.md**: API 목록(join-order, save-query-as-table, status) 이미 반영 확인. 수정 없음.
+
+### 수정 파일
+- docs/main/00_PRD.md
+- docs/main/01_FRONTEND_GUIDE.md
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: docs/main 문서 최신화 (PRD·프론트 가이드·백엔드 계획)
+
+### 완료 작업
+1. **00_PRD.md**: 위젯보드 패키지·/widgetboard 라우트·접속 경로 반영. 대시보드1 비교 모드(일간/주간/월간/연간)·디멘션별 비교(B)/요약 보기(A)·기준별 발송 X축 단일 차원(일자 제외)·periodCompare. 대시보드2 일간/연간 비교·디멘션별 비교/요약·X축 단일 차원(일자 제외)·채널 도넛 기준/비교 구분. §6.2.2 위젯보드 추가. API 엔드포인트에 join-order·save-query-as-table·status 반영. 변경 이력 2026-02-02 항목 추가.
+2. **01_FRONTEND_GUIDE.md**: 패키지에 widgetboard 추가. 디렉터리 구조에 dashboard/utils/periodCompare.js·widgetboard 패키지(Dashboard3Page·dataUtils·widgetboard.css) 반영. §4.2 dashboard: 비교 모드·디멘션별 비교/요약·AggregatedBarChart X축 단일 차원(일자 제외)·periodCompare.js. §4.3 dashboard2: 일간/연간 비교·디멘션별 비교/요약·getPrimaryDimensionForChart(일자 제외)·buildMergedCompareDataSingleDimension·AggregatedDataTable2 CompareMerged/Summary·필터 툴바. §4.4 widgetboard 신설. §4.5 shared(기존 4.4). 스타일에 widgetboard.css·dashboard2 상세 보완.
+3. **02_BACKEND_FASTAPI_MIGRATION_PLAN.md**: §1.3 API 엔드포인트에 POST /api/join-order·POST /api/save-query-as-table·GET /api/save-query-as-table/status/{job_id} 추가. 전환 완료 상태 문구에서 구체적 날짜 제거.
+
+### 수정 파일
+- docs/main/00_PRD.md
+- docs/main/01_FRONTEND_GUIDE.md
+- docs/main/02_BACKEND_FASTAPI_MIGRATION_PLAN.md
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-02: 기간 비교 시 X축 단일 차원에서 일자(date) 제외
 
 ### 완료 작업
