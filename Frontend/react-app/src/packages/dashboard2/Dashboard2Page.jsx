@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * - loadData: 기준 1회·비교 1회 getDashboard2Data. compareRange(compare_week/compare_month 또는 전 주/전 월). formatRangeLabel(기준/비교)
+ * - loadData: 기준 1회·비교 1회 getDashboard2Data. compareRange(주/월/일/연 비교 또는 전 주/전 월/전 일/전 연). formatRangeLabel(기준/비교)
  * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2ChartData. TargetContextSection·KPICards2(compareKpi)·EChartsChart(metricKey)
  *
  * [Endpoints/Classes/Functions]
@@ -20,7 +20,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getDashboard2Data, getDashboard2FilterOptions, getDashboard2Tables, getDashboard2ChartData } from '@/shared/api/client'
 import { normalizeDateRange } from '@/shared/utils/dateRange'
-import { getWeekRange, getMonthRange, getPreviousWeekRange, getPreviousMonthRange } from './utils/periodCompare'
+import { getWeekRange, getMonthRange, getPreviousWeekRange, getPreviousMonthRange, getPreviousDay, getYearRange, getPreviousYearRange } from './utils/periodCompare'
 import './dashboard2.css'
 import Dashboard2Header from './components/Dashboard2Header'
 import CollapsibleSection2 from './components/CollapsibleSection2'
@@ -192,6 +192,314 @@ function getDefaultDateRange() {
   return [`${y}-${m}-${d}`, `${y}-${m}-${d}`]
 }
 
+/** 집계 키에서 일자 제외 (캠페인/워크플로우/채널만). 비교 시 기간별 합산 후 매칭용 */
+function keyOfNoDate(r, groupBy) {
+  const parts = []
+  if (groupBy.campaign) parts.push(String(r.campaign_label ?? r.campaign_id ?? ''))
+  if (groupBy.workflow) parts.push(String(r.workflow_label ?? r.workflow_id ?? ''))
+  if (groupBy.channel) parts.push(String(r.channel_name ?? r.channel_code ?? ''))
+  return parts.join('\0')
+}
+
+/** 동일 키(일자 제외)로 행들을 합산한 맵 반환. value: { total_count, success_count, open_count, click_count, labelRow } */
+function aggregateByKeyNoDate(rows, groupBy) {
+  const map = new Map()
+  const getLabel = (r) => {
+    const parts = []
+    if (groupBy.campaign) parts.push(r?.campaign_label ?? r?.campaign_id ?? '-')
+    if (groupBy.workflow) parts.push(r?.workflow_label ?? r?.workflow_id ?? '-')
+    if (groupBy.channel) parts.push(r?.channel_name ?? r?.channel_code ?? '-')
+    return parts.join(' / ')
+  }
+  rows.forEach((r) => {
+    const k = keyOfNoDate(r, groupBy)
+    const cur = map.get(k) || { total_count: 0, success_count: 0, open_count: 0, click_count: 0, labelRow: r }
+    map.set(k, {
+      total_count: cur.total_count + (Number(r.total_count) || 0),
+      success_count: cur.success_count + (Number(r.success_count) || 0),
+      open_count: cur.open_count + (Number(r.open_count) || 0),
+      click_count: cur.click_count + (Number(r.click_count) || 0),
+      labelRow: r
+    })
+  })
+  return { map, getLabel }
+}
+
+/** 비교 모드 시 B안: 디멘션별 기준/비교 나란히. 일자만이면 1일차~N일차, 캠페인/워크플로우/채널+일자면 일자 제외하고 기간별 합산 후 매칭 */
+function buildMergedCompareData(baseRows, compareRows, groupBy) {
+  if (!baseRows?.length && !compareRows?.length) return []
+  const base = baseRows || []
+  const compare = compareRows || []
+  const isDateOnly = groupBy.date && !groupBy.campaign && !groupBy.workflow && !groupBy.channel
+  const hasDateAndOther = groupBy.date && (groupBy.campaign || groupBy.workflow || groupBy.channel)
+  if (hasDateAndOther) {
+    const { map: baseMap, getLabel } = aggregateByKeyNoDate(base, groupBy)
+    const { map: compareMap } = aggregateByKeyNoDate(compare, groupBy)
+    const allKeys = new Set([...baseMap.keys(), ...compareMap.keys()])
+    const rows = []
+    allKeys.forEach((k) => {
+      const b = baseMap.get(k)
+      const c = compareMap.get(k)
+      const totalBase = b ? b.total_count : 0
+      const totalCompare = c ? c.total_count : 0
+      const successBase = b ? b.success_count : 0
+      const successCompare = c ? c.success_count : 0
+      const openBase = b ? b.open_count : 0
+      const openCompare = c ? c.open_count : 0
+      const clickBase = b ? b.click_count : 0
+      const clickCompare = c ? c.click_count : 0
+      const successRateBase = totalBase > 0 ? (successBase / totalBase) * 100 : 0
+      const successRateCompare = totalCompare > 0 ? (successCompare / totalCompare) * 100 : 0
+      const openRateBase = successBase > 0 ? (openBase / successBase) * 100 : 0
+      const openRateCompare = successCompare > 0 ? (openCompare / successCompare) * 100 : 0
+      const clickRateBase = successBase > 0 ? (clickBase / successBase) * 100 : 0
+      const clickRateCompare = successCompare > 0 ? (clickCompare / successCompare) * 100 : 0
+      rows.push({
+        dimensionLabel: getLabel((b || c)?.labelRow ?? {}),
+        기준_total_count: totalBase,
+        비교_total_count: totalCompare,
+        기준_success_count: successBase,
+        비교_success_count: successCompare,
+        기준_success_rate: successRateBase,
+        비교_success_rate: successRateCompare,
+        기준_open_count: openBase,
+        비교_open_count: openCompare,
+        기준_click_count: clickBase,
+        비교_click_count: clickCompare,
+        기준_open_rate: openRateBase,
+        비교_open_rate: openRateCompare,
+        기준_click_rate: clickRateBase,
+        비교_click_rate: clickRateCompare
+      })
+    })
+    return rows
+  }
+  if (isDateOnly) {
+    const baseSorted = [...base].sort((a, b) => String(a.delivery_date || '').localeCompare(String(b.delivery_date || '')))
+    const compareSorted = [...compare].sort((a, b) => String(a.delivery_date || '').localeCompare(String(b.delivery_date || '')))
+    const maxLen = Math.max(baseSorted.length, compareSorted.length)
+    const rows = []
+    for (let i = 0; i < maxLen; i++) {
+      const b = baseSorted[i]
+      const c = compareSorted[i]
+      const totalBase = b ? (Number(b.total_count) || 0) : 0
+      const totalCompare = c ? (Number(c.total_count) || 0) : 0
+      const successBase = b ? (Number(b.success_count) || 0) : 0
+      const successCompare = c ? (Number(c.success_count) || 0) : 0
+      const openBase = b ? (Number(b.open_count) || 0) : 0
+      const openCompare = c ? (Number(c.open_count) || 0) : 0
+      const clickBase = b ? (Number(b.click_count) || 0) : 0
+      const clickCompare = c ? (Number(c.click_count) || 0) : 0
+      const successRateBase = totalBase > 0 ? (successBase / totalBase) * 100 : 0
+      const successRateCompare = totalCompare > 0 ? (successCompare / totalCompare) * 100 : 0
+      const openRateBase = successBase > 0 ? (openBase / successBase) * 100 : 0
+      const openRateCompare = successCompare > 0 ? (openCompare / successCompare) * 100 : 0
+      const clickRateBase = successBase > 0 ? (clickBase / successBase) * 100 : 0
+      const clickRateCompare = successCompare > 0 ? (clickCompare / successCompare) * 100 : 0
+      rows.push({
+        dimensionLabel: `${i + 1}일차`,
+        delivery_date_base: b?.delivery_date ?? '',
+        delivery_date_compare: c?.delivery_date ?? '',
+        기준_total_count: totalBase,
+        비교_total_count: totalCompare,
+        기준_success_count: successBase,
+        비교_success_count: successCompare,
+        기준_success_rate: successRateBase,
+        비교_success_rate: successRateCompare,
+        기준_open_count: openBase,
+        비교_open_count: openCompare,
+        기준_click_count: clickBase,
+        비교_click_count: clickCompare,
+        기준_open_rate: openRateBase,
+        비교_open_rate: openRateCompare,
+        기준_click_rate: clickRateBase,
+        비교_click_rate: clickRateCompare
+      })
+    }
+    return rows
+  }
+  const keyOf = (r) => {
+    const parts = []
+    if (groupBy.campaign) parts.push(String(r.campaign_label ?? r.campaign_id ?? ''))
+    if (groupBy.date) parts.push(String(r.delivery_date ?? ''))
+    if (groupBy.workflow) parts.push(String(r.workflow_label ?? r.workflow_id ?? ''))
+    if (groupBy.channel) parts.push(String(r.channel_name ?? r.channel_code ?? ''))
+    return parts.join('\0')
+  }
+  const baseMap = new Map()
+  base.forEach((r) => baseMap.set(keyOf(r), r))
+  const compareMap = new Map()
+  compare.forEach((r) => compareMap.set(keyOf(r), r))
+  const allKeys = new Set([...baseMap.keys(), ...compareMap.keys()])
+  const dimensionLabels = []
+  if (groupBy.campaign) dimensionLabels.push('campaign_label')
+  if (groupBy.date) dimensionLabels.push('delivery_date')
+  if (groupBy.workflow) dimensionLabels.push('workflow_label')
+  if (groupBy.channel) dimensionLabels.push('channel_name')
+  const getLabel = (r) => {
+    const parts = []
+    if (groupBy.campaign) parts.push(r?.campaign_label ?? r?.campaign_id ?? '-')
+    if (groupBy.date) parts.push(r?.delivery_date ?? '-')
+    if (groupBy.workflow) parts.push(r?.workflow_label ?? r?.workflow_id ?? '-')
+    if (groupBy.channel) parts.push(r?.channel_name ?? r?.channel_code ?? '-')
+    return parts.join(' / ')
+  }
+  const rows = []
+  allKeys.forEach((k) => {
+    const b = baseMap.get(k)
+    const c = compareMap.get(k)
+    const totalBase = b ? (Number(b.total_count) || 0) : 0
+    const totalCompare = c ? (Number(c.total_count) || 0) : 0
+    const successBase = b ? (Number(b.success_count) || 0) : 0
+    const successCompare = c ? (Number(c.success_count) || 0) : 0
+    const openBase = b ? (Number(b.open_count) || 0) : 0
+    const openCompare = c ? (Number(c.open_count) || 0) : 0
+    const clickBase = b ? (Number(b.click_count) || 0) : 0
+    const clickCompare = c ? (Number(c.click_count) || 0) : 0
+    const successRateBase = totalBase > 0 ? (successBase / totalBase) * 100 : 0
+    const successRateCompare = totalCompare > 0 ? (successCompare / totalCompare) * 100 : 0
+    const openRateBase = successBase > 0 ? (openBase / successBase) * 100 : 0
+    const openRateCompare = successCompare > 0 ? (openCompare / successCompare) * 100 : 0
+    const clickRateBase = successBase > 0 ? (clickBase / successBase) * 100 : 0
+    const clickRateCompare = successCompare > 0 ? (clickCompare / successCompare) * 100 : 0
+    rows.push({
+      dimensionLabel: getLabel(b || c),
+      기준_total_count: totalBase,
+      비교_total_count: totalCompare,
+      기준_success_count: successBase,
+      비교_success_count: successCompare,
+      기준_success_rate: successRateBase,
+      비교_success_rate: successRateCompare,
+      기준_open_count: openBase,
+      비교_open_count: openCompare,
+      기준_click_count: clickBase,
+      비교_click_count: clickCompare,
+      기준_open_rate: openRateBase,
+      비교_open_rate: openRateCompare,
+      기준_click_rate: clickRateBase,
+      비교_click_rate: clickRateCompare
+    })
+  })
+  return rows
+}
+
+/** 차트 X축용: 복수 차원일 때 가장 분류가 많은 하나만 사용. base+compare 합쳐서 해당 차원 distinct 개수로 선택. 기간 비교 시 의미 유지를 위해 일자(date)는 후보에서 제외(캠페인/워크플로우/채널만) */
+function getPrimaryDimensionForChart(baseRows, compareRows, groupBy) {
+  const combined = [...(baseRows || []), ...(compareRows || [])]
+  const dims = []
+  if (groupBy.campaign) dims.push({ key: 'campaign', getVal: (r) => String(r.campaign_label ?? r.campaign_id ?? '') })
+  if (groupBy.workflow) dims.push({ key: 'workflow', getVal: (r) => String(r.workflow_label ?? r.workflow_id ?? '') })
+  if (groupBy.channel) dims.push({ key: 'channel', getVal: (r) => String(r.channel_name ?? r.channel_code ?? '') })
+  if (dims.length === 0) return null
+  let best = dims[0]
+  let maxCount = 0
+  dims.forEach((d) => {
+    const count = new Set(combined.map(d.getVal)).size
+    if (count > maxCount) {
+      maxCount = count
+      best = d
+    }
+  })
+  return best
+}
+
+/** 단일 차원으로 합산 후 머지 (차트용 — X축 레이블 겹침 방지). primaryDim = getPrimaryDimensionForChart 반환값 */
+function buildMergedCompareDataSingleDimension(baseRows, compareRows, groupBy, primaryDim) {
+  if (!primaryDim || !baseRows?.length && !compareRows?.length) return []
+  const getKey = (r) => primaryDim.getVal(r)
+  const sumRows = (rows) => {
+    const map = new Map()
+    ;(rows || []).forEach((r) => {
+      const k = getKey(r)
+      const cur = map.get(k) || { total_count: 0, success_count: 0, open_count: 0, click_count: 0 }
+      map.set(k, {
+        total_count: cur.total_count + (Number(r.total_count) || 0),
+        success_count: cur.success_count + (Number(r.success_count) || 0),
+        open_count: cur.open_count + (Number(r.open_count) || 0),
+        click_count: cur.click_count + (Number(r.click_count) || 0)
+      })
+    })
+    return map
+  }
+  const baseMap = sumRows(baseRows)
+  const compareMap = sumRows(compareRows)
+  const allKeys = new Set([...baseMap.keys(), ...compareMap.keys()])
+  const rows = []
+  allKeys.forEach((k) => {
+    const b = baseMap.get(k)
+    const c = compareMap.get(k)
+    const totalBase = b ? b.total_count : 0
+    const totalCompare = c ? c.total_count : 0
+    const successBase = b ? b.success_count : 0
+    const successCompare = c ? c.success_count : 0
+    const openBase = b ? b.open_count : 0
+    const openCompare = c ? c.open_count : 0
+    const clickBase = b ? b.click_count : 0
+    const clickCompare = c ? c.click_count : 0
+    const successRateBase = totalBase > 0 ? (successBase / totalBase) * 100 : 0
+    const successRateCompare = totalCompare > 0 ? (successCompare / totalCompare) * 100 : 0
+    const openRateBase = successBase > 0 ? (openBase / successBase) * 100 : 0
+    const openRateCompare = successCompare > 0 ? (openCompare / successCompare) * 100 : 0
+    const clickRateBase = successBase > 0 ? (clickBase / successBase) * 100 : 0
+    const clickRateCompare = successCompare > 0 ? (clickCompare / successCompare) * 100 : 0
+    rows.push({
+      dimensionLabel: k || '-',
+      기준_total_count: totalBase,
+      비교_total_count: totalCompare,
+      기준_success_count: successBase,
+      비교_success_count: successCompare,
+      기준_success_rate: successRateBase,
+      비교_success_rate: successRateCompare,
+      기준_open_count: openBase,
+      비교_open_count: openCompare,
+      기준_click_count: clickBase,
+      비교_click_count: clickCompare,
+      기준_open_rate: openRateBase,
+      비교_open_rate: openRateCompare,
+      기준_click_rate: clickRateBase,
+      비교_click_rate: clickRateCompare
+    })
+  })
+  return rows
+}
+
+/** 비교 모드 시 A안: 기간 2행 요약(기준 합산, 비교 합산) */
+function buildSummaryCompareData(baseRows, compareRows) {
+  const sum = (rows, key) => (rows || []).reduce((s, r) => s + (Number(r[key]) || 0), 0)
+  const base = baseRows || []
+  const compare = compareRows || []
+  const totalBase = sum(base, 'total_count')
+  const totalCompare = sum(compare, 'total_count')
+  const successBase = sum(base, 'success_count')
+  const successCompare = sum(compare, 'success_count')
+  const openBase = sum(base, 'open_count')
+  const openCompare = sum(compare, 'open_count')
+  const clickBase = sum(base, 'click_count')
+  const clickCompare = sum(compare, 'click_count')
+  return [
+    {
+      기간: '기준',
+      total_count: totalBase,
+      success_count: successBase,
+      success_rate: totalBase > 0 ? (successBase / totalBase) * 100 : 0,
+      open_count: openBase,
+      click_count: clickBase,
+      open_rate: successBase > 0 ? (openBase / successBase) * 100 : 0,
+      click_rate: successBase > 0 ? (clickBase / successBase) * 100 : 0
+    },
+    {
+      기간: '비교',
+      total_count: totalCompare,
+      success_count: successCompare,
+      success_rate: totalCompare > 0 ? (successCompare / totalCompare) * 100 : 0,
+      open_count: openCompare,
+      click_count: clickCompare,
+      open_rate: successCompare > 0 ? (openCompare / successCompare) * 100 : 0,
+      click_rate: successCompare > 0 ? (clickCompare / successCompare) * 100 : 0
+    }
+  ]
+}
+
 export default function Dashboard2Page() {
   const [tables, setTables] = useState([])
   const [tableId, setTableId] = useState('')
@@ -201,8 +509,12 @@ export default function Dashboard2Page() {
     view_mode: 'normal',
     compare_base_week: '',
     compare_base_month: '',
+    compare_base_day: '',
+    compare_base_year: '',
     compare_week: '',
     compare_month: '',
+    compare_day: '',
+    compare_year: '',
     campaign_ids: [],
     workflow_ids: [],
     channels: [],
@@ -219,6 +531,8 @@ export default function Dashboard2Page() {
   const [chartType, setChartType] = useState('bar')
   const [chartData, setChartData] = useState([])
   const [chartDataLoading, setChartDataLoading] = useState(false)
+  const [compareChartData, setCompareChartData] = useState([])
+  const [compareChartDataLoading, setCompareChartDataLoading] = useState(false)
   const [sectionOpen, setSectionOpen] = useState({
     kpi: true,
     channel: true,
@@ -228,6 +542,8 @@ export default function Dashboard2Page() {
   })
   const [targets, setTargets] = useState([])
   const [showDimensionInfoModal, setShowDimensionInfoModal] = useState(false)
+  /** 비교 모드 시 기준별 발송 현황·집계 테이블: false=디멘션+기준/비교 나란히(B), true=요약 2행/2막대(A) */
+  const [showCompareSummary, setShowCompareSummary] = useState(false)
 
   const toggleSection = useCallback((key) => {
     setSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -305,7 +621,7 @@ export default function Dashboard2Page() {
       channels: filters.channels || [],
       group_by: { ...(filters.group_by || defaultGroupBy), date: true }
     }
-    const isCompare = filters.view_mode === 'week_compare' || filters.view_mode === 'month_compare'
+    const isCompare = filters.view_mode === 'week_compare' || filters.view_mode === 'month_compare' || filters.view_mode === 'day_compare' || filters.view_mode === 'year_compare'
     let compareRange = null
     if (filters.view_mode === 'week_compare' && filters.compare_base_week) {
       if (filters.compare_week) {
@@ -320,6 +636,19 @@ export default function Dashboard2Page() {
       } else {
         const [y, m] = filters.compare_base_month.split('-').map(Number)
         if (y && m) compareRange = getPreviousMonthRange(y, m)
+      }
+    } else if (filters.view_mode === 'day_compare' && filters.compare_base_day) {
+      if (filters.compare_day) {
+        compareRange = [filters.compare_day, filters.compare_day]
+      } else {
+        compareRange = getPreviousDay(filters.compare_base_day)
+      }
+    } else if (filters.view_mode === 'year_compare' && filters.compare_base_year) {
+      const baseY = Number(filters.compare_base_year)
+      if (filters.compare_year && Number.isFinite(Number(filters.compare_year))) {
+        compareRange = getYearRange(Number(filters.compare_year))
+      } else if (Number.isFinite(baseY)) {
+        compareRange = getPreviousYearRange(baseY)
       }
     }
     const payloadCurrent = { ...basePayload, date_range: currentRange }
@@ -382,7 +711,55 @@ export default function Dashboard2Page() {
     () => sortAggregatedData(data?.aggregated_data ?? [], sortOrder),
     [data?.aggregated_data, sortOrder]
   )
+  const sortedCompareAggregatedData = useMemo(
+    () => sortAggregatedData(compareData?.aggregated_data ?? [], sortOrder),
+    [compareData?.aggregated_data, sortOrder]
+  )
   const groupBy = { ...(filters.group_by ?? defaultGroupBy), date: true }
+
+  /** 비교 모드 시 B안: 디멘션별 기준/비교 병합 데이터 (차트·테이블용) */
+  const mergedCompareData = useMemo(
+    () => buildMergedCompareData(sortedAggregatedData, sortedCompareAggregatedData, groupBy),
+    [sortedAggregatedData, sortedCompareAggregatedData, groupBy]
+  )
+  /** 비교 모드 시 A안: 기간 2행 요약 (차트·테이블용) */
+  const summaryCompareData = useMemo(
+    () => buildSummaryCompareData(data?.aggregated_data ?? [], compareData?.aggregated_data ?? []),
+    [data?.aggregated_data, compareData?.aggregated_data]
+  )
+  /** 복수 차원 여부: 차트 X축 겹침 방지 시 단일 차원만 사용 */
+  const activeDimensionKeys = useMemo(
+    () => ['date', 'campaign', 'workflow', 'channel'].filter((k) => groupBy[k]),
+    [groupBy]
+  )
+  /** B안 차트용: 2개 이상 차원이면 가장 분류 많은 하나만 X축에 사용 */
+  const mergedChartData = useMemo(() => {
+    const source =
+      activeDimensionKeys.length >= 2
+        ? buildMergedCompareDataSingleDimension(
+            sortedAggregatedData,
+            sortedCompareAggregatedData,
+            groupBy,
+            getPrimaryDimensionForChart(sortedAggregatedData, sortedCompareAggregatedData, groupBy)
+          )
+        : mergedCompareData
+    return (source || []).map((r) => ({
+      name: r.dimensionLabel,
+      기준_발송요청: r.기준_total_count,
+      비교_발송요청: r.비교_total_count,
+      기준_발송성공: r.기준_success_count,
+      비교_발송성공: r.비교_success_count
+    }))
+  }, [mergedCompareData, sortedAggregatedData, sortedCompareAggregatedData, groupBy, activeDimensionKeys.length])
+  /** A안 차트용: name(기준/비교), 발송요청, 발송성공 */
+  const summaryChartData = useMemo(
+    () => summaryCompareData.map((r) => ({
+      name: r.기간,
+      발송요청: r.total_count,
+      발송성공: r.success_count
+    })),
+    [summaryCompareData]
+  )
   const availableDimensions = useMemo(() => getAvailableDimensions(groupBy), [groupBy])
   const effectiveDimensionKey = availableDimensions.some((d) => d.key === dimensionKey) ? dimensionKey : (availableDimensions[0]?.key ?? 'delivery_date')
   const metricField = useMemo(() => METRIC_FIELDS.find((f) => f.key === metricKey) || METRIC_FIELDS[0], [metricKey])
@@ -393,7 +770,7 @@ export default function Dashboard2Page() {
     [targets, filters.date_range, data?.kpi]
   )
 
-  /** 비교 기간 라벨 (주간/월간 비교 모드). 비교 주/월 선택 시 해당 기간, 비어 있으면 전 주/전 월 */
+  /** 비교 기간 라벨 (주/월/일/연 비교 모드). 비교 선택 시 해당 기간, 비어 있으면 전 주/전 월/전 일/전 연 */
   const compareRange = useMemo(() => {
     if (filters.view_mode === 'week_compare' && filters.compare_base_week) {
       if (filters.compare_week) return getWeekRange(filters.compare_week)
@@ -407,8 +784,17 @@ export default function Dashboard2Page() {
       const [y, m] = filters.compare_base_month.split('-').map(Number)
       return y && m ? getPreviousMonthRange(y, m) : null
     }
+    if (filters.view_mode === 'day_compare' && filters.compare_base_day) {
+      if (filters.compare_day) return [filters.compare_day, filters.compare_day]
+      return getPreviousDay(filters.compare_base_day)
+    }
+    if (filters.view_mode === 'year_compare' && filters.compare_base_year) {
+      const baseY = Number(filters.compare_base_year)
+      if (filters.compare_year && Number.isFinite(Number(filters.compare_year))) return getYearRange(Number(filters.compare_year))
+      if (Number.isFinite(baseY)) return getPreviousYearRange(baseY)
+    }
     return null
-  }, [filters.view_mode, filters.compare_base_week, filters.compare_base_month, filters.compare_week, filters.compare_month])
+  }, [filters.view_mode, filters.compare_base_week, filters.compare_base_month, filters.compare_base_day, filters.compare_base_year, filters.compare_week, filters.compare_month, filters.compare_day, filters.compare_year])
   const formatRangeLabel = (range) => {
     if (!range?.[0] || !range?.[1]) return ''
     const s = range[0]; const e = range[1]
@@ -445,6 +831,36 @@ export default function Dashboard2Page() {
       })
     return () => { cancelled = true }
   }, [tableId, filters.date_range, filters.campaign_ids, filters.workflow_ids, filters.channels, effectiveDimensionKey, metricKey])
+
+  useEffect(() => {
+    if (!tableId || !compareRange?.length || compareRange.length < 2 || !compareRange[0] || !compareRange[1]) {
+      setCompareChartData([])
+      return
+    }
+    let cancelled = false
+    setCompareChartDataLoading(true)
+    getDashboard2ChartData({
+      table_id: tableId,
+      date_range: normalizeDateRange(compareRange),
+      campaign_ids: filters.campaign_ids || [],
+      workflow_ids: filters.workflow_ids || [],
+      channels: filters.channels || [],
+      dimension: effectiveDimensionKey,
+      metric: metricKey
+    })
+      .then((res) => {
+        if (cancelled) return
+        const rows = res.rows || []
+        setCompareChartData(rows.map((r) => ({ name: r.name ?? '-', value: r.value })))
+      })
+      .catch(() => {
+        if (!cancelled) setCompareChartData([])
+      })
+      .finally(() => {
+        if (!cancelled) setCompareChartDataLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [tableId, compareRange, filters.campaign_ids, filters.workflow_ids, filters.channels, effectiveDimensionKey, metricKey])
 
   return (
     <div className="dashboard2-page">
@@ -503,24 +919,123 @@ export default function Dashboard2Page() {
           )}
           {data?.kpi && (
             <CollapsibleSection2 title="채널별 분석" open={sectionOpen.channel} onToggle={() => toggleSection('channel')}>
-              <PeriodLabel dateRange={filters.date_range} className="dashboard2-period-label" />
-              <ChannelDonutCharts2 kpi={data.kpi} />
+              {compareRange ? (
+                <div className="dashboard2-period-label dashboard2-compare-period-label" role="status">
+                  <span className="period-label__icon">📅</span>
+                  <span className="period-label__text">
+                    기준: {formatRangeLabel(filters.date_range)}
+                    {' / '}
+                    비교: {formatRangeLabel(compareRange)}
+                  </span>
+                </div>
+              ) : (
+                <PeriodLabel dateRange={filters.date_range} className="dashboard2-period-label" />
+              )}
+              <ChannelDonutCharts2 kpi={data.kpi} compareKpi={compareData?.kpi} />
             </CollapsibleSection2>
           )}
-          {sortedAggregatedData.length > 0 && (
+          {(sortedAggregatedData.length > 0 || sortedCompareAggregatedData.length > 0 || (compareRange && (mergedChartData.length > 0 || summaryChartData.length > 0))) && (
             <CollapsibleSection2 title="기준별 발송 현황 (발송성공수 상위 10건)" open={sectionOpen.bar} onToggle={() => toggleSection('bar')}>
-              <AggregatedBarChart2 data={sortedAggregatedData} groupBy={groupBy} />
+              {compareRange ? (
+                <>
+                  <div className="dashboard2-compare-view-toggle">
+                    <button
+                      type="button"
+                      className={`dashboard2-compare-view-toggle__btn ${!showCompareSummary ? 'dashboard2-compare-view-toggle__btn--active' : ''}`}
+                      onClick={() => setShowCompareSummary(false)}
+                      aria-pressed={!showCompareSummary}
+                    >
+                      디멘션별 비교 (B)
+                    </button>
+                    <button
+                      type="button"
+                      className={`dashboard2-compare-view-toggle__btn ${showCompareSummary ? 'dashboard2-compare-view-toggle__btn--active' : ''}`}
+                      onClick={() => setShowCompareSummary(true)}
+                      aria-pressed={showCompareSummary}
+                      title="기준·비교 기간 합산만 2막대로 보기"
+                    >
+                      요약 보기 (A)
+                    </button>
+                  </div>
+                  <div className="dashboard2-period-label dashboard2-compare-period-label dashboard2-compare-period-label--below-toggle" role="status">
+                    <span className="period-label__icon">📅</span>
+                    <span className="period-label__text">
+                      기준: {formatRangeLabel(filters.date_range)}
+                      {' / '}
+                      비교: {formatRangeLabel(compareRange)}
+                    </span>
+                  </div>
+                </>
+              ) : null}
+              <AggregatedBarChart2
+                data={sortedAggregatedData}
+                compareData={sortedCompareAggregatedData}
+                groupBy={groupBy}
+                compareView={compareRange ? (showCompareSummary ? 'summary' : 'merged') : 'split'}
+                mergedChartData={mergedChartData}
+                summaryChartData={summaryChartData}
+              />
             </CollapsibleSection2>
           )}
           <CollapsibleSection2 title="집계 데이터 테이블" open={sectionOpen.table} onToggle={() => toggleSection('table')}>
-            <AggregatedDataTable2
-              data={sortedAggregatedData}
-              groupBy={groupBy}
-              sortOrder={sortOrder}
-              onSortOrderChange={setSortOrder}
-            />
+            {compareRange ? (
+              <>
+                <div className="dashboard2-compare-view-toggle">
+                  <button
+                    type="button"
+                    className={`dashboard2-compare-view-toggle__btn ${!showCompareSummary ? 'dashboard2-compare-view-toggle__btn--active' : ''}`}
+                    onClick={() => setShowCompareSummary(false)}
+                    aria-pressed={!showCompareSummary}
+                  >
+                    디멘션별 비교 (B)
+                  </button>
+                  <button
+                    type="button"
+                    className={`dashboard2-compare-view-toggle__btn ${showCompareSummary ? 'dashboard2-compare-view-toggle__btn--active' : ''}`}
+                    onClick={() => setShowCompareSummary(true)}
+                    aria-pressed={showCompareSummary}
+                    title="기준·비교 기간 합산만 2행으로 보기"
+                  >
+                    요약 보기 (A)
+                  </button>
+                </div>
+                <div className="dashboard2-period-label dashboard2-compare-period-label dashboard2-compare-period-label--below-toggle" role="status">
+                  <span className="period-label__icon">📅</span>
+                  <span className="period-label__text">
+                    기준: {formatRangeLabel(filters.date_range)}
+                    {' / '}
+                    비교: {formatRangeLabel(compareRange)}
+                  </span>
+                </div>
+                <AggregatedDataTable2
+                  compareTableMode={showCompareSummary ? 'summary' : 'merged'}
+                  mergedTableData={mergedCompareData}
+                  summaryTableData={summaryCompareData}
+                  groupBy={groupBy}
+                  sortOrder={sortOrder}
+                  onSortOrderChange={setSortOrder}
+                />
+              </>
+            ) : (
+              <AggregatedDataTable2
+                data={sortedAggregatedData}
+                groupBy={groupBy}
+                sortOrder={sortOrder}
+                onSortOrderChange={setSortOrder}
+              />
+            )}
           </CollapsibleSection2>
           <CollapsibleSection2 title="위젯 생성" open={sectionOpen.chartWidget} onToggle={() => toggleSection('chartWidget')}>
+            {compareRange ? (
+              <div className="dashboard2-period-label dashboard2-compare-period-label" role="status">
+                <span className="period-label__icon">📅</span>
+                <span className="period-label__text">
+                  기준: {formatRangeLabel(filters.date_range)}
+                  {' / '}
+                  비교: {formatRangeLabel(compareRange)}
+                </span>
+              </div>
+            ) : null}
             <div className="dashboard2-chart-options">
               <div className="dashboard2-chart-option-col">
                 <label htmlFor="dashboard2-dimension" className="dashboard2-chart-option-label">Dimension</label>
@@ -558,8 +1073,25 @@ export default function Dashboard2Page() {
               </div>
             </div>
             <div className="dashboard2-chart-wrap">
-              {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
-              <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} metricKey={metricKey} />
+              {compareRange ? (
+                <>
+                  <div className="dashboard2-chart-period-block">
+                    <div className="dashboard2-chart-period-title">기준 기간</div>
+                    {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
+                    <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} metricKey={metricKey} />
+                  </div>
+                  <div className="dashboard2-chart-period-block">
+                    <div className="dashboard2-chart-period-title">비교 기간</div>
+                    {compareChartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
+                    <EChartsChart customChartData={compareChartData} metricLabel={metricField.label} chartType={chartType} metricKey={metricKey} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {chartDataLoading && <div className="dashboard2-chart-loading">차트 데이터 조회 중…</div>}
+                  <EChartsChart customChartData={chartData} metricLabel={metricField.label} chartType={chartType} metricKey={metricKey} />
+                </>
+              )}
             </div>
 
             {showDimensionInfoModal && (

@@ -1,5 +1,274 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-02: 기간 비교 시 X축 단일 차원에서 일자(date) 제외
+
+### 완료 작업
+1. **문제**: 복수 차원 시 X축 단일 차원을 "가장 분류가 많은 하나"로 선택하다 보니 일자(date)가 선택되면, 차트가 일자별 막대로 나와 기간 비교(기준 vs 비교) 의미가 사라짐.
+2. **해결**: `getPrimaryDimensionForChart`에서 **일자를 후보에서 제외**. X축 후보는 캠페인·워크플로우·채널만 사용. 일자+캠페인만 선택된 경우에도 캠페인 하나를 반환하도록 `dims.length <= 1` → `dims.length === 0`일 때만 null 반환으로 변경.
+3. **적용 파일**: Dashboard2Page.jsx, DashboardPage.jsx, AggregatedBarChart2.jsx, AggregatedBarChart.jsx (4곳).
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedBarChart2.jsx
+- Frontend/react-app/src/packages/dashboard/components/AggregatedBarChart.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 기준별 발송 현황 복수 차원 시 X축 단일 차원 적용 (레이블 겹침 방지)
+
+### 완료 작업
+1. **문제**: 캠페인별+워크플로우별 등 복수 차원 선택 시 X축 레이블이 "캠페인 / 워크플로우" 형태로 길어져 겹침.
+2. **해결**: 활성 차원이 2개 이상일 때 **가장 분류가 많은 하나**만 X축에 사용하고, 해당 차원 기준으로 합산하여 차트에 표시.
+3. **Dashboard2Page.jsx**
+   - `getPrimaryDimensionForChart(baseRows, compareRows, groupBy)`: base+compare 합쳐서 각 차원별 distinct 개수 계산 후 최대인 차원 반환.
+   - `buildMergedCompareDataSingleDimension(...)`: 단일 차원 키로 기준/비교 각각 합산 후 머지한 행 배열 반환.
+   - `mergedChartData`: `activeDimensionKeys.length >= 2`이면 위 단일 차원 머지 결과를 사용, 아니면 기존 `mergedCompareData` 사용.
+4. **AggregatedBarChart2.jsx**
+   - `getPrimaryDimensionForChart(data, groupBy)`, `aggregateByPrimaryDimension(rows, primaryDim)` 추가.
+   - `BarChartBlock`: `dimCount >= 2`일 때 primary 차원으로 합산 후 상위 N건만 차트 데이터로 사용, X축 name은 해당 차원 값만 표시.
+5. **DashboardPage.jsx (D1)**  
+   - 동일하게 `getPrimaryDimensionForChart`, `buildMergedCompareDataSingleDimension` 추가 및 `mergedChartData`에서 복수 차원 시 단일 차원 소스 사용.
+6. **AggregatedBarChart.jsx (D1)**  
+   - 동일하게 `getPrimaryDimensionForChart`, `aggregateByPrimaryDimension` 및 BarChartBlock 복수 차원 시 단일 차원 집계 적용.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedBarChart2.jsx
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- Frontend/react-app/src/packages/dashboard/components/AggregatedBarChart.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드1 기준별 발송 현황·집계 테이블 디멘션별 비교/요약 보기 토글 적용
+
+### 완료 작업
+1. **DashboardPage (D1)**  
+   - 중복 `showCompareSummary` state 제거.  
+   - `buildMergedCompareData`·`buildSummaryCompareData` 및 `mergedCompareData`·`summaryCompareData`·`mergedChartData`·`summaryChartData` useMemo는 기 적용 상태 유지.  
+   - 기준별 발송 현황·집계 데이터 테이블 섹션에 **디멘션별 비교 (B) / 요약 보기 (A)** 토글 및 버튼 아래 기간 라벨(`dashboard-compare-period-label--below-toggle`) 적용 상태 유지.
+2. **AggregatedBarChart (D1)**  
+   - `compareView`·`mergedChartData`·`summaryChartData` 지원 및 MergedBarChart/SummaryBarChart 렌더는 기 적용 상태 유지.
+3. **AggregatedDataTable (D1)**  
+   - `compareTableMode === 'merged'`·`'summary'`일 때 **정렬 행 + 필터 툴바 + CompareMergedTable/CompareSummaryTable** 조기 반환 추가.  
+   - `renderSortRow`·`renderToolbar(options, filteredCount)` 도입, merged/summary 시 필터 적용·건수 표시.
+4. **dashboard.css (D1)**  
+   - `.dashboard-compare-view-toggle`, `__btn`, `__btn--active`, `.dashboard-compare-period-label--below-toggle` 스타일 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- Frontend/react-app/src/packages/dashboard/components/AggregatedDataTable.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 비교 모드·캠페인/워크플로우+일자 집계 시 디멘션별 비교 의미 있게 변경
+
+### 완료 작업
+- **문제**: 캠페인(또는 워크플로우/채널)+일자 집계 시 디멘션별 비교가 (캠페인, 일자) 키로 매칭되어 비교 기간에 같은 일자가 없으면 비교 컬럼이 전부 0으로 나옴.
+- **적용**: 집계에 **일자+그 외 차원**이 함께 있을 때(`hasDateAndOther`) **일자 제외 키**로 기준/비교 기간 각각 **합산** 후 머지. 구분(라벨)은 캠페인/워크플로우/채널만, 값은 기간 내 해당 디멘션 전체 합계. `keyOfNoDate`, `aggregateByKeyNoDate` 추가.
+- **대상**: Dashboard2Page.jsx, DashboardPage.jsx 동일 로직 적용.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드1 디멘션별 비교/요약 보기 토글 정리
+
+### 완료 작업
+- 대시보드1에는 이미 **기준별 발송 현황**·**집계 데이터 테이블** 섹션에 **디멘션별 비교 (B) / 요약 보기 (A)** 토글, 버튼→기간 라벨 순서, `compareView`/`compareTableMode`·`mergedChartData`/`summaryChartData`·`mergedTableData`/`summaryTableData` 전달이 적용되어 있음.
+- **DashboardPage.jsx**: `buildMergedCompareData`·`buildSummaryCompareData` 함수가 중복 정의되어 있던 부분 제거(후자 정의만 유지).
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드1 비교분석 UI 반영 및 대시보드2 집계 테이블 필터 유지
+
+### 완료 작업
+1. **대시보드1 채널별 분석 (ChannelDonutCharts)**
+   - 기준/비교 블록 배경·테두리: donut-period-block--base(#eff6ff), donut-period-block--compare(#fff7ed). 비교 시 도넛 색상: 기준 연한색, 비교 짙은색(동일 팔레트). 비교 기간 데이터 없을 때 "해당 기간 데이터가 없습니다." 표시.
+2. **대시보드1 기준별 발송 현황 (AggregatedBarChart)**
+   - 기준 기간 블록: aggregated-bar-chart__period-block--base, 비교 기간 블록: --compare 배경·테두리 적용.
+3. **대시보드1 집계 데이터 테이블**
+   - 비교 시 기준/비교 테이블을 dashboard-aggregated-table-period-block--base/--compare 래퍼로 감싸 배경·테두리 구분.
+4. **대시보드1 dashboard.css**
+   - donut-period-block--base/--compare, donut-period-block__empty-msg, aggregated-bar-chart__period-block--base/--compare, dashboard-aggregated-table-period-block--base/--compare 스타일 추가.
+5. **대시보드2 집계 테이블 비교 모드 필터 유지**
+   - 디멘션별 비교(merged)·요약 보기(summary) 시에도 정렬 기준 행·필터 툴바 노출. getMergedColumnOptions/getSummaryColumnOptions, getCellValueMerged/getCellValueSummary, rowMatchesFiltersWithGetCell로 merged/summary 데이터에 필터 적용. 필터 적용 건수 표시.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard/components/ChannelDonutCharts.jsx
+- Frontend/react-app/src/packages/dashboard/components/AggregatedBarChart.jsx
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedDataTable2.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 집계 데이터 테이블 디멘션별 비교 오픈률·클릭률 및 rate 셀 채우기
+
+### 완료 작업
+1. **CompareMergedTable(디멘션별 비교)**
+   - **오픈률·클릭률 컬럼 추가**: 기준 오픈률, 비교 오픈률, 기준 클릭률, 비교 클릭률 4개 컬럼 추가. 기존 데이터에 기준_open_rate, 비교_open_rate, 기준_click_rate, 비교_click_rate 포함되어 있음.
+   - **rate 셀 채우기**: 성공률·오픈률·클릭률(기준/비교 각 6컬럼)에 cell-fill-wrap·cell-fill·cell-fill-text 적용, minWidth: 80px로 가로 스크롤 시에도 가독성 유지.
+2. **CompareSummaryTable(요약 보기)**
+   - 성공률·오픈률·클릭률 컬럼에 동일한 셀 채우기 막대 적용.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedDataTable2.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 채널별 분석 기준/비교 구분 및 비교 기간 데이터 없음 문구
+
+### 완료 작업
+1. **기준·비교 블록 시각 구분**
+   - 기준 기간 블록: `dashboard2-donut-period-block--base` — 배경 `#eff6ff`, 테두리 `#bfdbfe`.
+   - 비교 기간 블록: `dashboard2-donut-period-block--compare` — 배경 `#fff7ed`, 테두리 `#fed7aa`.
+   - 도넛 색상: 기준은 BASE_CHART_COLORS(파랑·하늘), 비교는 COMPARE_CHART_COLORS(주황·앰버)로 구분.
+2. **비교 기간 데이터 없음**
+   - getDistributionTotal로 비교 기간 발송/성공 합계 계산. 합계 0이면 도넛 대신 "해당 기간 데이터가 없습니다." 문구 표시(role="status").
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/ChannelDonutCharts2.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드2 집계 테이블 디멘션별 비교 컬럼 배경 구분
+
+### 완료 작업
+1. **집계 데이터 테이블 섹션**
+   - 버튼→기간 순서·패딩·라인 맞춤은 기존 적용과 동일하게 유지(동일 클래스 사용).
+2. **디멘션별 비교 시 컬럼 배경 구분**
+   - `ThWithDef`에 `className` prop 추가.
+   - `CompareMergedTable`에서 기준 컬럼에 `__th--base`/`__td--base`, 비교 컬럼에 `__th--compare`/`__td--compare` 적용.
+   - CSS: 기준 컬럼 `#eff6ff`, 비교 컬럼 `#fff7ed` 배경으로 시각 구분.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedDataTable2.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드2 비교 뷰 레이아웃·차트 색상 개선
+
+### 완료 작업
+1. **버튼 / 기간 div 순서**
+   - 기준별 발송 현황·집계 데이터 테이블 섹션에서 **디멘션별 비교(B)·요약 보기(A) 버튼**을 먼저 두고, **기준 기간 / 비교 기간** 표시 div를 버튼 아래로 이동.
+2. **패딩·라인 맞춤**
+   - `.dashboard2-compare-view-toggle`에 `margin: 20px 20px 16px 20px`, `gap: 10px`, 버튼 `padding: 10px 18px` 적용해 좌·위·아래 여백 및 라인 정렬.
+   - 버튼 아래 기간 라벨에 `.dashboard2-compare-period-label--below-toggle` 추가, `margin: 0 20px 16px 20px`로 좌우 라인 맞춤.
+3. **차트 색상 (MergedBarChart)**
+   - 기준 묶음: 파란 계열 — 기준 발송 요청 `#2563eb`, 기준 발송 성공 `#0ea5e9`.
+   - 비교 묶음: 주황 계열 — 비교 발송 요청 `#ea580c`, 비교 발송 성공 `#f97316`.
+   - 기준/비교 그룹이 보색에 가깝게 구분되도록 변경.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedBarChart2.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드1에 비교 기능 적용 (일간/주간/월간/연간, 위젯은 기간 선택)
+
+### 완료 작업
+1. **dashboard/utils/periodCompare.js**
+   - 대시보드2와 동일한 일/주/월/연 기간 계산 유틸 추가 (getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange, getPreviousDay, getYearRange, getPreviousYearRange).
+2. **DashboardHeader (대시보드1)**
+   - 보기 라디오 순서: **일반 → 일간 비교 → 주간 비교 → 월간 비교 → 연간 비교**. view_mode, compare_base_day/week/month/year, compare_day/week/month/year 추가. 모드별 기준·비교 입력(날짜/주/월/연).
+3. **DashboardPage (대시보드1)**
+   - filters에 view_mode·compare_* 필드 추가. compareData state, loadData에서 비교 모드 시 getDashboardData 2회(기준·비교). compareRange useMemo, formatRangeLabel. sortedCompareAggregatedData. KPI·채널 도넛·막대·집계 테이블에 기준/비교 라벨 및 compareData/compareKpi 반영. 집계 테이블은 비교 시 기준 기간/비교 기간 테이블 2개 렌더.
+4. **위젯 생성·위젯 생성 (beta)**
+   - 비교 모드일 때 **기준 기간 / 비교 기간**을 동시에 표시하지 않고, **차트 기간** 셀렉트박스(기준 기간 | 비교 기간)로 선택한 기간의 데이터만 차트에 반영. widgetPeriodChoice state, effectiveWidgetFilters/effectiveWidgetData로 선택 기간만 ChartWidget·ChartWidget2에 전달.
+5. **KPICards (대시보드1)**
+   - compareKpi prop 추가. getComparePct, "±n% vs 비교기간" 한 줄 표시. kpi-card__compare 스타일.
+6. **ChannelDonutCharts·AggregatedBarChart (대시보드1)**
+   - compareKpi/compareData 지원. 기준 기간·비교 기간 블록 각각 표시(도넛 period block, 막대 BarChartBlock).
+7. **dashboard.css**
+   - compare period label, view-mode 라디오, kpi-card__compare, donut-period-block, aggregated-bar-chart__period-block, dashboard-aggregated-table-period-title, dashboard-widget-period-select-wrap 스타일 추가.
+
+### 수정/추가 파일
+- Frontend/react-app/src/packages/dashboard/utils/periodCompare.js (신규)
+- Frontend/react-app/src/packages/dashboard/components/DashboardHeader.jsx
+- Frontend/react-app/src/packages/dashboard/DashboardPage.jsx
+- Frontend/react-app/src/packages/dashboard/components/KPICards.jsx
+- Frontend/react-app/src/packages/dashboard/components/ChannelDonutCharts.jsx
+- Frontend/react-app/src/packages/dashboard/components/AggregatedBarChart.jsx
+- Frontend/react-app/src/packages/dashboard/dashboard.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 비교 라디오 순서 및 비교 모드 시 전체 섹션 적용
+
+### 완료 작업
+1. **보기 라디오 순서**
+   - 순서를 **일반 → 일간 비교 → 주간 비교 → 월간 비교 → 연간 비교** 로 통일 (Dashboard2Header).
+2. **비교 적용 범위**
+   - 비교 모드(일/주/월/연) 선택 시 **기준 기간 vs 비교 기간**이 KPI뿐 아니라 아래 섹션 전부에 적용되도록 수정.
+   - **주요 지표**: 기존과 동일하게 기준/비교 라벨 + compareKpi.
+   - **채널별 분석**: 기준/비교 기간 라벨 표시. ChannelDonutCharts2에 compareKpi 전달 → 기준 기간·비교 기간 도넛 블록 각각 표시.
+   - **기준별 발송 현황**: 기준/비교 라벨 표시. AggregatedBarChart2에 compareData 전달 → 기준 기간·비교 기간 막대 차트 각각 표시.
+   - **집계 데이터 테이블**: 기준/비교 라벨 표시. compareRange 시 기준 기간 테이블·비교 기간 테이블 두 개 렌더 (key="base" / key="compare").
+   - **위젯 생성**: 기준/비교 라벨 표시. compareRange 시 기준 기간용 chartData·비교 기간용 compareChartData 각각 조회 후 EChartsChart 두 개(기준 기간 / 비교 기간) 렌더.
+3. **데이터·차트**
+   - sortedCompareAggregatedData(compareData?.aggregated_data 정렬) 추가.
+   - compareChartData·compareChartDataLoading state 및 compareRange 기준 getDashboard2ChartData 호출 useEffect 추가.
+4. **스타일**
+   - 도넛/막대/테이블/위젯용 기간 블록 제목(.dashboard2-donut-period-title, .dashboard2-aggregated-bar-chart__period-title, .dashboard2-aggregated-table-period-title, .dashboard2-chart-period-title) 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- Frontend/react-app/src/packages/dashboard2/components/ChannelDonutCharts2.jsx
+- Frontend/react-app/src/packages/dashboard2/components/AggregatedBarChart2.jsx
+- Frontend/react-app/src/packages/dashboard2/dashboard2.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: 대시보드2 일간 비교·연간 비교 추가
+
+### 완료 작업
+1. **periodCompare.js**
+   - `getPreviousDay(anchorDate)`: 기준일의 전일 [date, date] (YYYY-MM-DD) 반환.
+   - `getYearRange(year)`: 해당 연도 1/1~12/31 [start, end] 반환.
+   - `getPreviousYearRange(year)`: 전년 [start, end] 반환.
+2. **Dashboard2Header**
+   - 보기 모드 라디오에 **일간 비교**, **연간 비교** 추가.
+   - filters에 `compare_base_day`, `compare_day`, `compare_base_year`, `compare_year` 추가. 일반/주간/월간 전환 시 위 필드 초기화.
+   - 일간 비교: 기준 일(date)·비교 일(date) 입력. 비어두면 비교 일은 전일.
+   - 연간 비교: 기준 연도(number)·비교 연도(number) 입력. 비어두면 비교 연도는 전년.
+   - 라벨: "기준 일" / "비교 일", "기준 연도" / "비교 연도".
+3. **Dashboard2Page**
+   - 초기 filters에 `compare_base_day`, `compare_day`, `compare_base_year`, `compare_year` 추가.
+   - loadData: `day_compare` 시 date_range=[기준일, 기준일], compareRange=비교일 있으면 [비교일, 비교일] else getPreviousDay(기준일). `year_compare` 시 date_range=getYearRange(기준연도), compareRange=비교연도 있으면 getYearRange(비교연도) else getPreviousYearRange(기준연도).
+   - isCompare에 `day_compare`, `year_compare` 포함. compareRange useMemo에 일간/연간 분기 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/dashboard2/utils/periodCompare.js
+- Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx
+- Frontend/react-app/src/packages/dashboard2/Dashboard2Page.jsx
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-02: docs/main 갱신 및 코드 파일 설명 주석 전수검사·보강
 
 ### 완료 작업

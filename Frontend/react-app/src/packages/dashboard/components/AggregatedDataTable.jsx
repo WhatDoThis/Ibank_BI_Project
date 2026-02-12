@@ -153,13 +153,234 @@ function rowMatchesFilters(row, filters, columnOptions) {
   })
 }
 
+function getCellValueMerged(row, columnKey) {
+  return row[columnKey]
+}
+function getCellValueSummary(row, columnKey) {
+  return row[columnKey]
+}
+function matchOneWithGetCell(row, columnKey, operator, value, columnOptions, getCell) {
+  const cell = getCell(row, columnKey)
+  const col = columnOptions.find((c) => c.key === columnKey)
+  const isNum = col?.type === 'number'
+  const numCell = isNum ? Number(cell) : NaN
+  const numVal = isNum ? Number(value) : NaN
+  const strCell = String(cell ?? '').trim().toLowerCase()
+  const strVal = String(value ?? '').trim().toLowerCase()
+  if (operator === 'eq') {
+    if (isNum && !Number.isNaN(numVal)) return numCell === numVal
+    return strCell === strVal
+  }
+  if (operator === 'ne') {
+    if (isNum && !Number.isNaN(numVal)) return numCell !== numVal
+    return strCell !== strVal
+  }
+  if (operator === 'contains') return strCell.includes(strVal)
+  if (operator === 'gt') {
+    if (isNum && !Number.isNaN(numVal)) return numCell > numVal
+    return strCell > strVal
+  }
+  if (operator === 'gte') {
+    if (isNum && !Number.isNaN(numVal)) return numCell >= numVal
+    return strCell >= strVal
+  }
+  if (operator === 'lt') {
+    if (isNum && !Number.isNaN(numVal)) return numCell < numVal
+    return strCell < strVal
+  }
+  if (operator === 'lte') {
+    if (isNum && !Number.isNaN(numVal)) return numCell <= numVal
+    return strCell <= strVal
+  }
+  return true
+}
+function rowMatchesFiltersWithGetCell(row, filters, columnOptions, getCell) {
+  if (!filters?.length) return true
+  return filters.every((f) => {
+    if (isFilterConditionEmpty(f)) return true
+    return matchOneWithGetCell(row, f.columnKey, f.operator || 'eq', f.value, columnOptions, getCell)
+  })
+}
+function getMergedColumnOptions() {
+  return [
+    { key: 'dimensionLabel', label: '구분', type: 'text' },
+    { key: '기준_total_count', label: '기준 발송요청', type: 'number' },
+    { key: '비교_total_count', label: '비교 발송요청', type: 'number' },
+    { key: '기준_success_count', label: '기준 발송성공', type: 'number' },
+    { key: '비교_success_count', label: '비교 발송성공', type: 'number' },
+    { key: '기준_success_rate', label: '기준 성공률', type: 'number' },
+    { key: '비교_success_rate', label: '비교 성공률', type: 'number' },
+    { key: '기준_open_count', label: '기준 오픈', type: 'number' },
+    { key: '비교_open_count', label: '비교 오픈', type: 'number' },
+    { key: '기준_click_count', label: '기준 클릭', type: 'number' },
+    { key: '비교_click_count', label: '비교 클릭', type: 'number' },
+    { key: '기준_open_rate', label: '기준 오픈률', type: 'number' },
+    { key: '비교_open_rate', label: '비교 오픈률', type: 'number' },
+    { key: '기준_click_rate', label: '기준 클릭률', type: 'number' },
+    { key: '비교_click_rate', label: '비교 클릭률', type: 'number' }
+  ]
+}
+function getSummaryColumnOptions() {
+  return [
+    { key: '기간', label: '기간', type: 'text' },
+    { key: 'total_count', label: '발송요청', type: 'number' },
+    { key: 'success_count', label: '발송성공', type: 'number' },
+    { key: 'success_rate', label: '성공률', type: 'number' },
+    { key: 'open_count', label: '오픈', type: 'number' },
+    { key: 'click_count', label: '클릭', type: 'number' },
+    { key: 'open_rate', label: '오픈률', type: 'number' },
+    { key: 'click_rate', label: '클릭률', type: 'number' }
+  ]
+}
+
+function CompareMergedTable({ data = [], formatNum, formatRate }) {
+  if (!data.length) return null
+  return (
+    <div className="aggregated-data-table__table-wrap">
+      <table className="aggregated-data-table__table">
+        <thead className="aggregated-data-table__thead">
+          <tr>
+            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>구분</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 발송요청</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 발송요청</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 발송성공</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 발송성공</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 성공률</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 성공률</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 오픈</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 오픈</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 클릭</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 클릭</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 오픈률</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 오픈률</th>
+            <th className="aggregated-data-table__th--base" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>기준 클릭률</th>
+            <th className="aggregated-data-table__th--compare" style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>비교 클릭률</th>
+          </tr>
+        </thead>
+        <tbody className="aggregated-data-table__tbody">
+          {data.map((row, idx) => (
+            <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: idx % 2 === 1 ? '#f9fafb' : undefined }}>
+              <td style={{ padding: '10px 12px', fontWeight: 500 }}>{row.dimensionLabel ?? '-'}</td>
+              <td className="aggregated-data-table__td--base" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.기준_total_count)}</td>
+              <td className="aggregated-data-table__td--compare" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.비교_total_count)}</td>
+              <td className="aggregated-data-table__td--base" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.기준_success_count)}</td>
+              <td className="aggregated-data-table__td--compare" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.비교_success_count)}</td>
+              <td className="aggregated-data-table__td--base aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.기준_success_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#059669' }}>{formatRate(row.기준_success_rate)}%</span>
+                </div>
+              </td>
+              <td className="aggregated-data-table__td--compare aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.비교_success_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#059669' }}>{formatRate(row.비교_success_rate)}%</span>
+                </div>
+              </td>
+              <td className="aggregated-data-table__td--base" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.기준_open_count)}</td>
+              <td className="aggregated-data-table__td--compare" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.비교_open_count)}</td>
+              <td className="aggregated-data-table__td--base" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.기준_click_count)}</td>
+              <td className="aggregated-data-table__td--compare" style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.비교_click_count)}</td>
+              <td className="aggregated-data-table__td--base aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.기준_open_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#2563eb' }}>{formatRate(row.기준_open_rate)}%</span>
+                </div>
+              </td>
+              <td className="aggregated-data-table__td--compare aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.비교_open_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#2563eb' }}>{formatRate(row.비교_open_rate)}%</span>
+                </div>
+              </td>
+              <td className="aggregated-data-table__td--base aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.기준_click_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#7c3aed' }}>{formatRate(row.기준_click_rate)}%</span>
+                </div>
+              </td>
+              <td className="aggregated-data-table__td--compare aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.비교_click_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#7c3aed' }}>{formatRate(row.비교_click_rate)}%</span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function CompareSummaryTable({ data = [], formatNum, formatRate }) {
+  if (!data.length) return null
+  return (
+    <div className="aggregated-data-table__table-wrap">
+      <table className="aggregated-data-table__table">
+        <thead className="aggregated-data-table__thead">
+          <tr>
+            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>기간</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>발송요청</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>발송성공</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>성공률</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>오픈</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>클릭</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>오픈률</th>
+            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>클릭률</th>
+          </tr>
+        </thead>
+        <tbody className="aggregated-data-table__tbody">
+          {data.map((row, idx) => (
+            <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: idx % 2 === 1 ? '#f9fafb' : undefined }}>
+              <td style={{ padding: '10px 12px', fontWeight: 600 }}>{row.기간 ?? '-'}</td>
+              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.total_count)}</td>
+              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.success_count)}</td>
+              <td className="aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.success_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#059669' }}>{formatRate(row.success_rate)}%</span>
+                </div>
+              </td>
+              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.open_count)}</td>
+              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatNum(row.click_count)}</td>
+              <td className="aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.open_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#2563eb' }}>{formatRate(row.open_rate)}%</span>
+                </div>
+              </td>
+              <td className="aggregated-data-table__cell-rate" style={{ padding: '10px 12px', textAlign: 'right', minWidth: 80 }}>
+                <div className="aggregated-data-table__cell-fill-wrap">
+                  <div className="aggregated-data-table__cell-fill" style={{ width: `${Math.min(100, Number(row.click_rate) || 0)}%` }} aria-hidden />
+                  <span className="aggregated-data-table__cell-fill-text" style={{ color: '#7c3aed' }}>{formatRate(row.click_rate)}%</span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 const defaultFilterRow = () => ({ id: `f-${Date.now()}-${Math.random().toString(36).slice(2)}`, columnKey: '', operator: 'contains', value: '' })
 
-export default function AggregatedDataTable({ data = [], groupBy = {}, sortOrder = [], onSortOrderChange }) {
+export default function AggregatedDataTable({
+  data = [],
+  groupBy = {},
+  sortOrder = [],
+  onSortOrderChange,
+  compareTableMode = null,
+  mergedTableData = [],
+  summaryTableData = []
+}) {
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState([])
 
   const columnOptions = useMemo(() => getColumnOptions(groupBy), [groupBy])
+  const mergedColumnOptions = useMemo(() => getMergedColumnOptions(), [])
+  const summaryColumnOptions = useMemo(() => getSummaryColumnOptions(), [])
 
   useEffect(() => {
     setPage(1)
@@ -170,6 +391,16 @@ export default function AggregatedDataTable({ data = [], groupBy = {}, sortOrder
     if (!hasAnyActive) return data
     return data.filter((row) => rowMatchesFilters(row, filters, columnOptions))
   }, [data, filters, columnOptions])
+  const filteredMergedData = useMemo(() => {
+    const hasAny = filters?.some((f) => !isFilterConditionEmpty(f))
+    if (!hasAny) return mergedTableData
+    return mergedTableData.filter((row) => rowMatchesFiltersWithGetCell(row, filters, mergedColumnOptions, getCellValueMerged))
+  }, [mergedTableData, filters, mergedColumnOptions])
+  const filteredSummaryData = useMemo(() => {
+    const hasAny = filters?.some((f) => !isFilterConditionEmpty(f))
+    if (!hasAny) return summaryTableData
+    return summaryTableData.filter((row) => rowMatchesFiltersWithGetCell(row, filters, summaryColumnOptions, getCellValueSummary))
+  }, [summaryTableData, filters, summaryColumnOptions])
 
   const addFilter = () => {
     setFilters((prev) => [...prev, defaultFilterRow()])
@@ -236,6 +467,79 @@ export default function AggregatedDataTable({ data = [], groupBy = {}, sortOrder
   const pageData = filteredData.slice(startIdx, startIdx + PAGE_SIZE)
 
   const colCount = getColumnCount(groupBy)
+
+  const renderSortRow = () =>
+    onSortOrderChange ? (
+      <div className="dashboard-header__sort-row aggregated-data-table__sort-row">
+        <span className="dashboard-header__sort-label">정렬 기준</span>
+        <div className="dashboard-header__sort-buttons">
+          {SORT_OPTIONS.map((opt) => {
+            const state = getSortState(opt.key)
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                className={`dashboard-header__sort-btn ${state ? `dashboard-header__sort-btn--${state}` : ''}`}
+                onClick={() => handleSortClick(opt.key)}
+                title={state === 'desc' ? '다음 클릭: 오름차순' : state === 'asc' ? '다음 클릭: 정렬 해제' : '클릭: 내림차순'}
+              >
+                {opt.label}
+                {state && <span className="dashboard-header__sort-badge">{state === 'desc' ? ' ↓' : ' ↑'}</span>}
+              </button>
+            )
+          })}
+        </div>
+        {sortAppliedText && <span className="dashboard-header__sort-applied">{sortAppliedText}</span>}
+      </div>
+    ) : null
+
+  const renderToolbar = (options, filteredCount = null) => (
+    <div className="aggregated-data-table__toolbar">
+      <div className="aggregated-data-table__filters">
+        {filters.map((f) => (
+          <div key={f.id} className="aggregated-data-table__filter-row">
+            <select className="aggregated-data-table__filter-select" value={f.columnKey} onChange={(e) => updateFilter(f.id, { columnKey: e.target.value })} aria-label="컬럼 선택">
+              <option value="">컬럼 선택</option>
+              {options.map((c) => (
+                <option key={c.key} value={c.key}>{c.label}</option>
+              ))}
+            </select>
+            <select className="aggregated-data-table__filter-select" value={f.operator} onChange={(e) => updateFilter(f.id, { operator: e.target.value })} aria-label="조건">
+              {OPERATORS.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+            <input type="text" className="aggregated-data-table__filter-input" placeholder="값" value={f.value ?? ''} onChange={(e) => updateFilter(f.id, { value: e.target.value })} aria-label="검색값" />
+            <button type="button" className="aggregated-data-table__filter-remove" onClick={() => removeFilter(f.id)} title="이 조건 제거" aria-label="조건 제거">삭제</button>
+          </div>
+        ))}
+        <button type="button" className="aggregated-data-table__filter-add" onClick={addFilter}>+ 필터 추가</button>
+      </div>
+      <span className="aggregated-data-table__pagination-info">
+        {filteredCount != null ? `${filteredCount}건` : ''}
+        {filteredCount != null && hasActiveFilters ? ' · 필터 적용 중' : hasActiveFilters ? '필터 적용 중' : ''}
+      </span>
+    </div>
+  )
+
+  if (compareTableMode === 'merged' && mergedTableData.length > 0) {
+    return (
+      <section className="aggregated-data-table aggregated-data-table-section">
+        {renderSortRow()}
+        {renderToolbar(mergedColumnOptions, filteredMergedData.length)}
+        <CompareMergedTable data={filteredMergedData} formatNum={formatNum} formatRate={formatRate} />
+      </section>
+    )
+  }
+  if (compareTableMode === 'summary' && summaryTableData.length > 0) {
+    return (
+      <section className="aggregated-data-table aggregated-data-table-section">
+        {renderSortRow()}
+        {renderToolbar(summaryColumnOptions, filteredSummaryData.length)}
+        <CompareSummaryTable data={filteredSummaryData} formatNum={formatNum} formatRate={formatRate} />
+      </section>
+    )
+  }
 
   return (
     <section className="aggregated-data-table aggregated-data-table-section">

@@ -40,6 +40,46 @@ function getCompositeXLabel(row, groupBy) {
   return parts.join(' / ')
 }
 
+/** 복수 차원일 때 X축용 단일 차원 선택 (가장 분류가 많은 하나). 기간 비교 시 의미 유지를 위해 일자(date)는 후보에서 제외 */
+function getPrimaryDimensionForChart(data, groupBy) {
+  const dims = []
+  if (groupBy.campaign) dims.push({ key: 'campaign', getVal: (r) => String(r.campaign_label ?? r.campaign_id ?? '') })
+  if (groupBy.workflow) dims.push({ key: 'workflow', getVal: (r) => String(r.workflow_label ?? r.workflow_id ?? '') })
+  if (groupBy.channel) dims.push({ key: 'channel', getVal: (r) => String(r.channel_name ?? r.channel_code ?? '') })
+  if (dims.length === 0) return null
+  let best = dims[0]
+  let maxCount = 0
+  dims.forEach((d) => {
+    const count = new Set((data || []).map(d.getVal)).size
+    if (count > maxCount) {
+      maxCount = count
+      best = d
+    }
+  })
+  return best
+}
+
+/** 단일 차원으로 행 합산 (차트용). primaryDim = getPrimaryDimensionForChart 반환값 */
+function aggregateByPrimaryDimension(rows, primaryDim) {
+  if (!primaryDim || !rows?.length) return rows
+  const map = new Map()
+  rows.forEach((r) => {
+    const k = primaryDim.getVal(r) || '-'
+    const cur = map.get(k) || { total_count: 0, success_count: 0, delivery_date: r.delivery_date }
+    map.set(k, {
+      total_count: cur.total_count + (Number(r.total_count) || 0),
+      success_count: cur.success_count + (Number(r.success_count) || 0),
+      delivery_date: cur.delivery_date ?? r.delivery_date
+    })
+  })
+  return [...map.entries()].map(([name, v]) => ({
+    name,
+    total_count: v.total_count,
+    success_count: v.success_count,
+    delivery_date: v.delivery_date
+  }))
+}
+
 const TOP_N = 10
 const LINE_HEIGHT = 14
 const X_AXIS_BOTTOM_MARGIN = 100
@@ -77,13 +117,16 @@ function XAxisTickMultiline({ x, y, payload }) {
   )
 }
 
-export default function AggregatedBarChart2({ data = [], groupBy = {} }) {
+function BarChartBlock({ data, groupBy, periodLabel }) {
   if (!data.length) return null
-  const sorted = [...data].sort((a, b) => (b.success_count ?? 0) - (a.success_count ?? 0))
-  const topRows = sorted.slice(0, TOP_N)
-  const dateOrder = [...new Set(topRows.map((r) => r.delivery_date).filter(Boolean))].sort()
-  const chartData = topRows.map((row) => ({
-    name: getCompositeXLabel(row, groupBy),
+  const dimCount = ['date', 'campaign', 'workflow', 'channel'].filter((k) => groupBy[k]).length
+  const primaryDim = dimCount >= 2 ? getPrimaryDimensionForChart(data, groupBy) : null
+  const rowsForChart = primaryDim
+    ? aggregateByPrimaryDimension(data, primaryDim).sort((a, b) => (b.success_count ?? 0) - (a.success_count ?? 0)).slice(0, TOP_N)
+    : [...data].sort((a, b) => (b.success_count ?? 0) - (a.success_count ?? 0)).slice(0, TOP_N)
+  const dateOrder = [...new Set(rowsForChart.map((r) => r.delivery_date).filter(Boolean))].sort()
+  const chartData = rowsForChart.map((row) => ({
+    name: row.name ?? getCompositeXLabel(row, groupBy),
     발송요청: row.total_count ?? 0,
     발송성공: row.success_count ?? 0,
     delivery_date: row.delivery_date
@@ -97,7 +140,8 @@ export default function AggregatedBarChart2({ data = [], groupBy = {} }) {
   const chartMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
 
   return (
-    <section className="dashboard2-aggregated-bar-chart-section">
+    <div className="dashboard2-aggregated-bar-chart__period-block">
+      {periodLabel && <div className="dashboard2-aggregated-bar-chart__period-title">{periodLabel}</div>}
       <div
         className="dashboard2-aggregated-bar-chart__chart-wrap"
         style={{ minWidth: `max(70%, ${chartMinWidth}px)` }}
@@ -135,6 +179,85 @@ export default function AggregatedBarChart2({ data = [], groupBy = {} }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  )
+}
+
+/** B안: 디멘션별 기준/비교 한 차트. data = [{ name, 기준_발송요청, 비교_발송요청, 기준_발송성공, 비교_발송성공 }, ...] */
+function MergedBarChart({ chartData }) {
+  if (!chartData?.length) return null
+  const chartMinWidth = Math.max(280, chartData.length * LABEL_SLOT_WIDTH)
+  return (
+    <div className="dashboard2-aggregated-bar-chart__chart-wrap" style={{ minWidth: `max(70%, ${chartMinWidth}px)` }}>
+      <ResponsiveContainer width="100%" height={440}>
+        <BarChart data={chartData} margin={{ top: 40, right: 16, left: 8, bottom: 24 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis dataKey="name" interval={0} tick={{ fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+          <YAxis tick={{ fontSize: 13 }} tickFormatter={formatNum} />
+          <Tooltip formatter={(v) => formatNum(v)} contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13 }} labelStyle={{ color: '#374151', fontSize: 13 }} />
+          <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: 14, paddingBottom: 12 }} />
+          <Bar dataKey="기준_발송요청" radius={[4, 4, 0, 0]} name="기준 발송 요청" fill="#2563eb" maxBarSize={40} />
+          <Bar dataKey="비교_발송요청" radius={[4, 4, 0, 0]} name="비교 발송 요청" fill="#ea580c" maxBarSize={40} />
+          <Bar dataKey="기준_발송성공" radius={[4, 4, 0, 0]} name="기준 발송 성공" fill="#0ea5e9" maxBarSize={40} />
+          <Bar dataKey="비교_발송성공" radius={[4, 4, 0, 0]} name="비교 발송 성공" fill="#f97316" maxBarSize={40} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** A안: 기간 2막대 요약. chartData = [{ name: '기준', 발송요청, 발송성공 }, { name: '비교', ... }] */
+function SummaryBarChart({ chartData }) {
+  if (!chartData?.length) return null
+  return (
+    <div className="dashboard2-aggregated-bar-chart__chart-wrap" style={{ minWidth: '280px' }}>
+      <ResponsiveContainer width="100%" height={320}>
+        <BarChart data={chartData} margin={{ top: 24, right: 16, left: 8, bottom: 24 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis dataKey="name" tick={{ fontSize: 13 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+          <YAxis tick={{ fontSize: 13 }} tickFormatter={formatNum} />
+          <Tooltip formatter={(v) => formatNum(v)} contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13 }} />
+          <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: 14, paddingBottom: 8 }} />
+          <Bar dataKey="발송요청" radius={[4, 4, 0, 0]} name="발송 요청" fill="#4f46e5" maxBarSize={60} />
+          <Bar dataKey="발송성공" radius={[4, 4, 0, 0]} name="발송 성공" fill="#059669" maxBarSize={60} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export default function AggregatedBarChart2({
+  data = [],
+  compareData = [],
+  groupBy = {},
+  compareView = 'split',
+  mergedChartData = [],
+  summaryChartData = []
+}) {
+  const hasCompare = compareData && compareData.length > 0
+  if (compareView === 'merged' && mergedChartData.length > 0) {
+    return (
+      <section className="dashboard2-aggregated-bar-chart-section">
+        <MergedBarChart chartData={mergedChartData} />
+      </section>
+    )
+  }
+  if (compareView === 'summary' && summaryChartData.length > 0) {
+    return (
+      <section className="dashboard2-aggregated-bar-chart-section">
+        <SummaryBarChart chartData={summaryChartData} />
+      </section>
+    )
+  }
+  if (!data.length && !hasCompare) return null
+  return (
+    <section className="dashboard2-aggregated-bar-chart-section">
+      {data.length > 0 && (
+        <BarChartBlock data={data} groupBy={groupBy} periodLabel={hasCompare ? '기준 기간' : null} />
+      )}
+      {hasCompare && (
+        <BarChartBlock data={compareData} groupBy={groupBy} periodLabel="비교 기간" />
+      )}
     </section>
   )
 }

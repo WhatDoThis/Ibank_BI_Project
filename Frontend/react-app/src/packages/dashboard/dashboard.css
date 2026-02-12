@@ -105,6 +105,46 @@
 .dashboard-period-label .period-label__text {
   letter-spacing: 0.01em;
 }
+.dashboard-compare-period-label .period-label__text {
+  white-space: normal;
+}
+
+/* 비교 보기 전환: 디멘션별 비교(B) / 요약 보기(A). 버튼 먼저, 그 아래 기간 라벨 */
+.dashboard-compare-view-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 20px 16px 20px;
+  padding: 0;
+  align-items: center;
+}
+.dashboard-compare-view-toggle__btn {
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.dashboard-compare-view-toggle__btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+.dashboard-compare-view-toggle__btn--active {
+  background: #0d9488;
+  border-color: #0d9488;
+  color: #fff;
+}
+.dashboard-compare-view-toggle__btn--active:hover {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+.dashboard-compare-period-label--below-toggle {
+  margin: 0 20px 16px 20px;
+}
 
 .dashboard-collapsible__body .kpi-cards-section,
 .dashboard-collapsible__body .channel-donut-charts-section,
@@ -221,10 +261,37 @@
   min-width: 150px;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
+.dashboard-header__date-input[type="number"] {
+  min-width: 100px;
+}
 
 .dashboard-header__date-sep {
   color: #6b7280;
   font-size: 14px;
+}
+
+.dashboard-header__view-mode-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-right: 8px;
+}
+.dashboard-header__view-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.dashboard-header__view-mode-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+}
+.dashboard-header__view-mode-radio input {
+  cursor: pointer;
 }
 
 .dashboard-header__load-btn {
@@ -638,6 +705,24 @@
   background: #dc2626;
   color: #fff;
 }
+.kpi-card__compare {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 13px;
+}
+.kpi-card__compare-line {
+  display: block;
+}
+.kpi-card__compare-pct {
+  font-weight: 600;
+}
+.kpi-card__compare-pct--up {
+  color: #059669;
+}
+.kpi-card__compare-pct--down {
+  color: #dc2626;
+}
 
 /* 목표·컨텍스트 섹션 (대시보드1) */
 .dashboard-target-context-section {
@@ -826,6 +911,35 @@
   margin-top: -8px;
 }
 
+.donut-period-block {
+  margin-bottom: 24px;
+  padding: 16px;
+  border-radius: 12px;
+}
+.donut-period-block:last-child {
+  margin-bottom: 0;
+}
+.donut-period-block--base {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.donut-period-block--compare {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+.donut-period-block__empty-msg {
+  text-align: center;
+  color: #6b7280;
+  padding: 24px 16px;
+  font-size: 14px;
+}
+.donut-period-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
 /* 집계 막대 차트 영역 */
 .aggregated-bar-chart {
   width: 100%;
@@ -848,6 +962,28 @@
   color: #374151;
   margin-bottom: 16px;
 }
+.aggregated-bar-chart__period-block {
+  margin-bottom: 28px;
+  padding: 16px;
+  border-radius: 12px;
+}
+.aggregated-bar-chart__period-block:last-child {
+  margin-bottom: 0;
+}
+.aggregated-bar-chart__period-block--base {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.aggregated-bar-chart__period-block--compare {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+.aggregated-bar-chart__period-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
 
 /* 화면 폭의 최소 70% 유지·최대 980px (Recharts/Chart.js 등 권장: % + min/max 조합) */
 .aggregated-bar-chart__chart-wrap {
@@ -862,6 +998,29 @@
 }
 
 /* 집계 데이터 테이블 */
+.dashboard-aggregated-table-period-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+  margin: 20px 0 12px;
+}
+.dashboard-aggregated-table-period-title:first-child {
+  margin-top: 0;
+}
+.dashboard-aggregated-table-period-block--base {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.dashboard-aggregated-table-period-block--compare {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  padding: 16px;
+}
+
 .aggregated-data-table-section {
   background: #fff;
   padding: 20px;
@@ -1079,7 +1238,30 @@
   color: #374151;
 }
 
-/* 차트 위젯 영역 (기준별 발송 현황과 동일 폭·포맷) */
+/* 차트 위젯 영역 — 기간 div와 라인 맞춤, 좌우 20px 패딩 */
+.dashboard-widget-period-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 20px 20px 20px;
+  padding: 0;
+}
+.dashboard-widget-period-select-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+.dashboard-widget-period-select {
+  padding: 8px 14px;
+  font-size: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  min-width: 140px;
+  cursor: pointer;
+}
+
 .chart-widget-section.chart-widget {
   margin-top: 24px;
   width: 100%;

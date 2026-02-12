@@ -72,6 +72,17 @@ const STATUS_STYLE = {
   fail: { border: '#dc2626', bg: '#fee2e2', label: '미달' }
 }
 
+/** 비교 KPI가 있을 때 전비(%) 또는 증감 표시. rate 지표는 전비(%) = (현재-비교)/비교*100, 건수는 (현재/비교)*100-100 */
+function getComparePct(current, previous, valueKey) {
+  const c = Number(current)
+  const p = Number(previous)
+  if (!Number.isFinite(p) || p === 0) return null
+  if (!Number.isFinite(c)) return null
+  const isRate = ['success_rate', 'failed_rate', 'open_rate', 'click_rate'].includes(valueKey)
+  if (isRate) return ((c - p) / p) * 100
+  return (c / p) * 100 - 100
+}
+
 const CARD_CONFIG = [
   { label: '캠페인 수', valueKey: 'campaign_count', unit: '개', icon: '📋', bg: '#f0f9ff', color: '#0369a1' },
   { label: '워크플로우 수', valueKey: 'workflow_count', unit: '개', icon: '🔄', bg: '#f0fdfa', color: '#0d9488' },
@@ -87,7 +98,7 @@ const CARD_CONFIG = [
   { label: '클릭률', valueKey: 'click_rate', unit: '%', icon: '🎯', bg: '#fffbeb', color: '#d97706' }
 ]
 
-export default function KPICards({ kpi, targetStatusByKey = {}, storageKey = 'dashboard_kpi_visible', children }) {
+export default function KPICards({ kpi, compareKpi, targetStatusByKey = {}, storageKey = 'dashboard_kpi_visible', children }) {
   const [visibleKeys, setVisibleKeys] = useState(() => loadVisibleKeys(storageKey))
   const [selectorOpen, setSelectorOpen] = useState(false)
 
@@ -114,12 +125,14 @@ export default function KPICards({ kpi, targetStatusByKey = {}, storageKey = 'da
       <div className="kpi-grid">
         {visibleConfig.map((c) => {
           const value = kpi[c.valueKey] ?? 0
+          const prevValue = compareKpi?.[c.valueKey] ?? null
+          const pct = compareKpi != null && prevValue != null ? getComparePct(value, prevValue, c.valueKey) : null
           const statusInfo = targetStatusByKey[c.valueKey]
           const style = statusInfo ? STATUS_STYLE[statusInfo.status] : null
           return (
             <div
               key={c.valueKey}
-              className={`kpi-card${style ? ` kpi-card--${statusInfo.status}` : ''}`}
+              className={`kpi-card${style ? ` kpi-card--${statusInfo.status}` : ''}${compareKpi ? ' kpi-card--compare' : ''}`}
               style={{
                 background: style?.bg ?? c.bg,
                 border: `2px solid ${style ? style.border : `${c.color}20`}`,
@@ -142,6 +155,17 @@ export default function KPICards({ kpi, targetStatusByKey = {}, storageKey = 'da
                 {c.unit === '%' ? formatRateDisplay(value) : formatNum(value)}
                 <span className="kpi-card__unit">{c.unit}</span>
               </div>
+              {compareKpi && pct != null && (
+                <div className="kpi-card__compare">
+                  <span className="kpi-card__compare-line">
+                    {c.unit === '%' ? `${formatRateDisplay(value)}%` : `${formatNum(value)}${c.unit}`}
+                    {' '}
+                    <span className={`kpi-card__compare-pct ${pct >= 0 ? 'kpi-card__compare-pct--up' : 'kpi-card__compare-pct--down'}`}>
+                      {pct >= 0 ? '+' : ''}{pct.toFixed(2)}% vs 비교기간
+                    </span>
+                  </span>
+                </div>
+              )}
             </div>
           )
         })}

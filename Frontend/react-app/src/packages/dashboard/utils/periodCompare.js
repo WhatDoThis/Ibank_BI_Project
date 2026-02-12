@@ -1,5 +1,5 @@
 /**
- * dashboard2/utils/periodCompare.js (일/주/월/연 비교 기간 계산)
+ * dashboard/utils/periodCompare.js (일/주/월/연 비교 기간 계산)
  * =============================================================
  * 일간(단일일)·주간(월~일)·월간·연간 [시작일, 종료일] 계산. ISO 주(월요일=주 시작)·달력 월·연도 1/1~12/31.
  *
@@ -30,25 +30,15 @@ function toDateString(d) {
   return `${y}-${m}-${day}`
 }
 
-/**
- * 주어진 날짜가 속한 주의 월요일 00:00 (Date). ISO 8601 (월=1, 일=7).
- * @param {Date} d
- * @returns {Date} 해당 주 월요일
- */
 function getMondayOfWeek(d) {
   const date = new Date(d)
-  const day = date.getDay() // 0=일, 1=월, ..., 6=토
-  const diff = day === 0 ? -6 : 1 - day // 월요일로 보정
+  const day = date.getDay()
+  const diff = day === 0 ? -6 : 1 - day
   date.setDate(date.getDate() + diff)
   date.setHours(0, 0, 0, 0)
   return date
 }
 
-/**
- * 해당 주(월요일~일요일)의 [시작일, 종료일]을 YYYY-MM-DD 배열로 반환.
- * @param {string|Date} anchorDate - 해당 주에 속한 아무 날짜 (YYYY-MM-DD 또는 Date)
- * @returns {[string, string]} [월요일, 일요일]
- */
 export function getWeekRange(anchorDate) {
   const d = typeof anchorDate === 'string' ? new Date(anchorDate + 'T12:00:00') : new Date(anchorDate)
   if (Number.isNaN(d.getTime())) return ['', '']
@@ -58,11 +48,6 @@ export function getWeekRange(anchorDate) {
   return [toDateString(mon), toDateString(sun)]
 }
 
-/**
- * anchorDate가 속한 주의 바로 이전 주 [시작일, 종료일].
- * @param {string|Date} anchorDate
- * @returns {[string, string]} [이전 주 월요일, 이전 주 일요일]
- */
 export function getPreviousWeekRange(anchorDate) {
   const d = typeof anchorDate === 'string' ? new Date(anchorDate + 'T12:00:00') : new Date(anchorDate)
   if (Number.isNaN(d.getTime())) return ['', '']
@@ -74,27 +59,15 @@ export function getPreviousWeekRange(anchorDate) {
   return [toDateString(prevMon), toDateString(prevSun)]
 }
 
-/**
- * 해당 월 1일~말일 [시작일, 종료일].
- * @param {number} year - 연도
- * @param {number} month - 월 (1~12)
- * @returns {[string, string]} [YYYY-MM-01, YYYY-MM-DD(말일)]
- */
 export function getMonthRange(year, month) {
   const y = Number(year)
   const m = Number(month)
   if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return ['', '']
   const first = new Date(y, m - 1, 1)
-  const last = new Date(y, m, 0) // 다음 달 0일 = 이번 달 말일
+  const last = new Date(y, m, 0)
   return [toDateString(first), toDateString(last)]
 }
 
-/**
- * 해당 월의 이전 월 [시작일, 종료일].
- * @param {number} year - 연도
- * @param {number} month - 월 (1~12)
- * @returns {[string, string]}
- */
 export function getPreviousMonthRange(year, month) {
   const y = Number(year)
   const m = Number(month)
@@ -103,11 +76,6 @@ export function getPreviousMonthRange(year, month) {
   return getMonthRange(y, m - 1)
 }
 
-/**
- * anchorDate의 전일 [날짜, 날짜] (단일일).
- * @param {string|Date} anchorDate - YYYY-MM-DD 또는 Date
- * @returns {[string, string]} [전일, 전일]
- */
 export function getPreviousDay(anchorDate) {
   const d = typeof anchorDate === 'string' ? new Date(anchorDate + 'T12:00:00') : new Date(anchorDate)
   if (Number.isNaN(d.getTime())) return ['', '']
@@ -117,11 +85,6 @@ export function getPreviousDay(anchorDate) {
   return [s, s]
 }
 
-/**
- * 해당 연도 1월 1일~12월 31일 [시작일, 종료일].
- * @param {number} year - 연도 (예: 2026)
- * @returns {[string, string]} [YYYY-01-01, YYYY-12-31]
- */
 export function getYearRange(year) {
   const y = Number(year)
   if (!Number.isFinite(y)) return ['', '']
@@ -130,11 +93,6 @@ export function getYearRange(year) {
   return [toDateString(first), toDateString(last)]
 }
 
-/**
- * 해당 연도의 전년 [시작일, 종료일].
- * @param {number} year - 연도
- * @returns {[string, string]}
- */
 export function getPreviousYearRange(year) {
   const y = Number(year)
   if (!Number.isFinite(y)) return ['', '']

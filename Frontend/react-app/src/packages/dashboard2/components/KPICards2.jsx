@@ -1,7 +1,7 @@
 /**
  * dashboard2/components/KPICards2.jsx (KPI 카드)
  * ================================================
- * KPI 카드. 캠페인/워크플로우/채널 수·발송·성공·실패·비율·오픈·클릭. compareKpi 시 이전 기간 값·±n% vs 이전기간. 표시 지표 선택(localStorage).
+ * KPI 카드. 캠페인/워크플로우/채널 수·발송·성공·실패·비율·오픈·클릭. compareKpi 시 한 줄: 00개(또는 00.00%) ±00.00% vs 비교기간. 표시 지표 선택(localStorage).
  *
  * [Main Functions]
  * ===========
@@ -167,17 +167,15 @@ export default function KPICards2({ kpi, compareKpi, targetStatusByKey = {}, sto
                 {c.unit === '%' ? formatRateDisplay(value) : formatNum(value)}
                 <span className="dashboard2-kpi-card__unit">{c.unit}</span>
               </div>
-              {compareKpi && (
+              {compareKpi && pct != null && (
                 <div className="dashboard2-kpi-card__compare">
-                  <span className="dashboard2-kpi-card__compare-label">이전 기간</span>
-                  <span className="dashboard2-kpi-card__compare-value">
-                    {c.unit === '%' ? formatRateDisplay(prevValue) : formatNum(prevValue)}{c.unit}
-                  </span>
-                  {pct != null && (
+                  <span className="dashboard2-kpi-card__compare-line">
+                    {c.unit === '%' ? `${formatRateDisplay(value)}%` : `${formatNum(value)}${c.unit}`}
+                    {' '}
                     <span className={`dashboard2-kpi-card__compare-pct ${pct >= 0 ? 'dashboard2-kpi-card__compare-pct--up' : 'dashboard2-kpi-card__compare-pct--down'}`}>
-                      {pct >= 0 ? '+' : ''}{pct.toFixed(1)}% vs 이전기간
+                      {pct >= 0 ? '+' : ''}{pct.toFixed(2)}% vs 비교기간
                     </span>
-                  )}
+                  </span>
                 </div>
               )}
             </div>
