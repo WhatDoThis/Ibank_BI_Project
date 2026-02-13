@@ -35,7 +35,13 @@ async function request(method, path, body = null) {
   const res = await fetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data.error || data.message || `HTTP ${res.status}`);
+    const msg =
+      data.detail !== undefined && data.detail !== null
+        ? Array.isArray(data.detail)
+          ? data.detail.map((d) => (d.msg != null ? d.msg : (d.loc && d.loc.join('.')) || '')).filter(Boolean).join(', ') || `HTTP ${res.status}`
+          : String(data.detail)
+        : (data.error || data.message || `HTTP ${res.status}`);
+    const err = new Error(msg);
     err.status = res.status;
     err.data = data;
     throw err;
@@ -171,4 +177,75 @@ export async function getDashboard2RequiredColumns() {
 /** POST /api/dashboard2/chart-data - 대시보드2 차트 데이터 */
 export async function getDashboard2ChartData(body) {
   return request('POST', '/api/dashboard2/chart-data', body);
+}
+
+// ---------- ETL (Phase 5 UI) ----------
+
+function baseUrlForEtl() {
+  return getApiBase().replace(/\/$/, '');
+}
+
+/** GET /api/etl/tables - ETL 테이블 목록 */
+export async function etlListTables() {
+  return request('GET', '/api/etl/tables');
+}
+
+/** POST /api/etl/tables - ETL 테이블 1건 등록 */
+export async function etlCreateTable(body) {
+  return request('POST', '/api/etl/tables', body);
+}
+
+/** POST /api/etl/upload - 파일 업로드 (multipart). file: File, target_table?, description?, created_by? */
+export async function etlUploadFile(formData) {
+  const url = `${baseUrlForEtl()}/api/etl/upload`;
+  const res = await fetch(url, { method: 'POST', body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      data.detail !== undefined && data.detail !== null
+        ? Array.isArray(data.detail)
+          ? data.detail.map((d) => (d.msg != null ? d.msg : (d.loc && d.loc.join('.')) || '')).filter(Boolean).join(', ') || `HTTP ${res.status}`
+          : String(data.detail)
+        : (data.error || data.message || `HTTP ${res.status}`);
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+/** POST /api/etl/tables/:id/run - ETL 테이블 1건 대기열 등록 (Phase 6). 반환 job_id로 폴링 */
+export async function etlRunTable(etlTableId) {
+  return request('POST', `/api/etl/tables/${encodeURIComponent(etlTableId)}/run`);
+}
+
+/** GET /api/etl/jobs/:job_id - Job 1건 조회 (폴링용) */
+export async function etlGetJob(jobId) {
+  return request('GET', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
+}
+
+/** GET /api/etl/connections - 연결 목록 */
+export async function etlListConnections() {
+  return request('GET', '/api/etl/connections');
+}
+
+/** POST /api/etl/connections - 연결 1건 등록 */
+export async function etlCreateConnection(body) {
+  return request('POST', '/api/etl/connections', body);
+}
+
+/** POST /api/etl/connections/test - 연결 테스트 (connection_id 또는 host/database_name/username/password) */
+export async function etlTestConnection(body) {
+  return request('POST', '/api/etl/connections/test', body);
+}
+
+/** GET /api/etl/connections/:id/tables - 소스 DB 테이블 목록 */
+export async function etlListConnectionTables(connectionId) {
+  return request('GET', `/api/etl/connections/${encodeURIComponent(connectionId)}/tables`);
+}
+
+/** GET /api/etl/tables/:id/transform-rules - 변환 룰 목록 */
+export async function etlListTransformRules(etlTableId) {
+  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/transform-rules`);
 }

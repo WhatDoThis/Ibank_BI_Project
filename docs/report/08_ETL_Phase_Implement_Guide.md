@@ -73,6 +73,7 @@
 | **변환 1차** | 클렌징(TRIM, NULL 처리), 타입 변환(문자→날짜/숫자), 코드 매핑(키→값), 단순 파생 컬럼, 마스킹(선택). |
 | **파일 크기·타임아웃** | 업로드 파일 크기 상한(예: 50~100MB), 처리 타임아웃 설정. 초과 시 청크 처리 또는 백그라운드 Job으로 분리. |
 | **보안** | 외부 DB 연결 정보(비밀번호 등)는 암호화 저장. API는 웹앱 인증(세션/토큰) 연동. |
+| **업로드 파일 보관** | 업로드 시 **바로 테이블 생성·적재**한다고 가정. 업로드 파일은 **3일 이내 삭제**됨. 기간 도래 시 자동 삭제(업로드 API 호출 시 또는 `POST /api/etl/cleanup-expired-uploads` 호출 시). 3일 경과 후 동일 ETL 테이블 재실행 시 파일 없음으로 실패할 수 있음. |
 
 ### 4.1 config 구분 (시스템 DB 분리)
 
@@ -230,6 +231,24 @@ COMMENT ON COLUMN etl_transform_rules.apply_order     IS '같은 컬럼에 여�
 COMMENT ON COLUMN etl_transform_rules.is_active       IS '활성 여부. 비활성 시 해당 룰 스킵';
 COMMENT ON COLUMN etl_transform_rules.created_at      IS '등록 일시';
 COMMENT ON COLUMN etl_transform_rules.updated_at      IS '최종 수정 일시';
+```
+
+### 5.2 etl_jobs (Phase 2 적용)
+
+Job 실행 이력. Phase 2 파일 적재 시 기록, Phase 6 큐 연동 시 재사용.
+
+```sql
+CREATE TABLE etl_jobs (
+    job_id           BIGSERIAL       PRIMARY KEY,
+    etl_table_id     BIGINT,                            -- FK etl_tables (nullable)
+    status           VARCHAR(20)     NOT NULL,          -- 'pending' | 'running' | 'completed' | 'failed'
+    started_at       TIMESTAMP       DEFAULT NOW(),
+    finished_at      TIMESTAMP,
+    rows_processed   INTEGER         DEFAULT 0,
+    error_message    TEXT,
+    created_at       TIMESTAMP       DEFAULT NOW()
+);
+COMMENT ON TABLE etl_jobs IS 'ETL Job 실행 이력. Phase 2 파일 적재·Phase 6 큐에서 사용';
 ```
 
 ---

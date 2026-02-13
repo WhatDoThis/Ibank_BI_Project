@@ -1,5 +1,121 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-02: ETL Phase 6 완료 (큐·모니터링·정리)
+
+### 완료 작업
+1. **Job 큐**: POST /api/etl/tables/{id}/run → pending 등록 후 즉시 반환. 백그라운드 워커가 pending을 수거해 실행(동시 2건 제한).
+2. **서비스**: insert_job(etl_table_id, "pending") 시 started_at NULL. set_job_running(job_id), list_jobs(etl_table_id?, limit), get_job(job_id), fetch_pending_jobs(limit), count_running_jobs() 추가.
+3. **load_service / db_load_service**: run_file_load(etl_table_id, job_id=None), run_db_load(etl_table_id, job_id=None). job_id 있으면 해당 Job 사용(워커 호출 시).
+4. **queue_worker**: run_worker_iteration, start_background_worker. MAX_CONCURRENT=2, POLL_INTERVAL=2초. main.py startup에서 워커 기동.
+5. **API**: GET /api/etl/jobs (etl_table_id, limit 쿼리), GET /api/etl/jobs/{job_id}. 라우터 안내에 jobs 엔드포인트 추가.
+6. **프론트**: etlGetJob(jobId) 추가. 실행 후 status=pending이면 job_id로 2초 간격 폴링해 completed/failed 시 결과 표시.
+7. **재시도(6.3)**: 추후 etl_jobs에 retry_count 컬럼 추가 시 재시도 로직 확장 가능. 본 Phase에서는 미적용.
+8. **경쟁 방지**: claim_next_pending_job() 추가 — SELECT FOR UPDATE SKIP LOCKED 후 UPDATE로 1건 선점. queue_worker가 fetch_pending_jobs 대신 claim_next_pending_job 루프 사용. 라우터 안내 endpoints 들여쓰기 수정.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (list_jobs, get_job, fetch_pending_jobs, count_running_jobs, set_job_running, claim_next_pending_job, insert_job pending 시 started_at NULL)
+- Backend/etl_server/load_service.py (run_file_load job_id 옵션)
+- Backend/etl_server/db_load_service.py (run_db_load job_id 옵션)
+- Backend/etl_server/queue_worker.py (신규, claim_next_pending_job 사용으로 경쟁 방지)
+- Backend/etl_server/router.py (run → pending 등록, GET /jobs, GET /jobs/{job_id})
+- Backend/api_server/main.py (startup 시 ETL 워커 기동)
+- Frontend/react-app/src/shared/api/client.js (etlGetJob)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (pending 시 폴링)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: ETL 시스템 연결·로직 점검
+
+### 완료 작업
+1. **의존도 순 점검**: Backend router → load_service/db_load_service → service, transform_rules_service, transform_engine, schema_infer. Frontend ETLPage ↔ components ↔ shared/api/client ETL API.
+2. **라우터↔서비스**: 모든 엔드포인트별 호출 함수·인자·반환 구조 일치 확인.
+3. **파이프라인**: 파일 적재(정규화→변환→CREATE/INSERT), DB 적재(Full/Incremental·변환) 연동 로직 확인.
+4. **수정**: router run_table_load에서 404가 500으로 덮이지 않도록 `except HTTPException: raise` 추가.
+5. **보고서**: docs/report/09_ETL_System_Connectivity_Check.md 작성, 00_ReportIndex.md 갱신.
+
+### 수정/추가 파일
+- Backend/etl_server/router.py (HTTPException 재발생 처리)
+- docs/report/09_ETL_System_Connectivity_Check.md (신규)
+- docs/report/00_ReportIndex.md (09 항목 추가)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: ETL Phase 5 보강·검증 (ETL 페이지 UI)
+
+### 완료 작업
+1. **파일 점검**: ETLPage, SourceTypeSelector, FileUploadForm, DbConnectionForm, ETLTableList, JobLogPanel, etl.css, shared/api/client ETL API — 구조·연동 확인.
+2. **DbConnectionForm 보강**: 연결 등록 시 `source_type: 'postgresql'` 전달. 등록 후 폼 리셋에 `schema_name`, `source_type` 포함(defaultConn 재사용).
+3. **API 에러 메시지**: shared/api/client `request()` 및 `etlUploadFile()`에서 FastAPI 응답 `detail`(문자열·배열) 파싱 후 Error 메시지로 통일.
+4. **JobLogPanel**: `job_id`가 null일 때 항목 비표시, `status` null 시 '—' 표시.
+5. **검증**: 프론트엔드 `npm run build` 성공.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/DbConnectionForm.jsx
+- Frontend/react-app/src/packages/etl/components/JobLogPanel.jsx
+- Frontend/react-app/src/shared/api/client.js
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: ETL Phase 4 완료 (변환 T 1차)
+
+### 완료 작업
+1. **변환 룰 메타**: etl_transform_rules CRUD — transform_rules_service (list/create/get/update/delete), 라우터 GET /api/etl/tables/{etl_table_id}/transform-rules, POST/PUT/DELETE /api/etl/transform-rules.
+2. **변환 엔진**: transform_engine.apply_rules(df, rules) — cleansing(TRIM, empty_to_null, default_value), type_cast(date/timestamp/integer/numeric/text, on_error), code_map(mappings, default), derived(concat, year_minus), masking(right_n/left_n/email_domain).
+3. **파이프라인 연동**: load_service.run_file_load — 컬럼 정규화 후 변환 룰 적용 후 CREATE/INSERT. db_load_service.run_db_load — 추출 결과 DataFrame으로 변환 후 변환 룰 적용, 변환된 스키마로 CREATE/INSERT·Upsert.
+4. **정리**: transform_engine _apply_type_cast 미사용 return 제거.
+
+### 수정/추가 파일
+- Backend/etl_server/transform_rules_service.py (Phase 4 변환 룰 CRUD)
+- Backend/etl_server/transform_engine.py (apply_rules, 룰 타입별 적용·타입 캐스트 정리)
+- Backend/etl_server/load_service.py (변환 룰 적용 연동)
+- Backend/etl_server/db_load_service.py (변환 룰 적용·_pg_type_from_pandas)
+- Backend/etl_server/router.py (transform-rules 엔드포인트)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: ETL Phase 3 완료 (DB 연동 E/L)
+
+### 완료 작업
+1. **연결 API·서비스**: POST /api/etl/connections, GET /api/etl/connections, POST /api/etl/connections/test, GET /api/etl/connections/{connection_id}/tables — service.create_connection, list_connections, test_connection, list_source_tables 반영.
+2. **ETL 테이블 정의 확장**: POST /api/etl/tables body에 pk_columns, incremental_column, sync_mode 추가. list_etl_tables SELECT에 pk_columns, incremental_column, last_synced_at, sync_mode 포함.
+3. **DB 적재 로직**: db_load_service.run_db_load(etl_table_id) — Full Load(소스 전체 → DROP+CREATE+INSERT), Incremental(증분 컬럼 > last_synced_at → Upsert, last_synced_at 갱신). 메인 DB 커서/연결 try/finally로 정리.
+4. **run 분기**: POST /api/etl/tables/{etl_table_id}/run — source_type=file이면 run_file_load, postgresql+connection_id+source_table이면 run_db_load 호출.
+5. **기타**: list_connections 응답에 created_at ISO 직렬화 추가.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (list_etl_tables Phase 3 필드 추가)
+- Backend/etl_server/router.py (list_connections created_at 직렬화)
+- Backend/etl_server/db_load_service.py (try/finally로 커서·연결 정리, 들여쓰기 수정)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-02: ETL Phase 0 완료 (폴더·라우터·프론트 패키지·의존성)
+
+### 완료 작업
+1. **Backend/etl_server**: `__init__.py`, `router.py` 생성. prefix `/api/etl`, GET `/api/etl` 서비스 안내 응답.
+2. **Backend/api_server/main.py**: etl_router 등록. app.include_router(etl_router).
+3. **Frontend packages/etl**: `ETLPage.jsx`, `index.jsx`, `etl.css` 생성. ETL 페이지 골격 표시.
+4. **App.jsx**: `/etl` 라우트, 네비 "ETL" 링크 추가.
+5. **requirements.txt**: ETL용 pandas, openpyxl, pyarrow 추가 (Phase 2 파일 파싱 대비).
+
+### 수정/추가 파일
+- Backend/etl_server/__init__.py (신규)
+- Backend/etl_server/router.py (신규)
+- Backend/api_server/main.py
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (신규)
+- Frontend/react-app/src/packages/etl/index.jsx (신규)
+- Frontend/react-app/src/packages/etl/etl.css (신규)
+- Frontend/react-app/src/App.jsx
+- requirements.txt
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-02: README 갱신·대시보드1 미사용 코드 정리
 
 ### 완료 작업

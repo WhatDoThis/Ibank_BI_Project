@@ -20,6 +20,7 @@
 | 06_I1_파생테이블_정의.md | I1 파생 테이블 정의, 생성 스크립트, 리포트 사이드바 폴더, 테이블명 소문자 등 |
 | 07_newDashboard_Develop_Plan.md | NewDashboard 범용 대시보드: 요구사항 정리, 현행 대비 검토, 가능성 검토, Phase 0~5 개발 계획(백엔드 범용 API → 프론트 테이블/헤더 → KPI·목표·집계 테이블 → 위젯 beta → 비교·정리) |
 | 08_ETL_Phase_Implement_Guide.md | ETL 페이지 Phase별 구현 가이드: 목적·범위, 요구사항, 시스템 개요·아키텍처, 전제 조건, Phase 0(사전)·Phase 1(백엔드·파일 업로드 API)·Phase 2(파일 기반 E/L) (Phase 3~ 이후 추후 작성) |
+| 09_ETL_System_Connectivity_Check.md | ETL 시스템 연결·로직 점검: Backend etl_server·Frontend etl 패키지 의존관계 순차 점검, 엔드포인트↔서비스·파이프라인·API 호출 일치 여부, 수정 사항(HTTPException 재발생 처리) |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |
 | nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 3500, /report_api → 8500). 서버 배포 시 참고 |

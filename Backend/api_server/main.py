@@ -13,6 +13,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 - report: /api/* (list-tables, describe-table, execute-query, explain-sql 등)
 - dashboard: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
 - dashboard2: /api/dashboard2/* (data, filter-options, tables, required-columns, chart-data)
+- etl: /api/etl/* (ETL 메타·업로드·Job 등)
 
 [Dependencies]
 =========
@@ -38,6 +39,7 @@ except ImportError:
 
 from Backend.api_server import db
 from Backend.api_server.routers import health_router, report_router, dashboard_router, dashboard2_router
+from Backend.etl_server import router as etl_router
 
 app = FastAPI(
     title="Starbucks CRM NoCode Query Builder API",
@@ -56,6 +58,17 @@ app.include_router(health_router)
 app.include_router(report_router)
 app.include_router(dashboard_router)
 app.include_router(dashboard2_router)
+app.include_router(etl_router)
+
+
+@app.on_event("startup")
+def startup_etl_worker():
+    """Phase 6: ETL Job 큐 워커 기동 (pending → running, 동시 2건 제한)."""
+    try:
+        from Backend.etl_server import queue_worker
+        queue_worker.start_background_worker()
+    except Exception:
+        pass
 
 
 @app.exception_handler(404)

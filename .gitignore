@@ -8,6 +8,9 @@ venv/
 # 환경 설정 (비밀/환경별 값 포함 가능)
 Env/config/config.json
 
+# ETL 업로드 파일 (서버 로컬 저장)
+Backend/etl_server/uploads/
+
 # Frontend/react-app (Vite/Node)
 node_modules/
 dist/
