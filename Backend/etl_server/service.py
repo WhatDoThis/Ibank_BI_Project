@@ -251,6 +251,59 @@ def get_or_create_file_connection(created_by: str) -> int:
         conn.close()
 
 
+def list_etl_tables_by_connection(connection_id: int) -> list:
+    """해당 연결(connection_id)에 속한 etl_tables 목록. target_table 등 DROP용."""
+    schema = _schema()
+    conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            SELECT etl_table_id, target_table FROM {_q(schema, "etl_tables")}
+            WHERE connection_id = %s
+            """,
+            (connection_id,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_connection(connection_id: int) -> None:
+    """
+    연결 삭제. 해당 connection_id를 쓰는 모든 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤,
+    etl_tables 행 삭제, etl_connections 행 삭제.
+    """
+    api_db = _get_db()
+    schema = _schema()
+    tables = list_etl_tables_by_connection(connection_id)
+    main_schema = api_db.get_table_schema()
+    conn_main = api_db.get_db_connection()
+    cur_main = conn_main.cursor()
+    try:
+        for row in tables:
+            target_table = (row.get("target_table") or "").strip()
+            if not target_table or not re.match(r"^[a-zA-Z0-9_]+$", target_table):
+                continue
+            full_name = f'"{main_schema}"."{target_table}"'
+            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+        conn_main.commit()
+    finally:
+        cur_main.close()
+        conn_main.close()
+
+    conn_sys = api_db.get_db_connection_system()
+    cur_sys = conn_sys.cursor()
+    try:
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE connection_id = %s", (connection_id,))
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_connections')} WHERE connection_id = %s", (connection_id,))
+        conn_sys.commit()
+    finally:
+        cur_sys.close()
+        conn_sys.close()
+
+
 def list_etl_tables() -> list:
     """etl_tables 목록. connection_name, source_type 포함."""
     api_db = _get_db()
@@ -262,7 +315,7 @@ def list_etl_tables() -> list:
             f"""
             SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
                    t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
-                   t.status, t.created_at,
+                   t.batch_size, t.batch_interval_seconds, t.status, t.created_at,
                    c.connection_name, c.source_type
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
@@ -287,6 +340,8 @@ def create_etl_table(
     pk_columns: Optional[str] = None,
     incremental_column: Optional[str] = None,
     sync_mode: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    batch_interval_seconds: Optional[int] = None,
 ) -> int:
     """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id."""
     api_db = _get_db()
@@ -301,8 +356,8 @@ def create_etl_table(
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_tables")}
-            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, status, created_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s, NOW())
+            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, status, created_by, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s, NOW())
             RETURNING etl_table_id
             """,
             (
@@ -315,6 +370,8 @@ def create_etl_table(
                 (pk_columns or "").strip() or None,
                 (incremental_column or "").strip() or None,
                 sync_mode,
+                batch_size if batch_size is not None and batch_size > 0 else None,
+                batch_interval_seconds if batch_interval_seconds is not None and batch_interval_seconds >= 0 else 0,
                 created_by,
             ),
         )
@@ -338,6 +395,7 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
             SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
                    t.file_type, t.file_path, t.status, t.created_at,
                    t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
+                   t.batch_size, t.batch_interval_seconds,
                    c.connection_name, c.source_type
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
@@ -555,8 +613,26 @@ def count_running_jobs() -> int:
         conn.close()
 
 
+def is_job_cancelled(job_id: int) -> bool:
+    """Job이 사용자에 의해 취소 요청되었는지. 워커 루프에서 주기적으로 확인용."""
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"SELECT status FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s",
+            (job_id,),
+        )
+        row = cur.fetchone()
+        return (row and (row.get("status") or "").strip().lower() == "cancelled") or False
+    finally:
+        cur.close()
+        conn.close()
+
+
 def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, error_message: Optional[str] = None):
-    """etl_jobs 상태·종료 시각·건수·에러 메시지 갱신."""
+    """etl_jobs 상태·종료 시각·건수·에러 메시지 갱신. status에 'cancelled' 사용 가능."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()

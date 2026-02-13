@@ -6,7 +6,7 @@
  * [Main Functions]
  * ===========
  * - 연결 목록 조회, 연결 추가, 연결 테스트
- * - 연결별 소스 테이블 목록, 소스 테이블 선택 후 타겟 테이블 등록 (POST /api/etl/tables)
+ * - 연결별 소스 테이블 목록, 소스 테이블 선택 후 타겟 테이블·라벨명 등록 (POST /api/etl/tables). 라벨명은 추후 테이블 마스터에서 관리 예정.
  * - onSuccess: 등록 성공 시 콜백
  *
  * [Dependencies]
@@ -20,7 +20,8 @@ import {
   etlCreateConnection,
   etlTestConnection,
   etlListConnectionTables,
-  etlCreateTable
+  etlCreateTable,
+  etlDeleteConnection
 } from '@/shared/api/client';
 
 function DbConnectionForm({ onSuccess }) {
@@ -57,12 +58,16 @@ function DbConnectionForm({ onSuccess }) {
   };
 
   const [targetTable, setTargetTable] = useState('');
+  const [labelName, setLabelName] = useState('');
   const [description, setDescription] = useState('');
   const [pkColumns, setPkColumns] = useState('');
   const [syncMode, setSyncMode] = useState('full');
+  const [batchSize, setBatchSize] = useState('');
+  const [batchIntervalSeconds, setBatchIntervalSeconds] = useState('');
   const [selectedSourceTable, setSelectedSourceTable] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [disconnectLoadingId, setDisconnectLoadingId] = useState(null);
 
   async function loadConnections() {
     setLoadingConn(true);
@@ -73,6 +78,25 @@ function DbConnectionForm({ onSuccess }) {
       setConnections([]);
     } finally {
       setLoadingConn(false);
+    }
+  }
+
+  async function handleDisconnect(connectionId, connectionName) {
+    if (!window.confirm(`"${connectionName || connectionId}" 연결을 해제하시겠습니까? 해당 연결로 등록된 타겟 테이블이 메인 DB에서 DROP됩니다.`)) return;
+    setDisconnectLoadingId(connectionId);
+    try {
+      await etlDeleteConnection(connectionId);
+      if (String(selectedConnId) === String(connectionId)) {
+        setSelectedConnId('');
+        setSourceTables([]);
+        setSelectedSourceTable('');
+      }
+      loadConnections();
+      if (onSuccess) onSuccess();
+    } catch (err) {
+      setConnError(err.message || '연결 해제 실패');
+    } finally {
+      setDisconnectLoadingId(null);
     }
   }
 
@@ -138,17 +162,23 @@ function DbConnectionForm({ onSuccess }) {
       await etlCreateTable({
         connection_id: Number(selectedConnId),
         target_table: targetTable.trim(),
+        label_name: labelName.trim() || null,
         description: description.trim() || null,
         source_table: selectedSourceTable,
         pk_columns: pkColumns.trim() || null,
         sync_mode: syncMode,
+        batch_size: batchSize.trim() ? parseInt(batchSize, 10) || null : null,
+        batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
         created_by: 'user'
       });
       if (onSuccess) onSuccess();
       setTargetTable('');
+      setLabelName('');
       setDescription('');
       setPkColumns('');
       setSyncMode('full');
+      setBatchSize('');
+      setBatchIntervalSeconds('');
       setSelectedSourceTable('');
     } catch (err) {
       setCreateError(err.message || 'ETL 테이블 등록 실패');
@@ -224,8 +254,29 @@ function DbConnectionForm({ onSuccess }) {
         {connError && <p className="etl-db-form__error">{connError}</p>}
       </section>
 
+      {connections.length > 0 && (
+        <section className="etl-db-form__section">
+          <h3 className="etl-db-form__heading">등록된 연결 (연결 해제 시 해당 타겟 테이블 DROP)</h3>
+          <ul className="etl-db-form__conn-list">
+            {connections.map((c) => (
+              <li key={c.connection_id} className="etl-db-form__conn-item">
+                <span>{c.connection_name} — {c.host}/{c.database_name}</span>
+                <button
+                  type="button"
+                  className="etl-db-form__btn etl-db-form__btn--danger"
+                  onClick={() => handleDisconnect(c.connection_id, c.connection_name)}
+                  disabled={disconnectLoadingId != null}
+                >
+                  {disconnectLoadingId === c.connection_id ? '해제 중…' : '연결 해제'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="etl-db-form__section">
-        <h3 className="etl-db-form__heading">ETL 테이블 등록 (DB → 우리 DB)</h3>
+        <h3 className="etl-db-form__heading">ETL 테이블 등록</h3>
         <div className="etl-db-form__row">
           <label className="etl-db-form__label">연결 선택</label>
           <select
@@ -268,6 +319,16 @@ function DbConnectionForm({ onSuccess }) {
           />
         </div>
         <div className="etl-db-form__row">
+          <label className="etl-db-form__label">라벨명 (선택, 추후 테이블 마스터에서 관리)</label>
+          <input
+            type="text"
+            value={labelName}
+            onChange={(e) => setLabelName(e.target.value)}
+            placeholder="표시용 라벨"
+            className="etl-db-form__input"
+          />
+        </div>
+        <div className="etl-db-form__row">
           <label className="etl-db-form__label">설명</label>
           <input
             type="text"
@@ -292,6 +353,28 @@ function DbConnectionForm({ onSuccess }) {
             <option value="full">전체(Full)</option>
             <option value="incremental">증분(Incremental)</option>
           </select>
+        </div>
+        <div className="etl-db-form__row">
+          <label className="etl-db-form__label">배치 크기 (행 수, 선택. 비우면 전체 fetch)</label>
+          <input
+            type="number"
+            min="1"
+            value={batchSize}
+            onChange={(e) => setBatchSize(e.target.value)}
+            placeholder="예: 5000"
+            className="etl-db-form__input etl-db-form__input--short"
+          />
+        </div>
+        <div className="etl-db-form__row">
+          <label className="etl-db-form__label">배치 간 대기 시간(초, 선택)</label>
+          <input
+            type="number"
+            min="0"
+            value={batchIntervalSeconds}
+            onChange={(e) => setBatchIntervalSeconds(e.target.value)}
+            placeholder="0"
+            className="etl-db-form__input etl-db-form__input--short"
+          />
         </div>
         {createError && <p className="etl-db-form__error">{createError}</p>}
         <button

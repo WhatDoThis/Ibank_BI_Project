@@ -23,6 +23,7 @@ MAX_CONCURRENT = 2
 POLL_INTERVAL_SEC = 2
 _worker_started = False
 _worker_lock = threading.Lock()
+_etl_tables_missing_logged = False
 
 
 def _run_one_job(job_id: int, etl_table_id: int) -> None:
@@ -72,11 +73,20 @@ def run_worker_iteration() -> None:
 
 
 def _worker_loop() -> None:
+    global _etl_tables_missing_logged
     while True:
         try:
             run_worker_iteration()
         except Exception as e:
-            logger.exception("ETL worker iteration error: %s", e)
+            err_msg = str(e)
+            if "does not exist" in err_msg and not _etl_tables_missing_logged:
+                _etl_tables_missing_logged = True
+                logger.warning(
+                    "ETL meta tables (e.g. etl_jobs) not found in system_db. "
+                    "Create them to enable the queue. Worker idle."
+                )
+            else:
+                logger.exception("ETL worker iteration error: %s", e)
         time.sleep(POLL_INTERVAL_SEC)
 
 

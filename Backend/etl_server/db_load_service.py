@@ -14,11 +14,15 @@ Backend.etl_server.db_load_service (DB 연동 E/L)
 - psycopg2, pandas(선택: DataFrame으로 변환 후 INSERT)
 """
 
+import logging
 import re
+import time
 from datetime import datetime
 from typing import List, Optional, Tuple
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_engine
@@ -120,6 +124,18 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     sync_mode = (row.get("sync_mode") or "full").strip().lower()
     if sync_mode not in ("full", "incremental"):
         sync_mode = "full"
+    batch_size = (row.get("batch_size") or 0) if row.get("batch_size") is not None else 0
+    try:
+        batch_size = int(batch_size) if batch_size else 0
+    except (TypeError, ValueError):
+        batch_size = 0
+    batch_interval_seconds = row.get("batch_interval_seconds")
+    if batch_interval_seconds is None:
+        batch_interval_seconds = 0
+    try:
+        batch_interval_seconds = max(0, int(batch_interval_seconds))
+    except (TypeError, ValueError):
+        batch_interval_seconds = 0
 
     if not connection_id or not source_table or not target_table:
         raise ValueError("connection_id, source_table, target_table가 필요합니다.")
@@ -131,6 +147,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     else:
         etl_service.set_job_running(job_id)
     etl_service.update_etl_table_status(etl_table_id, "running")
+    logger.info("ETL db load started etl_table_id=%s job_id=%s sync_mode=%s", etl_table_id, job_id, sync_mode)
 
     try:
         c = etl_service.get_connection_for_etl(connection_id)
@@ -161,16 +178,32 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 params.append(last_synced)
             # last_synced가 없으면 전체 추출(최초 1회)
 
-        cur_src = src_conn.cursor()
-        cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
-        rows_data = cur_src.fetchall()
-        cur_src.close()
-        src_conn.close()
+        if batch_size > 0:
+            # 서버 사이드 커서로 배치 단위 추출. 배치 간 대기로 고객 DB 부하 조절
+            cur_src = src_conn.cursor(name="etl_src_%s" % job_id)
+            cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
+            rows_data = []
+            while True:
+                batch = cur_src.fetchmany(batch_size)
+                if not batch:
+                    break
+                rows_data.extend(batch)
+                if batch_interval_seconds > 0:
+                    time.sleep(batch_interval_seconds)
+            cur_src.close()
+            src_conn.close()
+        else:
+            cur_src = src_conn.cursor()
+            cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
+            rows_data = cur_src.fetchall()
+            cur_src.close()
+            src_conn.close()
 
         rows_processed = len(rows_data)
         if rows_processed == 0:
             etl_service.update_job(job_id, "completed", rows_processed=0)
             etl_service.update_etl_table_status(etl_table_id, "done")
+            logger.info("ETL db load completed job_id=%s rows_processed=0 (no rows)", job_id)
             return {"job_id": job_id, "status": "completed", "rows_processed": 0}
 
         # Phase 4: 변환 룰 적용
@@ -206,8 +239,22 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 conn_main.commit()
                 placeholders = ", ".join(["%s"] * len(cols))
                 insert_sql = f'INSERT INTO {full_name} ({", ".join(chr(34) + c + chr(34) for c in cols)}) VALUES ({placeholders})'
-                for r in rows_data:
+                cancel_check_interval = 100
+                rows_processed = 0
+                for i, r in enumerate(rows_data):
+                    if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                        conn_main.rollback()
+                        try:
+                            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                            conn_main.commit()
+                        except Exception:
+                            conn_main.rollback()
+                        etl_service.update_job(job_id, "cancelled", rows_processed=rows_processed, error_message="사용자 취소")
+                        etl_service.update_etl_table_status(etl_table_id, "error")
+                        logger.info("ETL db load cancelled job_id=%s rows_processed=%s", job_id, rows_processed)
+                        return {"job_id": job_id, "status": "cancelled", "rows_processed": rows_processed, "error_message": "사용자 취소"}
                     cur_main.execute(insert_sql, [r.get(c) for c in cols])
+                    rows_processed += 1
                 conn_main.commit()
             else:
                 # incremental: Upsert. PK 필요.
@@ -234,8 +281,17 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     f"VALUES ({placeholders}) ON CONFLICT ({', '.join(chr(34) + p + chr(34) for p in pk_list)}) "
                     f"DO UPDATE SET {', '.join(set_parts)}"
                 )
-                for r in rows_data:
+                cancel_check_interval = 100
+                rows_processed = 0
+                for i, r in enumerate(rows_data):
+                    if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                        conn_main.rollback()
+                        etl_service.update_job(job_id, "cancelled", rows_processed=rows_processed, error_message="사용자 취소")
+                        etl_service.update_etl_table_status(etl_table_id, "error")
+                        logger.info("ETL db load cancelled job_id=%s rows_processed=%s", job_id, rows_processed)
+                        return {"job_id": job_id, "status": "cancelled", "rows_processed": rows_processed, "error_message": "사용자 취소"}
                     cur_main.execute(upsert_sql, [r.get(c) for c in cols])
+                    rows_processed += 1
                 conn_main.commit()
                 # last_synced_at: 이번에 가져온 행들 중 incremental_column 최대값
                 if incremental_column and incremental_column in cols:
@@ -256,9 +312,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
 
         etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
         etl_service.update_etl_table_status(etl_table_id, "done")
+        logger.info("ETL db load completed job_id=%s rows_processed=%s", job_id, rows_processed)
         return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}
 
     except Exception as e:
+        logger.exception("ETL db load failed job_id=%s: %s", job_id, e)
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": str(e)}

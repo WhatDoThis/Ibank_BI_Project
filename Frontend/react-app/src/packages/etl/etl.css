@@ -235,3 +235,53 @@
 .etl-job-log__error {
   color: #b91c1c;
 }
+.etl-page__job-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.etl-job-log__cancel {
+  padding: 8px 16px;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.etl-job-log__cancel:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.etl-job-log__cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.etl-job-log--cancelled {
+  background: #fef3c7;
+  border-color: #f59e0b;
+}
+
+/* DB 폼: 연결 목록·연결 해제 */
+.etl-db-form__conn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.etl-db-form__conn-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+.etl-db-form__btn--danger {
+  background: #dc2626;
+  color: #fff;
+}
+.etl-db-form__btn--danger:hover:not(:disabled) {
+  background: #b91c1c;
+}

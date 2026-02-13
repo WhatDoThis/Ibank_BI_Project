@@ -17,9 +17,10 @@ function JobLogPanel({ lastRunResult }) {
 
   const { job_id, status, rows_processed, error_message } = lastRunResult;
   const isOk = status === 'completed';
+  const isCancelled = status === 'cancelled';
 
   return (
-    <div className={`etl-job-log ${isOk ? 'etl-job-log--success' : 'etl-job-log--failed'}`}>
+    <div className={`etl-job-log ${isOk ? 'etl-job-log--success' : isCancelled ? 'etl-job-log--cancelled' : 'etl-job-log--failed'}`}>
       <h3 className="etl-job-log__title">실행 결과</h3>
       <ul className="etl-job-log__list">
         {job_id != null && <li>Job ID: {job_id}</li>}

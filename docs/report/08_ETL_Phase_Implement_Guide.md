@@ -117,11 +117,13 @@
 | 작업 | 내용 |
 |------|------|
 | **0.1 폴더 생성** | `Backend/etl_server/` 생성. (또는 기존 `api_server`에 `routers/etl`, `services/etl` 등으로 모듈 추가.) |
-| **0.2 메타 DB 테이블 설계** | 우리 PostgreSQL에 ETL 메타 저장용 테이블. 예: `etl_connections`(연결 정보, 소스 유형 file/db), `etl_tables`(테이블명, 설명, 연결 ID, 타겟 스키마), `etl_jobs`(job_id, 상태, 시작/종료 시각, 에러 메시지), `etl_transform_rules`(Phase 4 변환 룰). **DDL은 아래 §5.1에 적용 완료본으로 수록.** |
+| **0.2 메타 DB 테이블 설계** | 우리 PostgreSQL(시스템 DB)에 ETL 메타 저장용 테이블 4개: `etl_connections`, `etl_tables`, `etl_transform_rules`(§5.1), `etl_jobs`(§5.2). **§5.1과 §5.2 DDL을 모두 적용해야 함.** |
 | **0.3 의존성** | Backend: pandas, openpyxl, pyarrow(Parquet), psycopg2(이미 사용 시 생략). DB 커넥터(추후): snowflake-connector-python 등. |
 | **0.4 프론트 패키지** | `Frontend/react-app/src/packages/etl/` 폴더 및 진입점 `index.jsx`, 라우트 등록용 준비. |
 
 **산출물**: 빈 `etl_server` 구조, 메타 테이블 DDL, etl 패키지 폴더.
+
+**필수 테이블 4개**: 아래 §5.1(etl_connections, etl_tables, etl_transform_rules) **+ §5.2(etl_jobs)** 를 모두 생성해야 ETL API·큐 워커가 정상 동작합니다. §5.1만 적용하면 `etl_jobs`가 없어 워커에서 오류가 발생할 수 있습니다.
 
 ### 5.1 ETL 메타 테이블 DDL (적용 완료)
 
@@ -250,6 +252,21 @@ CREATE TABLE etl_jobs (
 );
 COMMENT ON TABLE etl_jobs IS 'ETL Job 실행 이력. Phase 2 파일 적재·Phase 6 큐에서 사용';
 ```
+
+### 5.3 배치 크기·배치 간격 (선택, DB 적재용)
+
+고객 DB 여건에 따라 배치 크기·배치 간 대기 시간을 설정할 수 있음. 시스템 DB에 아래 DDL 적용.
+
+**스크립트**: `scripts/alter_etl_tables_batch.sql` 실행.
+
+```sql
+ALTER TABLE etl_tables
+  ADD COLUMN IF NOT EXISTS batch_size INTEGER,
+  ADD COLUMN IF NOT EXISTS batch_interval_seconds INTEGER DEFAULT 0;
+```
+
+- **batch_size**: 한 번에 가져올 행 수. NULL/0이면 전체 fetch.
+- **batch_interval_seconds**: 배치 간 대기 시간(초). 0이면 대기 없음.
 
 ---
 

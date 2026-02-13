@@ -225,6 +225,16 @@ export async function etlGetJob(jobId) {
   return request('GET', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
 }
 
+/** POST /api/etl/jobs/:job_id/cancel - 실행 중·대기 중 Job 취소 */
+export async function etlCancelJob(jobId) {
+  return request('POST', `/api/etl/jobs/${encodeURIComponent(jobId)}/cancel`);
+}
+
+/** DELETE /api/etl/connections/:id - 연결 해제 (해당 연결의 타겟 테이블 DROP 후 연결 삭제) */
+export async function etlDeleteConnection(connectionId) {
+  return request('DELETE', `/api/etl/connections/${encodeURIComponent(connectionId)}`);
+}
+
 /** GET /api/etl/connections - 연결 목록 */
 export async function etlListConnections() {
   return request('GET', '/api/etl/connections');

@@ -1,5 +1,54 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-13: ETL 취소·연결 해제·배치 크기/시간·검토 문서
+
+### 완료 작업
+1. **예상 완료/남은 시간 검토**: docs/report/11_ETL_예상완료시간_재실행동작_검토.md 작성. 가능하나 진행률(processed/total) 갱신·배치 처리 선행 필요. 배치 적용 시 ETA 계산 가능.
+2. **실행 중 취소**: POST /api/etl/jobs/{job_id}/cancel. 워커가 100건마다 is_job_cancelled 확인, 취소 시 DROP TABLE(파일/Full), job=cancelled, etl_table=error. 프론트: running/pending 시 "실행 취소" 버튼.
+3. **DB 연결 해제**: DELETE /api/etl/connections/{id}. 해당 연결의 모든 ETL 타겟 테이블을 메인 DB에서 DROP 후 etl_tables·etl_connections 삭제. DbConnectionForm에 "등록된 연결" 목록·연결 해제 버튼 추가.
+4. **재실행 동작 정리**: 11번 문서에 명시. 파일/DB full = 전체 교체, DB incremental = 업서트.
+5. **배치 크기·배치 시간**: etl_tables에 batch_size, batch_interval_seconds 컬럼(scripts/alter_etl_tables_batch.sql). DB 적재 시 batch_size>0이면 서버 사이드 커서로 fetchmany(batch_size), 배치 간 sleep(batch_interval_seconds). DbConnectionForm에 배치 크기·배치 간 대기(초) 입력 추가.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (is_job_cancelled, delete_connection, list_etl_tables_by_connection, create_etl_table batch 인자, list/get_etl_table batch 컬럼)
+- Backend/etl_server/router.py (POST /jobs/{id}/cancel, DELETE /connections/{id}, CreateTableBody batch 필드)
+- Backend/etl_server/load_service.py (취소 시 100건마다 확인, 취소 시 DROP TABLE)
+- Backend/etl_server/db_load_service.py (취소 확인, batch_size/batch_interval_seconds 적용 시 fetchmany·sleep)
+- Frontend: ETLPage.jsx (취소 버튼·handleCancelJob), JobLogPanel (cancelled 스타일), DbConnectionForm (연결 해제·배치 입력), shared/api/client (etlCancelJob, etlDeleteConnection), etl.css (취소·연결 목록 스타일)
+- scripts/alter_etl_tables_batch.sql (신규)
+- docs/report/08_ETL_Phase_Implement_Guide.md (§5.3 배치 컬럼)
+- docs/report/11_ETL_예상완료시간_재실행동작_검토.md (신규)
+- docs/report/00_ReportIndex.md (11번 추가)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 라벨명 필드 추가·타겟 테이블명 자동 채움
+
+### 완료 작업
+1. **라벨명 필드**: FileUploadForm·DbConnectionForm에 "라벨명 (선택, 추후 테이블 마스터에서 관리)" 입력 추가. 백엔드 upload·CreateTableBody에서 `label_name` 수신만 하고 저장/처리 없음.
+2. **타겟 테이블명 자동 채움**: 파일 업로드 폼에서 파일 선택 시 타겟 테이블명에 파일명(확장자 제외) 자동 입력. 필요 시 사용자가 수정 가능.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/FileUploadForm.jsx (labelName state·input, onFileChange에서 파일명→targetTable, label_name 전송)
+- Frontend/react-app/src/packages/etl/components/DbConnectionForm.jsx (labelName state·input, etlCreateTable에 label_name)
+- Backend/etl_server/router.py (upload에 label_name Form, CreateTableBody에 label_name 필드)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 워커 — etl_jobs 미존재 시 로그 스팸 방지
+
+### 완료 작업
+1. **queue_worker**: `etl_jobs` 등 ETL 메타 테이블이 system_db에 없을 때 매 2초마다 반복되던 traceback 로그 제거.
+2. **조치**: "does not exist" 예외 시 한 번만 WARNING 로그 출력("ETL meta tables (e.g. etl_jobs) not found in system_db. Create them to enable the queue. Worker idle."), 이후 동일 예외는 로그 생략. 그 외 예외는 기존처럼 logger.exception 유지.
+
+### 수정 파일
+- Backend/etl_server/queue_worker.py (_etl_tables_missing_logged 플래그, _worker_loop 예외 분기)
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-02: ETL Phase 6 완료 (큐·모니터링·정리)
 
 ### 완료 작업

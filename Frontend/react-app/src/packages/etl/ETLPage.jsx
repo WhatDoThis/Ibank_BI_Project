@@ -13,7 +13,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { etlRunTable, etlGetJob } from '@/shared/api/client';
+import { etlRunTable, etlGetJob, etlCancelJob } from '@/shared/api/client';
 import SourceTypeSelector from './components/SourceTypeSelector';
 import FileUploadForm from './components/FileUploadForm';
 import DbConnectionForm from './components/DbConnectionForm';
@@ -26,6 +26,7 @@ function ETLPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastRunResult, setLastRunResult] = useState(null);
   const [runLoading, setRunLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -69,6 +70,23 @@ function ETLPage() {
     }
   }
 
+  async function handleCancelJob() {
+    const jobId = lastRunResult?.job_id;
+    if (jobId == null || cancelLoading) return;
+    setCancelLoading(true);
+    try {
+      await etlCancelJob(jobId);
+      setLastRunResult((prev) => (prev ? { ...prev, status: 'cancelled', error_message: '사용자 취소' } : prev));
+      handleRefresh();
+    } catch (err) {
+      setLastRunResult((prev) => (prev ? { ...prev, error_message: err.message || '취소 실패' } : prev));
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
+  const canCancel = (lastRunResult?.status === 'pending' || lastRunResult?.status === 'running') && lastRunResult?.job_id != null;
+
   return (
     <div className="etl-page">
       <header className="etl-page__header">
@@ -98,7 +116,19 @@ function ETLPage() {
 
         {lastRunResult && (
           <section className="etl-page__section">
-            <JobLogPanel lastRunResult={lastRunResult} />
+            <div className="etl-page__job-actions">
+              <JobLogPanel lastRunResult={lastRunResult} />
+              {canCancel && (
+                <button
+                  type="button"
+                  className="etl-job-log__cancel"
+                  onClick={handleCancelJob}
+                  disabled={cancelLoading}
+                >
+                  {cancelLoading ? '취소 중…' : '실행 취소'}
+                </button>
+              )}
+            </div>
           </section>
         )}
       </section>

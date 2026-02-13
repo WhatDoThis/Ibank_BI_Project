@@ -14,11 +14,14 @@ Backend.etl_server.load_service (파일 기반 E/L)
 - pandas
 """
 
+import logging
 import os
 import re
 from typing import List, Optional, Tuple
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
@@ -90,6 +93,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     else:
         etl_service.set_job_running(job_id)
     etl_service.update_etl_table_status(etl_table_id, "running")
+    logger.info("ETL file load started etl_table_id=%s job_id=%s file_path=%s", etl_table_id, job_id, file_path)
 
     try:
         df = _read_file(file_path, file_type)
@@ -101,6 +105,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     if df.empty:
         etl_service.update_job(job_id, "completed", rows_processed=0)
         etl_service.update_etl_table_status(etl_table_id, "done")
+        logger.info("ETL file load completed job_id=%s rows_processed=0 (empty file)", job_id)
         return {"job_id": job_id, "status": "completed", "rows_processed": 0}
 
     # 컬럼명 정규화 후 변환 룰 적용(Phase 4)
@@ -144,26 +149,41 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         cur.execute(f"CREATE TABLE {full_name} ({col_defs})")
         conn_main.commit()
 
-        # INSERT: 컬럼 순서를 검증된 이름으로 맞춤
+        # INSERT: 컬럼 순서를 검증된 이름으로 맞춤. 취소 요청 시 N건마다 확인
         cols = [c[0] for c in columns]
         df_renamed = df.copy()
         df_renamed.columns = cols
         rows = df_renamed.replace({pd.NA: None}).to_dict("records")
         placeholders = ", ".join(["%s"] * len(cols))
         insert_sql = f'INSERT INTO {full_name} ({", ".join(chr(34) + c + chr(34) for c in cols)}) VALUES ({placeholders})'
-        for r in rows:
+        cancel_check_interval = 100
+        rows_processed = 0
+        for i, r in enumerate(rows):
+            if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                conn_main.rollback()
+                try:
+                    cur.execute(f"DROP TABLE IF EXISTS {full_name}")
+                    conn_main.commit()
+                except Exception:
+                    conn_main.rollback()
+                etl_service.update_job(job_id, "cancelled", rows_processed=rows_processed, error_message="사용자 취소")
+                etl_service.update_etl_table_status(etl_table_id, "error")
+                logger.info("ETL file load cancelled job_id=%s rows_processed=%s", job_id, rows_processed)
+                return {"job_id": job_id, "status": "cancelled", "rows_processed": rows_processed, "error_message": "사용자 취소"}
             cur.execute(insert_sql, [r.get(c) for c in cols])
+            rows_processed += 1
         conn_main.commit()
-        rows_processed = len(rows)
 
         from Env.config.loader import add_allowed_table
         add_allowed_table(target_table)
 
         etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
         etl_service.update_etl_table_status(etl_table_id, "done")
+        logger.info("ETL file load completed job_id=%s rows_processed=%s", job_id, rows_processed)
         return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}
 
     except Exception as e:
+        logger.exception("ETL file load failed job_id=%s: %s", job_id, e)
         conn_main.rollback()
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")

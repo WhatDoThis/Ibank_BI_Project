@@ -173,6 +173,7 @@ class CreateTableBody(BaseModel):
     """POST /api/etl/tables 요청 body."""
     connection_id: int = Field(..., description="연결 ID")
     target_table: str = Field(..., description="타겟 테이블명")
+    label_name: Optional[str] = Field(None, description="라벨명. 추후 테이블 마스터에서 관리, 당장은 수신만")
     description: Optional[str] = None
     created_by: str = Field("user", description="등록자")
     source_table: Optional[str] = None
@@ -181,6 +182,8 @@ class CreateTableBody(BaseModel):
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분, incremental 시 필수)")
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명")
     sync_mode: Optional[str] = Field("full", description="full | incremental")
+    batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). NULL/0이면 전체 fetch. 고객 DB 여건에 따라 설정.")
+    batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
 
 
 @router.post("/tables")
@@ -198,6 +201,8 @@ def create_table(body: CreateTableBody):
             pk_columns=body.pk_columns,
             incremental_column=body.incremental_column,
             sync_mode=body.sync_mode,
+            batch_size=body.batch_size,
+            batch_interval_seconds=body.batch_interval_seconds,
         )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
@@ -210,12 +215,14 @@ def create_table(body: CreateTableBody):
 async def upload_file(
     file: UploadFile = File(...),
     target_table: Optional[str] = Form(None),
+    label_name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     created_by: str = Form("user"),
 ):
     """
     파일 업로드 → 저장 후 스키마 추론.
     target_table, description 이 있으면 파일용 connection + etl_tables 1건 생성 후 etl_table_id 반환.
+    label_name은 추후 테이블 마스터에서 관리 예정, 당장은 수신만.
     """
     try:
         file_path, file_type = _save_upload(file)
@@ -396,6 +403,15 @@ def list_connection_tables(connection_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/connections/{connection_id}", status_code=204)
+def delete_connection(connection_id: int):
+    """연결 해제. 해당 연결로 등록된 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤 연결·ETL 메타 삭제."""
+    try:
+        etl_service.delete_connection(connection_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/tables/{etl_table_id}/run")
 def run_table_load(etl_table_id: int):
     """
@@ -457,6 +473,24 @@ def get_job(job_id: int):
         if row.get("created_at") is not None:
             row["created_at"] = row["created_at"].isoformat()
         return row
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: int):
+    """실행 중·대기 중인 Job 취소. status를 cancelled로 갱신. 워커가 주기적으로 확인해 중단."""
+    try:
+        row = etl_service.get_job(job_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
+        status = (row.get("status") or "").strip().lower()
+        if status not in ("pending", "running"):
+            raise HTTPException(status_code=400, detail=f"취소할 수 없는 상태입니다: {status}")
+        etl_service.update_job(job_id, "cancelled", error_message="사용자 취소")
+        return {"job_id": job_id, "status": "cancelled", "message": "취소 요청되었습니다."}
     except HTTPException:
         raise
     except Exception as e:
