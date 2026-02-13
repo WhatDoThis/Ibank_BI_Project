@@ -215,12 +215,24 @@ export async function etlUploadFile(formData) {
   return data;
 }
 
+/** DELETE /api/etl/tables/:id - ETL 테이블 1건 삭제 (타겟 테이블 DROP, 업로드 파일 삭제) */
+export async function etlDeleteTable(etlTableId) {
+  return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}`);
+}
+
 /** POST /api/etl/tables/:id/run - ETL 테이블 1건 대기열 등록 (Phase 6). 반환 job_id로 폴링 */
 export async function etlRunTable(etlTableId) {
   return request('POST', `/api/etl/tables/${encodeURIComponent(etlTableId)}/run`);
 }
 
-/** GET /api/etl/jobs/:job_id - Job 1건 조회 (폴링용) */
+/** GET /api/etl/jobs - Job 목록 (etl_table_id 없으면 전체). 큐 상태(실행 중/대기 중) 표시용 */
+export async function etlListJobs(etlTableId = null) {
+  const params = new URLSearchParams({ limit: '100' });
+  if (etlTableId != null) params.set('etl_table_id', String(etlTableId));
+  return request('GET', `/api/etl/jobs?${params.toString()}`);
+}
+
+/** GET /api/etl/jobs/:job_id - Job 1건 조회 (폴링용). target_table, started_at 포함 */
 export async function etlGetJob(jobId) {
   return request('GET', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
 }

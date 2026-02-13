@@ -1,5 +1,127 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-13: ETL 실행 결과 여러 개 표시·진행 중/대기 중 UI 구분
+
+### 완료 작업
+1. **실행 결과 오락가락 해소**: 단일 lastRunResult 대신 jobResults(job_id → 결과) 맵 사용. 실행할 때마다 해당 job을 맵에 추가하고, 2초마다 running/pending인 모든 job을 폴링해 갱신. 실행 결과 영역에 job별 패널을 **아래로** 나열해 각각 표시.
+2. **패널별 동작**: 각 패널에 닫기(×) 버튼, running/pending일 때만 해당 패널에 "실행 취소" 버튼 표시.
+3. **진행 중/대기 중 구분**: 목록 테이블에서 해당 행 배경색(실행 중: 연한 파랑, 대기 중: 연한 노랑), 상태 셀 글자(실행 중: 파랑 굵게, 대기 중: 주황 굵게). 실행 결과 패널에서 running은 연한 파랑 배경·테두리, pending은 연한 노랑 배경·테두리. 완료/실패/취소는 기존처럼 녹/빨강/주황 유지.
+4. **가독성**: 패널 제목에 타겟 테이블명 포함, 헤더·닫기 버튼 정렬, 취소 버튼 영역 구분.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (jobResults, 폴링, resultEntries, JobLogPanel 여러 개)
+- Frontend/react-app/src/packages/etl/components/JobLogPanel.jsx (result, onCancel, onClose, --running/--pending, 닫기·취소 버튼)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (lastRunResult 제거, 행/상태 클래스 및 statusText)
+- Frontend/react-app/src/packages/etl/etl.css (etl-job-results, --running/--pending, 행·상태 스타일, 패널 head/close/actions)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 예상 완료 시간(ETA) — total_rows·남은 시간·예상 완료 시각
+
+### 완료 작업
+1. **etl_jobs.total_rows**: 스키마에 total_rows 컬럼 추가. 서비스에 set_job_total_rows(job_id, total_rows) 추가.
+2. **파일 적재**: run_file_load에서 파일 읽기 후 비어 있지 않으면 set_job_total_rows(job_id, len(df)) 호출.
+3. **DB 적재**: 스트리밍 경로는 실행 전 동일 WHERE로 COUNT(*) 조회 후 set_job_total_rows(상한 적용). fetchall 경로는 fetch 후 set_job_total_rows(job_id, len(rows_data)).
+4. **API**: list_jobs·get_job SELECT에 j.total_rows 포함.
+5. **프론트**: ETLPage 폴링 시 lastRunResult에 total_rows 반영. JobLogPanel에서 total_rows·rows_processed·경과로 예상 남은 시간(초→분/시간 표기)·예상 완료 시각 계산 표시. 처리 건수에 "N / total" 형식 표시.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (set_job_total_rows, list_jobs/get_job에 total_rows)
+- Backend/etl_server/load_service.py (set_job_total_rows 호출)
+- Backend/etl_server/db_load_service.py (스트리밍 COUNT·fetchall 후 set_job_total_rows)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (폴링 시 total_rows)
+- Frontend/react-app/src/packages/etl/components/JobLogPanel.jsx (예상 남은 시간·예상 완료 시각·처리 건수 N/total)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 목록 큐 상태·실행 결과 패널 개선
+
+### 완료 작업
+1. **목록 행별 상태**: 실행 버튼을 큐 기준으로 표시. 해당 ETL이 running → "실행 중", pending → "대기 중", 없으면 "실행". 실행/대기 중일 때만 비활성화, 나머지는 언제든 클릭 가능(대기열 등록).
+2. **큐 폴링**: GET /api/etl/jobs 로 2초마다 조회 후 running/pending Job을 etl_table_id별로 매핑해 행별 버튼 문구 갱신.
+3. **실행 결과 패널**: Job ID 외에 **타겟 테이블**, **시작 시각**, **경과 시간**(running/pending 시 1초마다 갱신), 처리 건수 표시.
+4. **Backend**: list_jobs·get_job 응답에 target_table 포함(etl_tables JOIN). run 응답에 etl_table_id, target_table 포함.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (list_jobs, get_job — target_table JOIN)
+- Backend/etl_server/router.py (run 응답에 target_table, etl_table_id)
+- Frontend/react-app/src/shared/api/client.js (etlListJobs)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (queueStatus, loadQueueStatus, 행별 runLabel/runDisabled)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (lastRunResult에 target_table, started_at 등 유지)
+- Frontend/react-app/src/packages/etl/components/JobLogPanel.jsx (타겟 테이블, 시작 시각, 경과 시간)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-table-list__run--busy)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL config 한도(etl_limits) 적용 — 램 오버 방지
+
+### 완료 작업
+1. **config 한도**: `backend.etl_limits` 에 max_file_size_mb, max_rows_per_load, max_batch_size 정의 시 해당 값으로 잘라서 처리.
+2. **etl_limits 모듈**: `Backend/etl_server/etl_limits.py` — get_etl_limits() 로 config 조회, 없으면 0(한도 미적용).
+3. **파일 적재**: 파일 크기 > max_file_size_mb 이면 실패. CSV는 nrows=max_rows_per_load, Excel/Parquet는 읽은 뒤 head(max_rows_per_load).
+4. **DB 적재**: max_batch_size로 사용자 batch_size 상한. effective_batch_size > 0 이면 배치 단위 스트리밍(fetch → 변환 → 적재 반복, 메모리에 전체 미적재). effective_batch_size == 0 이면 SELECT에 LIMIT max_rows_per_load 적용.
+
+### 수정/추가 파일
+- Backend/etl_server/etl_limits.py (신규)
+- Backend/etl_server/load_service.py (get_etl_limits, 파일 크기 검사, _read_file max_rows)
+- Backend/etl_server/db_load_service.py (get_etl_limits, effective_batch_size, limit_sql, 배치 스트리밍 경로)
+- docs/report/08_ETL_Phase_Implement_Guide.md (§3.2 etl_limits)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 문서 통합 (08번으로 합침)
+
+### 완료 작업
+1. **ETL 관련 문서 통합**: 08·09·10·11·12번 중 이미 적용된 세부 구현 내용 제거, 참조·운영에 유용한 정보만 남겨 **08_ETL_Phase_Implement_Guide.md** 하나로 통합.
+2. **삭제한 문서**: 09_ETL_System_Connectivity_Check.md, 10_ETL_Job_확인_방법.md, 11_ETL_예상완료시간_재실행동작_검토.md, 12_ETL_파일_DB_동작_검증.md.
+3. **08 통합본 구성**: 목적·범위·요구사항 요약, 시스템 개요, 전제 조건·config, 메타 테이블·DDL 참조, 모듈·의존 관계, Job 확인 방법(운영), 재실행·ETA, 파일/DB 동작 검증 요약, Phase 순서·공통 주의·확장.
+4. **인덱스 갱신**: 00_ReportIndex.md에서 09·10·11·12 항목 제거, 08 설명 갱신.
+
+### 수정/삭제 파일
+- docs/report/08_ETL_Phase_Implement_Guide.md (통합본으로 전면 교체)
+- docs/report/09_ETL_System_Connectivity_Check.md (삭제)
+- docs/report/10_ETL_Job_확인_방법.md (삭제)
+- docs/report/11_ETL_예상완료시간_재실행동작_검토.md (삭제)
+- docs/report/12_ETL_파일_DB_동작_검증.md (삭제)
+- docs/report/00_ReportIndex.md (08 설명 갱신, 09~12 제거)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 목록 삭제 버튼 (DROP 테이블·파일 삭제·컨펌)
+
+### 완료 작업
+1. **ETL 테이블 1건 삭제**: 목록에 행별 "삭제" 버튼 추가. 클릭 시 컨펌창(타겟 테이블 DROP·파일 삭제 안내) 확인 후 DELETE /api/etl/tables/{id} 호출.
+2. **백엔드**: delete_etl_table(etl_table_id) — 메인 DB 타겟 테이블 DROP, etl_transform_rules·etl_jobs·etl_tables 행 삭제, file_path 반환. 라우터에서 업로드 디렉터리 내 파일 삭제.
+3. **프론트**: etlDeleteTable(etlTableId), ETLTableList 삭제 버튼·window.confirm, onDelete 시 목록 새로고침.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (delete_etl_table)
+- Backend/etl_server/router.py (DELETE /tables/{etl_table_id}, 파일 삭제)
+- Frontend/react-app/src/shared/api/client.js (etlDeleteTable)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (삭제 버튼·컨펌·onDelete)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (onDelete={handleRefresh})
+- Frontend/react-app/src/packages/etl/etl.css (.etl-table-list__actions, .etl-table-list__delete)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: batch 컬럼 가정으로 코드 롤백
+
+### 완료 작업
+1. **컬럼 추가는 사용자가 DB에서 수행**: batch_size, batch_interval_seconds 추가용 SQL만 안내.
+2. **service.py 롤백**: list_etl_tables, create_etl_table, get_etl_table에서 "컬럼 없을 때 폴백" 제거. 항상 batch_size, batch_interval_seconds 컬럼이 있다고 가정하는 코드로 복원.
+
+### 수정 파일
+- Backend/etl_server/service.py (list_etl_tables, create_etl_table, get_etl_table — try/except 폴백 제거)
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-13: ETL 취소·연결 해제·배치 크기/시간·검토 문서
 
 ### 완료 작업
@@ -7,7 +129,7 @@
 2. **실행 중 취소**: POST /api/etl/jobs/{job_id}/cancel. 워커가 100건마다 is_job_cancelled 확인, 취소 시 DROP TABLE(파일/Full), job=cancelled, etl_table=error. 프론트: running/pending 시 "실행 취소" 버튼.
 3. **DB 연결 해제**: DELETE /api/etl/connections/{id}. 해당 연결의 모든 ETL 타겟 테이블을 메인 DB에서 DROP 후 etl_tables·etl_connections 삭제. DbConnectionForm에 "등록된 연결" 목록·연결 해제 버튼 추가.
 4. **재실행 동작 정리**: 11번 문서에 명시. 파일/DB full = 전체 교체, DB incremental = 업서트.
-5. **배치 크기·배치 시간**: etl_tables에 batch_size, batch_interval_seconds 컬럼(scripts/alter_etl_tables_batch.sql). DB 적재 시 batch_size>0이면 서버 사이드 커서로 fetchmany(batch_size), 배치 간 sleep(batch_interval_seconds). DbConnectionForm에 배치 크기·배치 간 대기(초) 입력 추가.
+5. **배치 크기·배치 시간**: etl_tables에 batch_size, batch_interval_seconds 컬럼. DB 적재 시 batch_size>0이면 서버 사이드 커서로 fetchmany(batch_size), 배치 간 sleep(batch_interval_seconds). DbConnectionForm에 배치 크기·배치 간 대기(초) 입력 추가.
 
 ### 수정/추가 파일
 - Backend/etl_server/service.py (is_job_cancelled, delete_connection, list_etl_tables_by_connection, create_etl_table batch 인자, list/get_etl_table batch 컬럼)
@@ -15,7 +137,6 @@
 - Backend/etl_server/load_service.py (취소 시 100건마다 확인, 취소 시 DROP TABLE)
 - Backend/etl_server/db_load_service.py (취소 확인, batch_size/batch_interval_seconds 적용 시 fetchmany·sleep)
 - Frontend: ETLPage.jsx (취소 버튼·handleCancelJob), JobLogPanel (cancelled 스타일), DbConnectionForm (연결 해제·배치 입력), shared/api/client (etlCancelJob, etlDeleteConnection), etl.css (취소·연결 목록 스타일)
-- scripts/alter_etl_tables_batch.sql (신규)
 - docs/report/08_ETL_Phase_Implement_Guide.md (§5.3 배치 컬럼)
 - docs/report/11_ETL_예상완료시간_재실행동작_검토.md (신규)
 - docs/report/00_ReportIndex.md (11번 추가)

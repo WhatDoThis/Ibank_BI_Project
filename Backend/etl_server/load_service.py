@@ -5,7 +5,7 @@ Backend.etl_server.load_service (파일 기반 E/L)
 
 [Main Functions]
 ===========
-- run_file_load: etl_table_id 기준으로 파일 읽기 → 메인 DB CREATE TABLE → INSERT → allowed_tables 등록 → job 기록
+- run_file_load: etl_table_id 기준으로 파일 읽기 → total_rows 설정 → 메인 DB CREATE TABLE → INSERT → allowed_tables 등록 → job 기록
 
 [Dependencies]
 =========
@@ -27,6 +27,7 @@ from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_engine
 from Backend.etl_server import transform_rules_service as transform_rules_svc
+from Backend.etl_server.etl_limits import get_etl_limits
 
 
 def _validate_identifier(value: str, name: str) -> str:
@@ -52,20 +53,27 @@ def _pg_type(inferred_type: str) -> str:
     return "TEXT"
 
 
-def _read_file(file_path: str, file_type: str) -> pd.DataFrame:
-    """파일 전체 읽기. 대용량은 청크로 제한할 수 있음."""
+def _read_file(file_path: str, file_type: str, max_rows: Optional[int] = None) -> pd.DataFrame:
+    """파일 읽기. max_rows가 있으면 해당 행 수까지만 읽어 한도 적용."""
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
     ft = (file_type or "").strip().lower()
+    nrows = int(max_rows) if max_rows and max_rows > 0 else None
     if ft == "csv":
         try:
-            return pd.read_csv(file_path, encoding="utf-8")
+            return pd.read_csv(file_path, encoding="utf-8", nrows=nrows)
         except UnicodeDecodeError:
-            return pd.read_csv(file_path, encoding="cp949")
+            return pd.read_csv(file_path, encoding="cp949", nrows=nrows)
     if ft in ("excel", "xlsx", "xls"):
-        return pd.read_excel(file_path)
+        df = pd.read_excel(file_path)
+        if nrows and len(df) > nrows:
+            df = df.head(nrows)
+        return df
     if ft == "parquet":
-        return pd.read_parquet(file_path)
+        df = pd.read_parquet(file_path)
+        if nrows and len(df) > nrows:
+            df = df.head(nrows)
+        return df
     raise ValueError(f"지원하지 않는 파일 유형: {file_type}")
 
 
@@ -95,8 +103,16 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     etl_service.update_etl_table_status(etl_table_id, "running")
     logger.info("ETL file load started etl_table_id=%s job_id=%s file_path=%s", etl_table_id, job_id, file_path)
 
+    max_file_mb, max_rows_per_load, _ = get_etl_limits()
+    if max_file_mb > 0 and os.path.isfile(file_path):
+        size_bytes = os.path.getsize(file_path)
+        if size_bytes > max_file_mb * 1024 * 1024:
+            etl_service.update_job(job_id, "failed", error_message=f"파일 크기가 한도({max_file_mb}MB)를 초과합니다.")
+            etl_service.update_etl_table_status(etl_table_id, "error")
+            return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": f"파일 크기가 한도({max_file_mb}MB)를 초과합니다."}
+
     try:
-        df = _read_file(file_path, file_type)
+        df = _read_file(file_path, file_type, max_rows=max_rows_per_load if max_rows_per_load else None)
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
@@ -107,6 +123,9 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         etl_service.update_etl_table_status(etl_table_id, "done")
         logger.info("ETL file load completed job_id=%s rows_processed=0 (empty file)", job_id)
         return {"job_id": job_id, "status": "completed", "rows_processed": 0}
+
+    total_rows = len(df)
+    etl_service.set_job_total_rows(job_id, total_rows)
 
     # 컬럼명 정규화 후 변환 룰 적용(Phase 4)
     used: set = set()

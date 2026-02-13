@@ -5,7 +5,7 @@ Backend.etl_server.db_load_service (DB 연동 E/L)
 
 [Main Functions]
 ===========
-- run_db_load: etl_table_id 기준으로 소스 DB SELECT → 메인 DB CREATE/TRUNCATE+INSERT 또는 Upsert → job 기록
+- run_db_load: etl_table_id 기준으로 소스 DB SELECT(total_rows 설정: 스트리밍은 COUNT(*), fetchall은 len(rows)) → 메인 DB CREATE/TRUNCATE+INSERT 또는 Upsert → job 기록
 
 [Dependencies]
 =========
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_engine
 from Backend.etl_server import transform_rules_service as transform_rules_svc
+from Backend.etl_server.etl_limits import get_etl_limits
 
 
 def _validate_identifier(value: str, name: str) -> str:
@@ -140,6 +141,12 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     if not connection_id or not source_table or not target_table:
         raise ValueError("connection_id, source_table, target_table가 필요합니다.")
 
+    max_file_mb, max_rows_per_load, max_batch_size = get_etl_limits()
+    effective_batch_size = batch_size
+    if max_batch_size > 0:
+        effective_batch_size = min(batch_size, max_batch_size) if batch_size > 0 else max_batch_size
+    limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
+
     target_table = _validate_identifier(target_table, "target_table")
     source_table = _validate_identifier(source_table, "source_table")
     if job_id is None:
@@ -178,26 +185,123 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 params.append(last_synced)
             # last_synced가 없으면 전체 추출(최초 1회)
 
-        if batch_size > 0:
-            # 서버 사이드 커서로 배치 단위 추출. 배치 간 대기로 고객 DB 부하 조절
+        if effective_batch_size > 0:
+            # 배치 단위 스트리밍: 메모리에 전체를 쌓지 않고 fetch -> 변환 -> 적재 반복. config 한도 적용.
+            # ETA용 total_rows: 소스 테이블 행 수(동일 WHERE). max_rows_per_load 있으면 상한 적용.
+            cur_count = src_conn.cursor()
+            cur_count.execute(f'SELECT COUNT(*) FROM {quoted_src}{where_clause}', params)
+            total_from_src = cur_count.fetchone()[0]
+            cur_count.close()
+            total_rows_cap = min(total_from_src, max_rows_per_load) if max_rows_per_load > 0 else total_from_src
+            etl_service.set_job_total_rows(job_id, total_rows_cap)
             cur_src = src_conn.cursor(name="etl_src_%s" % job_id)
             cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
-            rows_data = []
-            while True:
-                batch = cur_src.fetchmany(batch_size)
-                if not batch:
-                    break
-                rows_data.extend(batch)
-                if batch_interval_seconds > 0:
-                    time.sleep(batch_interval_seconds)
+            total_processed, first_batch = 0, True
+            main_schema = api_db.get_table_schema()
+            conn_main = api_db.get_db_connection()
+            cur_main = conn_main.cursor()
+            full_name = f'"{main_schema}"."{target_table}"'
+            try:
+                while True:
+                    batch = cur_src.fetchmany(effective_batch_size)
+                    if not batch:
+                        break
+                    if max_rows_per_load > 0 and total_processed + len(batch) > max_rows_per_load:
+                        batch = batch[: max_rows_per_load - total_processed]
+                    df_batch = pd.DataFrame(batch, columns=col_names)
+                    try:
+                        rules = transform_rules_svc.list_transform_rules(etl_table_id)
+                        df_batch = transform_engine.apply_rules(df_batch, rules)
+                    except Exception:
+                        pass
+                    source_col_map = {c[0]: c[1] for c in columns}
+                    columns_final: List[Tuple[str, str]] = []
+                    for col in df_batch.columns:
+                        pg_t = source_col_map.get(col)
+                        if pg_t is not None:
+                            columns_final.append((col, _pg_type_from_info_schema(pg_t)))
+                        else:
+                            columns_final.append((col, _pg_type_from_pandas(df_batch[col].dtype)))
+                    cols = [c[0] for c in columns_final]
+                    col_defs = ", ".join(f'"{c[0]}" {c[1]}' for c in columns_final)
+                    rows_batch = df_batch.replace({pd.NA: None}).to_dict("records")
+                    if first_batch:
+                        if sync_mode == "full":
+                            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                            cur_main.execute(f"CREATE TABLE {full_name} ({col_defs})")
+                            conn_main.commit()
+                        else:
+                            if not pk_columns:
+                                etl_service.update_job(job_id, "failed", error_message="incremental 모드는 pk_columns가 필요합니다.")
+                                etl_service.update_etl_table_status(etl_table_id, "error")
+                                return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "pk_columns 필요"}
+                            pk_list = [x.strip() for x in pk_columns.split(",") if x.strip()]
+                            for pk in pk_list:
+                                _validate_identifier(pk, "pk_columns")
+                            try:
+                                cur_main.execute(f"SELECT 1 FROM {full_name} LIMIT 1")
+                                cur_main.fetchone()
+                            except Exception:
+                                uniq_part = f", UNIQUE ({', '.join(chr(34) + p + chr(34) for p in pk_list)})" if pk_list else ""
+                                cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{uniq_part})")
+                                conn_main.commit()
+                        first_batch = False
+                    placeholders = ", ".join(["%s"] * len(cols))
+                    cancel_check_interval = 100
+                    for i, r in enumerate(rows_batch):
+                        if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                            conn_main.rollback()
+                            cur_main.close()
+                            conn_main.close()
+                            cur_src.close()
+                            src_conn.close()
+                            etl_service.update_job(job_id, "cancelled", rows_processed=total_processed, error_message="사용자 취소")
+                            etl_service.update_etl_table_status(etl_table_id, "error")
+                            return {"job_id": job_id, "status": "cancelled", "rows_processed": total_processed, "error_message": "사용자 취소"}
+                        if sync_mode == "full":
+                            insert_sql = f'INSERT INTO {full_name} ({", ".join(chr(34) + c + chr(34) for c in cols)}) VALUES ({placeholders})'
+                            cur_main.execute(insert_sql, [r.get(c) for c in cols])
+                        else:
+                            pk_list = [x.strip() for x in pk_columns.split(",") if x.strip()]
+                            set_parts = [f'"{c}" = EXCLUDED."{c}"' for c in cols if c not in pk_list]
+                            if not set_parts:
+                                set_parts = [f'"{c}" = EXCLUDED."{c}"' for c in cols]
+                            upsert_sql = (
+                                f'INSERT INTO {full_name} ({", ".join(chr(34) + c + chr(34) for c in cols)}) '
+                                f"VALUES ({placeholders}) ON CONFLICT ({', '.join(chr(34) + p + chr(34) for p in pk_list)}) "
+                                f"DO UPDATE SET {', '.join(set_parts)}"
+                            )
+                            cur_main.execute(upsert_sql, [r.get(c) for c in cols])
+                        total_processed += 1
+                    conn_main.commit()
+                    if incremental_column and incremental_column in cols and rows_batch:
+                        max_vals = [r.get(incremental_column) for r in rows_batch if r.get(incremental_column) is not None]
+                        if max_vals:
+                            from datetime import datetime as dt
+                            latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
+                            etl_service.update_last_synced_at(etl_table_id, latest)
+                    if max_rows_per_load > 0 and total_processed >= max_rows_per_load:
+                        break
+                    if batch_interval_seconds > 0:
+                        time.sleep(batch_interval_seconds)
+            finally:
+                cur_main.close()
+                conn_main.close()
             cur_src.close()
             src_conn.close()
+            from Env.config.loader import add_allowed_table
+            add_allowed_table(target_table)
+            etl_service.update_job(job_id, "completed", rows_processed=total_processed)
+            etl_service.update_etl_table_status(etl_table_id, "done")
+            logger.info("ETL db load completed job_id=%s rows_processed=%s (streaming)", job_id, total_processed)
+            return {"job_id": job_id, "status": "completed", "rows_processed": total_processed}
         else:
             cur_src = src_conn.cursor()
-            cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
+            cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}{limit_sql}', params)
             rows_data = cur_src.fetchall()
             cur_src.close()
             src_conn.close()
+            etl_service.set_job_total_rows(job_id, len(rows_data))
 
         rows_processed = len(rows_data)
         if rows_processed == 0:

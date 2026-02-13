@@ -7,7 +7,7 @@ FastAPI APIRouter. prefix /api/etl. Phase 1~5: 메타·업로드·연결·변환
 ===========
 - GET /api/etl: 서비스 안내 (upload_retention_days 포함)
 - GET/POST /api/etl/connections, POST /api/etl/connections/test, GET /api/etl/connections/{id}/tables
-- GET/POST /api/etl/tables, GET /api/etl/tables/{id}/transform-rules, POST/PUT/DELETE /api/etl/transform-rules
+- GET/POST /api/etl/tables, DELETE /api/etl/tables/{id}, GET /api/etl/tables/{id}/transform-rules, POST/PUT/DELETE /api/etl/transform-rules
 - POST /api/etl/upload: 파일 업로드·스키마 추론·선택 시 메타 등록. 3일 초과 파일 자동 삭제
 - POST /api/etl/tables/{etl_table_id}/run: 파일 적재(run_file_load) 또는 DB 적재(run_db_load) 분기
 - POST /api/etl/cleanup-expired-uploads: 만료 업로드 파일 삭제 (cron용)
@@ -207,6 +207,26 @@ def create_table(body: CreateTableBody):
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/tables/{etl_table_id}", status_code=204)
+def delete_table(etl_table_id: int):
+    """ETL 테이블 1건 삭제. 메인 DB 타겟 테이블 DROP, 업로드 파일 삭제, 메타 삭제."""
+    try:
+        result = etl_service.delete_etl_table(etl_table_id)
+        fp = result.get("file_path")
+        if fp:
+            try:
+                p = Path(fp).resolve()
+                upload_abs = UPLOAD_DIR.resolve()
+                if p.is_file() and str(p).startswith(str(upload_abs)):
+                    p.unlink(missing_ok=True)
+            except (OSError, PermissionError):
+                pass
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -433,7 +453,9 @@ def run_table_load(etl_table_id: int):
         job_id = etl_service.insert_job(etl_table_id, status="pending")
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
-        return {"job_id": job_id, "status": "pending", "message": "대기열에 등록되었습니다. 완료 여부는 Job 목록에서 확인하세요."}
+        target_table = row.get("target_table") or ""
+        description = row.get("description")
+        return {"job_id": job_id, "status": "pending", "message": "대기열에 등록되었습니다. 완료 여부는 Job 목록에서 확인하세요.", "etl_table_id": etl_table_id, "target_table": target_table, "description": description}
     except HTTPException:
         raise
     except ValueError as e:

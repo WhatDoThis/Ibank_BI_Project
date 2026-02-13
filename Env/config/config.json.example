@@ -24,6 +24,11 @@
       "db_user": "",
       "db_password": "",
       "table_schema": "public"
+    },
+    "etl_limits": {
+      "max_file_size_mb": 50,
+      "max_rows_per_load": 1000000,
+      "max_batch_size": 50000
     }
   },
   "frontend": {

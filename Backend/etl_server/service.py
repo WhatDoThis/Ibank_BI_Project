@@ -12,9 +12,9 @@ Phase 3: DB 연결 등록·테스트·소스 테이블 목록.
 - get_connection_for_etl: connection_id로 연결 정보 반환 (적재 시 사용, 비밀번호 포함)
 - test_connection: connection_id 또는 인자로 연결 테스트 (SELECT 1)
 - list_source_tables: 외부 DB의 테이블 목록 (information_schema)
-- list_etl_tables, create_etl_table, get_etl_table, insert_job, update_job, update_etl_table_status
+- list_etl_tables, create_etl_table, get_etl_table, delete_etl_table, insert_job, update_job, update_etl_table_status
 - update_last_synced_at: 증분 적재 후 last_synced_at 갱신
-- Phase 6: set_job_running, list_jobs, get_job, fetch_pending_jobs, count_running_jobs. insert_job(..., "pending") 시 started_at NULL
+- Phase 6: set_job_running, set_job_total_rows, list_jobs, get_job, fetch_pending_jobs, count_running_jobs. insert_job(..., "pending") 시 started_at NULL. total_rows는 ETA/진행률용.
 
 [Dependencies]
 =========
@@ -305,7 +305,7 @@ def delete_connection(connection_id: int) -> None:
 
 
 def list_etl_tables() -> list:
-    """etl_tables 목록. connection_name, source_type 포함."""
+    """etl_tables 목록. connection_name, source_type, batch_size, batch_interval_seconds 포함."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -353,6 +353,8 @@ def create_etl_table(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        batch_val = batch_size if batch_size is not None and batch_size > 0 else None
+        interval_val = batch_interval_seconds if batch_interval_seconds is not None and batch_interval_seconds >= 0 else 0
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_tables")}
@@ -370,8 +372,8 @@ def create_etl_table(
                 (pk_columns or "").strip() or None,
                 (incremental_column or "").strip() or None,
                 sync_mode,
-                batch_size if batch_size is not None and batch_size > 0 else None,
-                batch_interval_seconds if batch_interval_seconds is not None and batch_interval_seconds >= 0 else 0,
+                batch_val,
+                interval_val,
                 created_by,
             ),
         )
@@ -384,7 +386,7 @@ def create_etl_table(
 
 
 def get_etl_table(etl_table_id: int) -> Optional[dict]:
-    """etl_table_id로 1건 조회. 없으면 None."""
+    """etl_table_id로 1건 조회. 없으면 None. batch_size, batch_interval_seconds 포함."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -408,6 +410,45 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
     finally:
         cur.close()
         conn.close()
+
+
+def delete_etl_table(etl_table_id: int) -> dict:
+    """
+    ETL 테이블 1건 삭제. 메인 DB에서 타겟 테이블 DROP, 파일 소스면 file_path 반환(호출측에서 삭제),
+    etl_transform_rules·etl_jobs·etl_tables 행 삭제. 반환: {"file_path": 절대경로 또는 None}.
+    """
+    row = get_etl_table(etl_table_id)
+    if not row:
+        raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
+    file_path = row.get("file_path")
+    target_table = (row.get("target_table") or "").strip()
+    api_db = _get_db()
+    schema = _schema()
+    main_schema = api_db.get_table_schema()
+
+    if target_table and re.match(r"^[a-zA-Z0-9_]+$", target_table):
+        conn_main = api_db.get_db_connection()
+        cur_main = conn_main.cursor()
+        try:
+            full_name = f'"{main_schema}"."{target_table}"'
+            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+            conn_main.commit()
+        finally:
+            cur_main.close()
+            conn_main.close()
+
+    conn_sys = api_db.get_db_connection_system()
+    cur_sys = conn_sys.cursor()
+    try:
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
+        conn_sys.commit()
+    finally:
+        cur_sys.close()
+        conn_sys.close()
+
+    return {"file_path": file_path}
 
 
 def update_last_synced_at(etl_table_id: int, synced_at: Any):
@@ -475,7 +516,7 @@ def set_job_running(job_id: int) -> None:
 
 
 def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50) -> list:
-    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. 최신순."""
+    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. target_table 포함. 최신순."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -484,10 +525,12 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50) -> list:
         if etl_table_id is not None:
             cur.execute(
                 f"""
-                SELECT job_id, etl_table_id, status, started_at, finished_at, rows_processed, error_message, created_at
-                FROM {_q(schema, "etl_jobs")}
-                WHERE etl_table_id = %s
-                ORDER BY created_at DESC
+                SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.created_at,
+                       t.target_table, t.description
+                FROM {_q(schema, "etl_jobs")} j
+                LEFT JOIN {_q(schema, "etl_tables")} t ON t.etl_table_id = j.etl_table_id
+                WHERE j.etl_table_id = %s
+                ORDER BY j.created_at DESC
                 LIMIT %s
                 """,
                 (etl_table_id, limit),
@@ -495,9 +538,11 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50) -> list:
         else:
             cur.execute(
                 f"""
-                SELECT job_id, etl_table_id, status, started_at, finished_at, rows_processed, error_message, created_at
-                FROM {_q(schema, "etl_jobs")}
-                ORDER BY created_at DESC
+                SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.created_at,
+                       t.target_table, t.description
+                FROM {_q(schema, "etl_jobs")} j
+                LEFT JOIN {_q(schema, "etl_tables")} t ON t.etl_table_id = j.etl_table_id
+                ORDER BY j.created_at DESC
                 LIMIT %s
                 """,
                 (limit,),
@@ -508,8 +553,25 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50) -> list:
         conn.close()
 
 
+def set_job_total_rows(job_id: int, total_rows: int) -> None:
+    """Job의 total_rows 설정. ETA·진행률 계산용. etl_jobs.total_rows 컬럼 필요."""
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"UPDATE {_q(schema, 'etl_jobs')} SET total_rows = %s WHERE job_id = %s",
+            (total_rows, job_id),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
 def get_job(job_id: int) -> Optional[dict]:
-    """Phase 6: job_id로 Job 1건 조회."""
+    """Phase 6: job_id로 Job 1건 조회. target_table, total_rows 포함."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -517,9 +579,11 @@ def get_job(job_id: int) -> Optional[dict]:
     try:
         cur.execute(
             f"""
-            SELECT job_id, etl_table_id, status, started_at, finished_at, rows_processed, error_message, created_at
-            FROM {_q(schema, "etl_jobs")}
-            WHERE job_id = %s
+            SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.created_at,
+                   t.target_table, t.description
+            FROM {_q(schema, "etl_jobs")} j
+            LEFT JOIN {_q(schema, "etl_tables")} t ON t.etl_table_id = j.etl_table_id
+            WHERE j.job_id = %s
             """,
             (job_id,),
         )
