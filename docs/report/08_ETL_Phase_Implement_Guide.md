@@ -35,8 +35,24 @@
 ## 3. 전제 조건·config
 
 - **지원 파일**: CSV, Excel(.xlsx/.xls), Parquet. CSV 인코딩 UTF-8 우선.
-- **1차 지원 DB**: PostgreSQL. Snowflake/BigQuery 등은 추후.
+- **DB 연동 1차 목표**: PostgreSQL, Oracle, MySQL. **현재 구현**: PostgreSQL만 동작. Oracle·MySQL은 미구현(추가 개발 필요).
 - **업로드 파일 보관**: **3일** 초과 시 자동 삭제. 3일 후 동일 ETL 재실행 시 파일 없음으로 실패할 수 있음.
+
+**DB 연동 구현 현황**
+
+| DB | 포트(기본) | 연결 테스트 | 소스 테이블 목록 | DB 적재(Full/Incremental) | 비고 |
+|----|------------|------------|------------------|---------------------------|------|
+| **PostgreSQL** | 5432 | ✅ | ✅ | ✅ | psycopg2. |
+| **MySQL** | 3306 | ✅ | ✅ | ✅(Phase 2 완료) | PyMySQL. TABLE_SCHEMA=DB명, backtick 인용. |
+| **Oracle** | 1521 | ✅ | ✅ | 🔲 Phase 3 예정 | oracledb. ALL_TABLES/USER_TABLES. |
+
+**§3.3 DB 연동 MySQL·Oracle 적재 구현 페이즈**
+
+| Phase | 내용 | 상태 |
+|-------|------|------|
+| **Phase 1** | 소스 테이블 목록(list_source_tables) MySQL·Oracle 지원. create_etl_table 시 PK 자동 조회 MySQL·Oracle. | ✅ 완료 |
+| **Phase 2** | run_db_load에서 **MySQL** 소스 지원: MySQL 연결·컬럼 조회·PK·SELECT(배치/전체)·메인 DB 적재. | ✅ 완료 |
+| **Phase 3** | run_db_load에서 **Oracle** 소스 지원: Oracle 연결·컬럼 조회·PK·SELECT·메인 DB 적재. | 🔲 예정 |
 
 ### 3.1 config 구분 (시스템 DB)
 
@@ -83,6 +99,18 @@
 
 - **파일**: 크기 > max_file_size_mb 이면 실패. CSV는 max_rows_per_load 만큼만 읽고, Excel/Parquet는 읽은 뒤 해당 행 수로 자른다.
 - **DB**: 사용자 batch_size가 있으면 min(사용자값, max_batch_size) 로 배치 단위 스트리밍(메모리에 전체를 쌓지 않음). batch_size가 0이면 SELECT에 LIMIT max_rows_per_load 적용.
+
+### 3.4 배치 설정·실행 시점 (중요)
+
+| 항목 | 의미 | 비고 |
+|------|------|------|
+| **배치 크기(batch_size)** | **한 번의 실행** 안에서 소스에서 몇 행씩 가져올지. | 0/NULL이면 전체 한 번에. 목록 "배치" 열에 표시. |
+| **배치 간 대기(batch_interval_seconds)** | **한 번의 실행** 안에서 배치마다 쉬는 시간(초). 소스 DB 부하 완화용. | 0이면 대기 없음. 목록 "배치" 열에 표시. |
+| **매일 몇 시 실행** | **현재 미구현.** 스케줄(cron/정해진 시각) 없음. | "매일 02시에 증분 적재" 같은 기능은 없음. |
+| **실행 시점** | **사용자가 "실행" 버튼을 눌렀을 때만** 대기열(pending) 등록 → 워커가 실행. | API/워커에 스케줄러 없음. |
+| **draft 상태와 자동 실행** | **draft여도 자동 실행 없음.** 스케줄이 없으므로, 증분을 돌리려면 사용자가 직접 "실행"을 눌러야 함. | done/error여도 마찬가지로 자동 실행 없음. |
+
+- 요약: 배치 크기·배치 간 대기는 **한 번 실행할 때의 내부 설정**일 뿐이며, **"매일 몇 시에 자동으로 증분 적재"**는 현재 제공하지 않음. 자동 스케줄이 필요하면 추후 스케줄러(예: cron 호출, 또는 etl_tables에 schedule_cron 등 메타 추가) 개발이 필요함.
 
 ---
 
@@ -242,4 +270,118 @@ UPDATE etl_tables SET status = 'error', updated_at = NOW() WHERE etl_table_id = 
 
 ## 10. 확장·추가 제안
 
+### 10.1 DB 연동 1차 목표(PostgreSQL·Oracle·MySQL) — Oracle·MySQL 미구현
+
+- ETL DB 연결 시스템의 **1차 목표**는 **PostgreSQL, Oracle, MySQL** 세 가지 소스 DB 지원이었으나, **현재는 PostgreSQL만 구현**된 상태입니다.
+- 구현 당시 우선 PostgreSQL만 적용하고 Oracle·MySQL은 추후로 미뤄진 것으로 보이며, 문서에도 “1차 지원 DB: PostgreSQL”만 명시되어 있었습니다. 본 가이드에서는 1차 목표를 위 표(§3)와 같이 정리했습니다.
+- **Oracle·MySQL 추가 시 필요한 작업 요약**  
+  - **연결 테스트**: `service.py`에 `_connect_mysql`, `_connect_oracle` (또는 공통 `_connect( source_type, ... )`) 추가, `test_connection()`에서 `source_type` 분기.  
+  - **소스 테이블 목록**: MySQL은 `information_schema.tables`, Oracle은 `ALL_TABLES`/`USER_TABLES` 등으로 조회 로직 추가.  
+  - **DB 적재**: `db_load_service.py`에서 소스 연결·컬럼 조회·PK 조회·SELECT·타입 매핑을 DB별로 분기(또는 어댑터 패턴).  
+  - **의존성**: MySQL → PyMySQL 또는 mysqlclient, Oracle → cx_Oracle 또는 oracledb.  
+- 요구 시 Oracle·MySQL 지원을 별도 Phase로 설계·구현하면 됩니다.
+
+### 10.2 기타 확장
+
 - 다른 DB 커넥터(Snowflake, BigQuery 등), 스케줄 실행(cron·스케줄러), 변환 2차(조인·피벗·SCD), 데이터 내보내기(CSV/Excel) 등은 요구 시 별도 설계.
+
+---
+
+## 11. 추가 구현: 압축(zip) 다중 파일 추가 적재
+
+대용량 데이터를 여러 파일로 나눠 압축(zip)으로 업로드하면, 서버에서 압축 해제 후 **파일명 순(넘버링)**으로 순차 Job 등록. 각 파일은 기존 "데이터 추가"와 동일하게 업서트(ON CONFLICT DO UPDATE)로 처리되며, **파일당 1 Job**으로 등록되어 워커가 `created_at ASC` 순으로 순차 실행.
+
+### 11.1 흐름
+
+1. 사용자가 **ZIP 파일 1개** 업로드 (`POST /api/etl/tables/{etl_table_id}/add-files-zip`).
+2. 서버: ZIP을 **요청별 고유 디렉터리** `uploads/zip_<uuid>/` 에 압축 해제.
+3. 해제된 파일 목록을 **자연 정렬**(파일명 앞/뒤 넘버링 인식, 예: part_001.csv, part_002.csv, part_010.csv 순).
+4. 지원 형식(.csv, .xlsx, .xls, .parquet)이면서 **max_file_size_mb 이하**인 파일만 유효 처리.
+5. 유효 파일에 대해 **동일 순서로** `insert_job(..., add_file_path=절대경로, add_file_type=...)` 호출 → Job이 등록 순서대로 워커에 의해 순차 실행.
+6. **건너뛴 파일**(용량 초과, 미지원 형식, 스키마/PK 검증 실패)은 **목록과 사유**를 API 응답에 포함해 사용자에게 전달. **한 파일이 실패해도 전체가 멈추지 않음** — 컬럼이 다른 등 쌩뚱맞은 파일은 해당 파일만 건너뛰고(`schema_or_pk_failed`) 나머지 파일은 순서대로 Job 등록·실행.
+7. **컬럼 생성과 무관**: add-files-zip은 **이미 존재하는 타겟 테이블**에만 추가 적재(업서트)함. 타겟 테이블·컬럼은 메인 DB에 이미 있고(최초 "실행"으로 생성된 상태), **압축 해제된 어떤 파일도 컬럼 정의/생성에 쓰이지 않음**. 각 파일은 기존 `table_columns`·`pk_columns` 기준으로만 검증됨. 따라서 "최초로 넣는 파일을 스키마 기준으로 삼는다" 같은 설정은 없음.
+
+### 11.2 건너뛴 파일 목록 제공 방법
+
+- **API 응답**  
+  - `skipped_files: [{ "filename": "큰파일.csv", "reason": "file_too_large" }, { "filename": "readme.txt", "reason": "unsupported_format" }]`  
+  - `reason` 예: `file_too_large`(용량 초과), `unsupported_format`(미지원 확장자/디렉터리), `schema_or_pk_failed`(첫 유효 파일 기준 스키마·PK 검증 실패 시 해당 파일만 또는 전체 배치 실패 시 목록).
+- **UI**  
+  - 응답 수신 후 결과 화면에 **"N개 파일이 대기열에 등록되었습니다"**와 함께, **건너뛴 파일이 있으면** "다음 파일은 건너뛰었습니다. 정리 후 다시 업로드하세요." 안내 + **파일명·사유 목록** 표시.  
+  - 필요 시 **건너뛴 파일명만 텍스트로 복사**하거나 **텍스트 파일로 다운로드**해, 사용자가 로컬에서 파일 정리(분할·제거·재압축) 후 다시 업로드할 수 있게 한다.
+
+### 11.3 다중 사용자 동시 ZIP 업로드 시 넘버링·충돌 방지
+
+- **요청별 고유 디렉터리**  
+  - ZIP 업로드마다 `uuid.uuid4()` 로 고유 ID 생성 후, 압축 해제 경로를 **`uploads/zip_<uuid>/`** 로 둔다.  
+  - 각 요청이 자신의 `zip_<uuid>` 폴더만 사용하므로, **다른 사용자(다른 요청)와 파일명·경로가 겹치지 않는다.**  
+  - Job의 `add_file_path`는 해당 요청의 `zip_<uuid>` 내 **절대 경로**를 저장하므로, 넘버링은 "해당 ZIP 내부 파일 순서"만 의미하고, 다른 ZIP과는 무관하다.
+- **정렬**  
+  - 넘버링 정렬은 **같은 ZIP 내부**에서만 적용. `zip_<uuid>` 폴더 안의 파일명을 자연 정렬한 순서로 Job을 등록하면, 해당 업로드에 대해서만 part_001 → part_002 → … 순이 보장된다.
+- **정리**  
+  - `uploads/` 아래는 기존처럼 **보관 기간(예: 3일) 초과 시** 정리 대상. `zip_<uuid>` 디렉터리와 그 안 파일들의 mtime 기준으로 삭제하면 된다.
+
+### 11.4 구현 요약
+
+| 항목 | 내용 |
+|------|------|
+| **엔드포인트** | `POST /api/etl/tables/{etl_table_id}/add-files-zip` (multipart: zip 파일 1개) |
+| **압축 해제** | `uploads/zip_<uuid>/` 에 해제. 지원 확장자만 처리, 디렉터리/기타는 skipped. |
+| **혼합 형식** | 한 ZIP에 CSV·Excel(.xlsx/.xls)·Parquet를 섞어도 됨. 파일별로 확장자에 맞는 타입(csv/excel/parquet)으로 읽어 동일 타겟 테이블에 순서대로 업서트. |
+| **정렬** | 파일명 자연 정렬(숫자 구간 인식) 후 순서대로 Job 등록. 이 순서는 **실행 순서**만 의미하며, 스키마/컬럼 기준으로 쓰이지 않음(타겟 테이블은 이미 존재). |
+| **한도** | `etl_limits.max_file_size_mb` 초과 파일은 건너뛰고 `skipped_files`에 `file_too_large` 기록. |
+| **응답** | `job_ids`, `enqueued_count`, `skipped_files: [{ filename, reason }]`, 기존 add-file과 동일한 메타 정보. |
+| **프론트** | "데이터 추가" 모달에서 "ZIP으로 여러 파일" 옵션, 결과에 건너뛴 파일 목록 표시·복사/다운로드 지원. |
+
+---
+
+## 12. ETL 목록 동작 정리 (등록된 ETL 목록)
+
+등록된 ETL 목록에서 **미리보기 / 실행 / 데이터 추가 / 삭제** 버튼의 동작을 상태(draft, error, done)별로 정리.
+
+### 12.1 상태별 의미
+
+| 상태   | 의미 |
+|--------|------|
+| **draft** | ETL만 등록됨. 아직 한 번도 실행 안 함. 메인 DB에 타겟 테이블 **없음**. |
+| **error** | 실행했으나 실패. 타겟 테이블은 **생성되었을 수도, 안 되었을 수도** 있음. (실패 시점에 따라) |
+| **done**  | 마지막 실행이 성공. 메인 DB에 타겟 테이블 **있음**. |
+
+### 12.2 draft / error 일 때 (테이블이 없거나 불확실할 때)
+
+| 동작       | 실제 동작 | 비고 |
+|------------|-----------|------|
+| **미리보기** | **등록된 파일**을 읽어 상위 10행 + 컬럼별 저장 가능 여부 표시. | 테이블 유무와 무관. 항상 **파일** 기준. |
+| **실행**     | 등록된 **file_path** 파일로 메인 DB에 **DROP TABLE IF EXISTS → CREATE TABLE → INSERT**. | 타겟 테이블이 이미 있으면 **컨펌** 후 진행. 테이블이 없으면 생성, 있어도 **삭제 후 재생성** (전체 교체). |
+| **데이터 추가** | **현재 구현: "기존 타겟 테이블에 업로드한 파일을 업서트"**. 타겟 테이블이 없으면 `get_table_columns(target_table)` 실패 → 400. | draft/error(테이블 없음)에서는 **실패**. "소스 파일 변경" 기능이 아님. |
+| **삭제**     | 메인 DB에서 타겟 테이블 **DROP TABLE IF EXISTS** + 시스템 DB에서 etl_tables·etl_jobs·etl_transform_rules 삭제 + **업로드 파일 삭제**. | 테이블 없어도 DROP IF EXISTS 로 안전. |
+
+**정정:**  
+- "데이터 추가 = 파일 변경"이 **아닙니다.**  
+- 데이터 추가는 **"새 파일을 업로드해서, 이미 있는 타겟 테이블에 PK 기준 업서트"** (분할 적재용).  
+- "등록된 ETL의 소스 파일을 다른 파일로 바꾸는 것"은 현재 없음. (삭제 후 새로 업로드하거나 별도 기능 필요.)
+
+### 12.3 done 일 때 (테이블이 이미 있을 때)
+
+| 동작       | 실제 동작 | 비고 |
+|------------|-----------|------|
+| **미리보기** | **등록된 파일**을 읽어 상위 10행 + 컬럼별 저장 가능 여부 표시. | draft/error와 동일. **테이블이 아니라 파일**을 읽음. |
+| **실행**     | 등록된 **file_path** 파일로 메인 DB 타겟 테이블 **전체 교체**: DROP → CREATE → INSERT. | **실행 전** 타겟 테이블 존재 시 컨펌. 기존 데이터 전부 삭제 후, **현재 등록된 파일** 내용으로 다시 채움. |
+| **데이터 추가** | 사용자가 **새 파일**을 업로드 → 그 파일을 **같은 타겟 테이블**에 **PK 기준 업서트** (INSERT ... ON CONFLICT DO UPDATE). | 분할 적재(50+50+40MB → 한 테이블) 시 사용. 타겟 테이블 + PK 필요. |
+| **삭제**     | 메인 DB 타겟 테이블 **DROP** + 메타(etl_tables·etl_jobs·etl_transform_rules) 삭제 + **업로드 파일 삭제**. | draft/error와 동일 흐름. |
+
+### 12.4 요약 표 (한눈에)
+
+| 버튼       | draft/error 시                | done 시                          |
+|------------|--------------------------------|----------------------------------|
+| **미리보기** | 파일 읽어 10행 + 컬럼 표시     | 동일 (파일 읽어 10행 + 컬럼 표시) |
+| **실행**     | 파일로 테이블 생성(또는 재생성) | 파일로 테이블 **전체 교체**       |
+| **데이터 추가** | 실패 (테이블 없음)              | 새 파일을 같은 테이블에 **업서트** |
+| **삭제**     | 메타 + 파일 삭제, 테이블 DROP IF EXISTS | 메타 + 파일 삭제, 테이블 DROP   |
+
+### 12.5 참고 (구현 위치)
+
+- 미리보기: `Backend/etl_server/preview_service.py` (파일: `_read_file`로 10행, 반환 튜플에서 DataFrame만 사용)
+- 실행(파일): `Backend/etl_server/load_service.py` → `run_file_load` (DROP → CREATE → INSERT). 실행 전 `GET /api/etl/tables/{id}/target-exists`로 테이블 존재 시 컨펌.
+- 데이터 추가: `Backend/etl_server/router.py` `POST /tables/{id}/add-file`, `load_service.run_file_upsert`
+- 삭제: `Backend/etl_server/service.py` `delete_etl_table`, 라우터에서 file_path 받아 파일 삭제

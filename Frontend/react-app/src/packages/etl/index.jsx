@@ -3,9 +3,9 @@
  * ================================
  * ETL 페이지 재export. App에서 /etl 라우트에 사용.
  *
- * [Main Functions]
+ * [Main]
  * ===========
- * - ETLPage (default)
+ * ETLPage (default, named export)
  *
  * [Dependencies]
  * =========

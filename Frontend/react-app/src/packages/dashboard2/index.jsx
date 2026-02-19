@@ -3,13 +3,9 @@
  * =======================================================
  * 대시보드2 메인 페이지 재export. App에서 /dashboard2 라우트에 사용. /api/dashboard2 사용.
  *
- * [Main Functions]
+ * [Main]
  * ===========
- * - Dashboard2Page (default, named export)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - Dashboard2Page: Dashboard2Page.jsx
+ * Dashboard2Page (default, named export)
  *
  * [Dependencies]
  * =========

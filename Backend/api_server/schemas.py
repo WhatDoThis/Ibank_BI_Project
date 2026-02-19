@@ -3,15 +3,17 @@ Backend.api_server.schemas (요청 바디 스키마)
 ==============================================
 FastAPI POST 엔드포인트 요청 검증·문서화용 Pydantic 모델. 프론트 전송 형식과 동일 유지.
 
-[Main Functions]
+[Pydantic Models]
 ===========
-- (모델 클래스만 제공, 함수 없음)
-
-[Endpoints/Classes/Functions]
-=======================
-- DescribeTableRequest, ExecuteQueryRequest, ExplainSqlRequest, GetColumnValuesRequest, QueryStatsRequest: 리포트 API
-- DashboardDataRequest: table_id, date_range, campaign_ids, workflow_ids, channels, group_by (대시보드1·2 공통)
-- ChartDataRequest: table_id, date_range, dimension, metric, campaign_ids, workflow_ids, channels (차트 데이터)
+26 - DescribeTableRequest: POST /api/describe-table
+30 - ExecuteQueryRequest: POST /api/execute-query
+34 - ExplainSqlRequest: POST /api/explain-sql (query/sql)
+42 - GetColumnValuesRequest: POST /api/get-column-values
+48 - QueryStatsRequest: POST /api/query-stats
+52 - JoinOrderRequest: POST /api/api-join-order
+58 - SaveQueryAsTableRequest: POST /api/save-query-as-table
+63 - DashboardDataRequest: 대시보드1·2 data (table_id, date_range, group_by 등)
+74 - ChartDataRequest: 대시보드 차트 (dimension, metric 등)
 
 [Dependencies]
 =========

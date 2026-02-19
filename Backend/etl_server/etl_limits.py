@@ -4,9 +4,9 @@ Backend.etl_server.etl_limits (ETL 한도 설정)
 config.backend.etl_limits 에서 최대 파일 크기·행 수·배치 크기 한도 조회. 없으면 기본값 사용.
 램 오버 방지용: 파일 업로드/DB 적재 시 해당 한도로 잘라서 처리.
 
-[Main Functions]
+[Functions]
 ===========
-- get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0/None이면 해당 한도 미적용.
+22 - get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0이면 해당 한도 미적용.
 
 [Dependencies]
 =========

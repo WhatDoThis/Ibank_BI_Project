@@ -1,12 +1,14 @@
 """
-Backend.etl_server.queue_worker (Phase 6 Job 큐 워커)
-=====================================================
-pending Job을 순차 수거해 run_file_load / run_db_load 실행. 동시 실행 수 제한.
+Backend.etl_server.queue_worker (Job 큐 워커)
+=============================================
+pending Job을 선점(claim)해 run_file_load / run_db_load / run_file_upsert 실행. 동시 실행 수 제한(MAX_CONCURRENT).
 
-[Main Functions]
+[Functions]
 ===========
-- run_worker_iteration: running 수 < MAX_CONCURRENT 인 만큼 pending 조회 후 1건씩 실행
-- start_background_worker: 백그라운드 스레드로 주기적 iteration 실행 (앱 기동 시 1회 호출)
+31 - _run_one_job: Job 1건 실행. add_file_path 있으면 run_file_upsert, 파일이면 run_file_load, DB면 run_db_load 분기
+62 - run_worker_iteration: running 수 < MAX_CONCURRENT인 만큼 pending 1건씩 claim 후 _run_one_job 호출
+81 - _worker_loop: 무한 루프에서 run_worker_iteration 주기 실행(POLL_INTERVAL_SEC), 예외 시 로그
+99 - start_background_worker: 백그라운드 스레드로 _worker_loop 기동(앱 startup에서 1회)
 
 [Dependencies]
 =========
@@ -37,15 +39,19 @@ def _run_one_job(job_id: int, etl_table_id: int) -> None:
         etl_service.update_job(job_id, "failed", error_message="ETL 테이블을 찾을 수 없습니다.")
         return
     source_type = (row.get("source_type") or "").strip().lower()
+    job_row = etl_service.get_job(job_id)
+    is_add_file = job_row and (job_row.get("add_file_path") or "").strip() and (job_row.get("add_file_type") or "").strip()
     try:
-        if source_type == "file" and row.get("file_path") and row.get("file_type"):
+        if source_type == "file" and is_add_file:
+            load_service.run_file_upsert(etl_table_id, job_id)
+        elif source_type == "file" and row.get("file_path") and row.get("file_type"):
             load_service.run_file_load(etl_table_id, job_id=job_id)
-        elif source_type == "postgresql" and row.get("connection_id") and row.get("source_table"):
+        elif source_type in ("postgresql", "mysql") and row.get("connection_id") and row.get("source_table"):
             db_load_service.run_db_load(etl_table_id, job_id=job_id)
         else:
             etl_service.update_job(
                 job_id, "failed",
-                error_message="실행할 수 있는 ETL 유형이 아닙니다. (파일: file_path+file_type, DB: postgresql+source_table)",
+                error_message="실행할 수 있는 ETL 유형이 아닙니다. (파일: file_path+file_type, DB: postgresql/mysql+source_table)",
             )
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))

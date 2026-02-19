@@ -1,4 +1,8 @@
-/* 위젯보드 - 왼쪽 팔레트 + 오른쪽 캔버스 */
+/**
+ * packages/widgetboard/widgetboard.css (위젯보드 스타일)
+ * ======================================================
+ * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, react-grid-layout 오버라이드.
+ */
 .widgetboard {
   padding: 16px;
   min-height: 100%;

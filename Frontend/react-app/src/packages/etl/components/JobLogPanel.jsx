@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * - result: target_table, job_id, status, started_at, rows_processed, total_rows, error_message 표시. onCancel, onClose, cancelLoading 지원.
+ * - result: target_table, job_id, status, started_at, rows_processed, total_rows, error_message 표시. onCancel, onClose, onDeleteJob, cancelLoading 지원.
  * - running/pending 시 배경·테두리 구분(--running, --pending). 경과·예상 남은 시간·예상 완료 시각 계산.
  *
  * [Dependencies]
@@ -42,7 +42,7 @@ function formatRemaining(seconds) {
   return `${h}시간 ${m}분 ${s}초`;
 }
 
-function JobLogPanel({ result, onCancel, onClose, cancelLoading }) {
+function JobLogPanel({ result, onCancel, onClose, onDeleteJob, cancelLoading }) {
   const lastRunResult = result;
   const [elapsed, setElapsed] = useState(null);
   const isLive = lastRunResult?.status === 'running' || lastRunResult?.status === 'pending';
@@ -62,7 +62,7 @@ function JobLogPanel({ result, onCancel, onClose, cancelLoading }) {
 
   if (!lastRunResult) return null;
 
-  const { job_id, status, rows_processed, total_rows, error_message, target_table, description, started_at } = lastRunResult;
+  const { job_id, status, rows_processed, total_rows, error_message, notice, target_table, description, started_at } = lastRunResult;
   const isOk = status === 'completed';
   const isCancelled = status === 'cancelled';
   const displayElapsed = isLive ? elapsed : null;
@@ -84,9 +84,14 @@ function JobLogPanel({ result, onCancel, onClose, cancelLoading }) {
     <div className={`etl-job-log ${statusMod}`}>
       <div className="etl-job-log__head">
         <h3 className="etl-job-log__title">{(description && String(description).trim()) || target_table || '실행 결과'}</h3>
-        {onClose && (
-          <button type="button" className="etl-job-log__close" onClick={onClose} aria-label="닫기">×</button>
-        )}
+        <span className="etl-job-log__head-actions">
+          {onClose && (
+            <button type="button" className="etl-job-log__close" onClick={onClose} aria-label="닫기">×</button>
+          )}
+          {onDeleteJob && job_id != null && (
+            <button type="button" className="etl-job-log__delete-job" onClick={() => onDeleteJob(job_id)} aria-label="해당 job 삭제" title="해당 job 삭제">×</button>
+          )}
+        </span>
       </div>
       <ul className="etl-job-log__list">
         {target_table && <li><strong>타겟 테이블:</strong> {target_table}</li>}
@@ -99,6 +104,9 @@ function JobLogPanel({ result, onCancel, onClose, cancelLoading }) {
         {rows_processed != null && <li>처리 건수: {rows_processed}{total_rows != null && total_rows > 0 ? ` / ${total_rows}` : ''}</li>}
         {error_message && <li className="etl-job-log__error">에러: {error_message}</li>}
       </ul>
+      {notice && (status === 'completed' || status === 'cancelled') && (
+        <p className="etl-job-log__notice">{notice}</p>
+      )}
       {onCancel && (lastRunResult?.status === 'running' || lastRunResult?.status === 'pending') && (
         <div className="etl-job-log__actions">
           <button

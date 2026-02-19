@@ -3,23 +3,31 @@ Backend.api_server.routers.report (리포트/쿼리 빌더 API)
 ========================================================
 FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 실행·Claude 해석·컬럼 고유값·쿼리 통계.
 
-[Main Functions]
+[Helpers]
 ===========
-- (라우트 핸들러: list_tables, describe_table, table_relationships, execute_query, explain_sql, get_column_values, query_stats)
+62 - _log: 디버그 로그 출력·파일 기록
+72 - _contains_dangerous_sql: 금지 SQL 키워드 검사
+112 - _fetch_relationships: FK/추론 관계 조회
+214 - _get_or_compute_relationships_all: 관계 캐시·추론
+384 - _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성
+409 - _save_table_worker: 쿼리 결과 저장 워커 (백그라운드)
 
-[Endpoints/Classes/Functions]
-=======================
-- GET /api/list-tables: 테이블 목록 (allowed_tables)
-- POST /api/describe-table: 테이블 구조 (컬럼·타입)
-- GET /api/table-relationships: JOIN 관계 (relationshipOptions)
-- POST /api/execute-query: SELECT 실행 (금지 키워드 검사)
-- POST /api/explain-sql: Claude SQL 해석
-- POST /api/get-column-values: 컬럼 고유값
-- POST /api/query-stats: 쿼리 통계
+[Endpoints]
+===========
+233 - list_tables: GET /api/list-tables (allowed_tables)
+266 - describe_table: POST /api/describe-table (테이블 구조)
+305 - table_relationships: GET /api/table-relationships (mode=fk|all)
+320 - api_join_order: POST /api/api-join-order (JOIN 순서)
+544 - save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
+605 - save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
+639 - execute_query: POST /api/execute-query (SELECT 실행)
+698 - explain_sql: POST /api/explain-sql (Claude 해석)
+754 - get_column_values: POST /api/get-column-values (컬럼 고유값)
+780 - query_stats: POST /api/query-stats (쿼리 통계)
 
 [Dependencies]
 =========
-- Backend.api_server.db, dependencies.get_db, get_config, schemas, pluralize.find_parent_table
+- Backend.api_server.db, dependencies.get_db, get_config, schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
 - fastapi, psycopg2, requests
 """
 

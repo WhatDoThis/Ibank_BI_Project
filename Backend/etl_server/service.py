@@ -1,20 +1,56 @@
 """
 Backend.etl_server.service (ETL 메타 CRUD·시스템 DB)
 ====================================================
-etl_connections, etl_tables 조회·등록. 시스템 DB(ibank_system_data) 전용.
-Phase 3: DB 연결 등록·테스트·소스 테이블 목록.
+etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank_system_data) 전용.
 
-[Main Functions]
+[Helpers]
 ===========
-- get_or_create_file_connection: source_type='file' 연결 1개 조회 또는 생성
-- create_connection: DB 연결 등록 (postgresql). 비밀번호는 encrypted_password에 저장(현재 평문, 추후 암호화)
-- list_connections: 연결 목록 (비밀번호 제외)
-- get_connection_for_etl: connection_id로 연결 정보 반환 (적재 시 사용, 비밀번호 포함)
-- test_connection: connection_id 또는 인자로 연결 테스트 (SELECT 1)
-- list_source_tables: 외부 DB의 테이블 목록 (information_schema)
-- list_etl_tables, create_etl_table, get_etl_table, delete_etl_table, insert_job, update_job, update_etl_table_status
-- update_last_synced_at: 증분 적재 후 last_synced_at 갱신
-- Phase 6: set_job_running, set_job_total_rows, list_jobs, get_job, fetch_pending_jobs, count_running_jobs. insert_job(..., "pending") 시 started_at NULL. total_rows는 ETA/진행률용.
+66 - _get_db: api_server.db 지연 로드(순환 import 방지)
+72 - _schema: get_system_table_schema() 반환
+76 - _q: 스키마.테이블명 따옴표 감싼 문자열
+81 - _validate_identifier: 식별자 영문·숫자·언더스코어 검증
+91 - _connection_error_to_user_message: 연결 실패 예외 → 한글 메시지·점검 안내
+152 - _connect_postgres: 외부 PostgreSQL 연결(테스트·소스 조회용). connect_timeout·로깅 적용
+181 - _connect_mysql: 외부 MySQL 연결. PyMySQL
+210 - _connect_oracle: 외부 Oracle 연결. oracledb
+238 - _fetch_pk_from_mysql: MySQL information_schema KEY_COLUMN_USAGE로 PK 컬럼 목록
+256 - _fetch_pk_from_oracle: Oracle all_constraints/user_constraints로 PK 컬럼 목록
+
+[Connections]
+===========
+107 - create_connection: DB 연결 등록(postgresql), 비밀번호 encrypted_password 저장
+149 - list_connections: 연결 목록(비밀번호 제외)
+170 - get_connection_for_etl: connection_id로 연결 정보(비밀번호 포함, 적재 시 사용)
+193 - test_connection: connection_id 또는 인자로 연결 테스트(SELECT 1)
+228 - list_source_tables: 외부 DB 테이블 목록. PostgreSQL(schema_name), MySQL(TABLE_SCHEMA=DB명), Oracle(ALL_TABLES/USER_TABLES)
+260 - get_or_create_file_connection: source_type='file' 연결 1개 조회 또는 생성
+291 - list_etl_tables_by_connection: connection_id별 ETL 테이블 목록
+310 - delete_connection: 연결 삭제(관련 etl_tables·메인 DB 타겟 DROP)
+
+[ETL Tables]
+===========
+344 - list_etl_tables: ETL 테이블 전체 목록(connection_name, source_type 포함)
+369 - create_etl_table: ETL 테이블 1건 등록, etl_table_id 반환
+425 - get_etl_table: etl_table_id로 1건 조회
+452 - delete_etl_table: ETL 테이블 삭제, 메인 DB 타겟 DROP, file_path 반환
+491 - delete_etl_table_row_only: 행·업로드 파일만 삭제(메인 DB 테이블 유지)
+549 - update_last_synced_at: 증분 적재 후 last_synced_at 갱신
+899 - update_etl_table: pk_columns 등 지정 필드만 갱신
+
+[Jobs]
+===========
+568 - insert_job: etl_jobs 1건 삽입, job_id 반환. add_file_path/add_file_type 있으면 추가 적재 Job
+602 - set_job_running: status=running, started_at=NOW()
+623 - list_jobs: Job 목록(etl_table_id, statuses, limit), target_table 등 join
+674 - delete_job: Job 1건 삭제, add_file_path 파일 있으면 삭제
+703 - set_job_total_rows: total_rows 설정(ETA/진행률용)
+720 - get_job: job_id로 1건 조회(target_table, add_file_path 등)
+758 - fetch_pending_jobs: pending Job created_at 순 limit건
+781 - claim_next_pending_job: 다음 pending 1건 claim(running으로 변경), (job_id, etl_table_id) 또는 None
+824 - count_running_jobs: status='running' 개수
+841 - is_job_cancelled: job 취소 여부 조회
+859 - update_job: status, finished_at, rows_processed, error_message, notice 갱신
+880 - update_etl_table_status: etl_tables.status 갱신
 
 [Dependencies]
 =========
@@ -22,8 +58,17 @@ Phase 3: DB 연결 등록·테스트·소스 테이블 목록.
 - psycopg2 (외부 DB 연결·테스트·소스 테이블 목록)
 """
 
+import logging
+import os
 import re
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 
 
 def _get_db():
@@ -51,20 +96,205 @@ def _validate_identifier(value: str, name: str) -> str:
     return v
 
 
+def _connection_error_to_user_message(ex: Exception, port: Optional[int] = None) -> dict:
+    """
+    DB 연결 실패 예외를 사용자용 한글 메시지와 점검 안내로 변환.
+    port: 연결 시도한 포트(안내 문구에 사용, 예: 3306·5432). 없으면 5432로 표시.
+    반환: { "message": str, "hint": str | None }
+    """
+    p = port if port is not None else 5432
+    err = (str(ex) or "").strip().lower()
+    if "timed out" in err or "10060" in err or "connection timed out" in err:
+        return {
+            "message": "서버에 연결할 수 없습니다. 시간이 초과되었습니다.",
+            "hint": (
+                f"· 방화벽: DB 서버에서 포트 {p}가 열려 있는지, "
+                "현재 PC/서버에서 해당 포트로 나가는 연결이 허용되는지 확인하세요.\n"
+                f"· DB 서버가 켜져 있고 DB(PostgreSQL/MySQL 등)가 포트 {p}에서 수신 중인지 확인하세요.\n"
+                "· VPN/사설망이 필요하면 먼저 연결한 뒤 다시 테스트하세요."
+            ),
+        }
+    if "connection refused" in err or "111" in err or "actively refused" in err:
+        return {
+            "message": "연결이 거부되었습니다. 해당 포트에서 서비스가 수신 중이 아닐 수 있습니다.",
+            "hint": (
+                f"· DB가 해당 서버에서 실행 중인지 확인하세요. 포트 {p}에서 수신 중인지 확인하세요.\n"
+                "· PostgreSQL: postgresql.conf의 listen_addresses, pg_hba.conf 확인. MySQL: bind-address 등 확인.\n"
+                f"· 포트 번호가 맞는지 확인하세요(PostgreSQL 기본 5432, MySQL 기본 3306)."
+            ),
+        }
+    if "password authentication failed" in err or "auth failed" in err:
+        return {
+            "message": "인증에 실패했습니다. 사용자명 또는 비밀번호를 확인하세요.",
+            "hint": "· DB 사용자명과 비밀번호가 맞는지 확인하세요. PostgreSQL: pg_hba.conf 접속 방식 확인. MySQL: 사용자 권한 확인.",
+        }
+    if "could not translate host" in err or "nodename nor servname" in err or "getaddrinfo failed" in err or "name or service not known" in err:
+        return {
+            "message": "호스트(주소)를 찾을 수 없습니다.",
+            "hint": "· 호스트명 또는 IP 주소가 맞는지, DNS가 동작하는지 확인하세요.",
+        }
+    if "does not exist" in err and ("database" in err or "role" in err):
+        return {
+            "message": "지정한 데이터베이스 또는 사용자가 존재하지 않습니다.",
+            "hint": "· 데이터베이스 이름과 사용자명이 서버에 실제로 있는지 확인하세요.",
+        }
+    if "timeout" in err or "deadlock" in err:
+        return {
+            "message": "연결 또는 작업이 시간 초과되었습니다.",
+            "hint": "· 네트워크 상태와 서버 부하를 확인하세요. 방화벽/프록시에서 연결이 끊기지 않는지 확인하세요.",
+        }
+    return {
+        "message": "연결에 실패했습니다.",
+        "hint": "· 호스트, 포트, DB명, 사용자명, 비밀번호를 확인하세요. 서버와 네트워크(방화벽, VPN)를 점검하세요.",
+    }
+
+
+# 연결 시도 타임아웃(초). 이 시간 내에 TCP 연결이 되지 않으면 시간 초과 예외 발생.
+_CONNECT_TIMEOUT_SEC = 15
+
+
 def _connect_postgres(host: str, port: int, database: str, user: str, password: str):
-    """외부 PostgreSQL 연결. psycopg2 connection 반환."""
+    """외부 PostgreSQL 연결. psycopg2 connection 반환. connect_timeout 적용."""
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    conn = psycopg2.connect(
-        host=host,
-        port=port,
-        dbname=database,
-        user=user,
-        password=password or "",
-        cursor_factory=RealDictCursor,
+    logger.info(
+        "ETL DB 연결 시도: host=%s port=%s dbname=%s user=%s connect_timeout=%ss (연결은 ETL 백엔드가 동작 중인 호스트에서 대상으로 나감)",
+        host, port, database, user, _CONNECT_TIMEOUT_SEC,
     )
-    conn.set_client_encoding("UTF8")
-    return conn
+    try:
+        conn = psycopg2.connect(
+            host=host,
+            port=int(port),
+            dbname=database,
+            user=user,
+            password=password or "",
+            connect_timeout=_CONNECT_TIMEOUT_SEC,
+            cursor_factory=RealDictCursor,
+        )
+        conn.set_client_encoding("UTF8")
+        logger.info("ETL DB 연결 성공: host=%s port=%s dbname=%s", host, port, database)
+        return conn
+    except Exception as e:
+        logger.warning(
+            "ETL DB 연결 실패: host=%s port=%s dbname=%s error_type=%s error=%s",
+            host, port, database, type(e).__name__, str(e),
+        )
+        raise
+
+
+def _connect_mysql(host: str, port: int, database: str, user: str, password: str):
+    """외부 MySQL 연결. PyMySQL connection 반환. connect_timeout 적용."""
+    try:
+        import pymysql
+    except ImportError:
+        raise RuntimeError("MySQL 연결을 위해 PyMySQL이 필요합니다. pip install PyMySQL")
+    logger.info(
+        "ETL MySQL 연결 시도: host=%s port=%s database=%s user=%s connect_timeout=%ss",
+        host, port, database, user, _CONNECT_TIMEOUT_SEC,
+    )
+    try:
+        conn = pymysql.connect(
+            host=host,
+            port=int(port),
+            user=user,
+            password=password or "",
+            database=database,
+            connect_timeout=_CONNECT_TIMEOUT_SEC,
+        )
+        logger.info("ETL MySQL 연결 성공: host=%s port=%s database=%s", host, port, database)
+        return conn
+    except Exception as e:
+        logger.warning(
+            "ETL MySQL 연결 실패: host=%s port=%s database=%s error_type=%s error=%s",
+            host, port, database, type(e).__name__, str(e),
+        )
+        raise
+
+
+def _connect_oracle(host: str, port: int, database: str, user: str, password: str):
+    """외부 Oracle 연결. oracledb connection 반환. database는 서비스명(또는 SID). connect_timeout 적용."""
+    try:
+        import oracledb
+    except ImportError:
+        raise RuntimeError("Oracle 연결을 위해 oracledb가 필요합니다. pip install oracledb")
+    dsn = f"{host}:{port}/{database}"
+    logger.info(
+        "ETL Oracle 연결 시도: dsn=%s user=%s connect_timeout=%ss",
+        dsn, user, _CONNECT_TIMEOUT_SEC,
+    )
+    try:
+        conn = oracledb.connect(
+            user=user,
+            password=password or "",
+            dsn=dsn,
+        )
+        logger.info("ETL Oracle 연결 성공: dsn=%s", dsn)
+        return conn
+    except Exception as e:
+        logger.warning(
+            "ETL Oracle 연결 실패: dsn=%s error_type=%s error=%s",
+            dsn, type(e).__name__, str(e),
+        )
+        raise
+
+
+def _fetch_pk_from_mysql(conn, table_schema: str, table_name: str) -> list:
+    """MySQL 연결에서 information_schema로 해당 테이블 PK 컬럼명 목록. 없으면 []."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND CONSTRAINT_NAME = 'PRIMARY'
+            ORDER BY ORDINAL_POSITION
+            """,
+            (table_schema, table_name),
+        )
+        rows = cur.fetchall()
+        return [r[0] for r in rows] if rows else []
+    finally:
+        cur.close()
+
+
+def _fetch_pk_from_oracle(conn, owner: str, table_name: str) -> list:
+    """Oracle 연결에서 PK 컬럼명 목록. owner 있으면 all_constraints, 없으면 user_constraints. table_name은 대문자로 조회."""
+    cur = conn.cursor()
+    try:
+        o = (owner or "").strip().upper()
+        t = (table_name or "").strip().upper()
+        if not t:
+            return []
+        if o:
+            cur.execute(
+                """
+                SELECT acc.column_name
+                FROM all_constraints ac
+                JOIN all_cons_columns acc ON ac.owner = acc.owner AND ac.constraint_name = acc.constraint_name
+                WHERE ac.constraint_type = 'P' AND ac.table_name = :1 AND ac.owner = :2
+                ORDER BY acc.position
+                """,
+                (t, o),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT ucc.column_name
+                FROM user_constraints uc
+                JOIN user_cons_columns ucc ON uc.constraint_name = ucc.constraint_name
+                WHERE uc.constraint_type = 'P' AND uc.table_name = :1
+                ORDER BY ucc.position
+                """,
+                (t,),
+            )
+        rows = cur.fetchall()
+        return [r[0] for r in rows] if rows else []
+    finally:
+        cur.close()
+
+
+# DB 종류별 기본 포트
+_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "oracle": 1521}
 
 
 def create_connection(
@@ -78,15 +308,15 @@ def create_connection(
     username: Optional[str] = None,
     password: Optional[str] = None,
 ) -> int:
-    """DB 연결 1건 등록. 1차는 source_type='postgresql'만. 비밀번호는 encrypted_password에 저장(현재 평문)."""
+    """DB 연결 1건 등록. source_type=postgresql|mysql|oracle. 비밀번호는 encrypted_password에 저장(현재 평문)."""
     if not connection_name or not str(connection_name).strip():
         raise ValueError("connection_name이 비어 있습니다.")
-    if source_type not in ("postgresql",):
-        raise ValueError("지원 소스: postgresql")
+    if source_type not in ("postgresql", "mysql", "oracle"):
+        raise ValueError("지원 소스: postgresql, mysql, oracle")
     if not host or not database_name or not username:
         raise ValueError("host, database_name, username가 필요합니다.")
-    port = port or 5432
-    schema_name = (schema_name or "public").strip()
+    port = port or _DEFAULT_PORTS.get(source_type, 5432)
+    schema_name = (schema_name or ("public" if source_type == "postgresql" else "")).strip()
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -160,64 +390,169 @@ def test_connection(
     database_name: Optional[str] = None,
     username: Optional[str] = None,
     password: Optional[str] = None,
+    source_type: Optional[str] = None,
 ) -> dict:
     """
     연결 테스트. connection_id가 있으면 해당 연결로, 없으면 인자로 전달된 값으로 테스트.
+    source_type: connection_id 없을 때 필수. postgresql | mysql | oracle.
     반환: { ok: bool, message: str }
     """
+    logger.info("[ETL 연결테스트] 1/5 서비스 진입 (connection_id=%s, host=%s, source_type=%s)", connection_id, host, source_type)
     if connection_id is not None:
+        logger.info("[ETL 연결테스트] 2/5 connection_id로 시스템 DB에서 연결 정보 조회")
         c = get_connection_for_etl(connection_id)
         if not c:
+            logger.warning("[ETL 연결테스트] 2/5 실패: 연결을 찾을 수 없음 connection_id=%s", connection_id)
             return {"ok": False, "message": "연결을 찾을 수 없습니다."}
         host = c.get("host")
-        port = c.get("port") or 5432
+        port = c.get("port")
         database_name = c.get("database_name")
         username = c.get("username")
         password = c.get("encrypted_password") or ""
+        source_type = (c.get("source_type") or "postgresql").strip().lower()
+        logger.info("[ETL 연결테스트] 2/5 조회 완료 host=%s port=%s database_name=%s source_type=%s", host, port, database_name, source_type)
+    else:
+        logger.info("[ETL 연결테스트] 2/5 인자로 전달된 값 사용 (connection_id 없음)")
+        source_type = (source_type or "postgresql").strip().lower()
+        if source_type not in ("postgresql", "mysql", "oracle"):
+            return {"ok": False, "message": "source_type은 postgresql, mysql, oracle 중 하나여야 합니다."}
+    logger.info("[ETL 연결테스트] 3/5 필수값 검증 (host, database_name, username)")
     if not host or not database_name or not username:
+        logger.warning("[ETL 연결테스트] 3/5 실패: 필수값 누락 host=%s database_name=%s username=%s", bool(host), bool(database_name), bool(username))
         return {"ok": False, "message": "host, database_name, username가 필요합니다."}
+    effective_port = port or _DEFAULT_PORTS.get(source_type, 5432)
+    logger.info("[ETL 연결테스트] 3/5 검증 통과 host=%s port=%s database_name=%s user=%s source_type=%s", host, effective_port, database_name, username, source_type)
     try:
-        conn = _connect_postgres(host, port or 5432, database_name, username, password or "")
-        cur = conn.cursor()
-        cur.execute("SELECT 1 AS ok")
-        cur.fetchone()
-        cur.close()
-        conn.close()
+        logger.info("[ETL 연결테스트] 4/5 %s TCP 연결 시도", source_type)
+        if source_type == "mysql":
+            conn = _connect_mysql(host, effective_port, database_name, username, password or "")
+            cur = conn.cursor()
+            cur.execute("SELECT 1 AS ok")
+            cur.fetchone()
+            cur.close()
+            conn.close()
+        elif source_type == "oracle":
+            conn = _connect_oracle(host, effective_port, database_name, username, password or "")
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM DUAL")
+            cur.fetchone()
+            cur.close()
+            conn.close()
+        else:
+            conn = _connect_postgres(host, effective_port, database_name, username, password or "")
+            cur = conn.cursor()
+            cur.execute("SELECT 1 AS ok")
+            cur.fetchone()
+            cur.close()
+            conn.close()
+        logger.info("[ETL 연결테스트] 5/5 SELECT 실행 및 연결 종료 완료. 성공: host=%s port=%s", host, effective_port)
         return {"ok": True, "message": "연결 성공"}
     except Exception as e:
-        return {"ok": False, "message": str(e)}
+        logger.exception(
+            "[ETL 연결테스트] 실패(4/5 또는 5/5): host=%s port=%s database_name=%s source_type=%s error_type=%s error=%s",
+            host, effective_port, database_name, source_type, type(e).__name__, e,
+        )
+        out = _connection_error_to_user_message(e, port=effective_port)
+        return {"ok": False, "message": out["message"], "hint": out.get("hint")}
 
 
 def list_source_tables(connection_id: int) -> list:
-    """외부 DB의 테이블 목록. information_schema.tables (table_schema, table_name)."""
+    """
+    외부 DB의 테이블 목록. 반환: [{"table_schema": str, "table_name": str}, ...]
+    - PostgreSQL: table_schema = connection.schema_name (기본 'public')
+    - MySQL: TABLE_SCHEMA = database_name (MySQL에서는 DB명이 스키마 개념)
+    - Oracle: OWNER = connection.schema_name 또는 현재 사용자(USER_TABLES)
+    """
     c = get_connection_for_etl(connection_id)
     if not c:
         raise ValueError("연결을 찾을 수 없습니다.")
-    if c.get("source_type") != "postgresql":
-        raise ValueError("현재 postgresql 연결만 소스 테이블 목록을 지원합니다.")
-    conn = _connect_postgres(
-        c["host"],
-        c.get("port") or 5432,
-        c["database_name"],
-        c["username"],
-        c.get("encrypted_password") or "",
-    )
-    cur = conn.cursor()
-    try:
-        schema = (c.get("schema_name") or "public").strip()
-        cur.execute(
-            """
-            SELECT table_schema, table_name
-            FROM information_schema.tables
-            WHERE table_schema = %s AND table_type = 'BASE TABLE'
-            ORDER BY table_name
-            """,
-            (schema,),
+    stype = (c.get("source_type") or "postgresql").strip().lower()
+    if stype not in ("postgresql", "mysql", "oracle"):
+        raise ValueError("postgresql, mysql, oracle 연결만 소스 테이블 목록을 지원합니다.")
+
+    if stype == "postgresql":
+        conn = _connect_postgres(
+            c["host"],
+            c.get("port") or 5432,
+            c["database_name"],
+            c["username"],
+            c.get("encrypted_password") or "",
         )
-        return [{"table_schema": r["table_schema"], "table_name": r["table_name"]} for r in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+        cur = conn.cursor()
+        try:
+            schema = (c.get("schema_name") or "public").strip()
+            cur.execute(
+                """
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+                """,
+                (schema,),
+            )
+            return [{"table_schema": r["table_schema"], "table_name": r["table_name"]} for r in cur.fetchall()]
+        finally:
+            cur.close()
+            conn.close()
+
+    if stype == "mysql":
+        conn = _connect_mysql(
+            c["host"],
+            c.get("port") or 3306,
+            c["database_name"],
+            c["username"],
+            c.get("encrypted_password") or "",
+        )
+        cur = conn.cursor()
+        try:
+            # MySQL: TABLE_SCHEMA = 데이터베이스명(연결 시 선택한 DB). schema_name이 아님.
+            db_name = (c.get("database_name") or "").strip()
+            if not db_name:
+                return []
+            cur.execute(
+                """
+                SELECT TABLE_SCHEMA, TABLE_NAME
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'
+                ORDER BY TABLE_NAME
+                """,
+                (db_name,),
+            )
+            rows = cur.fetchall()
+            return [{"table_schema": row[0], "table_name": row[1]} for row in rows]
+        finally:
+            cur.close()
+            conn.close()
+
+    if stype == "oracle":
+        conn = _connect_oracle(
+            c["host"],
+            c.get("port") or 1521,
+            c["database_name"],
+            c["username"],
+            c.get("encrypted_password") or "",
+        )
+        cur = conn.cursor()
+        try:
+            schema_name = (c.get("schema_name") or "").strip().upper()
+            if schema_name:
+                cur.execute(
+                    "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE OWNER = :1 ORDER BY TABLE_NAME",
+                    (schema_name,),
+                )
+            else:
+                cur.execute("SELECT USER FROM DUAL")
+                owner = cur.fetchone()[0]
+                cur.execute("SELECT TABLE_NAME FROM USER_TABLES ORDER BY TABLE_NAME")
+                rows = cur.fetchall()
+                return [{"table_schema": owner, "table_name": row[0]} for row in rows]
+            rows = cur.fetchall()
+            return [{"table_schema": row[0], "table_name": row[1]} for row in rows]
+        finally:
+            cur.close()
+            conn.close()
+
+    return []
 
 
 def get_or_create_file_connection(created_by: str) -> int:
@@ -274,9 +609,24 @@ def delete_connection(connection_id: int) -> None:
     """
     연결 삭제. 해당 connection_id를 쓰는 모든 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤,
     etl_tables 행 삭제, etl_connections 행 삭제.
+    source_type='file'(파일 업로드용) 연결은 삭제 불가 — 해제 시 파일 기반 ETL·업로드 파일이 전부 삭제되므로 위험.
     """
     api_db = _get_db()
     schema = _schema()
+    conn_sys = api_db.get_db_connection_system()
+    cur = conn_sys.cursor()
+    try:
+        cur.execute(
+            f"SELECT source_type FROM {_q(schema, 'etl_connections')} WHERE connection_id = %s",
+            (connection_id,),
+        )
+        row = cur.fetchone()
+        if row and (row.get("source_type") or "").strip().lower() == "file":
+            raise ValueError("파일 업로드용 연결은 해제할 수 없습니다. 해당 연결은 파일 기반 ETL 전용이며, 해제 시 관련 데이터가 모두 삭제됩니다.")
+    finally:
+        cur.close()
+        conn_sys.close()
+
     tables = list_etl_tables_by_connection(connection_id)
     main_schema = api_db.get_table_schema()
     conn_main = api_db.get_db_connection()
@@ -343,12 +693,57 @@ def create_etl_table(
     batch_size: Optional[int] = None,
     batch_interval_seconds: Optional[int] = None,
 ) -> int:
-    """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id."""
+    """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id. DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
     api_db = _get_db()
     target_table = _validate_identifier(target_table, "target_table")
     sync_mode = (sync_mode or "full").strip().lower()
     if sync_mode not in ("full", "incremental"):
         sync_mode = "full"
+    pk_columns_val = (pk_columns or "").strip() or None
+    if not pk_columns_val and connection_id and source_table:
+        c = get_connection_for_etl(connection_id)
+        stype = (c.get("source_type") or "").strip().lower() if c else ""
+        src_conn = None
+        try:
+            if stype == "postgresql":
+                from Backend.etl_server import db_load_service
+                src_conn = db_load_service._get_source_connection(connection_id)
+                schema_src = (c.get("schema_name") or "public").strip()
+                pk_list = db_load_service._fetch_source_pk_columns(src_conn, schema_src, source_table.strip())
+                if pk_list:
+                    pk_columns_val = ",".join(pk_list)
+            elif stype == "mysql":
+                src_conn = _connect_mysql(
+                    c["host"],
+                    c.get("port") or 3306,
+                    c["database_name"],
+                    c["username"],
+                    c.get("encrypted_password") or "",
+                )
+                db_name = (c.get("database_name") or "").strip()
+                pk_list = _fetch_pk_from_mysql(src_conn, db_name, source_table.strip())
+                if pk_list:
+                    pk_columns_val = ",".join(pk_list)
+            elif stype == "oracle":
+                src_conn = _connect_oracle(
+                    c["host"],
+                    c.get("port") or 1521,
+                    c["database_name"],
+                    c["username"],
+                    c.get("encrypted_password") or "",
+                )
+                owner = (c.get("schema_name") or c.get("username") or "").strip()
+                pk_list = _fetch_pk_from_oracle(src_conn, owner, source_table.strip())
+                if pk_list:
+                    pk_columns_val = ",".join(pk_list)
+        except Exception as e:
+            logger.warning("소스 DB PK 자동 조회 실패(connection_id=%s, source_table=%s, source_type=%s): %s", connection_id, source_table, stype, e)
+        finally:
+            if src_conn:
+                try:
+                    src_conn.close()
+                except Exception:
+                    pass
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
@@ -369,7 +764,7 @@ def create_etl_table(
                 (description or "").strip() or None,
                 file_type,
                 file_path,
-                (pk_columns or "").strip() or None,
+                pk_columns_val,
                 (incremental_column or "").strip() or None,
                 sync_mode,
                 batch_val,
@@ -451,6 +846,64 @@ def delete_etl_table(etl_table_id: int) -> dict:
     return {"file_path": file_path}
 
 
+def delete_etl_table_row_only(etl_table_id: int) -> None:
+    """
+    ETL 등록 행만 삭제. 메인 DB 타겟 테이블은 DROP하지 않음.
+    - 해당 행의 업로드 파일(file_path) 삭제
+    - 해당 etl_table_id의 모든 job의 add_file_path 파일 삭제
+    - etl_transform_rules, etl_jobs, etl_tables에서 해당 행 삭제
+    """
+    row = get_etl_table(etl_table_id)
+    if not row:
+        raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
+    file_path = (row.get("file_path") or "").strip() or None
+
+    api_db = _get_db()
+    schema = _schema()
+    conn_sys = api_db.get_db_connection_system()
+    cur_sys = conn_sys.cursor()
+    add_file_paths = []
+    try:
+        try:
+            cur_sys.execute(
+                f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s AND add_file_path IS NOT NULL",
+                (etl_table_id,),
+            )
+            for r in cur_sys.fetchall():
+                try:
+                    p = r.get("add_file_path") if hasattr(r, "get") else (r[0] if r else None)
+                except (KeyError, IndexError, TypeError):
+                    p = None
+                p = (p or "").strip() if isinstance(p, str) else ""
+                if p:
+                    add_file_paths.append(p)
+        except Exception as e:
+            if psycopg2 and isinstance(e, psycopg2.ProgrammingError):
+                conn_sys.rollback()
+                add_file_paths = []
+            else:
+                raise
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
+        cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
+        conn_sys.commit()
+    finally:
+        cur_sys.close()
+        conn_sys.close()
+
+    if file_path and os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+    for p in add_file_paths:
+        if p and os.path.isfile(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
 def update_last_synced_at(etl_table_id: int, synced_at: Any):
     """증분 적재 완료 후 last_synced_at 갱신. synced_at은 datetime 또는 문자열."""
     api_db = _get_db()
@@ -470,22 +923,32 @@ def update_last_synced_at(etl_table_id: int, synced_at: Any):
         conn.close()
 
 
-def insert_job(etl_table_id: Optional[int], status: str = "running") -> int:
-    """etl_jobs에 1건 삽입. 반환: job_id. status='pending'이면 started_at NULL."""
+def insert_job(etl_table_id: Optional[int], status: str = "running", add_file_path: Optional[str] = None, add_file_type: Optional[str] = None) -> int:
+    """etl_jobs에 1건 삽입. 반환: job_id. status='pending'이면 started_at NULL. add_file_path/add_file_type 있으면 추가 적재(업서트) Job."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
         started = "NULL" if (status or "").strip().lower() == "pending" else "NOW()"
-        cur.execute(
-            f"""
-            INSERT INTO {_q(schema, "etl_jobs")} (etl_table_id, status, started_at, created_at)
-            VALUES (%s, %s, {started}, NOW())
-            RETURNING job_id
-            """,
-            (etl_table_id, status),
-        )
+        if add_file_path is not None and add_file_type is not None:
+            cur.execute(
+                f"""
+                INSERT INTO {_q(schema, "etl_jobs")} (etl_table_id, status, started_at, add_file_path, add_file_type, created_at)
+                VALUES (%s, %s, {started}, %s, %s, NOW())
+                RETURNING job_id
+                """,
+                (etl_table_id, status, add_file_path, add_file_type),
+            )
+        else:
+            cur.execute(
+                f"""
+                INSERT INTO {_q(schema, "etl_jobs")} (etl_table_id, status, started_at, created_at)
+                VALUES (%s, %s, {started}, NOW())
+                RETURNING job_id
+                """,
+                (etl_table_id, status),
+            )
         row = cur.fetchone()
         conn.commit()
         return int(row["job_id"])
@@ -515,39 +978,81 @@ def set_job_running(job_id: int) -> None:
         conn.close()
 
 
-def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50) -> list:
-    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. target_table 포함. 최신순."""
+def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Optional[list] = None) -> list:
+    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. statuses 있으면 해당 상태만. target_table 포함. 최신순."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
+    where_parts = []
+    params = []
+    if etl_table_id is not None:
+        where_parts.append("j.etl_table_id = %s")
+        params.append(etl_table_id)
+    if statuses:
+        placeholders = ", ".join(["%s"] * len(statuses))
+        where_parts.append(f"j.status IN ({placeholders})")
+        params.extend(s.strip().lower() for s in statuses if s)
+    where_sql = " AND ".join(where_parts) if where_parts else "1=1"
+    params.append(limit)
+    select_full = (
+        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.notice, j.add_file_path, j.add_file_type, j.created_at, "
+        f"t.target_table, t.description "
+        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id "
+        f"WHERE {where_sql} ORDER BY j.created_at DESC LIMIT %s"
+    )
+    select_minimal = (
+        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.error_message, j.created_at, "
+        f"t.target_table, t.description "
+        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id "
+        f"WHERE {where_sql} ORDER BY j.created_at DESC LIMIT %s"
+    )
     try:
-        if etl_table_id is not None:
-            cur.execute(
-                f"""
-                SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.created_at,
-                       t.target_table, t.description
-                FROM {_q(schema, "etl_jobs")} j
-                LEFT JOIN {_q(schema, "etl_tables")} t ON t.etl_table_id = j.etl_table_id
-                WHERE j.etl_table_id = %s
-                ORDER BY j.created_at DESC
-                LIMIT %s
-                """,
-                (etl_table_id, limit),
-            )
-        else:
-            cur.execute(
-                f"""
-                SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.created_at,
-                       t.target_table, t.description
-                FROM {_q(schema, "etl_jobs")} j
-                LEFT JOIN {_q(schema, "etl_tables")} t ON t.etl_table_id = j.etl_table_id
-                ORDER BY j.created_at DESC
-                LIMIT %s
-                """,
-                (limit,),
-            )
-        return [dict(r) for r in cur.fetchall()]
+        try:
+            cur.execute(select_full, tuple(params))
+            return [dict(r) for r in cur.fetchall()]
+        except Exception:
+            conn.rollback()
+            cur.execute(select_minimal, tuple(params))
+            rows = cur.fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d.setdefault("total_rows", None)
+                d.setdefault("notice", None)
+                d.setdefault("add_file_path", None)
+                d.setdefault("add_file_type", None)
+                out.append(d)
+            return out
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_job(job_id: int) -> bool:
+    """Job 1건 삭제(etl_jobs에서 DELETE). add_file_path가 있으면 해당 업로드 파일도 삭제. 성공 시 True."""
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    add_file_path = None
+    try:
+        cur.execute(
+            f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s",
+            (job_id,),
+        )
+        row = cur.fetchone()
+        if row and row.get("add_file_path"):
+            add_file_path = (row["add_file_path"] or "").strip() or None
+        cur.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s", (job_id,))
+        conn.commit()
+        ok = cur.rowcount > 0
+        if ok and add_file_path and os.path.isfile(add_file_path):
+            try:
+                os.remove(add_file_path)
+            except OSError:
+                pass
+        return ok
     finally:
         cur.close()
         conn.close()
@@ -576,19 +1081,33 @@ def get_job(job_id: int) -> Optional[dict]:
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
+    select_full = (
+        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.notice, j.add_file_path, j.add_file_type, j.created_at, "
+        f"t.target_table, t.description "
+        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id WHERE j.job_id = %s"
+    )
+    select_minimal = (
+        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.error_message, j.created_at, "
+        f"t.target_table, t.description "
+        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id WHERE j.job_id = %s"
+    )
     try:
-        cur.execute(
-            f"""
-            SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.created_at,
-                   t.target_table, t.description
-            FROM {_q(schema, "etl_jobs")} j
-            LEFT JOIN {_q(schema, "etl_tables")} t ON t.etl_table_id = j.etl_table_id
-            WHERE j.job_id = %s
-            """,
-            (job_id,),
-        )
-        row = cur.fetchone()
-        return dict(row) if row else None
+        try:
+            cur.execute(select_full, (job_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+        except Exception:
+            conn.rollback()
+            cur.execute(select_minimal, (job_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d.setdefault("total_rows", None)
+            d.setdefault("notice", None)
+            d.setdefault("add_file_path", None)
+            d.setdefault("add_file_type", None)
+            return d
     finally:
         cur.close()
         conn.close()
@@ -695,8 +1214,8 @@ def is_job_cancelled(job_id: int) -> bool:
         conn.close()
 
 
-def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, error_message: Optional[str] = None):
-    """etl_jobs 상태·종료 시각·건수·에러 메시지 갱신. status에 'cancelled' 사용 가능."""
+def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, error_message: Optional[str] = None, notice: Optional[str] = None):
+    """etl_jobs 상태·종료 시각·건수·에러 메시지·안내(notice) 갱신. status에 'cancelled' 사용 가능."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -705,10 +1224,10 @@ def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, e
         cur.execute(
             f"""
             UPDATE {_q(schema, "etl_jobs")}
-            SET status = %s, finished_at = NOW(), rows_processed = COALESCE(%s, rows_processed), error_message = %s
+            SET status = %s, finished_at = NOW(), rows_processed = COALESCE(%s, rows_processed), error_message = %s, notice = %s
             WHERE job_id = %s
             """,
-            (status, rows_processed, error_message, job_id),
+            (status, rows_processed, error_message, notice, job_id),
         )
         conn.commit()
     finally:
@@ -729,6 +1248,25 @@ def update_etl_table_status(etl_table_id: int, status: str):
             """,
             (status, etl_table_id),
         )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def update_etl_table(etl_table_id: int, pk_columns: Optional[str] = None) -> None:
+    """etl_tables의 pk_columns 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        if pk_columns is not None:
+            val = (pk_columns or "").strip() or None
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET pk_columns = %s, updated_at = NOW() WHERE etl_table_id = %s",
+                (val, etl_table_id),
+            )
         conn.commit()
     finally:
         cur.close()

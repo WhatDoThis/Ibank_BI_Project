@@ -1,8 +1,16 @@
 /**
- * widgetboard/Dashboard3Page.jsx (위젯보드)
- * 왼쪽: 위젯 팔레트(드래그). 오른쪽: 캔버스(드롭).
- * 테이블은 test_report_ 로 시작하는 것만 선택 가능 (allowed_tables와 별개).
- * 연결한 테이블 데이터 기준으로 KPI/차트/테이블 자동 렌더링.
+ * packages/widgetboard/Dashboard3Page.jsx (위젯보드 페이지)
+ * ==========================================================
+ * 왼쪽: 위젯 팔레트(드래그). 오른쪽: 캔버스(드롭). 테이블은 test_report_ 접두사만 선택 가능(allowed_tables와 별개).
+ * 연결한 테이블 기준 listTables/describeTable/executeQuery → dataUtils로 KPI·차트·테이블 자동 렌더링.
+ *
+ * [Main Functions]
+ * ===========
+ * 레이아웃·위젯 설정 localStorage 저장. 위젯 타입(KPI/차트/테이블)·테이블·컬럼 선택. react-grid-layout 드래그/리사이즈.
+ *
+ * [Dependencies]
+ * =========
+ * - React, react-grid-layout, recharts, @/shared/api/client (listTables, describeTable, executeQuery), ./utils/dataUtils
  */
 import { useState, useCallback, useEffect } from 'react'
 import GridLayout from 'react-grid-layout/legacy'

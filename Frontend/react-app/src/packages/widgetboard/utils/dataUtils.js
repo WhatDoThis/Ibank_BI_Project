@@ -1,6 +1,18 @@
 /**
- * widgetboard/utils/dataUtils.js
- * 테이블 컬럼 분류 및 차트용 집계. describe-table columns + rows 기준.
+ * packages/widgetboard/utils/dataUtils.js (위젯보드 데이터 유틸)
+ * ==============================================================
+ * describe-table columns + rows 기준. 컬럼 타입 분류(숫자/날짜/차원)·차트용 Dimension/Metric 선택·집계·KPI 계산.
+ *
+ * [Main Functions]
+ * ===========
+ * isNumericType, isDateType, isDimensionType: 컬럼 타입 판별
+ * pickDimensionAndMetric: columns에서 dimensionKey, metricKey 후보 선택
+ * aggregateForChart: rows를 dimensionKey 기준 집계(metricKey 합계)
+ * computeKpi: rows에서 숫자 컬럼 합계·평균 등 KPI 객체 반환
+ *
+ * [Dependencies]
+ * =========
+ * - 없음
  */
 
 /** 컬럼 type 문자열이 숫자형인지 */

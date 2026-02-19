@@ -1,17 +1,27 @@
 """
-Backend.etl_server.db_load_service (DB 연동 E/L)
-================================================
-외부 PostgreSQL에서 추출(E) → 우리 메인 DB에 적재(L). Full Load / Incremental Upsert.
+Backend.etl_server.db_load_service (DB 연동 추출·적재)
+======================================================
+외부 DB(PostgreSQL·MySQL) 추출(E) → 메인 DB 적재(L). Full Load / Incremental Upsert. 소스 PK는 full 모드 시 타겟 CREATE에 반영.
 
-[Main Functions]
+[Helpers]
 ===========
-- run_db_load: etl_table_id 기준으로 소스 DB SELECT(total_rows 설정: 스트리밍은 COUNT(*), fetchall은 len(rows)) → 메인 DB CREATE/TRUNCATE+INSERT 또는 Upsert → job 기록
+41 - _get_source_connection: connection_id로 소스 PostgreSQL 연결
+55 - _fetch_source_columns_mysql: MySQL information_schema.COLUMNS (column_name, data_type)
+72 - _pg_type_from_mysql: MySQL DATA_TYPE → PostgreSQL 타입 문자열
+88 - _fetch_source_columns: PostgreSQL information_schema.columns
+109 - _fetch_source_pk_columns: PostgreSQL 소스 테이블 PRIMARY KEY 컬럼명 목록
+132 - _pg_type_from_info_schema: information_schema data_type → PostgreSQL 타입
+150 - _pg_type_from_pandas: pandas dtype → PostgreSQL 타입
+
+[Main]
+===========
+run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 DB CREATE+INSERT 또는 Upsert. postgresql·mysql 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT 사용.
 
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection, get_table_schema), Backend.etl_server.service
+- Backend.api_server.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
 - Env.config.loader.add_allowed_table
-- psycopg2, pandas(선택: DataFrame으로 변환 후 INSERT)
+- psycopg2, pandas
 """
 
 import logging
@@ -30,17 +40,8 @@ from Backend.etl_server import transform_rules_service as transform_rules_svc
 from Backend.etl_server.etl_limits import get_etl_limits
 
 
-def _validate_identifier(value: str, name: str) -> str:
-    if not value or not str(value).strip():
-        raise ValueError(f"{name}이 비어 있습니다.")
-    v = str(value).strip()
-    if not re.match(r"^[a-zA-Z0-9_]+$", v):
-        raise ValueError(f"{name}에 허용되지 않은 문자가 있습니다: {v}")
-    return v
-
-
 def _get_source_connection(connection_id: int):
-    """소스 DB 연결. service에서 가져와 psycopg2 connection 반환."""
+    """소스 DB 연결. service에서 가져와 psycopg2 connection 반환. PostgreSQL 전용."""
     c = etl_service.get_connection_for_etl(connection_id)
     if not c or c.get("source_type") != "postgresql":
         raise ValueError("PostgreSQL 연결이 필요합니다.")
@@ -51,6 +52,37 @@ def _get_source_connection(connection_id: int):
         c["username"],
         c.get("encrypted_password") or "",
     )
+
+
+def _fetch_source_columns_mysql(conn, table_schema: str, table_name: str) -> List[Tuple[str, str]]:
+    """MySQL information_schema.COLUMNS에서 (column_name, data_type) 목록. conn은 PyMySQL."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT COLUMN_NAME, DATA_TYPE
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+        ORDER BY ORDINAL_POSITION
+        """,
+        (table_schema, table_name),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return [(r[0], r[1]) for r in rows]
+
+
+def _pg_type_from_mysql(data_type: str) -> str:
+    """MySQL DATA_TYPE → PostgreSQL 타입 문자열(메인 DB CREATE용)."""
+    t = (data_type or "").lower()
+    if t in ("int", "integer", "smallint", "bigint", "mediumint", "tinyint"):
+        return "BIGINT"
+    if t in ("decimal", "numeric", "float", "double", "real"):
+        return "DOUBLE PRECISION"
+    if t in ("date", "datetime", "timestamp", "time", "year"):
+        return "TIMESTAMP"
+    if t in ("tinyint",) and "bool" in t:
+        return "BOOLEAN"
+    return "TEXT"
 
 
 def _fetch_source_columns(conn, schema: str, table: str) -> List[Tuple[str, str]]:
@@ -68,6 +100,29 @@ def _fetch_source_columns(conn, schema: str, table: str) -> List[Tuple[str, str]
     rows = cur.fetchall()
     cur.close()
     return [(r["column_name"], r["data_type"]) for r in rows]
+
+
+def _fetch_source_pk_columns(conn, schema: str, table: str) -> List[str]:
+    """소스 DB의 information_schema에서 해당 테이블 PRIMARY KEY 컬럼명 목록. 없으면 []."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                 AND tc.table_catalog = kcu.table_catalog
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = %s AND tc.table_name = %s
+            ORDER BY kcu.ordinal_position
+            """,
+            (schema, table),
+        )
+        return [r["column_name"] for r in cur.fetchall()]
+    finally:
+        cur.close()
 
 
 def _pg_type_from_info_schema(data_type: str) -> str:
@@ -147,8 +202,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         effective_batch_size = min(batch_size, max_batch_size) if batch_size > 0 else max_batch_size
     limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
 
-    target_table = _validate_identifier(target_table, "target_table")
-    source_table = _validate_identifier(source_table, "source_table")
+    target_table = etl_service._validate_identifier(target_table, "target_table")
+    source_table = etl_service._validate_identifier(source_table, "source_table")
     if job_id is None:
         job_id = etl_service.insert_job(etl_table_id, status="running")
     else:
@@ -158,43 +213,72 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
 
     try:
         c = etl_service.get_connection_for_etl(connection_id)
-        src_schema = (c.get("schema_name") or "public").strip()
-        src_conn = _get_source_connection(connection_id)
+        stype = (c.get("source_type") or "postgresql").strip().lower()
+        if stype not in ("postgresql", "mysql"):
+            raise ValueError(f"DB 적재는 postgresql, mysql만 지원합니다. source_type={stype}")
+
+        if stype == "mysql":
+            src_conn = etl_service._connect_mysql(
+                c["host"],
+                c.get("port") or 3306,
+                c["database_name"],
+                c["username"],
+                c.get("encrypted_password") or "",
+            )
+            src_schema = (c.get("database_name") or "").strip()
+            columns = _fetch_source_columns_mysql(src_conn, src_schema, source_table)
+            source_pk_list = etl_service._fetch_pk_from_mysql(src_conn, src_schema, source_table)
+            quoted_src = f"`{src_schema}`.`{source_table}`"
+            type_mapper = _pg_type_from_mysql
+            row_type = "tuple"
+            _quote = lambda x: f"`{x}`"
+        else:
+            src_conn = _get_source_connection(connection_id)
+            src_schema = (c.get("schema_name") or "public").strip()
+            columns = _fetch_source_columns(src_conn, src_schema, source_table)
+            source_pk_list = _fetch_source_pk_columns(src_conn, src_schema, source_table)
+            quoted_src = f'"{src_schema}"."{source_table}"'
+            type_mapper = _pg_type_from_info_schema
+            row_type = "dict"
+            _quote = lambda x: f'"{x}"'
+
+        if not columns:
+            try:
+                src_conn.close()
+            except Exception:
+                pass
+            etl_service.update_job(job_id, "failed", error_message="소스 테이블에 컬럼이 없습니다.")
+            etl_service.update_etl_table_status(etl_table_id, "error")
+            return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "소스 테이블에 컬럼이 없습니다."}
+
+        col_names = [c[0] for c in columns]
+        select_list = ", ".join(_quote(c) for c in col_names)
+        where_clause = ""
+        params = []
+        if sync_mode == "incremental" and incremental_column:
+            etl_service._validate_identifier(incremental_column, "incremental_column")
+            last_synced = row.get("last_synced_at")
+            if last_synced is not None:
+                where_clause = f" WHERE {_quote(incremental_column)} > %s"
+                params.append(last_synced)
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": str(e)}
 
     try:
-        columns = _fetch_source_columns(src_conn, src_schema, source_table)
-        if not columns:
-            etl_service.update_job(job_id, "failed", error_message="소스 테이블에 컬럼이 없습니다.")
-            etl_service.update_etl_table_status(etl_table_id, "error")
-            return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "소스 테이블에 컬럼이 없습니다."}
-
-        quoted_src = f'"{src_schema}"."{source_table}"'
-        col_names = [c[0] for c in columns]
-        select_list = ", ".join(f'"{c}"' for c in col_names)
-        where_clause = ""
-        params = []
-        if sync_mode == "incremental" and incremental_column:
-            _validate_identifier(incremental_column, "incremental_column")
-            last_synced = row.get("last_synced_at")
-            if last_synced is not None:
-                where_clause = f' WHERE "{incremental_column}" > %s'
-                params.append(last_synced)
-            # last_synced가 없으면 전체 추출(최초 1회)
 
         if effective_batch_size > 0:
             # 배치 단위 스트리밍: 메모리에 전체를 쌓지 않고 fetch -> 변환 -> 적재 반복. config 한도 적용.
             # ETA용 total_rows: 소스 테이블 행 수(동일 WHERE). max_rows_per_load 있으면 상한 적용.
             cur_count = src_conn.cursor()
             cur_count.execute(f'SELECT COUNT(*) FROM {quoted_src}{where_clause}', params)
-            total_from_src = cur_count.fetchone()[0]
+            row_count = cur_count.fetchone()
+            total_from_src = list(row_count.values())[0] if hasattr(row_count, "values") else row_count[0]
             cur_count.close()
             total_rows_cap = min(total_from_src, max_rows_per_load) if max_rows_per_load > 0 else total_from_src
             etl_service.set_job_total_rows(job_id, total_rows_cap)
-            cur_src = src_conn.cursor(name="etl_src_%s" % job_id)
+            cur_src = src_conn.cursor(name="etl_src_%s" % job_id) if row_type == "dict" else src_conn.cursor()
             cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
             total_processed, first_batch = 0, True
             main_schema = api_db.get_table_schema()
@@ -206,6 +290,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     batch = cur_src.fetchmany(effective_batch_size)
                     if not batch:
                         break
+                    if row_type == "tuple":
+                        batch = [dict(zip(col_names, r)) for r in batch]
                     if max_rows_per_load > 0 and total_processed + len(batch) > max_rows_per_load:
                         batch = batch[: max_rows_per_load - total_processed]
                     df_batch = pd.DataFrame(batch, columns=col_names)
@@ -219,7 +305,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     for col in df_batch.columns:
                         pg_t = source_col_map.get(col)
                         if pg_t is not None:
-                            columns_final.append((col, _pg_type_from_info_schema(pg_t)))
+                            columns_final.append((col, type_mapper(pg_t)))
                         else:
                             columns_final.append((col, _pg_type_from_pandas(df_batch[col].dtype)))
                     cols = [c[0] for c in columns_final]
@@ -228,7 +314,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     if first_batch:
                         if sync_mode == "full":
                             cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-                            cur_main.execute(f"CREATE TABLE {full_name} ({col_defs})")
+                            pk_list_full = [p for p in source_pk_list if p in cols]
+                            pk_part = (", PRIMARY KEY (" + ", ".join(f'"{p}"' for p in pk_list_full) + ")") if pk_list_full else ""
+                            cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{pk_part})")
                             conn_main.commit()
                         else:
                             if not pk_columns:
@@ -237,11 +325,12 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                                 return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "pk_columns 필요"}
                             pk_list = [x.strip() for x in pk_columns.split(",") if x.strip()]
                             for pk in pk_list:
-                                _validate_identifier(pk, "pk_columns")
+                                etl_service._validate_identifier(pk, "pk_columns")
                             try:
                                 cur_main.execute(f"SELECT 1 FROM {full_name} LIMIT 1")
                                 cur_main.fetchone()
                             except Exception:
+                                conn_main.rollback()
                                 uniq_part = f", UNIQUE ({', '.join(chr(34) + p + chr(34) for p in pk_list)})" if pk_list else ""
                                 cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{uniq_part})")
                                 conn_main.commit()
@@ -301,6 +390,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             rows_data = cur_src.fetchall()
             cur_src.close()
             src_conn.close()
+            if row_type == "tuple":
+                rows_data = [dict(zip(col_names, r)) for r in rows_data]
             etl_service.set_job_total_rows(job_id, len(rows_data))
 
         rows_processed = len(rows_data)
@@ -323,7 +414,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         for col in df.columns:
             pg_t = source_col_map.get(col)
             if pg_t is not None:
-                columns_final.append((col, _pg_type_from_info_schema(pg_t)))
+                columns_final.append((col, type_mapper(pg_t)))
             else:
                 columns_final.append((col, _pg_type_from_pandas(df[col].dtype)))
         columns = columns_final
@@ -339,7 +430,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         try:
             if sync_mode == "full":
                 cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-                cur_main.execute(f"CREATE TABLE {full_name} ({col_defs})")
+                pk_list_full = [p for p in source_pk_list if p in cols]
+                pk_part = (", PRIMARY KEY (" + ", ".join(f'"{p}"' for p in pk_list_full) + ")") if pk_list_full else ""
+                cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{pk_part})")
                 conn_main.commit()
                 placeholders = ", ".join(["%s"] * len(cols))
                 insert_sql = f'INSERT INTO {full_name} ({", ".join(chr(34) + c + chr(34) for c in cols)}) VALUES ({placeholders})'
@@ -368,7 +461,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "pk_columns 필요"}
                 pk_list = [x.strip() for x in pk_columns.split(",") if x.strip()]
                 for pk in pk_list:
-                    _validate_identifier(pk, "pk_columns")
+                    etl_service._validate_identifier(pk, "pk_columns")
                 try:
                     cur_main.execute(f"SELECT 1 FROM {full_name} LIMIT 1")
                     cur_main.fetchone()

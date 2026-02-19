@@ -1,11 +1,18 @@
 """
-join_metrics.py
-================
-JOIN 경우의 수·정확도 점수, 파생 테이블(조인 결과) 컬럼 목록.
+Backend.api_server.join_metrics (JOIN 점수·파생 컬럼)
+====================================================
+JOIN 경우의 수·정확도 점수, 파생 테이블(조인 결과) 컬럼 목록. report 라우터에서 사용.
 
-- join_case_count: base 후보 수 / 유효 join_order 수
-- join_accuracy_score: join_order 내 엣지별 confidence 평균 (FK=1.0, 추론=0.7/0.5)
-- derived_table_columns: join_order + 테이블별 컬럼 → 파생 테이블 전체 컬럼 (table, alias, column, type)
+[Functions]
+===========
+15 - confidence_to_score: 단일 관계의 신뢰도 점수 (HIGH/MEDIUM/LOW, fk)
+27 - join_accuracy_score: join_order 내 엣지별 confidence 평균 (FK=1.0, 추론=0.7/0.5)
+69 - join_case_count: base 후보 수 / 유효 join_order 수
+91 - derived_table_columns: join_order + 테이블별 컬럼 → 파생 테이블 전체 컬럼 (table, alias, column, type)
+
+[Dependencies]
+=========
+- 표준 라이브러리만 사용
 """
 
 # 관계 confidence → 점수 (문서 JOIN_지표_및_파생테이블.md)

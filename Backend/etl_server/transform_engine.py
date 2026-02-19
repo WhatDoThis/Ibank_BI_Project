@@ -1,19 +1,16 @@
 """
 Backend.etl_server.transform_engine (변환 룰 적용 엔진)
 =====================================================
-DataFrame에 etl_transform_rules를 순서대로 적용. Phase 4 변환(T) 1차.
+DataFrame에 etl_transform_rules를 apply_order 순으로 적용. cleansing/type_cast/code_map/derived/masking.
 
-[Main Functions]
+[Functions]
 ===========
-- apply_rules: (df, rules) → 변환된 DataFrame. rules는 list_transform_rules 반환 형태.
-
-[Rule Types]
-===========
-- cleansing: TRIM, 빈 문자열→NULL, 기본값
-- type_cast: 문자열→date/timestamp/integer/bigint/numeric
-- code_map: 원본값→대상값 매핑
-- derived: concat(문자열 결합), year_minus(현재년도 - 컬럼)
-- masking: right_n/left_n(뒷/앞 N자리 마스킹), email_domain(도메인만 노출)
+26 - _apply_cleansing: TRIM, empty_to_null, default_value
+36 - _apply_type_cast: target_type(date/timestamp/integer/bigint/numeric/text), on_error, date_format
+69 - _apply_code_map: mappings, default
+76 - _apply_derived: formula(concat, year_minus), columns/separator, source_column
+97 - _apply_masking: type(right_n/left_n/email_domain), n, char
+136 - apply_rules: (df, rules) → 변환된 DataFrame. is_active=True만, source_column→target_column
 
 [Dependencies]
 =========

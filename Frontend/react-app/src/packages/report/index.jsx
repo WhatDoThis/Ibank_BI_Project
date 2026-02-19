@@ -3,13 +3,9 @@
  * ===============================================
  * 노코드 쿼리 빌더 페이지 재export. App에서 /report 라우트에 사용.
  *
- * [Main Functions]
+ * [Main]
  * ===========
- * - ReportPage (default, named export)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - ReportPage: ReportPage.jsx
+ * ReportPage (default, named export)
  *
  * [Dependencies]
  * =========

@@ -3,21 +3,23 @@ Backend.api_server.main (FastAPI 앱 진입점)
 ===========================================
 FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 host/port 사용, uvicorn 기동.
 
-[Main Functions]
+[Functions]
 ===========
-- app: FastAPI 인스턴스. 루트·API 안내, 404/500 JSON 응답 처리.
+startup_etl_worker: ETL Job 큐 워커 기동 (pending→running, 동시 2건 제한)
+not_found_handler: 404 예외 시 JSON 응답
+internal_error_handler: 500 예외 시 JSON 응답
 
-[Endpoints/Classes/Functions]
-=======================
-- health: GET /health, GET /, GET /api, GET /api/
-- report: /api/* (list-tables, describe-table, execute-query, explain-sql 등)
-- dashboard: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
-- dashboard2: /api/dashboard2/* (data, filter-options, tables, required-columns, chart-data)
-- etl: /api/etl/* (ETL 메타·업로드·Job 등)
+[라우터]
+===========
+health_router: GET /health, GET /, GET /api, GET /api/
+report_router: /api/* (list-tables, describe-table, execute-query, explain-sql 등)
+dashboard_router: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
+dashboard2_router: /api/dashboard2/* (동일)
+etl_router: /api/etl/* (ETL 메타·업로드·연결 테스트·Job·add-file·add-files-zip 등)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.api_server.db, Backend.api_server.routers
+- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router
 - fastapi, uvicorn
 """
 
@@ -50,8 +52,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 app.include_router(health_router)

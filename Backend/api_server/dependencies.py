@@ -3,14 +3,10 @@ Backend.api_server.dependencies (FastAPI 의존성 주입)
 =====================================================
 DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)로 사용.
 
-[Main Functions]
+[Functions]
 ===========
-- get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
-- get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
-
-[Endpoints/Classes/Functions]
-=======================
-- get_db, get_config: 의존성 함수 (라우터 핸들러 인자에 Depends()로 사용)
+36 - get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
+45 - get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
 
 [Dependencies]
 =========

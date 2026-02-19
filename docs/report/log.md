@@ -1,5 +1,426 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-19: PRD(00_PRD.md) report·log 반영 정리
+
+### 완료 작업
+1. **목적**: docs/report/00_ReportIndex.md·log.md 및 목록 내 report 파일(08·09 등) 내용을 00_PRD.md에 최소·요약만 반영(코드 제외).
+2. **반영 내용**: §1.2 ETL 문단(파일·DB, PG·MySQL 적재·Oracle 목록·미리보기·PK, 전체/증분, 배치·실행 시점). §2.1 Frontend etl 패키지·Backend etl_server, §2.2 경로. §3.2 system_db·etl_limits. §4·§5 ETL 패키지·API(/api/etl). **§6.3 ETL** 신설: 목적·소스 유형(파일 3일 보관·DB 지원 표)·DB 연결(테스트·09 참고)·동기화 모드·배치·실행 시점(수동만)·목록 열(연결·배치·동기화)·파일 ETL·Job 큐·설정·08 참고. 기존 §6.3 공통 → §6.4로 번호 이동. §7 docs/report에 08·09 참고 문구. §8 변경 이력 행 추가(2026-02-19).
+
+### 수정 파일
+- docs/main/00_PRD.md
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: 배치·실행 시점 안내 문서·UI 보강
+
+### 완료 작업
+1. **요청**: 배치 크기/인터벌은 보이지만 "매일 몇 시에 증분 진행되는지" 없음. draft 상태에서도 해당 시간에 자동 증분되는지 알고 싶음.
+2. **현재 동작 정리**: (1) 배치 크기·배치 간 대기는 **한 번의 실행** 안에서만 적용(스트리밍 행 수, 배치 간 쉬는 초). (2) **매일 몇 시 자동 실행** 스케줄은 **미구현** — 실행은 "실행" 버튼으로만 대기열 등록. (3) **draft여도 자동 실행 없음** — 스케줄러가 없으므로 증분도 수동 "실행"만 가능.
+3. **08_ETL_Phase_Implement_Guide.md**: §3.4 "배치 설정·실행 시점" 추가. 배치 크기/대기 의미, 매일 몇 시 미지원, 실행 시점, draft와 자동 실행 없음 표로 정리.
+4. **ETLTableList 도움말(?)**: "배치·실행 시점 안내" 섹션 추가. 배치 크기/대기=한 번 실행 시 적용, 매일 몇 시 미지원, 실행=버튼만, draft여도 자동 증분 없음.
+
+### 수정 파일
+- docs/report/08_ETL_Phase_Implement_Guide.md (§3.4)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (도움말 모달)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: DB 적재 MySQL 지원(Phase 2) — 플랜 정리·구현 완료
+
+### 플랜(08 문서 §3.3 반영)
+- **Phase 1(완료)**: 소스 테이블 목록·PK 자동 조회 MySQL·Oracle
+- **Phase 2(완료)**: run_db_load에서 **MySQL** 소스 지원(연결·컬럼·PK·SELECT·메인 DB 적재)
+- **Phase 3(예정)**: run_db_load에서 Oracle 소스 지원
+
+### Phase 2 완료 작업
+1. **db_load_service**: MySQL 분기. _fetch_source_columns_mysql, _pg_type_from_mysql. run_db_load에서 stype별 src_conn(PostgreSQL/MySQL), src_schema, columns·source_pk_list·quoted_src(backtick)·select_list·where_clause·type_mapper·row_type. 배치/전체 경로에서 tuple→dict 변환, type_mapper로 컬럼 타입 매핑.
+2. **queue_worker·router**: mysql일 때 run_db_load/run API 허용.
+3. **preview_service**: _preview_db에서 MySQL 분기(연결·컬럼·SELECT 10행).
+4. **Frontend**: ETLTableList에서 postgresql·mysql·oracle 소스 시 실행/미리보기 버튼 표시.
+5. **08_ETL_Phase_Implement_Guide.md**: §3.3 페이즈 표, 구현 현황에 MySQL 적재 ✅.
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py, queue_worker.py, router.py, preview_service.py
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx
+- docs/report/08_ETL_Phase_Implement_Guide.md, log.md
+
+---
+
+## 2026-02-19: 소스 테이블 목록 조회 MySQL·Oracle 지원
+
+### 완료 작업
+1. **문제**: list_source_tables가 PostgreSQL만 지원하고, table_schema = 'public' 등으로 조회. MySQL에서는 TABLE_SCHEMA가 데이터베이스명이라 'public'으로 조회하면 0건.
+2. **PostgreSQL**: 기존 유지. table_schema = connection.schema_name (기본 'public'), table_type = 'BASE TABLE'.
+3. **MySQL**: 분기 추가. TABLE_SCHEMA = connection.database_name(연결한 DB명), TABLE_TYPE = 'BASE TABLE'. information_schema.TABLES 사용. 반환 형식 동일 (table_schema, table_name).
+4. **Oracle**: 분기 추가. connection.schema_name이 있으면 ALL_TABLES WHERE OWNER = UPPER(schema_name); 없으면 USER FROM DUAL + USER_TABLES로 현재 사용자 테이블. 반환 (table_schema=OWNER, table_name).
+
+### 수정 파일
+- Backend/etl_server/service.py (list_source_tables 전면 분기, 상단 설명)
+- Backend/etl_server/router.py (list_connection_tables 주석)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: ETL 목록에 연결(서버 구분)·동기화 모드 표시
+
+### 완료 작업
+1. **연결 열**: 소스 유형과 소스 사이에 **연결** 열 추가. DB 소스일 때 `connection_name` 표시(등록 시 입력한 연결 이름으로 서버/환경 구분). 파일 소스는 "—". 헤더 title "연결 이름 (서버/환경 구분)".
+2. **동기화 열**: 배치와 상태 사이에 **동기화** 열 추가. DB 소스일 때 sync_mode: "전체"(full) / "증분"(incremental). 파일 소스는 "—". 헤더 title "전체: DROP+CREATE+INSERT, 증분: last_synced_at 이후만 Upsert", 셀 title로 상세 설명.
+3. **스타일**: 연결 열 max-width 10em, ellipsis. 동기화 열 nowrap, width 1%.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (연결·동기화 열 및 표시 로직, 상단 설명)
+- Frontend/react-app/src/packages/etl/etl.css (연결·동기화 열 스타일)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: ETL 목록에 배치 크기·대기 시간 표시
+
+### 완료 작업
+1. **요청**: 소스 연결(DB) ETL의 배치 크기·대기 시간을 설정할 수 있으나 목록에서 확인 불가.
+2. **수정**: ETL 테이블 목록에 **배치** 열 추가. DB 소스(postgresql/mysql/oracle)일 때만 표시: "5,000행 / 1초", "5,000행", "전체 / 1초", "전체" 등. 파일 소스는 "—". 셀 title로 "배치 크기: N행/전체, 대기: N초/없음" 툴팁.
+3. **스타일**: .etl-table-list__th-batch, .etl-table-list__cell-batch (nowrap, max-width 8em).
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (배치 열·표시 로직, 상단 설명)
+- Frontend/react-app/src/packages/etl/etl.css (배치 열 스타일)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: ETL incremental 모드 — 트랜잭션 중단 후 CREATE TABLE 실패 수정
+
+### 완료 작업
+1. **원인**: incremental 모드에서 타겟 테이블 존재 여부를 `SELECT 1 FROM ... LIMIT 1`로 확인할 때, 테이블이 없으면 `UndefinedTable` 예외 발생. PostgreSQL은 한 문장이라도 실패하면 트랜잭션이 aborted 상태가 되어, 같은 연결로 ROLLBACK 전에 다음 명령을 실행하면 `InFailedSqlTransaction` 발생.
+2. **수정**: `db_load_service.run_db_load`의 incremental 분기에서, 위 SELECT 예외 처리 시 `conn_main.rollback()` 후에 `CREATE TABLE` 실행하도록 추가.
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py (incremental 분기 except 블록에 rollback)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: Excel(xlsx/xls) 미리보기·로드 속도 개선
+
+### 완료 작업
+1. **원인**: CSV는 `read_csv(..., nrows=N)`으로 처음 N행만 읽는데, Excel은 `read_excel(file_path)`로 시트 전체를 메모리에 로드한 뒤 `head(nrows)`로 자르고 있어, 미리보기·PK 컬럼 선택 시에도 전체 파일 파싱으로 유독 느렸음.
+2. **수정**: `load_service._read_file`에서 Excel 처리 시 `pd.read_excel(file_path, nrows=nrows)` 사용. `max_rows`가 있으면(미리보기 10행 등) 해당 행 수만 읽어 CSV와 비슷하게 동작.
+
+### 수정 파일
+- Backend/etl_server/load_service.py (_read_file Excel 분기)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: ETL DB 로드 시 COUNT(*) 결과 접근 오류 수정
+
+### 완료 작업
+1. **원인**: `_connect_postgres`가 `cursor_factory=RealDictCursor`로 연결해 행이 딕셔너리로 반환되는데, `run_db_load`에서 배치 모드 시 `cur_count.fetchone()[0]`로 접근해 `KeyError: 0` 발생.
+2. **수정**: `db_load_service.run_db_load`에서 COUNT(*) 결과를 `row.values()`가 있으면 첫 번째 값, 없으면 `row[0]`으로 취하도록 변경(튜플/딕셔너리 모두 지원).
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py (run_db_load 내 total_from_src 추출 방식)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: PK 자동 조회 MySQL·Oracle 확장
+
+### 완료 작업
+1. **Backend**: ETL 테이블 등록 시 PK 자동 조회를 **MySQL·Oracle**까지 확장. `service.py`에 `_fetch_pk_from_mysql`(information_schema.KEY_COLUMN_USAGE), `_fetch_pk_from_oracle`(all_constraints/user_constraints + all_cons_columns/user_cons_columns) 추가. `create_etl_table`에서 source_type별로 postgresql → db_load_service, mysql → _connect_mysql + _fetch_pk_from_mysql, oracle → _connect_oracle + _fetch_pk_from_oracle 호출 후 pk_columns 자동 설정.
+2. **문서/주석**: service.py 상단 [Helpers]에 _fetch_pk_from_mysql·_fetch_pk_from_oracle 설명 추가.
+
+### 수정 파일
+- Backend/etl_server/service.py (_fetch_pk_from_mysql, _fetch_pk_from_oracle, create_etl_table 확장, 상단 설명)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: DB 연결 섹션 PK 컬럼 입력 제거·소스 DB 자동 반영
+
+### 완료 작업
+1. **Backend**: ETL 테이블 등록 시 DB 소스(PostgreSQL)이고 `pk_columns`가 비어 있으면, 소스 DB information_schema에서 PK 컬럼을 조회해 자동 설정. `create_etl_table`에서 `get_connection_for_etl`·`db_load_service._get_source_connection`·`_fetch_source_pk_columns` 사용, 예외 시 경고 로그 후 등록은 진행.
+2. **Frontend**: DB 연결 폼에서 PK 컬럼 입력란 제거. 대신 안내 문구만 표시: "DB 소스인 경우 PK는 소스 DB에서 자동으로 가져옵니다. (incremental 시 사용)". 등록 시 `pk_columns`는 null로 전달하여 백엔드 자동 채우기 유도.
+3. **문서/주석**: DbConnectionForm.jsx 상단 설명에 PK 자동 반영 문구 반영.
+
+### 수정 파일
+- Backend/etl_server/service.py (create_etl_table 내 PK 자동 조회)
+- Frontend/react-app/src/packages/etl/components/DbConnectionForm.jsx (PK 입력 제거, 안내 문구, 상단 설명)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL DB 연결 구조·실패 지점 문서(09번) 작성
+
+### 완료 작업
+1. **docs/report/09_ETL_DB_Connection_Flow.md** 신규 작성. ETL에서 외부 DB(49.247.47.206) 연결 시 어디서 어떻게 fail이 나는지, 경유 IP가 무엇인지 정리.
+2. **연결 구조**: 브라우저 → API 서버(Backend) → TCP로 49.247.47.206:5432. 브라우저는 DB에 직접 연결하지 않음.
+3. **경유 IP**: 49.247.47.206 쪽에 보이는 접속 출발지 = Backend가 실행 중인 호스트의 IP(로컬 run.py back이면 그 PC의 IP).
+4. **실패 지점**: router → service.test_connection → get_connection_for_etl(선택) → _connect_postgres(psycopg2.connect). 대부분 _connect_postgres 내 TCP/인증 단계에서 fail. 예외별 한글 메시지·hint 표로 정리.
+5. **모식도**: Mermaid flowchart로 전체 흐름·경유 IP 설명.
+6. **점검 순서**: Backend 실행 위치 확인, 터미널 로그(error_type/error), DB 서버 방화벽·pg_hba.conf·Backend 호스트 IP 허용, psql/telnet 테스트.
+
+### 수정/추가 파일
+- docs/report/09_ETL_DB_Connection_Flow.md (신규)
+- docs/report/00_ReportIndex.md (09번 항목 추가)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 목록 문서 통합·Frontend packages 상단 주석 정리
+
+### 완료 작업
+1. **문서 통합**: docs/report/10_ETL_목록_동작_정리.md 내용을 08_ETL_Phase_Implement_Guide.md §12로 이관 후 10번 파일 삭제. 00_ReportIndex.md에서 10번 항목 제거, 08번 설명에 §12 ETL 목록 동작 정리 반영.
+2. **Frontend packages 상단 주석 정리**: packages/etl, report, dashboard, dashboard2, widgetboard 내 코드 파일을 구조 순서대로 점검·통일.
+   - **etl**: index.jsx [Main] 통일. PreviewModal [Components]/[Dependencies] 추가. JobHistoryPanel [Main Functions] 추가. SourceTypeSelector 'history' 탭 반영·[Components] 추가.
+   - **report**: index.jsx [Main]만 유지([Endpoints/Classes/Functions] 제거).
+   - **dashboard/dashboard2**: index.jsx [Main], [Dependencies]만 유지.
+   - **widgetboard**: index.jsx 전체 형식 추가. Dashboard3Page.jsx [Main Functions]/[Dependencies] 보강. dataUtils.js [Main Functions]/[Dependencies] 추가. widgetboard.css 상단 블록 주석 추가.
+
+### 수정/삭제 파일
+- docs/report/08_ETL_Phase_Implement_Guide.md (§12 추가)
+- docs/report/00_ReportIndex.md (10번 제거, 08 설명 갱신)
+- docs/report/10_ETL_목록_동작_정리.md (삭제)
+- Frontend/react-app/src/packages/etl/index.jsx, components/PreviewModal.jsx, JobHistoryPanel.jsx, SourceTypeSelector.jsx
+- Frontend/react-app/src/packages/report/index.jsx
+- Frontend/react-app/src/packages/dashboard/index.jsx
+- Frontend/react-app/src/packages/dashboard2/index.jsx
+- Frontend/react-app/src/packages/widgetboard/index.jsx, Dashboard3Page.jsx, utils/dataUtils.js, widgetboard.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: Backend api_server·etl_server 상단 설명 주석(docstring) 업데이트
+
+### 완료 작업
+1. **api_server**: `__init__.py` — 패키지 설명에 ETL REST API 포함, app 설명 정리. `main.py` — etl_router 설명에 add-file·add-files-zip 명시, Dependencies에 Backend.etl_server.router 추가. `db.py` — 상단 Functions 목록에서 get_db_connection / get_db_connection_system 순서·중복 정리, 라인 번호 제거(유지보수 시 밀림 방지), 메인/시스템 DB·ETL 타겟 조회 역할 문구 보강.
+2. **etl_server**: `service.py` — _connect_postgres 설명에 connect_timeout·로깅 적용 반영. `router.py` — add_files_zip_to_table·cleanup_expired_uploads 라인 번호를 실제 정의 위치(480, 626)로 수정.
+
+### 수정 파일
+- Backend/api_server/__init__.py, main.py, db.py
+- Backend/etl_server/service.py, router.py
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 압축(ZIP) 다중 파일 추가 적재
+
+### 완료 작업
+1. **설계 문서**: docs/report/08_ETL_Phase_Implement_Guide.md에 **§11 추가 구현: 압축(zip) 다중 파일 추가 적재** 추가. 흐름(업로드 → 압축 해제 → 파일명 자연 정렬 → Job 순차 등록), **건너뛴 파일 목록 제공**(API 응답 skipped_files, UI 표시·복사·텍스트 다운로드), **다중 사용자 동시 업로드**(요청별 `uploads/zip_<uuid>/` 사용으로 넘버링·경로 충돌 방지) 정리.
+2. **Backend**: `POST /api/etl/tables/{etl_table_id}/add-files-zip` 추가. ZIP 수신 → `uploads/zip_<uuid>/`에 압축 해제 → 지원 확장자(.csv, .xlsx, .xls, .parquet)·max_file_size_mb 이하만 유효 → 파일명 자연 정렬 후 순서대로 insert_job → 응답에 job_ids, enqueued_count, skipped_files(filename, reason) 반환. _natural_sort_key, _file_type_from_ext 헬퍼 추가. _cleanup_expired_uploads에서 zip_* 디렉터리 만료 시 전체 삭제.
+3. **Frontend**: 데이터 추가 모달에 "단일 파일" / "ZIP (여러 파일, 파일명 순서대로 적재)" 모드. ZIP 모드 시 etlAddFilesZipToTable 호출, 성공 시 결과 화면에 메시지·건너뛴 파일 목록(사유 표시)·목록 복사·텍스트로 다운로드 버튼 제공.
+4. **API 클라이언트**: etlAddFilesZipToTable(etlTableId, file) 추가.
+
+### 수정/추가 파일
+- docs/report/08_ETL_Phase_Implement_Guide.md (§11 추가)
+- Backend/etl_server/router.py (add-files-zip, _natural_sort_key, _file_type_from_ext, cleanup zip_*)
+- Frontend/react-app/src/shared/api/client.js (etlAddFilesZipToTable)
+- Frontend/react-app/src/packages/etl/components/AddFileModal.jsx (모드 선택, ZIP 결과·건너뛴 파일 UI)
+- Frontend/react-app/src/packages/etl/etl.css (모드·결과·건너뛴 목록 스타일)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: _validate_identifier 통일·도움말 모달 상태별 안내·동작 컬럼 너비
+
+### 완료 작업
+1. **_validate_identifier 통일**: load_service, db_load_service에 있던 동일 함수 제거 후, service._validate_identifier 한 곳만 사용하도록 변경. load_service·db_load_service는 etl_service._validate_identifier 호출, preview_service는 db_load_service에서 _validate_identifier import 제거 후 etl_service._validate_identifier 사용. transform_rules_service·service는 기존대로 etl_service/내부 _validate_identifier 사용.
+2. **도움말 모달(?)**: 단순 버튼 목록이 아니라 **상태별** 안내로 재구성. draft / error / done / 실행 중·대기 중 섹션으로 나누어, 각 상태에서 어떤 버튼이 활성·비활성인지와 동작을 설명.
+3. **동작 컬럼 너비**: 동작 컬럼 헤더에 ? 추가 후 좌우폭이 좁아지던 문제 해결. `.etl-table-list__th-actions`, `.etl-table-list__cell-actions`에 min-width: 320px 적용, 동작 셀에 클래스 부여.
+
+### 수정 파일
+- Backend/etl_server/load_service.py, db_load_service.py (로컬 _validate_identifier 제거, etl_service._validate_identifier 사용)
+- Backend/etl_server/preview_service.py (db_load_service에서 _validate_identifier 제거, etl_service._validate_identifier 사용)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (도움말 모달 상태별 섹션, 동작 td에 etl-table-list__cell-actions)
+- Frontend/react-app/src/packages/etl/etl.css (동작 컬럼 min-width, cell-actions)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: PK 설정 모달 — 컬럼 선택(체크박스) 방식으로 변경
+
+### 완료 작업
+1. **요구**: PK 설정 시 텍스트 입력 대신 컬럼을 선택할 수 있도록 변경.
+2. **구현**: PkColumnsModal에서 열릴 때 `GET /api/etl/tables/:id/preview`로 컬럼 목록 로드 후, 체크박스로 PK로 쓸 컬럼 선택. 선택 순서는 테이블 컬럼 순서로 전송. API는 기존대로 `PATCH /api/etl/tables/:id` (pk_columns 쉼표 구분 문자열).
+3. **폴백**: 미리보기 실패 또는 컬럼 없음 시 안내 문구 + 직접 입력용 텍스트 필드 유지.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/PkColumnsModal.jsx (etlPreviewTable 연동, 체크박스 UI)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-pk-modal__columns, __checkbox-wrap, __checkbox, __selected-hint, __loading)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: Backend/etl_server 상단 설명 라인 번호 정정
+
+### 완료 작업
+1. **문제**: 각 .py 파일 상단 docstring의 "LINE - 함수/클래스명" 형식 라인 번호가 실제 코드 위치와 불일치(추가/삭제로 인한 밀림).
+2. **조치**: `^def |^async def |^class ` 기준으로 현재 라인 번호를 grep으로 재확인 후, 다음 9개 파일의 상단 설명만 수정(코드 변경 없음).
+   - router.py (Pydantic Models, Helpers, Endpoints)
+   - service.py (Helpers, Connections, ETL Tables, Jobs)
+   - db_load_service.py, load_service.py (Helpers, Main)
+   - preview_service.py, queue_worker.py, transform_engine.py, transform_rules_service.py, schema_infer.py
+3. **미수정**: etl_limits.py(22 - get_etl_limits), __init__.py(17 - router)는 이미 일치하여 변경 없음.
+
+### 수정 파일
+- Backend/etl_server/router.py, service.py, db_load_service.py, load_service.py
+- Backend/etl_server/preview_service.py, queue_worker.py, transform_engine.py, transform_rules_service.py, schema_infer.py
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: 파일/DB 적재 시 PK 설정·선택 반영
+
+### 완료 작업
+1. **파일 업로드 적재**: ETL에 `pk_columns`가 설정되어 있으면 CREATE TABLE 시 `PRIMARY KEY (col1, ...)` 추가. 설정 없으면 기존처럼 PK 없이 생성. 컬럼명은 파일 컬럼과 일치해야 하며, 없으면 실패 메시지 반환.
+2. **DB full 모드**: 소스 테이블의 PRIMARY KEY를 information_schema로 조회(`_fetch_source_pk_columns`)해, 타겟 CREATE TABLE에 자동으로 `PRIMARY KEY (...)` 추가. 소스에 PK 없으면 PK 없이 생성.
+3. **PK 설정 UI**: 등록된 ETL 목록에 "PK 설정" 버튼 추가 → 모달에서 PK 컬럼(쉼표 구분) 입력·저장. `PATCH /api/etl/tables/:id` (body: `pk_columns`) 및 `update_etl_table(etl_table_id, pk_columns)` 추가.
+
+### 수정/추가 파일
+- Backend/etl_server/load_service.py (pk_columns 있으면 CREATE TABLE에 PRIMARY KEY 추가)
+- Backend/etl_server/db_load_service.py (_fetch_source_pk_columns, full 모드 CREATE 시 PK 반영)
+- Backend/etl_server/service.py (update_etl_table)
+- Backend/etl_server/router.py (UpdateTableBody, PATCH /tables/{id})
+- Frontend/react-app/src/shared/api/client.js (etlUpdateTable)
+- Frontend/react-app/src/packages/etl/components/PkColumnsModal.jsx (신규)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (PK 설정 버튼·모달)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-pk-modal, .etl-table-list__pk-set)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: 등록된 ETL 목록에 행만 삭제(X) 버튼 추가 (테이블 유지)
+
+### 완료 작업
+1. **요구**: 동일 테이블에 대한 업로드 건이 중복으로 들어갈 때, 테이블은 유지하고 해당 행과 업로드 파일만 삭제하는 버튼 필요.
+2. **Backend**: `delete_etl_table_row_only(etl_table_id)` 추가. 메인 DB 타겟 테이블은 DROP하지 않고, 해당 ETL 행의 file_path·관련 job의 add_file_path 파일 삭제 후 etl_transform_rules·etl_jobs·etl_tables에서 삭제. `DELETE /api/etl/tables/{id}/row` 엔드포인트 추가.
+3. **Frontend**: `etlDeleteTableRow(etlTableId)` API, ETLTableList에서 삭제 버튼 옆에 × 버튼(.etl-table-list__delete-row). 클릭 시 "해당 ETL 등록 건만 삭제합니다. 업로드 파일은 삭제되며, 메인 DB의 타겟 테이블은 유지됩니다. 진행할까요?" 컨펌 후 호출.
+
+### 수정 파일
+- Backend/etl_server/service.py (delete_etl_table_row_only)
+- Backend/etl_server/router.py (DELETE /tables/{id}/row)
+- Frontend/react-app/src/shared/api/client.js (etlDeleteTableRow)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (X 버튼)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-table-list__delete-row)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: Job 삭제 시 업로드 파일 함께 삭제·확장자/용량 안내 추가
+
+### 완료 작업
+1. **Job 삭제 시 add_file_path 파일 삭제**: `etl_service.delete_job(job_id)` 실행 시, 해당 job에 `add_file_path`가 있으면 DELETE 전에 경로를 읽어 두고, DB 삭제 성공 후 해당 경로의 파일이 존재하면 `os.remove`로 삭제. (추가 적재용 업로드 파일이 job과 함께 제거됨.)
+2. **확장자·제한용량 안내**: 파일 업로드 드래그앤드롭 영역(FileUploadForm)과 데이터 추가 모달(AddFileModal)의 파일 선택/드롭존 아래에 "지원 형식: CSV, Excel(.xlsx/.xls), Parquet / 최대 100MB" 안내 문구 추가. FileUploadForm에는 `.etl-file-form__accept` 스타일 추가.
+
+### 수정 파일
+- Backend/etl_server/service.py (delete_job에서 add_file_path 조회 후 파일 삭제, os import)
+- Frontend/react-app/src/packages/etl/components/FileUploadForm.jsx (__accept 문구)
+- Frontend/react-app/src/packages/etl/components/AddFileModal.jsx (__accept 문구)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-file-form__accept)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: 실행목록 패널에 Job 단건 삭제(X) 버튼 추가
+
+### 완료 작업
+1. **실행목록(Job 결과 패널)** 각 패널 오른쪽 끝에 **해당 job만 삭제**하는 X 버튼 추가. 클릭 시 "해당 job을 지우겠습니까?" 컨펌 후 확인 시 `DELETE /api/etl/jobs/{job_id}` 호출 및 목록에서 제거.
+2. **JobLogPanel**: `onDeleteJob(job_id)` prop 추가, 헤더에 `__head-actions`(닫기 + job 삭제 X) 배치. job 삭제 버튼은 빨간 테두리/글자로 구분.
+3. **ETLPage**: `etlDeleteJob` import, `handleDeleteJob(jobId)` (confirm → API → handleCloseResult) 추가, JobLogPanel에 `onDeleteJob` 전달.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/JobLogPanel.jsx (onDeleteJob, X 버튼)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (etlDeleteJob, handleDeleteJob)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-job-log__head-actions, .etl-job-log__delete-job)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: 데이터 추가 모달 UI 개선 (드래그앤드롭·여백·디자인)
+
+### 완료 작업
+1. **텍스트 정리**: 긴 설명 문단 제거. 타겟 테이블은 칩 형태로, 한 줄 힌트("같은 테이블에 추가합니다. PK 일치 시 업데이트, 없으면 삽입됩니다.")만 표시해 여백 확보.
+2. **드래그앤드롭**: 모달 내 파일 드롭존 추가. 영역 클릭 시 파일 선택, 드래그 오버/드롭 처리, 선택된 파일명 표시. FileUploadForm 패턴과 동일한 방식(useRef, onDragOver/Leave/Drop).
+3. **스타일**: 모달 패딩·타이틀·닫기 버튼, 드롭존(점선 테두리·호버/드래그오버 시 teal 강조), 지원 포맷 안내(CSV, Excel, Parquet), 액션 버튼 여백·border-radius 조정. 빽빽한 인상 해소.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/AddFileModal.jsx (드롭존·짧은 복사·파일 상태)
+- Frontend/react-app/src/packages/etl/etl.css (add-file 모달: __info, __target, __hint, __drop, __drop--over, __drop--has, __accept 등)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 미리보기 수정·실행 전 테이블 존재 컨펌
+
+### 완료 작업
+1. **미리보기**: `load_service._read_file`이 `(DataFrame, data_verification_needed)` 튜플을 반환하는데 미리보기에서 DataFrame만 기대해 오류 발생. `preview_service._read_file_preview`에서 튜플을 풀어 DataFrame만 반환하도록 수정.
+2. **실행 전 컨펌**: 타겟 테이블이 메인 DB에 이미 있으면 "동일한 테이블명이 있습니다. 실행 시 기존 테이블이 삭제되고 새로 적재됩니다. 진행하시겠습니까?" 컨펌 표시. 백엔드 `api_server.db.table_exists_in_schema`, `GET /api/etl/tables/{etl_table_id}/target-exists` 추가. 프론트 `handleRun`에서 target-exists 조회 후 exists 시 confirm, 취소 시 실행 안 함.
+
+### 수정/추가 파일
+- Backend/etl_server/preview_service.py (_read_file_preview에서 튜플 언패킹)
+- Backend/api_server/db.py (table_exists_in_schema)
+- Backend/etl_server/router.py (GET target-exists)
+- Frontend/react-app/src/shared/api/client.js (etlTargetExists)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (handleRun 내 target-exists + confirm)
+- docs/report/10_ETL_목록_동작_정리.md, log.md
+
+---
+
+## 2026-02-13: ETL 동일 테이블 데이터 추가(업서트) — 분할 파일 50+50+40MB → 한 테이블
+
+### 완료 작업
+1. **요구사항**: 140MB 파일을 50/50/40MB로 나눠 올려도 모두 동일 타겟 테이블로 들어가도록, 등록된 ETL에 "데이터 추가" 가능. 추가 파일은 PK 검증 후 업서트(INSERT ... ON CONFLICT DO UPDATE).
+2. **백엔드**: api_server.db에 get_primary_key_columns(table_name) 추가(메인 DB information_schema). etl_jobs에 add_file_path, add_file_type 컬럼 사용(INSERT/SELECT). load_service.run_file_upsert(etl_table_id, job_id): Job의 add_file_path 파일 읽기 → etl_tables.pk_columns 또는 메인 DB PK 사용 → 타겟 테이블에 배치 업서트. router: POST /api/etl/tables/{etl_table_id}/add-file (파일 업로드, PK·컬럼 검증, Job 등록). queue_worker: add_file_path 있으면 run_file_upsert 호출.
+3. **프론트**: AddFileModal(파일 선택 → 추가 적재), ETLTableList에 "데이터 추가" 버튼(파일 ETL만), ETLPage에서 모달 상태·onSuccess 시 jobResults에 Job 추가.
+4. **DB 마이그레이션**(명령만): system_db의 etl_jobs에 컬럼 추가 후 사용.
+   - `ALTER TABLE etl_jobs ADD COLUMN IF NOT EXISTS add_file_path TEXT;`
+   - `ALTER TABLE etl_jobs ADD COLUMN IF NOT EXISTS add_file_type VARCHAR(20);`
+5. **사용 조건**: 타겟 테이블에 PRIMARY KEY가 있거나, ETL 설정에 pk_columns를 넣어 두어야 함. (첫 적재로 만든 테이블은 PK가 없을 수 있으므로, 필요 시 메인 DB에서 `ALTER TABLE ... ADD PRIMARY KEY (컬럼);` 실행.)
+
+### 수정/추가 파일
+- Backend/api_server/db.py (get_primary_key_columns)
+- Backend/etl_server/service.py (insert_job에 add_file_path/add_file_type, list_jobs/get_job SELECT)
+- Backend/etl_server/load_service.py (run_file_upsert)
+- Backend/etl_server/router.py (POST add-file, _normalize_column_name_for_check)
+- Backend/etl_server/queue_worker.py (add_file_path 시 run_file_upsert)
+- Frontend/react-app/src/shared/api/client.js (etlAddFileToTable)
+- Frontend/react-app/src/packages/etl/components/AddFileModal.jsx (신규)
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx (onAddFile, 데이터 추가 버튼)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (addFileModal 상태, AddFileModal, onSuccess)
+- Frontend/react-app/src/packages/etl/etl.css (add-file 모달·버튼)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: CSV 폴백 사용 시 "데이터 확인이 필요합니다" 안내 표시
+
+### 완료 작업
+1. **백엔드**: CSV를 폴백(EOF 문자 제거)으로 읽은 경우 `etl_jobs.notice`에 "데이터 확인이 필요합니다." 저장. `update_job(..., notice=...)`, `list_jobs`/`get_job`에 `notice` 컬럼 반환 추가.
+2. **DB**: `etl_jobs`에 `notice` 컬럼 추가(이미 적용). 앞으로 컬럼 추가 등은 SQL 파일 없이 명령어만 안내.
+3. **프론트**: 실행 결과 패널(JobLogPanel) 아래에 `notice`가 있으면 완료/취소 시 해당 문구 표시(.etl-job-log__notice). ETLPage에서 폴링·초기 로드 시 `notice` 포함, 완료된 Job도 패널에 유지해 안내 노출.
+
+### 수정/추가 파일
+- Backend/etl_server/service.py (update_job에 notice 인자, list_jobs/get_job SELECT에 j.notice)
+- Backend/etl_server/load_service.py (완료 시 notice 저장)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (notice 매핑, 완료 Job 삭제하지 않고 유지)
+- Frontend/react-app/src/packages/etl/components/JobLogPanel.jsx (notice 표시)
+- Frontend/react-app/src/packages/etl/etl.css (.etl-job-log__notice)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: CSV 적재 시 "unexpected end of data" 에러 대응
+
+### 완료 작업
+1. **원인**: pandas read_csv 시 파일 내 EOF 문자(`\x1a`, Ctrl+Z) 또는 따옴표 불균형 등으로 ParserError "unexpected end of data" 발생 시 적재 실패(처리 건수 0).
+2. **대응**: `load_service._read_csv_robust`에서 해당 예외 발생 시, 파일을 바이너리로 읽어 `\x1a`를 공백으로 치환한 뒤 StringIO로 다시 read_csv 시도하는 폴백 추가.
+3. **수정 파일**: Backend/etl_server/load_service.py (io import, _read_csv_robust 폴백 로직), docs/report/log.md.
+
+---
+
 ## 2026-02-13: ETL 실행 결과 여러 개 표시·진행 중/대기 중 UI 구분
 
 ### 완료 작업

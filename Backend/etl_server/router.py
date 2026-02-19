@@ -1,31 +1,77 @@
 """
 Backend.etl_server.router (ETL API 라우터)
 ==========================================
-FastAPI APIRouter. prefix /api/etl. Phase 1~5: 메타·업로드·연결·변환 룰·실행.
+FastAPI APIRouter. prefix /api/etl. 메타·업로드·연결·변환 룰·실행·Job API 제공.
 
-[Main Functions]
+[Pydantic Models]
 ===========
-- GET /api/etl: 서비스 안내 (upload_retention_days 포함)
-- GET/POST /api/etl/connections, POST /api/etl/connections/test, GET /api/etl/connections/{id}/tables
-- GET/POST /api/etl/tables, DELETE /api/etl/tables/{id}, GET /api/etl/tables/{id}/transform-rules, POST/PUT/DELETE /api/etl/transform-rules
-- POST /api/etl/upload: 파일 업로드·스키마 추론·선택 시 메타 등록. 3일 초과 파일 자동 삭제
-- POST /api/etl/tables/{etl_table_id}/run: 파일 적재(run_file_load) 또는 DB 적재(run_db_load) 분기
-- POST /api/etl/cleanup-expired-uploads: 만료 업로드 파일 삭제 (cron용)
+75 - CreateConnectionBody: POST /connections 요청
+88 - TestConnectionBody: POST /connections/test 요청
+98 - CreateTransformRuleBody: POST /transform-rules 요청
+109 - UpdateTransformRuleBody: PUT /transform-rules/{id} 요청
+212 - CreateTableBody: POST /tables 요청
+229 - UpdateTableBody: PATCH /tables/{id} 요청 (pk_columns 등)
+
+[Helpers]
+===========
+124 - _ensure_upload_dir: 업로드 디렉터리 생성
+128 - _cleanup_expired_uploads: 보관 기간 초과 업로드·zip_* 디렉터리 삭제
+151 - _save_upload: 업로드 파일 저장, (절대경로, 파일유형) 반환
+356 - _natural_sort_key: 파일명 자연 정렬용 키(숫자 구간 인식)
+359 - _file_type_from_ext: 확장자 → csv|excel|parquet
+362 - _normalize_column_name_for_check: 컬럼명 정규화(중복 시 접미사)
+
+[Endpoints]
+===========
+172 - etl_index: GET / — 서비스 안내, upload_retention_days
+200 - list_tables: GET /tables — ETL 테이블 목록
+235 - update_table: PATCH /tables/{id} — pk_columns 등 설정 갱신
+246 - create_table: POST /tables — ETL 테이블 메타 등록
+271 - delete_table_row_only: DELETE /tables/{id}/row — 행·업로드 파일만 삭제(테이블 유지)
+283 - delete_table: DELETE /tables/{id} — ETL 테이블·타겟 DROP·파일 삭제
+303 - upload_file: POST /upload — 파일 업로드·스키마 추론·선택 시 메타 등록
+369 - add_file_to_table: POST /tables/{id}/add-file — 동일 테이블 추가 적재(업서트), PK 검증 후 Job 등록
+480 - add_files_zip_to_table: POST /tables/{id}/add-files-zip — ZIP 압축 해제 후 파일명 순 Job 등록, skipped_files 반환
+626 - cleanup_expired_uploads: POST /cleanup-expired-uploads — 만료 업로드 삭제(cron용, zip_* 포함)
+452 - create_connection: POST /connections — DB 연결 등록
+474 - list_connections: GET /connections — 연결 목록
+489 - test_connection: POST /connections/test — 연결 테스트
+506 - list_transform_rules: GET /tables/{id}/transform-rules — 변환 룰 목록
+521 - create_transform_rule: POST /transform-rules — 룰 등록
+541 - update_transform_rule: PUT /transform-rules/{id} — 룰 수정
+561 - delete_transform_rule: DELETE /transform-rules/{id} — 룰 삭제
+570 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
+582 - delete_connection: DELETE /connections/{id} — 연결 삭제
+591 - check_target_table_exists: GET /tables/{id}/target-exists — 타겟 테이블 메인 DB 존재 여부
+610 - preview_table: GET /tables/{id}/preview — 미리보기(컬럼·10행)
+624 - run_table_load: POST /tables/{id}/run — 실행 대기열 등록(파일→run_file_load, DB→run_db_load)
+656 - list_jobs: GET /jobs — Job 목록(etl_table_id, statuses, limit)
+673 - get_job: GET /jobs/{id} — Job 1건(폴링용)
+693 - delete_job: DELETE /jobs/{id} — Job 1건 삭제(add_file_path 파일 삭제)
+707 - cancel_job: POST /jobs/{id}/cancel — 실행 중·대기 Job 취소
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server.service, load_service, db_load_service, schema_infer, transform_rules_service
+- fastapi, Backend.etl_server.service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service
 """
 
+import logging
+import os
+import re
+import shutil
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from Backend.etl_server import db_load_service
 from Backend.etl_server import load_service
+from Backend.etl_server import preview_service
 from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_rules_service as transform_rules_svc
@@ -47,10 +93,11 @@ class CreateConnectionBody(BaseModel):
 
 
 class TestConnectionBody(BaseModel):
-    """POST /api/etl/connections/test 요청 body. connection_id 또는 연결 인자."""
+    """POST /api/etl/connections/test 요청 body. connection_id 또는 연결 인자 + source_type."""
     connection_id: Optional[int] = None
+    source_type: Optional[str] = Field("postgresql", description="postgresql | mysql | oracle. connection_id 없을 때 필수.")
     host: Optional[str] = None
-    port: Optional[int] = 5432
+    port: Optional[int] = None
     database_name: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
@@ -89,23 +136,32 @@ def _ensure_upload_dir():
 def _cleanup_expired_uploads(max_age_days: int = UPLOAD_FILE_RETENTION_DAYS) -> dict:
     """
     uploads 디렉터리에서 보관 기간(일)을 초과한 파일 삭제.
-    파일의 수정 시각(mtime) 기준. 반환: { deleted_count, deleted_paths }.
+    파일의 수정 시각(mtime) 기준. zip_* 하위 디렉터리도 동일 기준으로 정리. 반환: { deleted_count, deleted_paths }.
     """
-    import os
     import time
     if not UPLOAD_DIR.is_dir():
         return {"deleted_count": 0, "deleted_paths": []}
     cutoff = time.time() - (max_age_days * 86400)
     deleted = []
     for f in UPLOAD_DIR.iterdir():
-        if not f.is_file():
-            continue
-        try:
-            if os.path.getmtime(str(f)) < cutoff:
-                f.unlink()
-                deleted.append(str(f))
-        except (OSError, PermissionError):
-            continue
+        if f.is_file():
+            try:
+                if os.path.getmtime(str(f)) < cutoff:
+                    f.unlink()
+                    deleted.append(str(f))
+            except (OSError, PermissionError):
+                continue
+        elif f.is_dir() and f.name.startswith("zip_"):
+            try:
+                max_mtime = 0
+                for p in f.rglob("*"):
+                    if p.is_file():
+                        max_mtime = max(max_mtime, os.path.getmtime(str(p)))
+                if max_mtime > 0 and max_mtime < cutoff:
+                    shutil.rmtree(f)
+                    deleted.append(str(f))
+            except (OSError, PermissionError):
+                continue
     return {"deleted_count": len(deleted), "deleted_paths": deleted}
 
 
@@ -150,6 +206,8 @@ def etl_index():
             "POST /api/etl/tables",
             "POST /api/etl/upload",
             "POST /api/etl/tables/{etl_table_id}/run",
+            "POST /api/etl/tables/{etl_table_id}/add-file",
+            "POST /api/etl/tables/{etl_table_id}/add-files-zip",
             "POST /api/etl/cleanup-expired-uploads",
         ],
         "upload_retention_days": UPLOAD_FILE_RETENTION_DAYS,
@@ -158,12 +216,17 @@ def etl_index():
 
 @router.get("/tables")
 def list_tables():
-    """ETL 테이블 목록. connection_name, source_type 포함."""
+    """ETL 테이블 목록. connection_name, source_type 포함. 파일 소스는 preview_available(원본 파일 존재 여부) 포함."""
     try:
         rows = etl_service.list_etl_tables()
         for r in rows:
             if r.get("created_at") is not None:
                 r["created_at"] = r["created_at"].isoformat()
+            fp = r.get("file_path")
+            if (r.get("source_type") or "").strip().lower() == "file" and fp:
+                r["preview_available"] = os.path.isfile(fp)
+            else:
+                r["preview_available"] = True
         return {"tables": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -184,6 +247,22 @@ class CreateTableBody(BaseModel):
     sync_mode: Optional[str] = Field("full", description="full | incremental")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). NULL/0이면 전체 fetch. 고객 DB 여건에 따라 설정.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
+
+
+class UpdateTableBody(BaseModel):
+    """PATCH /api/etl/tables/{id} 요청 body. 전달된 필드만 갱신."""
+    pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분). 비우면 PK 미설정. 파일 적재 시 CREATE TABLE에 반영.")
+
+
+@router.patch("/tables/{etl_table_id}", status_code=204)
+def update_table(etl_table_id: int, body: UpdateTableBody):
+    """ETL 테이블 설정 일부 갱신. pk_columns 등."""
+    try:
+        etl_service.update_etl_table(etl_table_id, pk_columns=body.pk_columns)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/tables")
@@ -208,6 +287,18 @@ def create_table(body: CreateTableBody):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/tables/{etl_table_id}/row", status_code=204)
+def delete_table_row_only(etl_table_id: int):
+    """ETL 등록 행만 삭제. 메인 DB 타겟 테이블은 유지, 업로드 파일 및 해당 행·관련 job만 삭제."""
+    try:
+        etl_service.delete_etl_table_row_only(etl_table_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("DELETE /tables/%s/row failed: %s", etl_table_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -283,6 +374,255 @@ async def upload_file(
     return result
 
 
+def _natural_sort_key(name: str):
+    """파일명 자연 정렬용 키(숫자 구간 인식). part_001, part_002, part_010 순."""
+    return [int(x) if x.isdigit() else x.lower() for x in re.split(r"(\d+)", str(name))]
+
+
+def _file_type_from_ext(ext: str) -> Optional[str]:
+    """확장자 → csv|excel|parquet. 미지원이면 None."""
+    ext = (ext or "").lower()
+    if ext == ".csv":
+        return "csv"
+    if ext in (".xlsx", ".xls"):
+        return "excel"
+    if ext == ".parquet":
+        return "parquet"
+    return None
+
+
+def _normalize_column_name_for_check(name: str, used: set) -> str:
+    """load_service과 동일한 컬럼명 정규화(검증용)."""
+    base = (str(name).strip() or "unnamed").replace(" ", "_")
+    base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
+    out = base
+    idx = 0
+    while out in used:
+        idx += 1
+        out = f"{base}_{idx}"
+    used.add(out)
+    return out
+
+
+@router.post("/tables/{etl_table_id}/add-file")
+async def add_file_to_table(
+    etl_table_id: int,
+    file: UploadFile = File(...),
+):
+    """
+    등록된 ETL(파일 기반)의 타겟 테이블에 추가 적재. 파일 업로드 후 PK 검증 → 대기열 등록 → 업서트 실행.
+    타겟 테이블에 PK가 있거나 ETL에 pk_columns가 설정되어 있어야 함.
+    """
+    from Backend.api_server import db as api_db
+    from Backend.etl_server import queue_worker
+
+    row = etl_service.get_etl_table(etl_table_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
+    target_table = (row.get("target_table") or "").strip()
+    if not target_table:
+        raise HTTPException(status_code=400, detail="해당 ETL에 target_table이 없습니다.")
+    source_type = (row.get("source_type") or "").strip().lower()
+    if source_type != "file":
+        raise HTTPException(status_code=400, detail="파일 기반 ETL에만 추가 적재할 수 있습니다.")
+
+    pk_columns_raw = (row.get("pk_columns") or "").strip()
+    if pk_columns_raw:
+        pk_list = [x.strip() for x in pk_columns_raw.split(",") if x.strip()]
+    else:
+        try:
+            pk_list = api_db.get_primary_key_columns_for_etl_target(target_table)
+        except Exception:
+            pk_list = []
+    if not pk_list:
+        raise HTTPException(
+            status_code=400,
+            detail="타겟 테이블에 PK가 없습니다. 메인 DB에서 해당 테이블에 PRIMARY KEY를 설정하거나, ETL 설정에서 pk_columns를 입력하세요.",
+        )
+
+    try:
+        file_path, file_type = _save_upload(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        table_columns = api_db.get_table_columns_for_etl_target(target_table)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"타겟 테이블 컬럼 조회 실패: {e}")
+
+    inferred = schema_infer.infer_schema(file_path, file_type)
+    used = set()
+    file_cols = [_normalize_column_name_for_check(c.get("name") or "col", used) for c in inferred]
+    file_col_set = set(file_cols)
+    missing_pk = [p for p in pk_list if p not in file_col_set]
+    if missing_pk:
+        raise HTTPException(
+            status_code=400,
+            detail=f"업서트를 위해 파일에 PK 컬럼이 필요합니다. 누락: {', '.join(missing_pk)}",
+        )
+    common = [c for c in table_columns if c in file_col_set]
+    if not common:
+        raise HTTPException(status_code=400, detail="파일과 타겟 테이블에 공통 컬럼이 없습니다.")
+
+    job_id = etl_service.insert_job(etl_table_id, status="pending", add_file_path=file_path, add_file_type=file_type)
+    queue_worker.start_background_worker()
+    description = row.get("description")
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": "추가 적재가 대기열에 등록되었습니다. 완료 여부는 Job 목록에서 확인하세요.",
+        "etl_table_id": etl_table_id,
+        "target_table": target_table,
+        "description": description,
+    }
+
+
+@router.post("/tables/{etl_table_id}/add-files-zip")
+async def add_files_zip_to_table(
+    etl_table_id: int,
+    file: UploadFile = File(...),
+):
+    """
+    ZIP으로 여러 파일 추가 적재. 압축 해제 후 파일명 자연 정렬 순으로 Job 등록.
+    각 파일이 max_file_size_mb 이하이고 지원 형식이어야 함. 건너뛴 파일은 skipped_files로 반환.
+    """
+    from Backend.api_server import db as api_db
+    from Backend.etl_server import queue_worker
+    from Backend.etl_server.etl_limits import get_etl_limits
+
+    row = etl_service.get_etl_table(etl_table_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
+    target_table = (row.get("target_table") or "").strip()
+    if not target_table:
+        raise HTTPException(status_code=400, detail="해당 ETL에 target_table이 없습니다.")
+    source_type = (row.get("source_type") or "").strip().lower()
+    if source_type != "file":
+        raise HTTPException(status_code=400, detail="파일 기반 ETL에만 추가 적재할 수 있습니다.")
+
+    pk_columns_raw = (row.get("pk_columns") or "").strip()
+    if pk_columns_raw:
+        pk_list = [x.strip() for x in pk_columns_raw.split(",") if x.strip()]
+    else:
+        try:
+            pk_list = api_db.get_primary_key_columns_for_etl_target(target_table)
+        except Exception:
+            pk_list = []
+    if not pk_list:
+        raise HTTPException(
+            status_code=400,
+            detail="타겟 테이블에 PK가 없습니다. 메인 DB에서 해당 테이블에 PRIMARY KEY를 설정하거나, ETL 설정에서 pk_columns를 입력하세요.",
+        )
+
+    try:
+        table_columns = api_db.get_table_columns_for_etl_target(target_table)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"타겟 테이블 컬럼 조회 실패: {e}")
+
+    fn = (file.filename or "").strip().lower()
+    if not fn.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="ZIP 파일만 업로드할 수 있습니다.")
+
+    _ensure_upload_dir()
+    zip_uid = uuid.uuid4().hex
+    extract_dir = UPLOAD_DIR / f"zip_{zip_uid}"
+    zip_path = UPLOAD_DIR / f"zip_{zip_uid}.zip"
+    skipped_files: list = []
+    job_ids: list = []
+
+    try:
+        content = await file.read()
+        zip_path.write_bytes(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"ZIP 읽기 실패: {e}")
+
+    try:
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(extract_dir)
+    except zipfile.BadZipFile as e:
+        if zip_path.is_file():
+            zip_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="ZIP 파일이 손상되었거나 형식이 올바르지 않습니다.")
+    except Exception as e:
+        if zip_path.is_file():
+            zip_path.unlink(missing_ok=True)
+        if extract_dir.is_dir():
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"ZIP 압축 해제 실패: {e}")
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+    max_file_mb, _, _ = get_etl_limits()
+    supported_exts = (".csv", ".xlsx", ".xls", ".parquet")
+    all_files: list = []
+    for p in extract_dir.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(extract_dir)
+        name = p.name
+        ext = p.suffix.lower()
+        if ext not in supported_exts:
+            skipped_files.append({"filename": str(rel), "reason": "unsupported_format"})
+            continue
+        try:
+            size_mb = os.path.getsize(p) / (1024 * 1024)
+        except OSError:
+            skipped_files.append({"filename": str(rel), "reason": "file_too_large"})
+            continue
+        if max_file_mb > 0 and size_mb > max_file_mb:
+            skipped_files.append({"filename": str(rel), "reason": "file_too_large"})
+            continue
+        all_files.append((str(p.resolve()), name, ext))
+
+    all_files.sort(key=lambda x: _natural_sort_key(x[1]))
+
+    for abs_path, name, ext in all_files:
+        ft = _file_type_from_ext(ext)
+        try:
+            inferred = schema_infer.infer_schema(abs_path, ft)
+        except Exception:
+            skipped_files.append({"filename": name, "reason": "schema_or_pk_failed"})
+            continue
+        used = set()
+        file_cols = [_normalize_column_name_for_check(c.get("name") or "col", used) for c in inferred]
+        file_col_set = set(file_cols)
+        missing_pk = [p for p in pk_list if p not in file_col_set]
+        if missing_pk:
+            skipped_files.append({"filename": name, "reason": "schema_or_pk_failed"})
+            continue
+        common = [c for c in table_columns if c in file_col_set]
+        if not common:
+            skipped_files.append({"filename": name, "reason": "schema_or_pk_failed"})
+            continue
+        try:
+            job_id = etl_service.insert_job(
+                etl_table_id, status="pending", add_file_path=abs_path, add_file_type=ft
+            )
+            job_ids.append(job_id)
+        except Exception:
+            skipped_files.append({"filename": name, "reason": "schema_or_pk_failed"})
+            continue
+
+    queue_worker.start_background_worker()
+    description = row.get("description")
+    enqueued_count = len(job_ids)
+    message = f"{enqueued_count}개 파일이 대기열에 등록되었습니다. 완료 여부는 Job 목록에서 확인하세요."
+    if skipped_files:
+        message += " 건너뛴 파일은 아래 목록에서 확인하고, 정리 후 다시 업로드하세요."
+
+    return {
+        "job_ids": job_ids,
+        "enqueued_count": enqueued_count,
+        "skipped_files": skipped_files,
+        "message": message,
+        "etl_table_id": etl_table_id,
+        "target_table": target_table,
+        "description": description,
+        "status": "pending",
+    }
+
+
 @router.post("/cleanup-expired-uploads")
 def cleanup_expired_uploads():
     """
@@ -295,7 +635,7 @@ def cleanup_expired_uploads():
 
 @router.post("/connections", status_code=201)
 def create_connection(body: CreateConnectionBody):
-    """DB 연결 1건 등록. source_type=postgresql."""
+    """DB 연결 1건 등록. source_type=postgresql|mysql|oracle."""
     try:
         connection_id = etl_service.create_connection(
             connection_name=body.connection_name,
@@ -333,6 +673,10 @@ def list_connections():
 @router.post("/connections/test")
 def test_connection(body: TestConnectionBody):
     """연결 테스트. connection_id 또는 host/database_name/username/password."""
+    logger.info(
+        "[ETL 연결테스트] API 요청 수신: connection_id=%s source_type=%s host=%s port=%s database_name=%s username=%s",
+        body.connection_id, body.source_type, body.host, body.port, body.database_name, body.username,
+    )
     try:
         result = etl_service.test_connection(
             connection_id=body.connection_id,
@@ -341,9 +685,12 @@ def test_connection(body: TestConnectionBody):
             database_name=body.database_name,
             username=body.username,
             password=body.password,
+            source_type=body.source_type,
         )
+        logger.info("[ETL 연결테스트] API 응답: ok=%s message=%s", result.get("ok"), result.get("message"))
         return result
     except Exception as e:
+        logger.exception("[ETL 연결테스트] API 예외: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -413,7 +760,7 @@ def delete_transform_rule(rule_id: int):
 
 @router.get("/connections/{connection_id}/tables")
 def list_connection_tables(connection_id: int):
-    """소스 DB의 테이블 목록 (information_schema)."""
+    """소스 DB의 테이블 목록. PostgreSQL/MySQL: information_schema, Oracle: ALL_TABLES/USER_TABLES."""
     try:
         tables = etl_service.list_source_tables(connection_id)
         return {"tables": tables}
@@ -425,9 +772,44 @@ def list_connection_tables(connection_id: int):
 
 @router.delete("/connections/{connection_id}", status_code=204)
 def delete_connection(connection_id: int):
-    """연결 해제. 해당 연결로 등록된 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤 연결·ETL 메타 삭제."""
+    """연결 해제. 해당 연결로 등록된 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤 연결·ETL 메타 삭제. 파일 업로드용 연결은 삭제 불가."""
     try:
         etl_service.delete_connection(connection_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tables/{etl_table_id}/target-exists")
+def check_target_table_exists(etl_table_id: int):
+    """실행 전 확인용: 타겟 테이블이 메인 DB에 이미 존재하는지. exists=True면 실행 시 DROP 후 재적재됨."""
+    try:
+        row = etl_service.get_etl_table(etl_table_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
+        target_table = (row.get("target_table") or "").strip()
+        if not target_table:
+            return {"target_table": None, "exists": False}
+        from Backend.api_server import db as api_db
+        exists = api_db.table_exists_in_schema(target_table)
+        return {"target_table": target_table, "exists": exists}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tables/{etl_table_id}/preview")
+def preview_table(etl_table_id: int):
+    """미리보기: 컬럼별 저장 가능 여부 + 저장 후 테이블 모습 10행."""
+    try:
+        data = preview_service.get_preview(etl_table_id)
+        return data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -445,9 +827,9 @@ def run_table_load(etl_table_id: int):
         source_type = (row.get("source_type") or "").strip().lower()
         if source_type == "file" and not (row.get("file_path") and row.get("file_type")):
             raise ValueError("파일 기반 ETL은 file_path와 file_type이 필요합니다.")
-        if source_type == "postgresql" and not (row.get("connection_id") and row.get("source_table")):
+        if source_type in ("postgresql", "mysql") and not (row.get("connection_id") and row.get("source_table")):
             raise ValueError("DB 연동 ETL은 connection_id와 source_table이 필요합니다.")
-        if source_type not in ("file", "postgresql"):
+        if source_type not in ("file", "postgresql", "mysql"):
             raise ValueError("실행할 수 있는 ETL 유형이 아닙니다.")
 
         job_id = etl_service.insert_job(etl_table_id, status="pending")
@@ -465,19 +847,19 @@ def run_table_load(etl_table_id: int):
 
 
 @router.get("/jobs")
-def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50):
-    """Phase 6: Job 목록. etl_table_id 쿼리 시 해당 ETL만. 최신순."""
+def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Optional[str] = None):
+    """Phase 6: Job 목록. etl_table_id 쿼리 시 해당 ETL만. statuses=completed,failed 등 쉼표 구분 시 해당 상태만. 최신순."""
     try:
-        rows = etl_service.list_jobs(etl_table_id=etl_table_id, limit=min(limit, 100))
+        status_list = [s.strip() for s in (statuses or "").split(",") if s.strip()] or None
+        rows = etl_service.list_jobs(etl_table_id=etl_table_id, limit=min(limit, 500), statuses=status_list)
         for r in rows:
-            if r.get("started_at") is not None:
-                r["started_at"] = r["started_at"].isoformat()
-            if r.get("finished_at") is not None:
-                r["finished_at"] = r["finished_at"].isoformat()
-            if r.get("created_at") is not None:
-                r["created_at"] = r["created_at"].isoformat()
+            for key in ("started_at", "finished_at", "created_at"):
+                val = r.get(key)
+                if val is not None and hasattr(val, "isoformat"):
+                    r[key] = val.isoformat()
         return {"jobs": rows}
     except Exception as e:
+        logger.exception("GET /api/etl/jobs failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -495,6 +877,20 @@ def get_job(job_id: int):
         if row.get("created_at") is not None:
             row["created_at"] = row["created_at"].isoformat()
         return row
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/jobs/{job_id}")
+def delete_job(job_id: int):
+    """Job 1건 삭제. etl_jobs에서 DELETE."""
+    try:
+        ok = etl_service.delete_job(job_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
+        return {"job_id": job_id, "message": "삭제되었습니다."}
     except HTTPException:
         raise
     except Exception as e:

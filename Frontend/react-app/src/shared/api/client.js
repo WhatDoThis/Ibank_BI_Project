@@ -28,7 +28,7 @@ function baseUrl() {
 async function request(method, path, body = null) {
   const url = `${baseUrl()}${path.startsWith('/') ? path : '/' + path}`;
   const options = { method, headers: {} };
-  if (body != null && (method === 'POST' || method === 'PUT')) {
+  if (body != null && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
   }
@@ -220,15 +220,58 @@ export async function etlDeleteTable(etlTableId) {
   return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}`);
 }
 
+/** PATCH /api/etl/tables/:id - ETL 테이블 설정 일부 갱신 (pk_columns 등) */
+export async function etlUpdateTable(etlTableId, body) {
+  return request('PATCH', `/api/etl/tables/${encodeURIComponent(etlTableId)}`, body);
+}
+
+/** DELETE /api/etl/tables/:id/row - ETL 등록 행만 삭제(메인 DB 테이블 유지, 업로드 파일·해당 행 삭제) */
+export async function etlDeleteTableRow(etlTableId) {
+  return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}/row`);
+}
+
+/** GET /api/etl/tables/:id/preview - 미리보기: 컬럼 저장 가능 여부 + 10행 */
+export async function etlPreviewTable(etlTableId) {
+  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/preview`);
+}
+
+/** GET /api/etl/tables/:id/target-exists - 타겟 테이블이 메인 DB에 존재하는지. 실행 전 컨펌용 */
+export async function etlTargetExists(etlTableId) {
+  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/target-exists`);
+}
+
 /** POST /api/etl/tables/:id/run - ETL 테이블 1건 대기열 등록 (Phase 6). 반환 job_id로 폴링 */
 export async function etlRunTable(etlTableId) {
   return request('POST', `/api/etl/tables/${encodeURIComponent(etlTableId)}/run`);
 }
 
-/** GET /api/etl/jobs - Job 목록 (etl_table_id 없으면 전체). 큐 상태(실행 중/대기 중) 표시용 */
-export async function etlListJobs(etlTableId = null) {
-  const params = new URLSearchParams({ limit: '100' });
+/** POST /api/etl/tables/:id/add-file - 동일 테이블에 추가 적재(업서트). file: File. 반환 job_id 등 */
+export async function etlAddFileToTable(etlTableId, file) {
+  const url = `${baseUrlForEtl()}/api/etl/tables/${encodeURIComponent(etlTableId)}/add-file`;
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(url, { method: 'POST', body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+  return data;
+}
+
+/** POST /api/etl/tables/:id/add-files-zip - ZIP으로 여러 파일 추가 적재. file: File (.zip). 반환 job_ids, skipped_files 등 */
+export async function etlAddFilesZipToTable(etlTableId, file) {
+  const url = `${baseUrlForEtl()}/api/etl/tables/${encodeURIComponent(etlTableId)}/add-files-zip`;
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(url, { method: 'POST', body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+  return data;
+}
+
+/** GET /api/etl/jobs - Job 목록. statuses=completed,failed 등 쉼표 구분 시 해당 상태만 */
+export async function etlListJobs(etlTableId = null, statuses = null) {
+  const params = new URLSearchParams({ limit: '500' });
   if (etlTableId != null) params.set('etl_table_id', String(etlTableId));
+  if (statuses != null && statuses !== '') params.set('statuses', statuses);
   return request('GET', `/api/etl/jobs?${params.toString()}`);
 }
 
@@ -240,6 +283,11 @@ export async function etlGetJob(jobId) {
 /** POST /api/etl/jobs/:job_id/cancel - 실행 중·대기 중 Job 취소 */
 export async function etlCancelJob(jobId) {
   return request('POST', `/api/etl/jobs/${encodeURIComponent(jobId)}/cancel`);
+}
+
+/** DELETE /api/etl/jobs/:job_id - Job 1건 삭제 (etl_jobs에서 삭제) */
+export async function etlDeleteJob(jobId) {
+  return request('DELETE', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
 }
 
 /** DELETE /api/etl/connections/:id - 연결 해제 (해당 연결의 타겟 테이블 DROP 후 연결 삭제) */
