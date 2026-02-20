@@ -101,13 +101,10 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             <th>설명</th>
             <th>PK</th>
             <th>소스 유형</th>
-            <th className="etl-table-list__th-connection" title="연결 이름 (서버/환경 구분)">연결</th>
+            <th className="etl-table-list__th-connection">연결</th>
             <th>소스</th>
             <th className="etl-table-list__th-batch">배치</th>
-            <th className="etl-table-list__th-sync" title="전체: DROP+CREATE+INSERT, 증분: last_synced_at 이후만 Upsert">
-              동기화
-              <span className="etl-table-list__th-desc">(전체: 삭제 후 적재 / 증분: 이후 행만 Upsert)</span>
-            </th>
+            <th className="etl-table-list__th-sync">동기화</th>
             <th>상태</th>
             <th className="etl-table-list__th-actions">
               동작

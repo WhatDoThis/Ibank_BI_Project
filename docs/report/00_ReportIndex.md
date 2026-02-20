@@ -19,8 +19,8 @@
 | 05_대시보드2_주간월간_비교리포팅_플랜.md | 대시보드2: 주간/월간 취합·이전 주·이전 월 비교 리포팅 기능 테스트 적용 방안, 데이터/API 옵션, UI 설계, 페이즈별 구현 제안 |
 | 06_I1_파생테이블_정의.md | I1 파생 테이블 정의, 생성 스크립트, 리포트 사이드바 폴더, 테이블명 소문자 등 |
 | 07_newDashboard_Develop_Plan.md | NewDashboard 범용 대시보드: 요구사항 정리, 현행 대비 검토, 가능성 검토, Phase 0~5 개발 계획(백엔드 범용 API → 프론트 테이블/헤더 → KPI·목표·집계 테이블 → 위젯 beta → 비교·정리) |
-| 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조 통합: 목적·범위·시스템 개요, config·메타 테이블·DDL 참조, 모듈 의존 관계, Job 확인 방법(운영), 재실행·ETA, 파일/DB 동작 검증 요약, Phase 순서·확장, §12 ETL 목록 동작 정리(등록 목록 버튼·상태별 동작) |
-| 09_ETL_DB_Connection_Flow.md | ETL DB 연결 구조·실패 지점: 브라우저→API→외부 DB(49.247.47.206) 흐름 모식도, 경유 IP(Backend 호스트 IP) 설명, 코드 기준 fail 위치·메시지, 점검 순서 |
+| 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조: 목적·범위·시스템 개요, config·메타 테이블·모듈 의존, Job 확인(운영), 재실행 동작, 파일/DB 동작 요약, **DB 연결 실패 시 점검**(연결 구조·실패 지점·예외 메시지·점검 순서), Phase 순서, ZIP 추가 적재, ETL 목록 버튼·상태별 동작. (09 내용 통합) |
+| etc01_Backend_Learning_Flow.md | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |
 | nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 3500, /report_api → 8500). 서버 배포 시 참고 |

@@ -1,5 +1,64 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-13: ETL 가이드 문서 정리·09 통합
+
+### 완료 작업
+1. **08_ETL_Phase_Implement_Guide.md**: 보관·확인에 필요한 내용만 남기고 간략화. 로그성·중복·장황한 설명 제거. §1~12 재구성(요약·시스템 개요·config·메타·모듈·Job 확인·재실행·파일/DB 요약·Phase·ZIP·ETL 목록 버튼).
+2. **09_ETL_DB_Connection_Flow.md** 내용을 08로 이전: **§9 DB 연결 실패 시 점검**으로 통합(연결 구조·실패 지점 표·예외별 메시지·3306/5432·점검 순서·구현 위치). 특정 IP 예시·mermaid·장문 절은 제거하고 표·번호 목록으로 정리.
+3. **09_ETL_DB_Connection_Flow.md** 삭제.
+4. **00_ReportIndex.md**: 09 행 제거, 08 설명에 DB 연결 점검·09 통합 반영.
+
+### 수정·삭제 파일
+- docs/report/08_ETL_Phase_Implement_Guide.md (전면 정리·09 통합)
+- docs/report/09_ETL_DB_Connection_Flow.md (삭제)
+- docs/report/00_ReportIndex.md
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: ETL 타겟 테이블명 중복 검사 — 등록 시 기존 테이블/메타 충돌 방지 (증분 시 기존 테이블 허용)
+
+### 배경·현재 동작
+- **기존**: 타겟 테이블명은 식별자 형식만 검증. 동일 이름이 이미 etl_tables에 있거나 메인 DB에 있어도 등록됨 → 실행 시 full 모드면 DROP 후 재생성(기존 데이터 삭제), 증분이면 같은 물리 테이블에 두 ETL이 겹쳐질 수 있음.
+- **실행 시**: full = DROP TABLE IF EXISTS 후 CREATE; incremental = 테이블 없으면 CREATE, 있으면 Upsert.
+
+### 완료 작업
+1. **create_etl_table (etl_server/service.py)**  
+   - 등록 직후 `target_table`에 대해 (1) **etl_tables에 동일 target_table 존재 여부** 조회. 있으면 `ValueError("이미 등록된 타겟 테이블명입니다. 다른 이름을 사용하거나 기존 ETL을 삭제한 후 등록하세요.")`.  
+   - (2) **메인 DB에 해당 테이블 존재 여부**: **전체(Full) 모드일 때만** 거부. **증분(Incremental) 모드일 때는** 메인 DB에 테이블이 이미 있어도 등록 허용(파일 업로드로 만든 테이블에 DB 연결 증분 ETL을 추가하는 경우 대비).  
+   - 라우터가 `ValueError`를 400 + detail로 반환하므로 프론트에서 `createError`로 메시지 표시됨.
+
+### 수정 파일
+- Backend/etl_server/service.py (create_etl_table)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-13: DB 연결(etl-page__panel) UI 개선 — 2열 그리드·가독성·카드 배치
+
+### 완료 작업
+1. **DbConnectionForm.jsx**: "연결 추가" 폼을 2열 그리드(etl-db-form__grid etl-db-form__grid--2)로 재구성. 라벨 상단·필드 단위(etl-db-form__field), 포트/스키마 등 짧은 필드는 etl-db-form__field--short. 버튼은 etl-db-form__actions로 묶음. "등록된 연결" 제목 하단에 부가 설명(etl-db-form__subtitle), 연결 항목에 etl-db-form__conn-info 클래스. "ETL 테이블 등록"도 동일 2열 그리드·설명/힌트 full width(etl-db-form__field--full)·동기화 모드 라벨 설명 정리·액션 영역으로 등록 버튼 배치. 테이블 등록 성공 후 폼 리셋 시 syncMode를 incremental로 설정하도록 수정(setSyncMode('incremental')).
+2. **etl.css**: etl-page__panel 배경 #fff·패딩 24px·border-radius 12px·얕은 그림자. etl-db-form max-width 100%. etl-db-form__section--card(연결 추가·등록된 연결·ETL 테이블 등록) 카드 스타일(배경 #f8fafc·테두리·radius 10px·패딩). etl-db-form__grid, etl-db-form__grid--2(2열·gap 16px 24px), 720px 이하 1열. etl-db-form__field, etl-db-form__field--short, etl-db-form__field--full. etl-db-form__actions·etl-db-form__subtitle·etl-db-form__conn-info 추가. 제목(etl-db-form__heading) 크기·색상 강화. input/select padding 10px 12px·font-size 0.95rem·border #cbd5e1·focus 링 3px·placeholder 색상. 연결 목록 max-width 100%·항목 hover·마지막 항목 margin 제거.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/DbConnectionForm.jsx
+- Frontend/react-app/src/packages/etl/etl.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: README 업데이트·requirements 점검·두 리모트 푸시
+
+### 완료 작업
+1. **README.md**: 개발문서(PRD·01·02) 기반으로 전면 정리. ETL 섹션 추가(파일·DB 소스, 동기화 모드·기본 증분, 목록·Job·ZIP), 접속 경로에 /etl, 설정에 system_db·etl_limits, 프로젝트 구조에 etl_server·packages/etl, 사용 흐름에 ETL, 문서표 02_BACKEND_GUIDE로 통일.
+2. **requirements.txt**: ETL .xls 지원용 **xlrd>=2.0.0** 추가. 그 외 패키지 제거·추가 없음(필요 패키지 모두 유지).
+3. **Git**: origin·ibank 두 리모트 모두 main 푸시(커밋 726c915).
+
+### 수정 파일
+- README.md, requirements.txt, docs/report/log.md
+
+---
+
 ## 2026-02-19: 메인 문서 자체 완결 — 리포트 참조 제거·필수 내용 가이드 반영
 
 ### 완료 작업

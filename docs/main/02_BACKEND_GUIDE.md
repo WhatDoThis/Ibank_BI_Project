@@ -221,7 +221,7 @@ Backend/
 ### 6.1 역할
 
 - **router.py**: /api/etl API 진입. service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service 호출.
-- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트.
+- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능).
 - **load_service.py**: 파일 적재 — get_etl_table → 파싱(CSV/Excel/Parquet) → 변환 룰 → 메인 DB DROP/CREATE/INSERT. 업로드 파일은 **3일** 초과 시 자동 삭제.
 - **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full(DROP+CREATE+INSERT) / Incremental(last_synced_at 이후 Upsert). PostgreSQL·MySQL 지원, Oracle은 Phase 3 예정.
 - **preview_service.py**: 파일·DB 소스 미리보기(10행).
@@ -233,14 +233,14 @@ Backend/
 |----|------------|------------|------------------|---------------------------|------|
 | **PostgreSQL** | 5432 | ✅ | ✅ | ✅ | psycopg2. |
 | **MySQL** | 3306 | ✅ | ✅ | ✅ | PyMySQL. TABLE_SCHEMA=DB명, backtick 인용. |
-| **Oracle** | 1521 | ✅ | ✅ | 🔲 Phase 3 예정 | oracledb. ALL_TABLES/USER_TABLES. 목록·미리보기·PK 자동 조회만. |
+| **Oracle** | 1521 | ✅ | ✅ | 🔲 Phase 3 예정 | oracledb. **Service Name만** 지원(DSN host:port/서비스명, SID 미지원). 목록·미리보기·PK 자동 조회. list_source_tables: 스키마 미지정·PUBLIC이면 USER_TABLES(접속 사용자 소유만), 스키마 지정 시 ALL_TABLES 해당 OWNER. source_table 저장 형식 OWNER.TABLE_NAME. |
 
 ### 6.3 외부 DB 연결 구조·실패 시 점검
 
 - **연결 경로**: 브라우저 → (HTTP) → **Backend API** → (TCP) → **외부 DB**. 브라우저는 외부 DB에 직접 연결하지 않음.
 - **경유 IP**: 외부 DB(또는 방화벽) 로그에 찍히는 "연결 시도 클라이언트 IP" = **Backend가 실행 중인 호스트의 IP**. 로컬에서 run.py back 이면 그 PC의 IP, 서버에서 실행하면 그 서버의 IP.
-- **연결 실패 시 점검 순서**: (1) Backend 실행 호스트 확인(그 IP가 외부 DB 입장의 클라이언트 IP). (2) Backend 터미널 로그 확인(ETL DB 연결 시도/실패 로그). (3) 외부 DB 서버: 방화벽 5432(또는 해당 포트) 인바운드 허용·**Backend 호스트 IP** 허용, PostgreSQL listen_addresses·pg_hba.conf에서 해당 IP 허용. (4) Backend 호스트에서 해당 호스트:포트로 telnet/Test-NetConnection으로 연결 테스트.
-- **실패 메시지 예**: 타임아웃(방화벽·포트 미개방), connection refused(DB 미실행·listen 확인), password authentication failed(인증·pg_hba.conf), could not translate host(호스트명·DNS). service.py _connection_error_to_user_message()에서 사용자용 메시지 변환. 연결 타임아웃 15초(connect_timeout).
+- **연결 실패 시 점검 순서**: (1) Backend 실행 호스트 확인(그 IP가 외부 DB 입장의 클라이언트 IP). (2) Backend 터미널 로그 확인(ETL DB 연결 시도/실패 로그). (3) 외부 DB 서버: 방화벽 해당 포트(PostgreSQL 5432, Oracle 1521 등) 인바운드 허용·**Backend 호스트 IP** 허용, DB listen·접속 허용 설정. (4) Backend 호스트에서 해당 호스트:포트로 telnet/Test-NetConnection으로 연결 테스트.
+- **실패 메시지 예**: 타임아웃(방화벽·포트 미개방), connection refused(DB 미실행·listen 확인), password authentication failed(인증), could not translate host(호스트명·DNS). service.py _connection_error_to_user_message()에서 사용자용 메시지 변환. 연결 타임아웃 15초(connect_timeout). **Oracle**: Service Name만 지원(JDBC @호스트:1521/서비스명 형태). 3306은 MySQL 포트이므로 PostgreSQL 연결 시 5432 사용.
 
 ### 6.4 Job 확인 방법 (운영)
 

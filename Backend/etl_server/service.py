@@ -212,7 +212,7 @@ def _connect_mysql(host: str, port: int, database: str, user: str, password: str
 
 
 def _connect_oracle(host: str, port: int, database: str, user: str, password: str):
-    """외부 Oracle 연결. oracledb connection 반환. database는 서비스명(또는 SID). connect_timeout 적용."""
+    """외부 Oracle 연결. oracledb connection 반환. database는 서비스명(Service Name)만 사용. DSN 형식 host:port/서비스명 (SID 방식 미지원). connect_timeout 적용."""
     try:
         import oracledb
     except ImportError:
@@ -461,7 +461,7 @@ def list_source_tables(connection_id: int) -> list:
     외부 DB의 테이블 목록. 반환: [{"table_schema": str, "table_name": str}, ...]
     - PostgreSQL: table_schema = connection.schema_name (기본 'public')
     - MySQL: TABLE_SCHEMA = database_name (MySQL에서는 DB명이 스키마 개념)
-    - Oracle: OWNER = connection.schema_name 또는 현재 사용자(USER_TABLES)
+    - Oracle: schema_name 비어있거나 PUBLIC이면 USER_TABLES(접속 사용자 소유만). schema_name에 OWNER 지정 시 ALL_TABLES에서 해당 OWNER만. 선택 시 OWNER.TABLE_NAME으로 저장.
     """
     c = get_connection_for_etl(connection_id)
     if not c:
@@ -535,19 +535,42 @@ def list_source_tables(connection_id: int) -> list:
         cur = conn.cursor()
         try:
             schema_name = (c.get("schema_name") or "").strip().upper()
-            if schema_name:
+            if schema_name and schema_name != "PUBLIC":
                 cur.execute(
                     "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE OWNER = :1 ORDER BY TABLE_NAME",
                     (schema_name,),
                 )
+                rows = cur.fetchall()
+                if not rows:
+                    return []
+                desc = cur.description
+                col_names = [d[0].upper() for d in desc] if desc else []
+                try:
+                    idx_owner = col_names.index("OWNER") if col_names else 0
+                    idx_name = col_names.index("TABLE_NAME") if col_names else 1
+                except ValueError:
+                    idx_owner, idx_name = 0, 1
+                result = []
+                for row in rows:
+                    if hasattr(row, "keys"):
+                        owner = row.get("OWNER") or row.get("owner")
+                        tname = row.get("TABLE_NAME") or row.get("table_name")
+                    else:
+                        owner = row[idx_owner] if len(row) > idx_owner else row[0]
+                        tname = row[idx_name] if len(row) > idx_name else row[1]
+                    result.append({"table_schema": owner, "table_name": tname})
             else:
                 cur.execute("SELECT USER FROM DUAL")
-                owner = cur.fetchone()[0]
+                owner_row = cur.fetchone()
+                owner = (owner_row[0] if owner_row else c.get("username") or "").strip()
                 cur.execute("SELECT TABLE_NAME FROM USER_TABLES ORDER BY TABLE_NAME")
                 rows = cur.fetchall()
-                return [{"table_schema": owner, "table_name": row[0]} for row in rows]
-            rows = cur.fetchall()
-            return [{"table_schema": row[0], "table_name": row[1]} for row in rows]
+                result = [{"table_schema": owner, "table_name": r[0]} for r in rows]
+            logger.info(
+                "ETL Oracle list_source_tables: connection_id=%s schema_filter=%s rows=%s",
+                connection_id, schema_name or "(current user)", len(result),
+            )
+            return result
         finally:
             cur.close()
             conn.close()
@@ -693,12 +716,30 @@ def create_etl_table(
     batch_size: Optional[int] = None,
     batch_interval_seconds: Optional[int] = None,
 ) -> int:
-    """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id. DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
+    """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id.
+    - 이미 등록된 타겟명(etl_tables에 동일 target_table)이면 ValueError.
+    - 메인 DB에 해당 테이블이 이미 있을 때: full 모드면 ValueError, incremental 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능).
+    DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
     api_db = _get_db()
     target_table = _validate_identifier(target_table, "target_table")
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(f"SELECT 1 FROM {_q(schema, 'etl_tables')} WHERE target_table = %s", (target_table,))
+        if cur.fetchone():
+            raise ValueError("이미 등록된 타겟 테이블명입니다. 다른 이름을 사용하거나 기존 ETL을 삭제한 후 등록하세요.")
+    finally:
+        cur.close()
+        conn.close()
     sync_mode = (sync_mode or "incremental").strip().lower()
     if sync_mode not in ("full", "incremental"):
         sync_mode = "incremental"
+    if sync_mode == "full" and api_db.table_exists_in_schema(target_table):
+        raise ValueError(
+            "메인 DB에 이미 존재하는 테이블명입니다. 전체(Full) 동기화는 기존 테이블을 삭제한 뒤 재생성하므로, "
+            "다른 이름을 사용하거나 증분(Incremental) 모드로 등록하세요."
+        )
     pk_columns_val = (pk_columns or "").strip() or None
     if not pk_columns_val and connection_id and source_table:
         c = get_connection_for_etl(connection_id)
@@ -732,8 +773,14 @@ def create_etl_table(
                     c["username"],
                     c.get("encrypted_password") or "",
                 )
-                owner = (c.get("schema_name") or c.get("username") or "").strip()
-                pk_list = _fetch_pk_from_oracle(src_conn, owner, source_table.strip())
+                st = source_table.strip()
+                if "." in st:
+                    owner, tbl = st.split(".", 1)
+                    owner, tbl = owner.strip().upper(), tbl.strip()
+                else:
+                    owner = (c.get("schema_name") or c.get("username") or "").strip().upper()
+                    tbl = st
+                pk_list = _fetch_pk_from_oracle(src_conn, owner, tbl)
                 if pk_list:
                     pk_columns_val = ",".join(pk_list)
         except Exception as e:

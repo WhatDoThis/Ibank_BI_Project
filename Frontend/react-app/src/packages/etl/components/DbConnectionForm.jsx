@@ -2,6 +2,7 @@
  * packages/etl/components/DbConnectionForm.jsx (DB 연결·ETL 등록 폼)
  * =====================================================================
  * 연결 추가(호스트, 포트, DB명, 사용자, 비밀번호), 연결 테스트, 연결 선택 후 소스 테이블 선택 → 타겟 테이블명·설명·동기화 모드 입력, 등록. PK는 DB 소스인 경우 소스 DB에서 자동 반영. Phase 5.
+ * UI: 2열 그리드(etl-db-form__grid--2)·카드 섹션(etl-db-form__section--card)·라벨 상단 배치·액션 버튼 영역(etl-db-form__actions).
  *
  * [Main Functions]
  * ===========
@@ -220,7 +221,7 @@ function DbConnectionForm({ onSuccess }) {
       setTargetTable('');
       setLabelName('');
       setDescription('');
-      setSyncMode('full');
+      setSyncMode('incremental');
       setBatchSize('');
       setBatchIntervalSeconds('');
       setSelectedSourceTable('');
@@ -232,134 +233,138 @@ function DbConnectionForm({ onSuccess }) {
   }
 
   const sourceTableOptions = (sourceTables || []).map((t) => ({
-    value: t.table_name,
+    value: t.table_schema ? `${t.table_schema}.${t.table_name}` : t.table_name,
     label: t.table_schema ? `${t.table_schema}.${t.table_name}` : t.table_name
   }));
 
   return (
     <div className="etl-db-form">
-      <section className="etl-db-form__section">
+      <section className="etl-db-form__section etl-db-form__section--card">
         <h3 className="etl-db-form__heading">연결 추가</h3>
         <form onSubmit={handleAddConnection} className="etl-db-form__connect-form">
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">DB 종류</label>
-            <select
-              value={newConn.source_type}
-              onChange={(e) => {
-                const v = e.target.value;
-                const port = getDefaultPortForDb(v);
-                setNewConn((c) => ({
-                  ...c,
-                  source_type: v,
-                  port,
-                  schema_name: v === 'postgresql' ? 'public' : ''
-                }));
-                clearTestPassedOnChange();
-              }}
-              className="etl-db-form__select"
-            >
-              {DB_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">연결 이름</label>
-            <input
-              type="text"
-              placeholder="연결 이름"
-              value={newConn.connection_name}
-              onChange={(e) => { setNewConn((c) => ({ ...c, connection_name: e.target.value })); clearTestPassedOnChange(); }}
-              required
-              className="etl-db-form__input"
-            />
-          </div>
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">호스트</label>
-            <input
-              type="text"
-              placeholder="호스트 또는 IP"
-              value={newConn.host}
-              onChange={(e) => { setNewConn((c) => ({ ...c, host: e.target.value })); clearTestPassedOnChange(); }}
-              required
-              className="etl-db-form__input"
-            />
-          </div>
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">포트</label>
-            <input
-              type="number"
-              placeholder="포트"
-              value={newConn.port}
-              onChange={(e) => { setNewConn((c) => ({ ...c, port: Number(e.target.value) || getDefaultPortForDb(newConn.source_type) })); clearTestPassedOnChange(); }}
-              className="etl-db-form__input etl-db-form__input--short"
-            />
-          </div>
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">{newConn.source_type === 'oracle' ? '서비스명(SID)' : 'DB명'}</label>
-            <input
-              type="text"
-              placeholder={newConn.source_type === 'oracle' ? '서비스명 또는 SID' : '데이터베이스 이름'}
-              value={newConn.database_name}
-              onChange={(e) => { setNewConn((c) => ({ ...c, database_name: e.target.value })); clearTestPassedOnChange(); }}
-              required
-              className="etl-db-form__input"
-            />
-          </div>
-          {newConn.source_type === 'postgresql' && (
-            <div className="etl-db-form__row etl-db-form__row--inline">
-              <label className="etl-db-form__label">스키마</label>
+          <div className="etl-db-form__grid etl-db-form__grid--2">
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">DB 종류</label>
+              <select
+                value={newConn.source_type}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const port = getDefaultPortForDb(v);
+                  setNewConn((c) => ({
+                    ...c,
+                    source_type: v,
+                    port,
+                    schema_name: v === 'postgresql' ? 'public' : ''
+                  }));
+                  clearTestPassedOnChange();
+                }}
+                className="etl-db-form__select"
+              >
+                {DB_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">연결 이름</label>
               <input
                 type="text"
-                placeholder="public"
-                value={newConn.schema_name}
-                onChange={(e) => { setNewConn((c) => ({ ...c, schema_name: e.target.value })); clearTestPassedOnChange(); }}
-                className="etl-db-form__input etl-db-form__input--short"
+                placeholder="예: 운영 DB"
+                value={newConn.connection_name}
+                onChange={(e) => { setNewConn((c) => ({ ...c, connection_name: e.target.value })); clearTestPassedOnChange(); }}
+                required
+                className="etl-db-form__input"
               />
             </div>
-          )}
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">사용자</label>
-            <input
-              type="text"
-              placeholder="사용자명"
-              value={newConn.username}
-              onChange={(e) => { setNewConn((c) => ({ ...c, username: e.target.value })); clearTestPassedOnChange(); }}
-              required
-              className="etl-db-form__input"
-            />
-          </div>
-          <div className="etl-db-form__row etl-db-form__row--inline">
-            <label className="etl-db-form__label">비밀번호</label>
-            <input
-              type="password"
-              placeholder="비밀번호"
-              value={newConn.password}
-              onChange={(e) => { setNewConn((c) => ({ ...c, password: e.target.value })); clearTestPassedOnChange(); }}
-              className="etl-db-form__input"
-            />
-          </div>
-          <div className="etl-db-form__row etl-db-form__row--inline etl-db-form__row--actions">
-            <span className="etl-db-form__label" aria-hidden="true" />
-            <div className="etl-db-form__btn-group">
-              <button
-                type="button"
-                className="etl-db-form__btn"
-                onClick={handleTestConnection}
-                disabled={testLoading}
-              >
-                {testLoading ? '테스트 중…' : '테스트'}
-              </button>
-              <button
-                type="submit"
-                className="etl-db-form__btn etl-db-form__btn--primary"
-                disabled={!connectionTestPassed}
-                title={!connectionTestPassed ? '연결 테스트를 통과한 후 등록할 수 있습니다.' : ''}
-                aria-disabled={!connectionTestPassed}
-              >
-                등록
-              </button>
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">호스트</label>
+              <input
+                type="text"
+                placeholder="호스트 또는 IP"
+                value={newConn.host}
+                onChange={(e) => { setNewConn((c) => ({ ...c, host: e.target.value })); clearTestPassedOnChange(); }}
+                required
+                className="etl-db-form__input"
+              />
             </div>
+            <div className="etl-db-form__field etl-db-form__field--short">
+              <label className="etl-db-form__label">포트</label>
+              <input
+                type="number"
+                placeholder="5432"
+                value={newConn.port}
+                onChange={(e) => { setNewConn((c) => ({ ...c, port: Number(e.target.value) || getDefaultPortForDb(newConn.source_type) })); clearTestPassedOnChange(); }}
+                className="etl-db-form__input"
+              />
+            </div>
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">{newConn.source_type === 'oracle' ? '서비스명(Service Name)' : 'DB명'}</label>
+              {newConn.source_type === 'oracle' && (
+                <span className="etl-db-form__label-desc">JDBC URL이 @호스트:1521/서비스명 이면 여기에 서비스명 입력. SID 방식은 미지원.</span>
+              )}
+              <input
+                type="text"
+                placeholder={newConn.source_type === 'oracle' ? '예: FREEPDB1' : '데이터베이스 이름'}
+                value={newConn.database_name}
+                onChange={(e) => { setNewConn((c) => ({ ...c, database_name: e.target.value })); clearTestPassedOnChange(); }}
+                required
+                className="etl-db-form__input"
+              />
+            </div>
+            {newConn.source_type === 'postgresql' ? (
+              <div className="etl-db-form__field etl-db-form__field--short">
+                <label className="etl-db-form__label">스키마</label>
+                <input
+                  type="text"
+                  placeholder="public"
+                  value={newConn.schema_name}
+                  onChange={(e) => { setNewConn((c) => ({ ...c, schema_name: e.target.value })); clearTestPassedOnChange(); }}
+                  className="etl-db-form__input"
+                />
+              </div>
+            ) : (
+              <div className="etl-db-form__field etl-db-form__field--short" aria-hidden="true" />
+            )}
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">사용자</label>
+              <input
+                type="text"
+                placeholder="사용자명"
+                value={newConn.username}
+                onChange={(e) => { setNewConn((c) => ({ ...c, username: e.target.value })); clearTestPassedOnChange(); }}
+                required
+                className="etl-db-form__input"
+              />
+            </div>
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">비밀번호</label>
+              <input
+                type="password"
+                placeholder="비밀번호"
+                value={newConn.password}
+                onChange={(e) => { setNewConn((c) => ({ ...c, password: e.target.value })); clearTestPassedOnChange(); }}
+                className="etl-db-form__input"
+              />
+            </div>
+          </div>
+          <div className="etl-db-form__actions">
+            <button
+              type="button"
+              className="etl-db-form__btn"
+              onClick={handleTestConnection}
+              disabled={testLoading}
+            >
+              {testLoading ? '테스트 중…' : '연결 테스트'}
+            </button>
+            <button
+              type="submit"
+              className="etl-db-form__btn etl-db-form__btn--primary"
+              disabled={!connectionTestPassed}
+              title={!connectionTestPassed ? '연결 테스트를 통과한 후 등록할 수 있습니다.' : ''}
+              aria-disabled={!connectionTestPassed}
+            >
+              연결 등록
+            </button>
           </div>
         </form>
         {testLoading && (
@@ -378,12 +383,13 @@ function DbConnectionForm({ onSuccess }) {
       </section>
 
       {dbConnections.length > 0 && (
-        <section className="etl-db-form__section">
-          <h3 className="etl-db-form__heading">등록된 연결 (연결 해제 시 해당 타겟 테이블 DROP)</h3>
+        <section className="etl-db-form__section etl-db-form__section--card">
+          <h3 className="etl-db-form__heading">등록된 연결</h3>
+          <p className="etl-db-form__subtitle">연결 해제 시 해당 타겟 테이블이 DROP됩니다.</p>
           <ul className="etl-db-form__conn-list">
             {dbConnections.map((c) => (
               <li key={c.connection_id} className="etl-db-form__conn-item">
-                <span>{c.connection_name} — {c.host}/{c.database_name}</span>
+                <span className="etl-db-form__conn-info">{c.connection_name} — {c.host}:{c.port ?? '-'}/{c.database_name}</span>
                 <button
                   type="button"
                   className="etl-db-form__btn etl-db-form__btn--danger"
@@ -398,112 +404,115 @@ function DbConnectionForm({ onSuccess }) {
         </section>
       )}
 
-      <section className="etl-db-form__section">
+      <section className="etl-db-form__section etl-db-form__section--card">
         <h3 className="etl-db-form__heading">ETL 테이블 등록</h3>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">연결 선택</label>
-          <select
-            value={selectedConnId}
-            onChange={(e) => setSelectedConnId(e.target.value)}
-            className="etl-db-form__select"
-          >
-            <option value="">선택</option>
-            {dbConnections.map((c) => (
-              <option key={c.connection_id} value={c.connection_id}>
-                {c.connection_name} ({c.host}/{c.database_name})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">소스 테이블</label>
-          <select
-            value={selectedSourceTable}
-            onChange={(e) => setSelectedSourceTable(e.target.value)}
-            disabled={!selectedConnId || loadingTables}
-            className="etl-db-form__select"
-          >
-            <option value="">선택</option>
-            {sourceTableOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">타겟 테이블명 (우리 DB)</label>
-          <input
-            type="text"
-            value={targetTable}
-            onChange={(e) => setTargetTable(e.target.value)}
-            placeholder="예: external_orders"
-            className="etl-db-form__input"
-          />
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">라벨명 (선택, 추후 테이블 마스터에서 관리)</label>
-          <input
-            type="text"
-            value={labelName}
-            onChange={(e) => setLabelName(e.target.value)}
-            placeholder="표시용 라벨"
-            className="etl-db-form__input"
-          />
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">설명</label>
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="etl-db-form__input"
-          />
-        </div>
-        <div className="etl-db-form__row">
-          <p className="etl-db-form__hint">DB 소스인 경우 PK는 소스 DB에서 자동으로 가져옵니다. (incremental 시 사용)</p>
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">
-            동기화 모드
-            <span className="etl-db-form__label-desc">전체: 매 실행 시 테이블 삭제 후 처음부터 적재. 증분: 마지막 동기화 시각 이후 행만 가져와 Upsert.</span>
-          </label>
-          <select value={syncMode} onChange={(e) => setSyncMode(e.target.value)} className="etl-db-form__select">
-            <option value="full">전체(Full)</option>
-            <option value="incremental">증분(Incremental)</option>
-          </select>
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">배치 크기 (행 수, 선택. 비우면 전체 fetch)</label>
-          <input
-            type="number"
-            min="1"
-            value={batchSize}
-            onChange={(e) => setBatchSize(e.target.value)}
-            placeholder="예: 5000"
-            className="etl-db-form__input etl-db-form__input--short"
-          />
-        </div>
-        <div className="etl-db-form__row">
-          <label className="etl-db-form__label">배치 간 대기 시간(초, 선택)</label>
-          <input
-            type="number"
-            min="0"
-            value={batchIntervalSeconds}
-            onChange={(e) => setBatchIntervalSeconds(e.target.value)}
-            placeholder="0"
-            className="etl-db-form__input etl-db-form__input--short"
-          />
+        <div className="etl-db-form__grid etl-db-form__grid--2">
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">연결 선택</label>
+            <select
+              value={selectedConnId}
+              onChange={(e) => setSelectedConnId(e.target.value)}
+              className="etl-db-form__select"
+            >
+              <option value="">선택</option>
+              {dbConnections.map((c) => (
+                <option key={c.connection_id} value={c.connection_id}>
+                  {c.connection_name} ({c.host}:{c.port ?? '-'}/{c.database_name})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">소스 테이블</label>
+            <select
+              value={selectedSourceTable}
+              onChange={(e) => setSelectedSourceTable(e.target.value)}
+              disabled={!selectedConnId || loadingTables}
+              className="etl-db-form__select"
+            >
+              <option value="">선택</option>
+              {sourceTableOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">타겟 테이블명 (우리 DB)</label>
+            <input
+              type="text"
+              value={targetTable}
+              onChange={(e) => setTargetTable(e.target.value)}
+              placeholder="예: external_orders"
+              className="etl-db-form__input"
+            />
+          </div>
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">라벨명 (선택)</label>
+            <input
+              type="text"
+              value={labelName}
+              onChange={(e) => setLabelName(e.target.value)}
+              placeholder="표시용 라벨"
+              className="etl-db-form__input"
+            />
+          </div>
+          <div className="etl-db-form__field etl-db-form__field--full">
+            <label className="etl-db-form__label">설명</label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="테이블 설명"
+              className="etl-db-form__input"
+            />
+          </div>
+          <div className="etl-db-form__field etl-db-form__field--full">
+            <p className="etl-db-form__hint">DB 소스인 경우 PK는 소스 DB에서 자동으로 가져옵니다.</p>
+          </div>
+          <div className="etl-db-form__field etl-db-form__field--full">
+            <label className="etl-db-form__label">동기화 모드</label>
+            <span className="etl-db-form__label-desc">전체: 삭제 후 전체 적재. 증분: 마지막 시각 이후 행만 Upsert.</span>
+            <select value={syncMode} onChange={(e) => setSyncMode(e.target.value)} className="etl-db-form__select">
+              <option value="full">전체(Full)</option>
+              <option value="incremental">증분(Incremental)</option>
+            </select>
+          </div>
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">배치 크기</label>
+            <input
+              type="number"
+              min="1"
+              value={batchSize}
+              onChange={(e) => setBatchSize(e.target.value)}
+              placeholder="5000"
+              className="etl-db-form__input"
+            />
+          </div>
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">배치 대기(초)</label>
+            <input
+              type="number"
+              min="0"
+              value={batchIntervalSeconds}
+              onChange={(e) => setBatchIntervalSeconds(e.target.value)}
+              placeholder="0"
+              className="etl-db-form__input"
+            />
+          </div>
         </div>
         {createError && <p className="etl-db-form__error">{createError}</p>}
-        <button
-          type="button"
-          className="etl-db-form__btn etl-db-form__btn--primary"
-          onClick={handleCreateTable}
-          disabled={createLoading}
-        >
-          {createLoading ? '등록 중…' : 'ETL 테이블 등록'}
-        </button>
+        <div className="etl-db-form__actions">
+          <button
+            type="button"
+            className="etl-db-form__btn etl-db-form__btn--primary"
+            onClick={handleCreateTable}
+            disabled={createLoading}
+          >
+            {createLoading ? '등록 중…' : 'ETL 테이블 등록'}
+          </button>
+        </div>
       </section>
     </div>
   );

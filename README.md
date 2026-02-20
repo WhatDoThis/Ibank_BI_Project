@@ -31,7 +31,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### ETL (/etl)
 
-- **파일·외부 DB → 우리 PostgreSQL 적재.** 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. 업로드 파일 3일 보관 후 자동 삭제. (2) **DB** PostgreSQL·MySQL 적재 지원(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). Oracle은 테이블 목록·미리보기·PK 자동 조회만 지원.
+- **파일·외부 DB → 우리 PostgreSQL 적재.** 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. 업로드 파일 3일 보관 후 자동 삭제. (2) **DB** PostgreSQL·MySQL 적재 지원(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). Oracle은 테이블 목록·미리보기·PK 자동 조회만 지원(적재 Phase 3 예정). **Oracle 연결은 Service Name만 지원**(JDBC @호스트:1521/서비스명, SID 미지원). 등록된 연결·연결 선택에 **호스트:포트/DB명** 표시. 타겟 테이블명 중복 시 etl_tables·메인 DB 검사(증분 모드면 기존 테이블 허용). Oracle 테이블 목록: 스키마 미지정 시 접속 사용자 소유만(USER_TABLES).
 - **동기화 모드**: 전체(삭제 후 적재) / **증분**(last_synced_at 이후 Upsert, 기본값). 배치 크기·배치 간 대기는 한 번 실행 시 적용. **실행은 수동(실행 버튼)만**, 매일 자동 실행 스케줄 없음.
 - **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가 적재·건너뛴 파일 목록 표시.
 - **ETL 사용 시** config에 backend.system_db(시스템 DB), backend.etl_limits(파일 크기·행 수·배치 상한) 선택. 상세는 **docs/main/02_BACKEND_GUIDE.md §3·§6**.
