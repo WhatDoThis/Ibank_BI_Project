@@ -177,9 +177,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     target_table = row.get("target_table")
     pk_columns = (row.get("pk_columns") or "").strip() or None
     incremental_column = (row.get("incremental_column") or "").strip() or None
-    sync_mode = (row.get("sync_mode") or "full").strip().lower()
+    sync_mode = (row.get("sync_mode") or "incremental").strip().lower()
     if sync_mode not in ("full", "incremental"):
-        sync_mode = "full"
+        sync_mode = "incremental"
     batch_size = (row.get("batch_size") or 0) if row.get("batch_size") is not None else 0
     try:
         batch_size = int(batch_size) if batch_size else 0

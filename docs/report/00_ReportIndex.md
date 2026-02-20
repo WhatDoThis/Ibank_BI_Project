@@ -3,7 +3,7 @@
 **docs/report** 는 **코드 정리·코드 분석·코드 실행** 관련 내용만 포함합니다.  
 개발문서(요구사항, 명세 등)는 **docs/main** 에만 둡니다.
 
-- **백엔드 Flask → FastAPI 전환 계획**: 단계별 플랜은 **docs/main/02_BACKEND_FASTAPI_MIGRATION_PLAN.md** 참고. 전환 작업 완료 시 본 report 폴더의 log.md에 기록.
+- **백엔드 가이드**: 구조·API·etl_server 상세는 **docs/main/02_BACKEND_GUIDE.md** 참고. Flask→FastAPI 전환 계획은 해당 문서 부록 A에 참고용으로 정리됨. 전환 완료 로그는 log.md에 기록.
 
 ---
 

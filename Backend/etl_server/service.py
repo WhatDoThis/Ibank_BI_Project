@@ -696,9 +696,9 @@ def create_etl_table(
     """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id. DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
     api_db = _get_db()
     target_table = _validate_identifier(target_table, "target_table")
-    sync_mode = (sync_mode or "full").strip().lower()
+    sync_mode = (sync_mode or "incremental").strip().lower()
     if sync_mode not in ("full", "incremental"):
-        sync_mode = "full"
+        sync_mode = "incremental"
     pk_columns_val = (pk_columns or "").strip() or None
     if not pk_columns_val and connection_id and source_table:
         c = get_connection_for_etl(connection_id)

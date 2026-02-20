@@ -73,7 +73,7 @@ function DbConnectionForm({ onSuccess }) {
   const [targetTable, setTargetTable] = useState('');
   const [labelName, setLabelName] = useState('');
   const [description, setDescription] = useState('');
-  const [syncMode, setSyncMode] = useState('full');
+  const [syncMode, setSyncMode] = useState('incremental');
   const [batchSize, setBatchSize] = useState('');
   const [batchIntervalSeconds, setBatchIntervalSeconds] = useState('');
   const [selectedSourceTable, setSelectedSourceTable] = useState('');

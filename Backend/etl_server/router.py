@@ -244,7 +244,7 @@ class CreateTableBody(BaseModel):
     file_path: Optional[str] = None
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분, incremental 시 필수)")
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명")
-    sync_mode: Optional[str] = Field("full", description="full | incremental")
+    sync_mode: Optional[str] = Field("incremental", description="full | incremental")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). NULL/0이면 전체 fetch. 고객 DB 여건에 따라 설정.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
 

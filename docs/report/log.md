@@ -1,5 +1,38 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-19: 메인 문서 자체 완결 — 리포트 참조 제거·필수 내용 가이드 반영
+
+### 완료 작업
+1. **방침**: 대외 시스템 소개 시 리포트 문서 없이 **docs/main(PRD·01·02)만** 사용. PRD는 요약, 01·02 가이드는 상세 명세.
+2. **02_BACKEND_GUIDE.md**: §3.2 메타 테이블 4개 용도 표 반영. §3.3 etl_limits 키·의미·파일/DB 동작 반영. §3.4 ETL 배치·실행 시점(배치=한 번 실행 시, 스케줄 없음, 실행=버튼만) 추가. §6.2 DB 지원 현황 표(PostgreSQL/MySQL/Oracle). §6.3 외부 DB 연결 구조·경유 IP·실패 시 점검 순서. §6.4 Job 확인 방법(터미널 로그·시스템 DB·수동 정리). §6.5 재실행 시 동작(파일/DB full·incremental). §6.6 모듈 의존. "08·09 참고" 문구 제거.
+3. **01_FRONTEND_GUIDE.md**: §4.5 etl 확장. 목록 열 의미·상태(draft/error/done)별 미리보기/실행/데이터 추가/삭제 동작. 배치·실행 시점 안내. 파일 3일 보관. DB 연결 실패 시 Backend 호스트 IP·방화벽. ZIP 다중 파일·건너뛴 파일(skipped_files) 목록. "08 참고" 제거.
+4. **00_PRD.md**: 문서 정보에 "대외 소개 시 PRD·01·02만 사용" 명시. ETL·설정·API·DB 연결·설정 상세 참조를 모두 **01·02 가이드**로 통일(docs/report 08·09 참조 제거). §7 "개발 요구사항·대외 소개는 docs/main만 사용".
+
+### 수정 파일
+- docs/main/02_BACKEND_GUIDE.md
+- docs/main/01_FRONTEND_GUIDE.md
+- docs/main/00_PRD.md
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-19: 01_FRONTEND_GUIDE·02_BACKEND_GUIDE 업데이트 (PRD·ReportIndex 기반)
+
+### 완료 작업
+1. **01_FRONTEND_GUIDE.md**: PRD·00_ReportIndex 반영. 패키지에 etl 추가(§1.1·§1.2). 접속 경로에 .../etl. §3 디렉터리 트리에 packages/etl 및 components(SourceTypeSelector, FileUploadForm, DbConnectionForm, ETLTableList, JobHistoryPanel, JobLogPanel, AddFileModal, PkColumnsModal, PreviewModal). **§4.5 etl** 신설(ETLPage·컴포넌트·API·08 참고). §4.6 shared로 번호 이동·api/client.js에 ETL API·joinOrder·saveQueryAsTable 명시. §7 문서표 02_BACKEND_GUIDE.md로 변경·docs/report 08·09 참고.
+2. **02_BACKEND_GUIDE.md**: 마이그레이션 플랜만 있던 문서를 **가이드 명세서**로 전면 개편. §1 개요(역할·기술 스택·실행), §2 아키텍처·디렉토리(api_server·etl_server), §3 설정(config·system_db·etl_limits), §4 API 엔드포인트(health·report·dashboard·dashboard2·ETL 표), §5 api_server 상세(main·db·dependencies·schemas·routers·dashboard_service), §6 etl_server 상세(역할·모듈 의존·08·09 참고), §7 문서 구성. **부록 A**: Flask→FastAPI 전환 계획 참고(Phase 요약·롤백).
+3. **00_PRD.md**: §2.1·§5.2·§5.2 하단 참고를 02_BACKEND_GUIDE.md·§4·§5로 통일. §8 변경 이력 행 추가.
+4. **docs/report/00_ReportIndex.md**: 백엔드 참조를 02_BACKEND_GUIDE.md로 변경, 전환 계획은 부록 A 참고 명시.
+
+### 수정 파일
+- docs/main/01_FRONTEND_GUIDE.md
+- docs/main/02_BACKEND_GUIDE.md (전면 개편)
+- docs/main/00_PRD.md
+- docs/report/00_ReportIndex.md
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-19: PRD(00_PRD.md) report·log 반영 정리
 
 ### 완료 작업
