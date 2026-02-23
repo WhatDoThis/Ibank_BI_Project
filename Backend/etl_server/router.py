@@ -16,7 +16,7 @@ FastAPI APIRouter. prefix /api/etl. 메타·업로드·연결·변환 룰·실�
 ===========
 124 - _ensure_upload_dir: 업로드 디렉터리 생성
 128 - _cleanup_expired_uploads: 보관 기간 초과 업로드·zip_* 디렉터리 삭제
-151 - _save_upload: 업로드 파일 저장, (절대경로, 파일유형) 반환
+151 - _save_upload: 업로드 파일 저장 후 flush·fsync하여 워커가 즉시 읽을 수 있게 함, (절대경로, 파일유형) 반환
 356 - _natural_sort_key: 파일명 자연 정렬용 키(숫자 구간 인식)
 359 - _file_type_from_ext: 확장자 → csv|excel|parquet
 362 - _normalize_column_name_for_check: 컬럼명 정규화(중복 시 접미사)
@@ -166,7 +166,7 @@ def _cleanup_expired_uploads(max_age_days: int = UPLOAD_FILE_RETENTION_DAYS) -> 
 
 
 def _save_upload(file: UploadFile) -> tuple[str, str]:
-    """파일 저장. 반환: (절대 경로, 파일 유형 csv|excel|parquet)."""
+    """파일 저장. flush·fsync 후 반환하여 업로드 직후 실행 시 워커가 파일을 찾을 수 있게 함. 반환: (절대 경로, 파일 유형 csv|excel|parquet)."""
     _ensure_upload_dir()
     ext = (Path(file.filename or "").suffix or "").lower()
     if ext == ".csv":
@@ -182,6 +182,11 @@ def _save_upload(file: UploadFile) -> tuple[str, str]:
     with open(path, "wb") as f:
         content = file.file.read()
         f.write(content)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except (OSError, AttributeError):
+            pass
     return str(path.resolve()), ft
 
 
