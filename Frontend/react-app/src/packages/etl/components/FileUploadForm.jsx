@@ -7,7 +7,7 @@
  * ===========
  * - 파일 업로드 → POST /api/etl/upload (target_table 있으면 메타 등록)
  * - 레이아웃: 왼쪽 절반 드래그앤드롭 영역(파일 선택 버튼 포함), 오른쪽 타겟 테이블·라벨·설명·업로드 버튼.
- * - 파일 선택 시 타겟 테이블명 자동 채움. onSuccess: 등록/업로드 성공 시 콜백.
+ * - 드래그 오버 시 --over(놓으세요 문구·강조 스타일), 파일 선택/드롭 후 --has(선택된 파일 뱃지·녹색 강조). onSuccess: 등록/업로드 성공 시 콜백.
  *
  * [Dependencies]
  * =========
@@ -96,7 +96,7 @@ function FileUploadForm({ onSuccess }) {
     <form className="etl-file-form" onSubmit={handleSubmit}>
       <div className="etl-file-form__layout">
         <div
-          className={`etl-file-form__drop-zone ${dragOver ? 'etl-file-form__drop-zone--over' : ''}`}
+          className={`etl-file-form__drop-zone ${dragOver ? 'etl-file-form__drop-zone--over' : ''} ${file ? 'etl-file-form__drop-zone--has' : ''}`}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
@@ -110,11 +110,12 @@ function FileUploadForm({ onSuccess }) {
             className="etl-file-form__input--hidden"
             aria-hidden
           />
+          {file && <span className="etl-file-form__drop-badge">선택된 파일</span>}
           <span className="etl-file-form__drop-text">
-            {file ? file.name : '파일을 여기에 드래그하거나'}
+            {file ? file.name : (dragOver ? '여기에 놓으세요' : '파일을 여기에 드래그하거나')}
           </span>
           <button type="button" className="etl-file-form__select-btn">
-            파일 선택
+            {file ? '다른 파일 선택' : '파일 선택'}
           </button>
           <p className="etl-file-form__accept">지원 형식: CSV, Excel(.xlsx/.xls), Parquet / 최대 50MB</p>
         </div>

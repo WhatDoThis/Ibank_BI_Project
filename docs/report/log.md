@@ -1,5 +1,41 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: ETL 파일 업로드 드래그앤드롭 영역 가시성 개선 (CSS)
+
+### 완료 작업
+1. **FileUploadForm.jsx**: 드롭존에 `etl-file-form__drop-zone--has` 클래스 추가(파일 선택/드롭 시). 드래그 오버 시 문구를 "여기에 놓으세요"로 변경, 파일 있을 때 버튼 문구 "다른 파일 선택"으로 변경. "선택된 파일" 뱃지 요소 추가(파일 있을 때만 표시).
+2. **etl.css**: `--over` 상태 강화 — 테두리 3px·box-shadow·scale(1.02)·전환 효과. `--has` 상태 추가 — 실선 테두리·녹색(#059669)·연한 녹색 배경·외곽 그림자. `.etl-file-form__drop-badge` 스타일(뱃지). 선택된 파일일 때 드롭 텍스트 색·굵기·줄바꿈 처리.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/FileUploadForm.jsx
+- Frontend/react-app/src/packages/etl/etl.css
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: ETL 파일 업로드 413 (Request Entity Too Large) 대응 — Nginx client_max_body_size
+
+### 배경
+- https://ajo.sdev-ibank.co.kr/ibank-bi/etl 에서 파일 업로드 시 브라우저 콘솔에 `413 (Request Entity Too Large)` 발생.
+- ETL 업로드 요청은 프론트에서 API(api_base_url)로 전송되며, Nginx가 `/report_api/` → 8500 백엔드로 프록시함.
+
+### 원인
+- **Nginx 기본값** `client_max_body_size`가 **1m**. 이 값을 설정하지 않으면 요청 본문이 1MB를 초과할 때 Nginx가 백엔드로 전달하지 않고 413을 반환함.
+- docs/report/nginx_report.conf 에 해당 지시어가 없어 기본 1m이 적용되고 있었음.
+
+### 완료 작업
+1. **nginx_report.conf**: `location /report_api/` 블록에 `client_max_body_size 100m;` 추가. ETL 대용량 파일 업로드 허용.
+2. 상단 주석에 413 발생 시 원인 및 대응( client_max_body_size ) 안내 추가.
+
+### 수정 파일
+- docs/report/nginx_report.conf
+- docs/report/log.md (본 로그)
+
+### 배포 시 참고
+- 리눅스 서버에서 이 설정을 반영한 후 **Nginx 재로드** 필요: `sudo nginx -t && sudo systemctl reload nginx` (또는 해당 서버의 Nginx 재시작 방식).
+
+---
+
 ## 2026-02-13: ETL 가이드 문서 정리·09 통합
 
 ### 완료 작업

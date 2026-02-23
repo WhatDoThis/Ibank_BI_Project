@@ -1,6 +1,7 @@
 /**
  * packages/etl/etl.css
  * ETL 페이지 스타일. Phase 5: 소스 선택·폼·목록·Job 로그.
+ * 파일 폼: 드래그 오버(--over)·파일 선택됨(--has) 시 가시적 드롭존 스타일.
  */
 .etl-page {
   padding: 24px;
@@ -83,15 +84,44 @@
   justify-content: center;
   gap: 12px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 .etl-file-form__drop-zone:hover {
   border-color: #94a3b8;
   background: #f1f5f9;
 }
+/* 드래그 중 영역 위에 있을 때: 놓을 수 있다는 시각적 강조 */
 .etl-file-form__drop-zone--over {
+  border-width: 3px;
   border-color: #2563eb;
+  border-style: dashed;
   background: #eff6ff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15), inset 0 0 24px rgba(37, 99, 235, 0.06);
+  transform: scale(1.02);
+}
+/* 파일이 선택/드롭된 후: 선택됨 상태를 분명히 표시 */
+.etl-file-form__drop-zone--has {
+  border-width: 2px;
+  border-style: solid;
+  border-color: #059669;
+  background: #ecfdf5;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
+}
+.etl-file-form__drop-zone--has:hover {
+  border-color: #047857;
+  background: #d1fae5;
+}
+.etl-file-form__drop-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #059669;
+  background: rgba(5, 150, 105, 0.12);
+  border-radius: 6px;
+  margin-bottom: 2px;
 }
 .etl-file-form__input--hidden {
   position: absolute;
@@ -103,9 +133,18 @@
 .etl-file-form__drop-text {
   font-size: 0.9rem;
   color: #64748b;
+  font-weight: 500;
 }
 .etl-file-form__drop-zone--over .etl-file-form__drop-text {
   color: #1d4ed8;
+  font-weight: 600;
+}
+.etl-file-form__drop-zone--has .etl-file-form__drop-text {
+  color: #047857;
+  font-weight: 600;
+  word-break: break-all;
+  text-align: center;
+  padding: 0 12px;
 }
 .etl-file-form__select-btn {
   padding: 10px 20px;
