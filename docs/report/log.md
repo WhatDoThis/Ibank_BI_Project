@@ -1,5 +1,26 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: source_table 'schema.table' 형식 검증 허용 — PK 모달 미리보기 오류 해결
+
+### 현상
+- PK 컬럼 설정 모달에서 "source_table에 허용되지 않은 문자가 있습니다: public.sample_test" 발생. 컬럼 목록이 불러와지지 않아 체크박스 대신 입력란만 노출됨.
+
+### 원인
+- source_table이 `public.sample_test` 등 'schema.table' 형식으로 저장·전달되는데, 미리보기·적재 경로에서 `_validate_identifier(source_table, "source_table")`를 사용함. 해당 함수는 영문·숫자·언더스코어만 허용해 점(.)에서 검증 실패.
+
+### 완료 작업
+1. **service._validate_source_table(value)** 추가: 'schema.table' 또는 'table' 형식 허용. 점이 있으면 스키마·테이블 부분을 각각 식별자 규칙으로 검증.
+2. **preview_service._preview_db**: source_table 검증을 `_validate_identifier` → `_validate_source_table`로 변경.
+3. **db_load_service.run_db_load**: source_table 검증을 `_validate_source_table`로 변경.
+
+### 수정 파일
+- Backend/etl_server/service.py
+- Backend/etl_server/preview_service.py
+- Backend/etl_server/db_load_service.py
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-23: DB 연결 ETL PK 자동 설정 + PK 설정 모달 체크박스 우선
 
 ### 요청

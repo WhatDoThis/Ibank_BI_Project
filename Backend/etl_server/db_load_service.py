@@ -203,7 +203,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
 
     target_table = etl_service._validate_identifier(target_table, "target_table")
-    source_table = etl_service._validate_identifier(source_table, "source_table")
+    source_table = etl_service._validate_source_table(source_table)
     if job_id is None:
         job_id = etl_service.insert_job(etl_table_id, status="running")
     else:

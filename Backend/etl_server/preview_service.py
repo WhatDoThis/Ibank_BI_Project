@@ -128,7 +128,7 @@ def _preview_db(row: dict) -> dict:
     source_table = (row.get("source_table") or "").strip()
     if not connection_id or not source_table:
         raise ValueError("connection_id, source_table이 필요합니다.")
-    etl_service._validate_identifier(source_table, "source_table")
+    etl_service._validate_source_table(source_table)
     c = etl_service.get_connection_for_etl(connection_id)
     stype = (c.get("source_type") or "postgresql").strip().lower()
 

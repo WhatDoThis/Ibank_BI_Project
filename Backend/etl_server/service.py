@@ -9,6 +9,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 72 - _schema: get_system_table_schema() 반환
 76 - _q: 스키마.테이블명 따옴표 감싼 문자열
 81 - _validate_identifier: 식별자 영문·숫자·언더스코어 검증
+   - _validate_source_table: source_table 검증. 'schema.table' 또는 'table' 형식 허용(각 부분 식별자 규칙)
 91 - _connection_error_to_user_message: 연결 실패 예외 → 한글 메시지·점검 안내
    - parse_source_table_parts: source_table이 'schema.table' 형식일 때 (schema_or_db, table_name) 반환. PK 조회·쿼리용
 152 - _connect_postgres: 외부 PostgreSQL 연결(테스트·소스 조회용). connect_timeout·로깅 적용
@@ -94,6 +95,25 @@ def _validate_identifier(value: str, name: str) -> str:
     v = str(value).strip()
     if not re.match(r"^[a-zA-Z0-9_]+$", v):
         raise ValueError(f"{name}에 허용되지 않은 문자가 있습니다: {v}")
+    return v
+
+
+def _validate_source_table(value: str) -> str:
+    """source_table 검증. 'schema.table' 또는 'table' 형식 허용. 각 부분은 영문·숫자·언더스코어만."""
+    if not value or not str(value).strip():
+        raise ValueError("source_table이 비어 있습니다.")
+    v = str(value).strip()
+    if "." in v:
+        parts = v.split(".", 1)
+        for part in parts:
+            p = part.strip()
+            if not p:
+                raise ValueError("source_table의 스키마 또는 테이블명이 비어 있습니다.")
+            if not re.match(r"^[a-zA-Z0-9_]+$", p):
+                raise ValueError(f"source_table에 허용되지 않은 문자가 있습니다: {v}")
+        return v
+    if not re.match(r"^[a-zA-Z0-9_]+$", v):
+        raise ValueError(f"source_table에 허용되지 않은 문자가 있습니다: {v}")
     return v
 
 
