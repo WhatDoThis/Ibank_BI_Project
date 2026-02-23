@@ -10,6 +10,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 76 - _q: 스키마.테이블명 따옴표 감싼 문자열
 81 - _validate_identifier: 식별자 영문·숫자·언더스코어 검증
 91 - _connection_error_to_user_message: 연결 실패 예외 → 한글 메시지·점검 안내
+   - parse_source_table_parts: source_table이 'schema.table' 형식일 때 (schema_or_db, table_name) 반환. PK 조회·쿼리용
 152 - _connect_postgres: 외부 PostgreSQL 연결(테스트·소스 조회용). connect_timeout·로깅 적용
 181 - _connect_mysql: 외부 MySQL 연결. PyMySQL
 210 - _connect_oracle: 외부 Oracle 연결. oracledb
@@ -227,6 +228,7 @@ def _connect_oracle(host: str, port: int, database: str, user: str, password: st
             user=user,
             password=password or "",
             dsn=dsn,
+            tcp_connect_timeout=_CONNECT_TIMEOUT_SEC,
         )
         logger.info("ETL Oracle 연결 성공: dsn=%s", dsn)
         return conn
@@ -295,6 +297,27 @@ def _fetch_pk_from_oracle(conn, owner: str, table_name: str) -> list:
 
 # DB 종류별 기본 포트
 _DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "oracle": 1521}
+
+
+def parse_source_table_parts(
+    source_table: str,
+    source_type: str,
+    conn_schema: Optional[str] = None,
+    conn_db: Optional[str] = None,
+) -> tuple:
+    """
+    source_table가 'schema.table' 또는 'table' 형식일 때 (schema_or_db, table_name) 반환.
+    DB 조회·PK 조회 시 스키마/테이블 분리용. conn_schema/conn_db는 점(.)이 없을 때 사용.
+    """
+    st = (source_table or "").strip()
+    if not st:
+        return (conn_schema or "public", "")
+    if "." in st:
+        a, b = st.split(".", 1)
+        return (a.strip(), b.strip())
+    if (source_type or "").strip().lower() == "mysql":
+        return (conn_db or "", st)
+    return (conn_schema or "public", st)
 
 
 def create_connection(
@@ -749,10 +772,15 @@ def create_etl_table(
             if stype == "postgresql":
                 from Backend.etl_server import db_load_service
                 src_conn = db_load_service._get_source_connection(connection_id)
-                schema_src = (c.get("schema_name") or "public").strip()
-                pk_list = db_load_service._fetch_source_pk_columns(src_conn, schema_src, source_table.strip())
-                if pk_list:
-                    pk_columns_val = ",".join(pk_list)
+                schema_src, table_for_pk = parse_source_table_parts(
+                    source_table, stype,
+                    conn_schema=(c.get("schema_name") or "public").strip(),
+                    conn_db=None,
+                )
+                if table_for_pk:
+                    pk_list = db_load_service._fetch_source_pk_columns(src_conn, schema_src, table_for_pk)
+                    if pk_list:
+                        pk_columns_val = ",".join(pk_list)
             elif stype == "mysql":
                 src_conn = _connect_mysql(
                     c["host"],
@@ -761,10 +789,15 @@ def create_etl_table(
                     c["username"],
                     c.get("encrypted_password") or "",
                 )
-                db_name = (c.get("database_name") or "").strip()
-                pk_list = _fetch_pk_from_mysql(src_conn, db_name, source_table.strip())
-                if pk_list:
-                    pk_columns_val = ",".join(pk_list)
+                db_name, table_for_pk = parse_source_table_parts(
+                    source_table, stype,
+                    conn_schema=None,
+                    conn_db=(c.get("database_name") or "").strip(),
+                )
+                if table_for_pk:
+                    pk_list = _fetch_pk_from_mysql(src_conn, db_name, table_for_pk)
+                    if pk_list:
+                        pk_columns_val = ",".join(pk_list)
             elif stype == "oracle":
                 src_conn = _connect_oracle(
                     c["host"],

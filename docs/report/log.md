@@ -1,5 +1,36 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: DB 연결 ETL PK 자동 설정 + PK 설정 모달 체크박스 우선
+
+### 요청
+- DB 연결로 ETL 목록에 등록한 경우 PK가 자동 설정되어야 하는데 되지 않음.
+- PK 컬럼 설정 모달이 입력 방식이라 불편함 → 체크박스/셀렉트 방식 선호.
+
+### 원인
+- 프론트에서 소스 테이블을 `schema.table`(예: `public.mytable`) 형식으로 전달. 백엔드가 이를 테이블명으로만 사용해 information_schema 조회 시 `table_name = 'public.mytable'`로 조회하여 행이 없음 → PK 자동 조회 실패.
+- 미리보기/적재 시에도 동일하게 `schema.table`를 분리하지 않아 컬럼·PK 조회·쿼리 실패 가능.
+
+### 완료 작업
+1. **service.parse_source_table_parts**: `source_table`이 `schema.table` 형식일 때 `(schema_or_db, table_name)` 반환하는 공용 함수 추가.
+2. **create_etl_table**: PostgreSQL/MySQL PK 자동 조회 시 `parse_source_table_parts`로 스키마·테이블 분리 후 `_fetch_source_pk_columns` / `_fetch_pk_from_mysql`에 테이블명만 전달. Oracle은 기존대로 `OWNER.TABLE` 분기 유지.
+3. **db_load_service.run_db_load**: 소스 컬럼·PK 조회 및 `quoted_src` 생성 시 `parse_source_table_parts` 적용.
+4. **preview_service._preview_db**: 컬럼 조회 및 `quoted_src` 생성 시 `parse_source_table_parts` 적용.
+5. **PkColumnsModal**: 컬럼을 불러올 수 없을 때만 사용하는 입력란임을 안내 문구로 명시.
+
+### 수정 파일
+- Backend/etl_server/service.py (parse_source_table_parts, create_etl_table PK 조회)
+- Backend/etl_server/db_load_service.py (run_db_load 스키마/테이블 분리)
+- Backend/etl_server/preview_service.py (_preview_db 스키마/테이블 분리)
+- Frontend/react-app/src/packages/etl/components/PkColumnsModal.jsx (fallback 입력 안내)
+- docs/report/log.md (본 로그)
+
+### 결과
+- DB 연결 ETL 등록 시 소스 DB에서 PK를 자동 조회해 `pk_columns`에 저장됨.
+- 미리보기·적재가 `schema.table` 형식 소스에서 정상 동작.
+- PK 설정 모달은 미리보기로 컬럼을 불러오면 체크박스로 선택, 불러오지 못할 때만 직접 입력 사용.
+
+---
+
 ## 2026-02-23: ETL 파일 적재 2~3회 실패 후 성공 — 요청 프로세스에서 동기 실행으로 변경
 
 ### 현상

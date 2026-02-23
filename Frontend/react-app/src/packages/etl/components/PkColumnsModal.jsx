@@ -134,6 +134,7 @@ function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColum
           )}
           {!columnsLoading && !canUseCheckboxes && (
             <>
+              <p className="etl-pk-modal__selected-hint">컬럼 목록을 불러올 수 없을 때만 아래 입력을 사용하세요.</p>
               <label className="etl-pk-modal__label">PK 컬럼 (쉼표 구분, 직접 입력)</label>
               <input
                 type="text"

@@ -132,6 +132,15 @@ def _preview_db(row: dict) -> dict:
     c = etl_service.get_connection_for_etl(connection_id)
     stype = (c.get("source_type") or "postgresql").strip().lower()
 
+    src_schema, source_table_name = etl_service.parse_source_table_parts(
+        source_table,
+        stype,
+        conn_schema=(c.get("schema_name") or "public").strip(),
+        conn_db=(c.get("database_name") or "").strip(),
+    )
+    if not source_table_name:
+        raise ValueError("source_table이 비어 있습니다.")
+
     if stype == "mysql":
         conn = etl_service._connect_mysql(
             c["host"],
@@ -140,17 +149,15 @@ def _preview_db(row: dict) -> dict:
             c["username"],
             c.get("encrypted_password") or "",
         )
-        src_schema = (c.get("database_name") or "").strip()
-        columns = _fetch_source_columns_mysql(conn, src_schema, source_table)
+        columns = _fetch_source_columns_mysql(conn, src_schema, source_table_name)
         type_mapper = _pg_type_from_mysql
-        quoted_src = f"`{src_schema}`.`{source_table}`"
+        quoted_src = f"`{src_schema}`.`{source_table_name}`"
         _quote = lambda x: f"`{x}`"
     else:
         conn = _get_source_connection(connection_id)
-        src_schema = (c.get("schema_name") or "public").strip()
-        columns = _fetch_source_columns(conn, src_schema, source_table)
+        columns = _fetch_source_columns(conn, src_schema, source_table_name)
         type_mapper = _pg_type_from_info_schema
-        quoted_src = f'"{src_schema}"."{source_table}"'
+        quoted_src = f'"{src_schema}"."{source_table_name}"'
         _quote = lambda x: f'"{x}"'
 
     if not columns:

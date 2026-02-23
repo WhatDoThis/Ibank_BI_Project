@@ -217,6 +217,15 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         if stype not in ("postgresql", "mysql"):
             raise ValueError(f"DB 적재는 postgresql, mysql만 지원합니다. source_type={stype}")
 
+        src_schema, source_table_name = etl_service.parse_source_table_parts(
+            source_table,
+            stype,
+            conn_schema=(c.get("schema_name") or "public").strip(),
+            conn_db=(c.get("database_name") or "").strip(),
+        )
+        if not source_table_name:
+            raise ValueError("source_table이 비어 있습니다.")
+
         if stype == "mysql":
             src_conn = etl_service._connect_mysql(
                 c["host"],
@@ -225,19 +234,17 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 c["username"],
                 c.get("encrypted_password") or "",
             )
-            src_schema = (c.get("database_name") or "").strip()
-            columns = _fetch_source_columns_mysql(src_conn, src_schema, source_table)
-            source_pk_list = etl_service._fetch_pk_from_mysql(src_conn, src_schema, source_table)
-            quoted_src = f"`{src_schema}`.`{source_table}`"
+            columns = _fetch_source_columns_mysql(src_conn, src_schema, source_table_name)
+            source_pk_list = etl_service._fetch_pk_from_mysql(src_conn, src_schema, source_table_name)
+            quoted_src = f"`{src_schema}`.`{source_table_name}`"
             type_mapper = _pg_type_from_mysql
             row_type = "tuple"
             _quote = lambda x: f"`{x}`"
         else:
             src_conn = _get_source_connection(connection_id)
-            src_schema = (c.get("schema_name") or "public").strip()
-            columns = _fetch_source_columns(src_conn, src_schema, source_table)
-            source_pk_list = _fetch_source_pk_columns(src_conn, src_schema, source_table)
-            quoted_src = f'"{src_schema}"."{source_table}"'
+            columns = _fetch_source_columns(src_conn, src_schema, source_table_name)
+            source_pk_list = _fetch_source_pk_columns(src_conn, src_schema, source_table_name)
+            quoted_src = f'"{src_schema}"."{source_table_name}"'
             type_mapper = _pg_type_from_info_schema
             row_type = "dict"
             _quote = lambda x: f'"{x}"'
