@@ -44,7 +44,7 @@ FastAPI APIRouter. prefix /api/etl. 메타·업로드·연결·변환 룰·실�
 582 - delete_connection: DELETE /connections/{id} — 연결 삭제
 591 - check_target_table_exists: GET /tables/{id}/target-exists — 타겟 테이블 메인 DB 존재 여부
 610 - preview_table: GET /tables/{id}/preview — 미리보기(컬럼·10행)
-624 - run_table_load: POST /tables/{id}/run — 실행 대기열 등록(파일→run_file_load, DB→run_db_load)
+624 - run_table_load: POST /tables/{id}/run — 파일 소스는 요청 프로세스에서 스레드로 즉시 실행, DB/추가적재는 대기열
 656 - list_jobs: GET /jobs — Job 목록(etl_table_id, statuses, limit)
 673 - get_job: GET /jobs/{id} — Job 1건(폴링용)
 693 - delete_job: DELETE /jobs/{id} — Job 1건 삭제(add_file_path 파일 삭제)
@@ -819,12 +819,26 @@ def preview_table(etl_table_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _run_file_load_in_process(etl_table_id: int, job_id: int) -> None:
+    """파일 적재를 이 프로세스 내 스레드에서 실행(업로드와 동일 프로세스에서 파일 접근 보장)."""
+    try:
+        from Backend.etl_server import load_service
+        load_service.run_file_load(etl_table_id, job_id=job_id)
+    except Exception as e:
+        etl_service.update_job(job_id, "failed", error_message=str(e))
+        etl_service.update_etl_table_status(etl_table_id, "error")
+        logger.exception("ETL file load (in-process) job_id=%s failed: %s", job_id, e)
+
+
 @router.post("/tables/{etl_table_id}/run")
 def run_table_load(etl_table_id: int):
     """
-    Phase 6: ETL 테이블 1건을 대기열에 등록. 백그라운드 워커가 pending을 수거해 실행(동시 2건 제한).
-    반환: { job_id, status: "pending", message } — 완료 여부는 GET /api/etl/jobs/{job_id} 로 폴링.
+    Phase 6: ETL 테이블 1건 실행.
+    - 파일 소스: 이 요청을 받은 프로세스에서 스레드로 즉시 실행(다중 워커 시 업로드 파일 경로 불일치 방지).
+    - DB 소스·추가 적재: 대기열 등록 후 백그라운드 워커가 실행.
+    반환: { job_id, status, message } — 완료 여부는 GET /api/etl/jobs/{job_id} 로 폴링.
     """
+    import threading
     try:
         row = etl_service.get_etl_table(etl_table_id)
         if not row:
@@ -837,12 +851,33 @@ def run_table_load(etl_table_id: int):
         if source_type not in ("file", "postgresql", "mysql"):
             raise ValueError("실행할 수 있는 ETL 유형이 아닙니다.")
 
+        target_table = row.get("target_table") or ""
+        description = row.get("description")
+
+        if source_type == "file":
+            job_id = etl_service.insert_job(etl_table_id, status="running")
+            t = threading.Thread(target=_run_file_load_in_process, args=(etl_table_id, job_id), daemon=True)
+            t.start()
+            return {
+                "job_id": job_id,
+                "status": "running",
+                "message": "실행을 시작했습니다. 완료 여부는 Job 목록에서 확인하세요.",
+                "etl_table_id": etl_table_id,
+                "target_table": target_table,
+                "description": description,
+            }
+
         job_id = etl_service.insert_job(etl_table_id, status="pending")
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
-        target_table = row.get("target_table") or ""
-        description = row.get("description")
-        return {"job_id": job_id, "status": "pending", "message": "대기열에 등록되었습니다. 완료 여부는 Job 목록에서 확인하세요.", "etl_table_id": etl_table_id, "target_table": target_table, "description": description}
+        return {
+            "job_id": job_id,
+            "status": "pending",
+            "message": "대기열에 등록되었습니다. 완료 여부는 Job 목록에서 확인하세요.",
+            "etl_table_id": etl_table_id,
+            "target_table": target_table,
+            "description": description,
+        }
     except HTTPException:
         raise
     except ValueError as e:
