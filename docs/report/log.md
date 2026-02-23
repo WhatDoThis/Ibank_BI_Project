@@ -1,5 +1,34 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: ETL "파일을 찾을 수 없습니다" 원인 분석 및 경로 폴백 처리
+
+### 현상
+- 리눅스 서버에서 파일 업로드는 성공하고 `Backend/etl_server/uploads/` 에 파일이 존재함.
+- 실행(Job) 시 `에러: 파일을 찾을 수 없습니다: /root/report/Backend/etl_server/uploads/0753220ab73e4dfb8851e22060162c3f_...xlsx` 발생.
+
+### 원인 분석
+1. **경로 저장**: 업로드 시 `router._save_upload()` 이 `Path(__file__).resolve().parent / "uploads"` 기준으로 절대 경로를 만들어 DB(etl_tables.file_path, etl_jobs.add_file_path)에 저장함.
+2. **경로 사용**: Job 실행 시 `load_service.run_file_load` / `run_file_upsert` 가 DB의 경로를 그대로 사용해 `os.path.isfile(file_path)` / `_read_file()` 호출.
+3. **가능한 원인** (파일은 있는데 못 찾는 경우):
+   - **프로세스/워커 분리**: API와 ETL 워커가 서로 다른 프로세스(또는 컨테이너)에서 동작할 때, 한쪽에서 저장한 절대 경로가 다른 쪽의 파일시스템과 다르게 마운트/해석될 수 있음.
+   - **실행 디렉터리/배포 경로 차이**: 예전 배포 경로로 저장된 경로가 DB에 남아 있고, 현재 앱은 다른 경로에서 실행되는 경우(예: /opt/report vs /root/report).
+   - **권한/SELinux**: 워커 프로세스가 해당 경로를 읽지 못하는 경우(일반적으로는 PermissionError로 나옴).
+
+### 완료 작업
+1. **load_service.py**: `UPLOAD_DIR`(etl_server/uploads)와 `_resolve_upload_path(file_path)` 추가. DB에서 읽은 경로에 파일이 없으면 `uploads/파일명` 으로 재해석해 사용하도록 함.
+2. `run_file_load`·`run_file_upsert` 에서 `file_path` / `add_file_path` 사용 전에 `_resolve_upload_path` 적용.
+
+### 수정 파일
+- Backend/etl_server/load_service.py
+- docs/report/log.md (본 로그)
+
+### 운영 점검 권장
+- API와 워커가 **동일 프로세스 내 스레드**로 동작하는지 확인(현재 run.py back → 단일 프로세스 + start_background_worker 스레드).
+- systemd 등에서 **WorkingDirectory** 와 실제 코드/업로드 디렉터리 일치 여부 확인.
+- DB의 `etl_tables.file_path` 값이 서버의 실제 업로드 디렉터리와 같은지 확인.
+
+---
+
 ## 2026-02-23: ETL 파일 업로드 드래그앤드롭 영역 가시성 개선 (CSS)
 
 ### 완료 작업

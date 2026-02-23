@@ -7,6 +7,7 @@ Backend.etl_server.load_service (파일 기반 추출·적재)
 ===========
 42 - _pg_type: inferred_type → PostgreSQL 타입 문자열
 55 - _read_csv_robust: CSV 읽기(EOF 문자 등 폴백 처리), (DataFrame, data_verification_needed)
+   - _resolve_upload_path: DB 경로가 현재 프로세스에서 없을 때 uploads/파일명으로 폴백 해석
 81 - _read_file: file_path, file_type으로 CSV/Excel/Parquet 읽기, (DataFrame, data_verification_needed)
 
 [Main]
@@ -25,11 +26,38 @@ import io
 import logging
 import os
 import re
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# 업로드 디렉터리: router와 동일한 기준(etl_server/uploads). DB 경로와 실행 환경이 다를 때 폴백 해석용.
+UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
+
+
+def _resolve_upload_path(file_path: str) -> str:
+    """
+    DB에 저장된 file_path가 현재 프로세스에서 없을 때, uploads 디렉터리 내 동일 파일명으로 해석.
+    (배포 경로/프로세스 분리 등으로 절대 경로가 어긋난 경우 대비.)
+    """
+    p = (file_path or "").strip()
+    if not p:
+        return p
+    if os.path.isfile(p):
+        return p
+    base = os.path.basename(p)
+    if not base:
+        return p
+    fallback = UPLOAD_DIR / base
+    try:
+        if fallback.is_file():
+            return str(fallback.resolve())
+    except (OSError, PermissionError):
+        pass
+    return p
+
 
 from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
@@ -120,6 +148,8 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     target_table = row.get("target_table")
     if not file_path or not file_type or not target_table:
         raise ValueError("file_path, file_type, target_table가 필요합니다.")
+
+    file_path = _resolve_upload_path(file_path)
 
     target_table = etl_service._validate_identifier(target_table, "target_table")
     if job_id is None:
@@ -314,6 +344,7 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
         etl_service.update_job(job_id, "failed", error_message=f"타겟 테이블 컬럼 조회 실패: {e}")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": str(e)}
 
+    add_file_path = _resolve_upload_path(add_file_path)
     if not os.path.isfile(add_file_path):
         etl_service.update_job(job_id, "failed", error_message="추가 적재 파일을 찾을 수 없습니다.")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "파일 없음"}
