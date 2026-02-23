@@ -9,7 +9,8 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 72 - _schema: get_system_table_schema() 반환
 76 - _q: 스키마.테이블명 따옴표 감싼 문자열
 81 - _validate_identifier: 식별자 영문·숫자·언더스코어 검증
-   - _validate_source_table: source_table 검증. 'schema.table' 또는 'table' 형식 허용(각 부분 식별자 규칙)
+   - _normalize_source_table_dots: 점 유사 문자를 ASCII 점으로 통일. _validate_source_table, parse_source_table_parts, Oracle PK 조회에서 사용
+   - _validate_source_table: source_table 검증. 정규화 후 'schema.table'/'table' 각 부분 식별자 검증. 실패 시 bad_chars 로깅
 91 - _connection_error_to_user_message: 연결 실패 예외 → 한글 메시지·점검 안내
    - parse_source_table_parts: source_table이 'schema.table' 형식일 때 (schema_or_db, table_name) 반환. PK 조회·쿼리용
 152 - _connect_postgres: 외부 PostgreSQL 연결(테스트·소스 조회용). connect_timeout·로깅 적용
@@ -46,6 +47,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 623 - list_jobs: Job 목록(etl_table_id, statuses, limit), target_table 등 join
 674 - delete_job: Job 1건 삭제, add_file_path 파일 있으면 삭제
 703 - set_job_total_rows: total_rows 설정(ETA/진행률용)
+705 - update_job_progress: 진행 중 job의 rows_processed만 갱신(배치 단위 진행률 표시)
 720 - get_job: job_id로 1건 조회(target_table, add_file_path 등)
 758 - fetch_pending_jobs: pending Job created_at 순 limit건
 781 - claim_next_pending_job: 다음 pending 1건 claim(running으로 변경), (job_id, etl_table_id) 또는 None
@@ -88,6 +90,10 @@ def _q(schema_name: str, table_name: str) -> str:
     return f'"{schema_name}"."{table_name}"'
 
 
+# source_table 'schema.table' 분리 시 점으로 인정할 문자들. 정규화 시 ASCII 점(.)으로 통일.
+# ASCII(.), 전각(U+FF0E), 가운뎃점(U+00B7), One Dot Leader(U+2024), Hyphenation Point(U+2027), Ideographic Full Stop(U+3002)
+_SOURCE_TABLE_DOT_PATTERN = re.compile(r"[.\u00B7\u2024\u2027\uFF0E\u3002]")
+
 def _validate_identifier(value: str, name: str) -> str:
     """식별자(테이블명·컬럼명) 검증. 영문·숫자·언더스코어만."""
     if not value or not str(value).strip():
@@ -98,22 +104,30 @@ def _validate_identifier(value: str, name: str) -> str:
     return v
 
 
+def _normalize_source_table_dots(value: str) -> str:
+    """점 유사 문자를 ASCII 점(.)으로 통일. DB/입력 인코딩 차이 대응."""
+    if not value:
+        return ""
+    return _SOURCE_TABLE_DOT_PATTERN.sub(".", str(value).strip())
+
+
 def _validate_source_table(value: str) -> str:
-    """source_table 검증. 'schema.table' 또는 'table' 형식 허용. 각 부분은 영문·숫자·언더스코어만."""
+    """source_table 검증. 'schema.table' 또는 'table' 형식 허용. 점 유사 문자는 ASCII 점으로 정규화 후 검증. 각 부분은 영문·숫자·언더스코어만."""
     if not value or not str(value).strip():
         raise ValueError("source_table이 비어 있습니다.")
-    v = str(value).strip()
-    if "." in v:
-        parts = v.split(".", 1)
-        for part in parts:
-            p = part.strip()
-            if not p:
-                raise ValueError("source_table의 스키마 또는 테이블명이 비어 있습니다.")
-            if not re.match(r"^[a-zA-Z0-9_]+$", p):
-                raise ValueError(f"source_table에 허용되지 않은 문자가 있습니다: {v}")
-        return v
-    if not re.match(r"^[a-zA-Z0-9_]+$", v):
-        raise ValueError(f"source_table에 허용되지 않은 문자가 있습니다: {v}")
+    v = _normalize_source_table_dots(value)
+    parts = v.split(".", maxsplit=1)
+    for part in parts:
+        p = part.strip()
+        if not p:
+            raise ValueError("source_table의 스키마 또는 테이블명이 비어 있습니다.")
+        if not re.match(r"^[a-zA-Z0-9_]+$", p):
+            bad_chars = [c for c in p if not re.match(r"[a-zA-Z0-9_]", c)]
+            logger.warning(
+                "_validate_source_table 실패: part=%r bad_chars=%r ord=%s",
+                p, bad_chars, [hex(ord(c)) for c in bad_chars],
+            )
+            raise ValueError(f"source_table에 허용되지 않은 문자가 있습니다: {v}")
     return v
 
 
@@ -327,14 +341,14 @@ def parse_source_table_parts(
 ) -> tuple:
     """
     source_table가 'schema.table' 또는 'table' 형식일 때 (schema_or_db, table_name) 반환.
-    DB 조회·PK 조회 시 스키마/테이블 분리용. conn_schema/conn_db는 점(.)이 없을 때 사용.
+    DB 조회·PK 조회 시 스키마/테이블 분리용. 점 유사 문자는 정규화 후 분리. conn_schema/conn_db는 점(.)이 없을 때 사용.
     """
-    st = (source_table or "").strip()
+    st = _normalize_source_table_dots(source_table or "")
     if not st:
         return (conn_schema or "public", "")
-    if "." in st:
-        a, b = st.split(".", 1)
-        return (a.strip(), b.strip())
+    parts = st.split(".", maxsplit=1)
+    if len(parts) == 2:
+        return (parts[0].strip(), parts[1].strip())
     if (source_type or "").strip().lower() == "mysql":
         return (conn_db or "", st)
     return (conn_schema or "public", st)
@@ -765,6 +779,8 @@ def create_etl_table(
     DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
     api_db = _get_db()
     target_table = _validate_identifier(target_table, "target_table")
+    if (source_table or "").strip():
+        source_table = _validate_source_table(source_table)
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
@@ -826,13 +842,13 @@ def create_etl_table(
                     c["username"],
                     c.get("encrypted_password") or "",
                 )
-                st = source_table.strip()
-                if "." in st:
-                    owner, tbl = st.split(".", 1)
-                    owner, tbl = owner.strip().upper(), tbl.strip()
+                st = _normalize_source_table_dots(source_table)
+                parts = st.split(".", maxsplit=1)
+                if len(parts) == 2:
+                    owner, tbl = parts[0].strip().upper(), parts[1].strip().upper()
                 else:
                     owner = (c.get("schema_name") or c.get("username") or "").strip().upper()
-                    tbl = st
+                    tbl = st.upper()
                 pk_list = _fetch_pk_from_oracle(src_conn, owner, tbl)
                 if pk_list:
                     pk_columns_val = ",".join(pk_list)
@@ -1168,6 +1184,23 @@ def set_job_total_rows(job_id: int, total_rows: int) -> None:
         cur.execute(
             f"UPDATE {_q(schema, 'etl_jobs')} SET total_rows = %s WHERE job_id = %s",
             (total_rows, job_id),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def update_job_progress(job_id: int, rows_processed: int) -> None:
+    """진행 중인 Job의 rows_processed만 갱신. status/finished_at은 건드리지 않음. 배치 단위 진행률 표시용."""
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"UPDATE {_q(schema, 'etl_jobs')} SET rows_processed = %s WHERE job_id = %s AND status = %s",
+            (rows_processed, job_id, "running"),
         )
         conn.commit()
     finally:

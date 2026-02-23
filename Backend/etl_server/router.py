@@ -846,9 +846,9 @@ def run_table_load(etl_table_id: int):
         source_type = (row.get("source_type") or "").strip().lower()
         if source_type == "file" and not (row.get("file_path") and row.get("file_type")):
             raise ValueError("파일 기반 ETL은 file_path와 file_type이 필요합니다.")
-        if source_type in ("postgresql", "mysql") and not (row.get("connection_id") and row.get("source_table")):
+        if source_type in ("postgresql", "mysql", "oracle") and not (row.get("connection_id") and row.get("source_table")):
             raise ValueError("DB 연동 ETL은 connection_id와 source_table이 필요합니다.")
-        if source_type not in ("file", "postgresql", "mysql"):
+        if source_type not in ("file", "postgresql", "mysql", "oracle"):
             raise ValueError("실행할 수 있는 ETL 유형이 아닙니다.")
 
         target_table = row.get("target_table") or ""

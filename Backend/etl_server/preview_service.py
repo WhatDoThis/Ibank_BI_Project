@@ -121,8 +121,10 @@ def _preview_db(row: dict) -> dict:
         _get_source_connection,
         _fetch_source_columns,
         _fetch_source_columns_mysql,
+        _fetch_source_columns_oracle,
         _pg_type_from_info_schema,
         _pg_type_from_mysql,
+        _pg_type_from_oracle,
     )
     connection_id = row.get("connection_id")
     source_table = (row.get("source_table") or "").strip()
@@ -132,10 +134,12 @@ def _preview_db(row: dict) -> dict:
     c = etl_service.get_connection_for_etl(connection_id)
     stype = (c.get("source_type") or "postgresql").strip().lower()
 
+    conn_schema_pg = (c.get("schema_name") or "public").strip()
+    conn_schema_oracle = (c.get("schema_name") or c.get("username") or "").strip()
     src_schema, source_table_name = etl_service.parse_source_table_parts(
         source_table,
         stype,
-        conn_schema=(c.get("schema_name") or "public").strip(),
+        conn_schema=conn_schema_oracle if stype == "oracle" else conn_schema_pg,
         conn_db=(c.get("database_name") or "").strip(),
     )
     if not source_table_name:
@@ -153,6 +157,20 @@ def _preview_db(row: dict) -> dict:
         type_mapper = _pg_type_from_mysql
         quoted_src = f"`{src_schema}`.`{source_table_name}`"
         _quote = lambda x: f"`{x}`"
+    elif stype == "oracle":
+        conn = etl_service._connect_oracle(
+            c["host"],
+            c.get("port") or 1521,
+            c["database_name"],
+            c["username"],
+            c.get("encrypted_password") or "",
+        )
+        owner = (src_schema or "").strip().upper() or (c.get("username") or "").strip().upper()
+        tbl = source_table_name.strip().upper()
+        columns = _fetch_source_columns_oracle(conn, owner, tbl)
+        type_mapper = _pg_type_from_oracle
+        quoted_src = f'"{owner}"."{tbl}"'
+        _quote = lambda x: f'"{x}"'
     else:
         conn = _get_source_connection(connection_id)
         columns = _fetch_source_columns(conn, src_schema, source_table_name)
@@ -170,12 +188,15 @@ def _preview_db(row: dict) -> dict:
     col_names = [c[0] for c in columns]
     select_list = ", ".join(_quote(c) for c in col_names)
     cur = conn.cursor()
-    cur.execute(f"SELECT {select_list} FROM {quoted_src} LIMIT 10")
+    if stype == "oracle":
+        cur.execute(f"SELECT {select_list} FROM {quoted_src} FETCH FIRST 10 ROWS ONLY")
+    else:
+        cur.execute(f"SELECT {select_list} FROM {quoted_src} LIMIT 10")
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
-    if stype == "mysql":
+    if stype in ("mysql", "oracle"):
         rows = [dict(zip(col_names, r)) for r in rows]
 
     columns_out = []
@@ -206,6 +227,6 @@ def get_preview(etl_table_id: int) -> dict:
     source_type = (row.get("source_type") or "").strip().lower()
     if source_type == "file" or (row.get("file_path") and row.get("file_type")):
         return _preview_file(row)
-    if source_type in ("postgresql", "mysql") or (row.get("connection_id") and row.get("source_table")):
+    if source_type in ("postgresql", "mysql", "oracle") or (row.get("connection_id") and row.get("source_table")):
         return _preview_db(row)
     raise ValueError("미리보기 지원 소스가 아닙니다. 파일(path/type) 또는 DB(connection_id/source_table)가 필요합니다.")

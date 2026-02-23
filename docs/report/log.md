@@ -1,5 +1,92 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: Oracle DB 적재(ETL 실행) 지원
+
+### 요청
+- Oracle은 연결·테이블 목록까지 지원하므로 ETL 실행(DB 적재)도 지원해야 함.
+
+### 완료 작업
+1. **db_load_service**: `_fetch_source_columns_oracle(conn, owner, table_name)`, `_pg_type_from_oracle(data_type)` 추가. run_db_load에 stype `oracle` 분기 추가 — _connect_oracle, owner/table 대문자, 바인드 `:1`, LIMIT 대신 `FETCH FIRST n ROWS ONLY`, row_type `tuple`(dict 변환).
+2. **router.py**: 실행 허용 소스에 `oracle` 추가. DB 연동 검증에 `oracle` 포함.
+3. **queue_worker.py**: 실행 분기 조건에 `oracle` 포함, Oracle 전용 실패 메시지 제거.
+4. **preview_service**: _preview_db에 Oracle 분기 추가 — _connect_oracle, _fetch_source_columns_oracle, _pg_type_from_oracle, `FETCH FIRST 10 ROWS ONLY`, 행 dict 변환. get_preview에서 oracle 지원 명시.
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py
+- Backend/etl_server/preview_service.py
+- Backend/etl_server/router.py
+- Backend/etl_server/queue_worker.py
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: source_table 검증 — 점 유사 문자 정규화 및 디버그 로깅 보강
+
+### 점검 요약
+- source_table 오류는 라우터에서 _validate_identifier가 호출되는 부분이 없음(create_etl_table, db_load_service, preview_service 모두 _validate_source_table만 사용).
+- DB에 저장된 구분자가 ASCII 점(.)이 아닌 유니코드 점(U+2024 등)이면 기존 패턴으로 split이 되지 않아 전체가 한 part로 검증되어 실패할 수 있음.
+
+### 적용 내용
+1. **점 유사 문자 패턴 확장**: `_SOURCE_TABLE_DOT_PATTERN`에 U+00B7(가운뎃점), U+2024(One Dot Leader), U+2027(Hyphenation Point) 추가.
+2. **정규화 후 분리**: `_normalize_source_table_dots(value)` 추가 — 점 유사 문자를 모두 ASCII `.`로 치환. `_validate_source_table`과 `parse_source_table_parts`에서 먼저 정규화한 뒤 `v.split(".", maxsplit=1)`로 분리해, 어떤 점 문자가 와도 동일하게 동작.
+3. **Oracle PK 조회**: create_etl_table 내 Oracle 분기에서도 `_normalize_source_table_dots` 적용 후 `split(".", maxsplit=1)` 사용.
+4. **실패 시 로깅**: _validate_source_table에서 part 검증 실패 시 `logger.warning`으로 part, bad_chars, ord(hex) 출력해 원인 추적 가능.
+
+### 수정 파일
+- Backend/etl_server/service.py
+- Backend/etl_server/router.py (Oracle 실행 시 에러 메시지 명확화)
+- Backend/etl_server/queue_worker.py (Oracle 실행 시 에러 메시지 명확화)
+- docs/report/log.md (본 로그)
+
+### 기존 DB source_table 점검 및 정리
+- 코드 수정만으로는 **이미 저장된** source_table 값이 바뀌지 않음. 새로 등록·수정 시에만 `_validate_source_table`을 거쳐 정규화된 값이 저장됨.
+- 점검: 시스템 DB의 `etl_tables`에서 `source_table LIKE '%.%'`인 행을 조회해, 실제 바이트에 점 유사 문자가 섞였는지 확인할 수 있음. (PostgreSQL: `SELECT etl_table_id, source_table, encode(source_table::bytea, 'hex') FROM "<시스템스키마>"."etl_tables" WHERE source_table LIKE '%.%';` — 스키마명은 환경별로 다름.)
+- 정리: 문제 행이 있으면 해당 ETL을 화면에서 한 번 수정 저장하면 `create_etl_table`/update 경로에서 `_validate_source_table`을 타며 정규화된 값으로 갱신됨. 또는 애플리케이션에서 `_normalize_source_table_dots`를 적용한 뒤 UPDATE하는 스크립트 실행.
+
+---
+
+## 2026-02-23: ETL 증분 배치 진행 시 실행목록에서 처리 건수 실시간 반영
+
+### 요청
+- 5,000행씩 증분 배치 작업 시, 배치가 끝날 때마다 ETL 실행목록(실행목록 창)에 처리 건수가 갱신되어 진행 상황을 중간에 확인할 수 있도록.
+
+### 원인
+- 백엔드 스트리밍 경로에서 `rows_processed`를 배치마다 DB에 쓰지 않고, Job 완료 시에만 `update_job(..., rows_processed=...)` 호출. 프론트는 2초마다 GET /api/etl/jobs/:id로 폴링하지만 DB에 값이 없어 항상 0만 표시됨.
+
+### 완료 작업
+1. **service.update_job_progress(job_id, rows_processed)**: status·finished_at은 건드리지 않고 `rows_processed`만 갱신. `WHERE job_id = %s AND status = 'running'`으로 진행 중인 Job만 갱신.
+2. **db_load_service.run_db_load** (스트리밍 배치 경로): 배치 커밋 및 last_synced_at 갱신 후, 각 배치마다 `etl_service.update_job_progress(job_id, total_processed)` 호출.
+
+### 수정 파일
+- Backend/etl_server/service.py (update_job_progress 추가, 모듈 설명 보강)
+- Backend/etl_server/db_load_service.py (배치 완료 시 update_job_progress 호출)
+- docs/report/log.md (본 로그)
+
+### 결과
+- 실행목록 패널이 2초 폴링 시 서버에서 갱신된 `rows_processed`를 받아 "처리 건수: N / total" 형태로 배치가 진행될 때마다 갱신됨.
+
+---
+
+## 2026-02-23: PostgreSQL source_table 검증 오류 — 점(.) 구분자 통일 및 Oracle 경로 정리
+
+### 현상
+- MySQL은 정상, PostgreSQL은 "source_table에 허용되지 않은 문자가 있습니다: public.sample_test"로 실패. 동일 코드에서 MySQL만 통과하는 경우, 서버 미배포 또는 구분자 문자(전각/인코딩) 차이 가능성.
+
+### 완료 작업
+1. **service._SOURCE_TABLE_DOT_PATTERN**: `schema.table` 분리 시 사용할 구분자 정규식 추가. ASCII 점(.), 전각 마침표(U+FF0E), 일본어 마침표(U+3002) 통일 처리.
+2. **service._validate_source_table**: `"." in v` 대신 `_SOURCE_TABLE_DOT_PATTERN.split(v, maxsplit=1)`로 분리 후 각 부분 검증. 동일 메시지로 모든 점 변형에서 스키마/테이블만 검증.
+3. **service.parse_source_table_parts**: `"." in st` / `st.split(".", 1)` 대신 `_SOURCE_TABLE_DOT_PATTERN.split(st, maxsplit=1)` 사용해 위와 동일한 구분자 적용.
+4. **service.create_etl_table**: DB 소스 등록 시 `source_table` 있으면 `_validate_source_table` 호출 후 저장. Oracle PK 자동 조회 분기에서도 `_SOURCE_TABLE_DOT_PATTERN.split(st, maxsplit=1)`로 owner/table 분리.
+
+### 수정 파일
+- Backend/etl_server/service.py
+- docs/report/log.md (본 로그)
+
+### 배포 안내
+- 변경 사항 반영 후 **report-api 재시작** 필요(`./deploy.sh` 또는 `sudo systemctl restart report-api`). 재시작 전에는 기존 코드가 동작해 PostgreSQL 오류가 계속 날 수 있음.
+
+---
+
 ## 2026-02-23: source_table 'schema.table' 형식 검증 허용 — PK 모달 미리보기 오류 해결
 
 ### 현상

@@ -10,12 +10,14 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 72 - _pg_type_from_mysql: MySQL DATA_TYPE → PostgreSQL 타입 문자열
 88 - _fetch_source_columns: PostgreSQL information_schema.columns
 109 - _fetch_source_pk_columns: PostgreSQL 소스 테이블 PRIMARY KEY 컬럼명 목록
-132 - _pg_type_from_info_schema: information_schema data_type → PostgreSQL 타입
-150 - _pg_type_from_pandas: pandas dtype → PostgreSQL 타입
+128 - _fetch_source_columns_oracle: Oracle ALL_TAB_COLUMNS/USER_TAB_COLUMNS (column_name, data_type)
+161 - _pg_type_from_oracle: Oracle DATA_TYPE → PostgreSQL 타입 문자열
+168 - _pg_type_from_info_schema: information_schema data_type → PostgreSQL 타입
+186 - _pg_type_from_pandas: pandas dtype → PostgreSQL 타입
 
 [Main]
 ===========
-run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 DB CREATE+INSERT 또는 Upsert. postgresql·mysql 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT 사용.
+run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 DB CREATE+INSERT 또는 Upsert. postgresql·mysql·oracle 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT 사용.
 
 [Dependencies]
 =========
@@ -125,6 +127,54 @@ def _fetch_source_pk_columns(conn, schema: str, table: str) -> List[str]:
         cur.close()
 
 
+def _fetch_source_columns_oracle(conn, owner: str, table_name: str) -> List[Tuple[str, str]]:
+    """Oracle ALL_TAB_COLUMNS / USER_TAB_COLUMNS에서 (column_name, data_type) 목록. owner 없으면 USER_TAB_COLUMNS. 테이블/컬럼명은 대문자로 조회."""
+    cur = conn.cursor()
+    try:
+        o = (owner or "").strip().upper()
+        t = (table_name or "").strip().upper()
+        if not t:
+            return []
+        if o:
+            cur.execute(
+                """
+                SELECT COLUMN_NAME, DATA_TYPE
+                FROM ALL_TAB_COLUMNS
+                WHERE OWNER = :1 AND TABLE_NAME = :2
+                ORDER BY COLUMN_ID
+                """,
+                (o, t),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT COLUMN_NAME, DATA_TYPE
+                FROM USER_TAB_COLUMNS
+                WHERE TABLE_NAME = :1
+                ORDER BY COLUMN_ID
+                """,
+                (t,),
+            )
+        rows = cur.fetchall()
+        return [(r[0], r[1]) for r in rows]
+    finally:
+        cur.close()
+
+
+def _pg_type_from_oracle(data_type: str) -> str:
+    """Oracle DATA_TYPE → PostgreSQL 타입 문자열(메인 DB CREATE용)."""
+    t = (data_type or "").upper()
+    if t in ("NUMBER", "FLOAT", "BINARY_FLOAT", "BINARY_DOUBLE"):
+        return "DOUBLE PRECISION"
+    if t in ("INTEGER", "SMALLINT"):
+        return "BIGINT"
+    if t in ("VARCHAR2", "NVARCHAR2", "VARCHAR", "CHAR", "NCHAR", "CLOB", "NCLOB", "LONG", "BLOB", "RAW"):
+        return "TEXT"
+    if t in ("DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITH LOCAL TIME ZONE"):
+        return "TIMESTAMP"
+    return "TEXT"
+
+
 def _pg_type_from_info_schema(data_type: str) -> str:
     """information_schema data_type → PostgreSQL 타입."""
     t = (data_type or "").lower()
@@ -200,8 +250,6 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     effective_batch_size = batch_size
     if max_batch_size > 0:
         effective_batch_size = min(batch_size, max_batch_size) if batch_size > 0 else max_batch_size
-    limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
-
     target_table = etl_service._validate_identifier(target_table, "target_table")
     source_table = etl_service._validate_source_table(source_table)
     if job_id is None:
@@ -214,14 +262,17 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     try:
         c = etl_service.get_connection_for_etl(connection_id)
         stype = (c.get("source_type") or "postgresql").strip().lower()
-        if stype not in ("postgresql", "mysql"):
-            raise ValueError(f"DB 적재는 postgresql, mysql만 지원합니다. source_type={stype}")
+        if stype not in ("postgresql", "mysql", "oracle"):
+            raise ValueError(f"DB 적재는 postgresql, mysql, oracle만 지원합니다. source_type={stype}")
 
+        conn_schema_pg = (c.get("schema_name") or "public").strip()
+        conn_db_mysql = (c.get("database_name") or "").strip()
+        conn_schema_oracle = (c.get("schema_name") or c.get("username") or "").strip()
         src_schema, source_table_name = etl_service.parse_source_table_parts(
             source_table,
             stype,
-            conn_schema=(c.get("schema_name") or "public").strip(),
-            conn_db=(c.get("database_name") or "").strip(),
+            conn_schema=conn_schema_oracle if stype == "oracle" else conn_schema_pg,
+            conn_db=conn_db_mysql,
         )
         if not source_table_name:
             raise ValueError("source_table이 비어 있습니다.")
@@ -240,6 +291,24 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             type_mapper = _pg_type_from_mysql
             row_type = "tuple"
             _quote = lambda x: f"`{x}`"
+            bind_placeholder = "%s"
+        elif stype == "oracle":
+            src_conn = etl_service._connect_oracle(
+                c["host"],
+                c.get("port") or 1521,
+                c["database_name"],
+                c["username"],
+                c.get("encrypted_password") or "",
+            )
+            owner = (src_schema or "").strip().upper() or (c.get("username") or "").strip().upper()
+            tbl = source_table_name.strip().upper()
+            columns = _fetch_source_columns_oracle(src_conn, owner, tbl)
+            source_pk_list = etl_service._fetch_pk_from_oracle(src_conn, owner, tbl)
+            quoted_src = f'"{owner}"."{tbl}"'
+            type_mapper = _pg_type_from_oracle
+            row_type = "tuple"
+            _quote = lambda x: f'"{x}"'
+            bind_placeholder = ":1"
         else:
             src_conn = _get_source_connection(connection_id)
             columns = _fetch_source_columns(src_conn, src_schema, source_table_name)
@@ -248,6 +317,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             type_mapper = _pg_type_from_info_schema
             row_type = "dict"
             _quote = lambda x: f'"{x}"'
+            bind_placeholder = "%s"
 
         if not columns:
             try:
@@ -266,8 +336,12 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             etl_service._validate_identifier(incremental_column, "incremental_column")
             last_synced = row.get("last_synced_at")
             if last_synced is not None:
-                where_clause = f" WHERE {_quote(incremental_column)} > %s"
+                where_clause = f" WHERE {_quote(incremental_column)} > {bind_placeholder}"
                 params.append(last_synced)
+        if stype == "oracle":
+            limit_sql = f" FETCH FIRST {max_rows_per_load} ROWS ONLY" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
+        else:
+            limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
@@ -376,6 +450,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                             from datetime import datetime as dt
                             latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
                             etl_service.update_last_synced_at(etl_table_id, latest)
+                    etl_service.update_job_progress(job_id, total_processed)
                     if max_rows_per_load > 0 and total_processed >= max_rows_per_load:
                         break
                     if batch_interval_seconds > 0:

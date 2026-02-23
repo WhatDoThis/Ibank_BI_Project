@@ -46,12 +46,12 @@ def _run_one_job(job_id: int, etl_table_id: int) -> None:
             load_service.run_file_upsert(etl_table_id, job_id)
         elif source_type == "file" and row.get("file_path") and row.get("file_type"):
             load_service.run_file_load(etl_table_id, job_id=job_id)
-        elif source_type in ("postgresql", "mysql") and row.get("connection_id") and row.get("source_table"):
+        elif source_type in ("postgresql", "mysql", "oracle") and row.get("connection_id") and row.get("source_table"):
             db_load_service.run_db_load(etl_table_id, job_id=job_id)
         else:
             etl_service.update_job(
                 job_id, "failed",
-                error_message="실행할 수 있는 ETL 유형이 아닙니다. (파일: file_path+file_type, DB: postgresql/mysql+source_table)",
+                error_message="실행할 수 있는 ETL 유형이 아닙니다. (파일: file_path+file_type, DB: postgresql/mysql/oracle+source_table)",
             )
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))
