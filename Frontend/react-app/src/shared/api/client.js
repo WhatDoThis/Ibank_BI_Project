@@ -107,6 +107,18 @@ export async function queryStats(query) {
   return request('POST', '/api/query-stats', { query });
 }
 
+/** GET /api/column-labels - 테이블 컬럼 라벨 조회 */
+export async function getColumnLabels(tableName) {
+  return request('GET', `/api/column-labels?table_name=${encodeURIComponent(tableName)}`);
+}
+
+/** POST /api/column-labels - 테이블·컬럼 라벨 저장 */
+export async function saveColumnLabels(tableName, labels, tableLabel = null) {
+  const body = { table_name: tableName, labels };
+  if (tableLabel != null) body.table_label = tableLabel;
+  return request('POST', '/api/column-labels', body);
+}
+
 // ---------- 대시보드 (report와 분리된 전용 API) ----------
 
 /** POST /api/dashboard/data - 대시보드 집계·KPI */

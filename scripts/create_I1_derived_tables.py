@@ -32,6 +32,7 @@ def run_sql(conn, sql, comment=""):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--drop", action="store_true", help="기존 I1_ 테이블 DROP 후 생성")
+    ap.add_argument("--drop-only", action="store_true", help="I1_ 테이블만 DROP (생성 없음)")
     args = ap.parse_args()
     schema = db.get_table_schema()
     conn = db.get_db_connection()
@@ -57,10 +58,14 @@ def main():
             "I1_recent_coupons", "I1_campaign_workflow_coupon_count",
         ]
 
-        if args.drop:
+        if args.drop or args.drop_only:
+            print("Dropping I1_ derived tables...")
             for name in I1_NAMES:
                 run_sql(conn, f'DROP TABLE IF EXISTS {tbl(name)} CASCADE', f"DROP {name}")
                 run_sql(conn, f'DROP TABLE IF EXISTS {tbl_lower(name)} CASCADE', f"DROP {name.lower()}")
+            if args.drop_only:
+                print("Done (drop only).")
+                return
 
         print("Creating I1_ derived tables...")
 

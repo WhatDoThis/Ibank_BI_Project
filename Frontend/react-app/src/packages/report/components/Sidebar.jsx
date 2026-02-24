@@ -36,7 +36,7 @@ function getTableFolder(tableName) {
 
 const FOLDER_ORDER = [FOLDER_I1, FOLDER_QUERY_BUILDER, FOLDER_OTHER]
 
-export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {} }) {
+export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {}, onOpenColumnLabelsModal }) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [folderExpanded, setFolderExpanded] = useState({ [FOLDER_I1]: true, [FOLDER_QUERY_BUILDER]: true, [FOLDER_OTHER]: true })
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -50,7 +50,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
   }
 
   function onColumnDragStart(e, tableName, column) {
-    e.dataTransfer.setData('application/json', JSON.stringify({ table: tableName, column: column.name, type: column.type }))
+    e.dataTransfer.setData('application/json', JSON.stringify({ table: tableName, column: column.name, type: column.type, label: column.label }))
     e.dataTransfer.effectAllowed = 'copy'
     e.target.classList.add('dragging')
   }
@@ -89,7 +89,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
       >
         <div className="table-header" onClick={() => toggleTable(t.table_name)}>
           <span className="toggle-icon">{expanded ? '▼' : '▶'}</span>
-          <span className="table-name">{t.table_name}</span>
+          <span className="table-name">{t.table_label ?? t.table_name}</span>
           <span className="table-count">({cols.length}개)</span>
         </div>
         <div className={`column-list ${expanded ? 'expanded' : ''}`}>
@@ -105,7 +105,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
               onDragEnd={onColumnDragEnd}
             >
               <span className="drag-handle">⋮⋮</span>
-              <span className="column-name">{c.name}</span>
+              <span className="column-name">{c.label ?? c.name}</span>
               <span className="column-type">{c.type}</span>
             </div>
           ))}
@@ -116,7 +116,14 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
 
   return (
     <div className="sidebar">
-      <div className="sidebar-header">📁 테이블</div>
+      <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+        <span>📁 테이블</span>
+        {typeof onOpenColumnLabelsModal === 'function' && (
+          <button type="button" className="btn-small secondary" style={{ fontSize: 10, padding: '4px 8px' }} onClick={onOpenColumnLabelsModal} title="컬럼 표시 라벨 편집·저장">
+            라벨 편집
+          </button>
+        )}
+      </div>
       <div className={`sidebar-db-status ${dbStatus.ok === true ? 'ok' : dbStatus.ok === false ? 'error' : ''}`} title="API /health 결과">
         {dbStatus.message ?? '확인 중...'}
       </div>

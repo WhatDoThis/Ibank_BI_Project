@@ -1,20 +1,15 @@
 /**
  * report/utils/helpers.js (리포트 쿼리 빌더 헬퍼)
  * ==============================================
- * 날짜 컬럼 판별·SQL 이스케이프·WHERE 값 포맷. ReportPage·MainArea 등에서 사용.
+ * 날짜 컬럼 판별·SQL 이스케이프·WHERE 값 포맷.
  *
- * [Main Functions]
- * ===========
- * - isDateColumn, isDateType, isDateTimeType: 날짜/시간 컬럼·타입 여부
- * - escapeSqlString, escapeLikePattern: SQL injection 방지
- * - formatWhereValue: 연산자별 WHERE 값 문자열
+ * [사용 중]
+ * - isDateColumn, isDateType, isDateTimeType: MainArea에서 사용 (날짜/시간 컬럼·타입 여부)
  *
- * [Endpoints/Classes/Functions]
- * =======================
- * - isDateColumn, isDateType, isDateTimeType, escapeSqlString, escapeLikePattern, formatWhereValue (export)
+ * [미사용] — 현재 리포트 코드에서 import/호출 없음. sqlBuilder.js가 자체 이스케이프 사용.
+ * - escapeSqlString, escapeLikePattern, isNumericValue, formatWhereValue
  *
  * [Dependencies]
- * =========
  * - 없음
  */
 
@@ -48,21 +43,24 @@ export function isDateTimeType(colType) {
   return t.includes('timestamp') || t === 'datetime' || t === 'datetime2' || t === 'datetimeoffset'
 }
 
+/** [미사용] 현재 리포트에서 호출 없음. sqlBuilder가 자체 이스케이프 사용. */
 export function escapeSqlString(val) {
   return String(val).replace(/'/g, "''")
 }
 
+/** [미사용] */
 export function escapeLikePattern(val) {
   return String(val).replace(/[%_\\]/g, '\\$&')
 }
 
+/** [미사용] */
 export function isNumericValue(val) {
   const t = String(val).trim()
   return t !== '' && !isNaN(Number(t))
 }
 
 /**
- * WHERE 절 값 포맷 (연산자별)
+ * [미사용] WHERE 절 값 포맷 (연산자별). 현재 리포트에서 호출 없음.
  * @param {string} operator - =, !=, >, <, LIKE 등
  * @param {string} value - 사용자 입력값
  */

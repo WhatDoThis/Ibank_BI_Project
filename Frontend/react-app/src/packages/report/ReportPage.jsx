@@ -20,7 +20,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
 import { getApiBase } from '@/shared/config/api'
-import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus } from '@/shared/api/client'
+import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/shared/api/client'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
 import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils/safetyCheck'
@@ -59,6 +59,12 @@ export default function ReportPage() {
   const [saveAsTableName, setSaveAsTableName] = useState('')
   const [saveAsTableSubmitting, setSaveAsTableSubmitting] = useState(false)
   const [showJoinImpossibleModal, setShowJoinImpossibleModal] = useState(false)
+  const [showColumnLabelsModal, setShowColumnLabelsModal] = useState(false)
+  /** 선택된 컬럼 기준: 테이블별 테이블 라벨 draft */
+  const [tableLabelsDraft, setTableLabelsDraft] = useState({}) // { tableName: label }
+  /** 선택된 컬럼 기준: 테이블별 컬럼 라벨 draft */
+  const [columnLabelsByTableDraft, setColumnLabelsByTableDraft] = useState({}) // { tableName: { columnName: label } }
+  const [columnLabelsSaving, setColumnLabelsSaving] = useState(false)
   const [joinMode, setJoinMode] = useState('all') // 'fk' | 'column' | 'all'
   const [relationshipOptions, setRelationshipOptions] = useState({}) // { key: [ { prevColumn, currColumn, confidence?, reason? } ] }
   const [joinConditions, setJoinConditions] = useState({}) // { key: [ { prevColumn, currColumn }, ... ] } 복합 조건
@@ -125,9 +131,9 @@ export default function ReportPage() {
           if (!name) continue
           try {
             const desc = await describeTable(name)
-            tablesWithColumns.push({ table_name: name, size: t?.size, columns: desc?.columns || [] })
+            tablesWithColumns.push({ table_name: name, size: t?.size, table_label: t?.table_label ?? name, columns: desc?.columns || [] })
           } catch {
-            tablesWithColumns.push({ table_name: name, size: t?.size, columns: [] })
+            tablesWithColumns.push({ table_name: name, size: t?.size, table_label: t?.table_label ?? name, columns: [] })
           }
         }
         if (!cancelled) setTables(tablesWithColumns)
@@ -318,7 +324,7 @@ export default function ReportPage() {
       const isGB = isGroupByColumn(groupBy, columnInfo.table, columnInfo.column)
       const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
       setAddedTables(newAddedTables)
-      setGridColumns((prev) => syncAggFuncs([...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type, aggFunc }], groupBy))
+      setGridColumns((prev) => syncAggFuncs([...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type, aggFunc, label: columnInfo.label ?? columnInfo.column }], groupBy))
       setCurrentPage(1)
       if (intermediateParent) {
         showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${columnInfo.table}'를 추가했습니다`)
@@ -731,11 +737,74 @@ export default function ReportPage() {
     showToast('success', '초기화되었습니다')
   }, [showToast])
 
+  const openColumnLabelsModal = useCallback(() => {
+    if (gridColumns.length === 0) {
+      showToast('info', '먼저 그리드에 표시할 컬럼을 선택해 주세요.')
+      return
+    }
+    const byTable = {}
+    gridColumns.forEach((c) => {
+      if (!byTable[c.table]) byTable[c.table] = []
+      byTable[c.table].push(c)
+    })
+    const tableLabels = {}
+    const columnLabelsByTable = {}
+    Object.keys(byTable).forEach((tableName) => {
+      const t = tables.find((x) => x.table_name === tableName)
+      tableLabels[tableName] = t?.table_label ?? t?.table_name ?? tableName
+      columnLabelsByTable[tableName] = {}
+      byTable[tableName].forEach((col) => {
+        columnLabelsByTable[tableName][col.column] = col.label ?? col.column ?? ''
+      })
+    })
+    setTableLabelsDraft(tableLabels)
+    setColumnLabelsByTableDraft(columnLabelsByTable)
+    setShowColumnLabelsModal(true)
+  }, [tables, gridColumns, showToast])
+
+  const saveColumnLabelsAndClose = useCallback(async () => {
+    const tableNames = Object.keys(columnLabelsByTableDraft)
+    if (tableNames.length === 0) return
+    setColumnLabelsSaving(true)
+    try {
+      for (const tableName of tableNames) {
+        await saveColumnLabels(
+          tableName,
+          columnLabelsByTableDraft[tableName] || {},
+          tableLabelsDraft[tableName] != null ? tableLabelsDraft[tableName] : undefined
+        )
+      }
+      const descs = await Promise.all(tableNames.map((name) => describeTable(name)))
+      const tableLabelByName = { ...tableLabelsDraft }
+      setTables((prev) =>
+        prev.map((t) => {
+          const idx = tableNames.indexOf(t.table_name)
+          if (idx === -1) return t
+          const desc = descs[idx]
+          return { ...t, table_label: tableLabelByName[t.table_name] ?? t.table_name, columns: desc?.columns || t.columns }
+        })
+      )
+      setGridColumns((prev) =>
+        prev.map((c) => ({
+          ...c,
+          label: (columnLabelsByTableDraft[c.table] && columnLabelsByTableDraft[c.table][c.column]) ?? c.label ?? c.column
+        }))
+      )
+      setShowColumnLabelsModal(false)
+      showToast('success', '선택한 컬럼의 라벨이 해당 테이블에 저장되었습니다.')
+    } catch (e) {
+      showToast('error', e.message || '라벨 저장 실패')
+    } finally {
+      setColumnLabelsSaving(false)
+    }
+  }, [tableLabelsDraft, columnLabelsByTableDraft, showToast])
+
   return (
     <>
       <div className="container">
         <Sidebar
           tables={tables}
+          onOpenColumnLabelsModal={openColumnLabelsModal}
           tableRelationships={tableRelationships}
           relationshipOptions={relationshipOptions}
           addedTables={addedTables}
@@ -800,6 +869,66 @@ export default function ReportPage() {
           onOpenSaveAsTableModal={openSaveAsTableModal}
         />
       </div>
+      {showColumnLabelsModal && (
+        <div
+          className="relationship-diagram-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="컬럼 라벨 편집"
+          onClick={() => setShowColumnLabelsModal(false)}
+        >
+          <div className="relationship-diagram-modal" style={{ minWidth: 360, maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+            <div className="relationship-diagram-header">
+              <span>컬럼 라벨 편집</span>
+              <button type="button" className="relationship-diagram-close" onClick={() => setShowColumnLabelsModal(false)} aria-label="닫기">×</button>
+            </div>
+            <div className="relationship-diagram-body">
+              <p style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-light)' }}>
+                선택된 컬럼에 대해 라벨을 입력하고 저장하면, 해당 테이블의 라벨로 반영됩니다. 사이드바·그리드에 표시됩니다.
+              </p>
+              <div style={{ maxHeight: 360, overflowY: 'auto', marginBottom: 16 }}>
+                {Object.keys(columnLabelsByTableDraft).map((tableName) => (
+                  <div key={tableName} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+                    <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 12 }}>테이블: {tables.find((t) => t.table_name === tableName)?.table_label ?? tableName}</label>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>테이블 라벨 (표시명)</label>
+                    <input
+                      type="text"
+                      value={tableLabelsDraft[tableName] ?? ''}
+                      onChange={(e) => setTableLabelsDraft((prev) => ({ ...prev, [tableName]: e.target.value }))}
+                      placeholder={tableName}
+                      style={{ width: '100%', padding: 6, marginBottom: 10, fontSize: 12 }}
+                    />
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>컬럼 라벨</label>
+                    {Object.keys(columnLabelsByTableDraft[tableName] || {}).map((colName) => (
+                      <div key={colName} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <span style={{ flex: '0 0 100px', fontSize: 11, fontFamily: 'monospace', color: 'var(--text-light)' }}>{colName}</span>
+                        <input
+                          type="text"
+                          value={columnLabelsByTableDraft[tableName][colName] ?? ''}
+                          onChange={(e) =>
+                            setColumnLabelsByTableDraft((prev) => ({
+                              ...prev,
+                              [tableName]: { ...(prev[tableName] || {}), [colName]: e.target.value }
+                            }))
+                          }
+                          placeholder={colName}
+                          style={{ flex: 1, padding: 6, fontSize: 12 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="save-as-table-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn-small secondary" onClick={() => setShowColumnLabelsModal(false)}>취소</button>
+                <button type="button" className="btn-small primary" onClick={saveColumnLabelsAndClose} disabled={columnLabelsSaving}>
+                  {columnLabelsSaving ? '저장 중…' : '저장'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {showJoinImpossibleModal && (
         <div
           className="relationship-diagram-overlay"

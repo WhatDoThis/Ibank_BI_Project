@@ -47,6 +47,7 @@ from Backend.api_server.dependencies import get_db, get_config
 from Backend.api_server.join_path import determine_join_order, validate_join_order
 from Backend.api_server.join_metrics import join_accuracy_score
 from Backend.api_server.schemas import (
+    ColumnLabelsRequest,
     DescribeTableRequest,
     ExecuteQueryRequest,
     ExplainSqlRequest,
@@ -57,6 +58,125 @@ from Backend.api_server.schemas import (
 )
 
 _DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent / "execute_query_debug.log"
+_COLUMN_LABELS_PATH = Path(__file__).resolve().parent.parent.parent / "Env" / "config" / "column_labels.json"
+
+# 기본 테이블 라벨 (사용자 저장값 없을 때 사용)
+DEFAULT_TABLE_LABELS = {
+    "campaigns": "캠페인",
+    "test_coupons_data": "쿠폰 데이터",
+    "test_deliveries_data": "발송 데이터",
+    "test_delivery_tracking": "발송 트래킹",
+    "workflows": "워크플로우",
+    "i1_campaign_workflow_list": "캠페인·워크플로우 목록",
+    "i1_delivery_tracking_joined": "발송·트래킹 조인",
+    "i1_daily_delivery_count": "일별 발송 건수",
+    "i1_campaign_delivery_count": "캠페인별 발송 건수",
+    "i1_workflow_delivery_count": "워크플로우별 발송 건수",
+    "i1_channel_delivery_count": "채널별 발송 건수",
+    "i1_daily_campaign_delivery": "일별·캠페인별 발송",
+    "i1_daily_workflow_delivery": "일별·워크플로우별 발송",
+    "i1_tracking_by_type": "발송별 트래킹 타입 건수",
+    "i1_campaign_daily_channel": "캠페인·일·채널 발송",
+    "i1_delivery_status_summary": "발송 상태별 건수",
+    "i1_workflow_list_per_campaign": "캠페인별 워크플로우 목록",
+    "i1_recent_deliveries": "최근 발송",
+    "i1_delivery_with_campaign_workflow": "발송+캠페인+워크플로우",
+    "i1_tracking_daily_count": "일별 트래킹 건수",
+    "i1_campaign_coupon_count": "캠페인별 쿠폰 건수",
+    "i1_workflow_coupon_count": "워크플로우별 쿠폰 건수",
+    "i1_daily_coupon_count": "일별 쿠폰 건수",
+    "i1_daily_campaign_coupon": "일별·캠페인별 쿠폰",
+    "i1_daily_workflow_coupon": "일별·워크플로우별 쿠폰",
+    "i1_coupon_with_campaign_workflow": "쿠폰+캠페인+워크플로우",
+    "i1_recent_coupons": "최근 쿠폰",
+    "i1_campaign_workflow_coupon_count": "캠페인·워크플로우별 쿠폰 건수",
+}
+
+# 공통 컬럼 라벨 (테이블별 지정 없을 때)
+COMMON_COLUMN_LABELS = {
+    "id": "ID",
+    "campaign_id": "캠페인 ID",
+    "workflow_id": "워크플로우 ID",
+    "delivery_id": "발송 ID",
+    "recipient_id": "수신자 ID",
+    "coupon_id": "쿠폰 ID",
+    "delivery_date": "발송일",
+    "delivery_channel": "발송 채널",
+    "delivery_status": "발송 상태",
+    "campaign_label": "캠페인 라벨",
+    "workflow_label": "워크플로우 라벨",
+    "campaign_internal_name": "캠페인 내부명",
+    "workflow_internal_name": "워크플로우 내부명",
+    "tracking_type": "트래킹 유형",
+    "tracking_date": "트래킹 일시",
+    "coupon_date": "쿠폰 일자",
+    "created": "생성일시",
+    "last_modified": "최종 수정",
+    "created_at": "생성일시",
+    "updated_at": "수정일시",
+    "cnt": "건수",
+    "delivery_pk": "발송 PK",
+    "tracking_id": "트래킹 ID",
+    "tracking_recipient_id": "트래킹 수신자 ID",
+    "delivery_internal_name": "발송 내부명",
+    "delivery_code": "발송 코드",
+    "delivery_label": "발송 라벨",
+}
+
+# 테이블별 컬럼 라벨 (공통보다 우선)
+DEFAULT_COLUMN_LABELS_BY_TABLE = {
+    "campaigns": {"campaign_internal_name": "캠페인 내부명", "campaign_label": "캠페인 라벨"},
+    "workflows": {"workflow_internal_name": "워크플로우 내부명", "workflow_label": "워크플로우 라벨"},
+}
+
+
+def _load_labels_file():
+    """Env/config/column_labels.json 읽기. 형식: { table_labels?: {}, column_labels?: { table: { col: label } } } 또는 구형 { table: { col: label } }"""
+    if not _COLUMN_LABELS_PATH.exists():
+        return {"table_labels": {}, "column_labels": {}}
+    try:
+        with open(_COLUMN_LABELS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {"table_labels": {}, "column_labels": {}}
+    if "table_labels" in data and "column_labels" in data:
+        return data
+    # 구형: 전체가 column_labels (테이블명 -> { 컬럼 -> 라벨 })
+    return {"table_labels": {}, "column_labels": data if isinstance(data, dict) else {}}
+
+
+def _save_labels_file(data):
+    """table_labels + column_labels 저장."""
+    _COLUMN_LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_COLUMN_LABELS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _get_table_label(table_name):
+    """저장된 값 우선, 없으면 기본 라벨, 없으면 테이블명."""
+    data = _load_labels_file()
+    saved = (data.get("table_labels") or {}).get(table_name)
+    if saved:
+        return saved
+    return DEFAULT_TABLE_LABELS.get(table_name) or table_name
+
+
+def _get_column_label(table_name, column_name):
+    """저장된 값 우선, 테이블별 기본값, 공통 기본값, 없으면 컬럼명."""
+    data = _load_labels_file()
+    col_labels = (data.get("column_labels") or {}).get(table_name, {})
+    if column_name in col_labels and col_labels[column_name]:
+        return col_labels[column_name]
+    by_table = DEFAULT_COLUMN_LABELS_BY_TABLE.get(table_name, {}).get(column_name)
+    if by_table:
+        return by_table
+    return COMMON_COLUMN_LABELS.get(column_name) or column_name
+
+
+def _load_column_labels():
+    """구형 호환: column_labels만 반환 (table_name -> { col -> label })."""
+    data = _load_labels_file()
+    return data.get("column_labels") or {}
 
 
 def _log(msg, *args):
@@ -251,8 +371,18 @@ def list_tables(conn=Depends(get_db)):
             """,
             (schema,) + tuple(allowed),
         )
-        tables = cur.fetchall()
+        rows = cur.fetchall()
         cur.close()
+        data = _load_labels_file()
+        table_labels_saved = data.get("table_labels") or {}
+        tables = []
+        for row in rows:
+            tname = row["table_name"]
+            tables.append({
+                "table_name": tname,
+                "size": row.get("size"),
+                "table_label": table_labels_saved.get(tname) or DEFAULT_TABLE_LABELS.get(tname) or tname,
+            })
         return {"tables": tables, "count": len(tables)}
     except ValueError as e:
         return JSONResponse(status_code=503, content={"error": str(e), "message": "DB 설정 없음"})
@@ -284,14 +414,16 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
         )
         columns = []
         for row in cur.fetchall():
+            col_name = row["column_name"]
             col_type = row["data_type"]
             if row["character_maximum_length"]:
                 col_type += f"({row['character_maximum_length']})"
             columns.append({
-                "name": row["column_name"],
+                "name": col_name,
                 "type": col_type,
                 "nullable": row["is_nullable"] == "YES",
                 "default": row["column_default"],
+                "label": _get_column_label(table_name, col_name),
             })
         cur.close()
         return {"table_name": table_name, "columns": columns, "count": len(columns)}
@@ -299,6 +431,51 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 구조 조회 실패"})
+
+
+@router.get("/column-labels")
+def get_column_labels(table_name: str = Query(..., description="테이블명")):
+    """테이블별 컬럼 라벨·테이블 라벨 조회."""
+    try:
+        table_name = db.validate_table_name(table_name)
+        data = _load_labels_file()
+        col_labels = (data.get("column_labels") or {}).get(table_name, {})
+        table_label = _get_table_label(table_name)
+        return {"table_name": table_name, "table_label": table_label, "labels": col_labels}
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@router.post("/column-labels")
+def save_column_labels(body: ColumnLabelsRequest):
+    """테이블·컬럼 라벨 저장. 사용자가 수정한 라벨만 저장(기본값 덮어씀)."""
+    try:
+        table_name = db.validate_table_name(body.table_name)
+        data = _load_labels_file()
+        if "table_labels" not in data or data["table_labels"] is None:
+            data["table_labels"] = {}
+        if "column_labels" not in data or data["column_labels"] is None:
+            data["column_labels"] = {}
+        if body.table_label is not None:
+            data["table_labels"][table_name] = (body.table_label or "").strip() or table_name
+        if table_name not in data["column_labels"]:
+            data["column_labels"][table_name] = {}
+        for col_name, label in (body.labels or {}).items():
+            if not col_name or not isinstance(col_name, str):
+                continue
+            if not re.match(r"^[a-zA-Z0-9_]+$", col_name):
+                continue
+            data["column_labels"][table_name][col_name] = (label or "").strip() or col_name
+        _save_labels_file(data)
+        return {
+            "table_name": table_name,
+            "table_label": data["table_labels"].get(table_name) or _get_table_label(table_name),
+            "labels": data["column_labels"].get(table_name, {}),
+        }
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "컬럼 라벨 저장 실패"})
 
 
 @router.get("/table-relationships")

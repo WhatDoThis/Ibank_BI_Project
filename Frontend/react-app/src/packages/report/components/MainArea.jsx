@@ -44,12 +44,15 @@ function confidenceBadge(confidence) {
   return { char: '⚪', title: '' }
 }
 
-/** 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시 */
+/** 라벨 우선, 없으면 컬럼명. 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시 */
 function getColumnDisplayName(col, gridColumns) {
-  if (!col || !gridColumns?.length) return col?.column ?? ''
-  const alias = col.alias ?? gridColumns.find((c) => c.table === col.table && c.column === col.column)?.alias
+  if (!col) return ''
+  const g = gridColumns?.find((c) => c.table === col.table && c.column === col.column)
+  const displayName = g?.label ?? col?.label ?? col?.column ?? ''
+  if (!gridColumns?.length) return displayName
+  const alias = col.alias ?? g?.alias
   const sameNameCount = gridColumns.filter((c) => c.column === col.column).length
-  return sameNameCount > 1 ? `${alias || col.table}.${col.column}` : col.column
+  return sameNameCount > 1 ? `${alias || col.table}.${displayName}` : displayName
 }
 
 export default function MainArea({

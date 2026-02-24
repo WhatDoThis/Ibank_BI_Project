@@ -60,6 +60,12 @@ class SaveQueryAsTableRequest(BaseModel):
     query: str = Field(..., description="실행했던 SELECT 쿼리 (결과가 해당 테이블에 저장됨)")
 
 
+class ColumnLabelsRequest(BaseModel):
+    table_name: str = Field(..., description="테이블명")
+    labels: dict = Field(default_factory=dict, description="컬럼명 → 라벨 매핑")
+    table_label: Optional[str] = Field(None, description="테이블 표시 라벨 (선택)")
+
+
 class DashboardDataRequest(BaseModel):
     table_id: str = Field(..., description="테이블 ID")
     date_range: List[Any] = Field(..., min_length=2, description="[시작일, 종료일]")
