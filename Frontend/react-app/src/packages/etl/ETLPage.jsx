@@ -14,6 +14,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { etlRunTable, etlGetJob, etlCancelJob, etlListJobs, etlPreviewTable, etlTargetExists, etlDeleteJob } from '@/shared/api/client';
 import SourceTypeSelector from './components/SourceTypeSelector';
 import FileUploadForm from './components/FileUploadForm';
@@ -25,9 +26,29 @@ import JobHistoryPanel from './components/JobHistoryPanel';
 import PreviewModal from './components/PreviewModal';
 import './etl.css';
 
+const VALID_TABS = ['file', 'db', 'history'];
+
 function ETLPage() {
-  const [sourceType, setSourceType] = useState('file');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') || 'file';
+  const [sourceType, setSourceType] = useState(
+    () => (VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'file')
+  );
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const t = searchParams.get('tab') || 'file';
+    if (VALID_TABS.includes(t) && t !== sourceType) setSourceType(t);
+  }, [searchParams, sourceType]);
+
+  const setSourceTypeAndUrl = useCallback((next) => {
+    setSourceType(next);
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.set('tab', next);
+      return p;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [jobResults, setJobResults] = useState({});
   const [runLoading, setRunLoading] = useState(false);
   const [cancelLoadingJobId, setCancelLoadingJobId] = useState(null);
@@ -261,7 +282,7 @@ function ETLPage() {
       </header>
 
       <section className="etl-page__body">
-        <SourceTypeSelector sourceType={sourceType} onChange={setSourceType} />
+        <SourceTypeSelector sourceType={sourceType} onChange={setSourceTypeAndUrl} />
 
         <div className="etl-page__panel">
           {sourceType === 'file' && <FileUploadForm onSuccess={handleRefresh} />}

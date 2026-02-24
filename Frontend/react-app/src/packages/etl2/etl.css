@@ -40,6 +40,36 @@
   font-weight: 600;
   margin: 0 0 12px 0;
 }
+.etl-page__section-desc {
+  margin: -6px 0 12px 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+.etl-page__tip {
+  margin-top: 14px;
+  padding: 14px 18px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  color: #0c4a6e;
+}
+.etl-page__tip-title {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.etl-page__how-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  line-height: 1.6;
+}
+.etl-page__how-list li {
+  margin-bottom: 6px;
+}
+.etl-page__how-list li:last-child {
+  margin-bottom: 0;
+}
 
 /* 소스 유형 탭 */
 .etl-source-type {
@@ -66,7 +96,48 @@
   border-color: #2563eb;
 }
 
-/* 파일 업로드 폼: 왼쪽 절반 드래그앤드롭, 오른쪽 입력 */
+/* 파일 업로드 폼: 단계 표시, 왼쪽 드래그앤드롭, 오른쪽 입력 */
+.etl-file-form__intro {
+  margin: 0 0 16px 0;
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.5;
+}
+.etl-file-form__step-block {
+  position: relative;
+}
+.etl-file-form__step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+.etl-file-form__step-num--small {
+  width: 22px;
+  height: 22px;
+  font-size: 0.8rem;
+  margin-bottom: 0;
+  margin-right: 8px;
+}
+.etl-file-form__step-label {
+  display: flex;
+  align-items: center;
+  margin: 0 0 12px 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #334155;
+}
+.etl-file-form__step-label--submit {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
 .etl-file-form__layout {
   display: flex;
   gap: 24px;
@@ -210,6 +281,46 @@
   background: #eef2ff;
   color: #4338ca;
 }
+.etl-file-form__summary-box {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-top: 4px;
+}
+.etl-file-form__summary-line {
+  margin: 0 0 6px 0;
+  font-size: 0.95rem;
+}
+.etl-file-form__summary-line:last-of-type {
+  margin-bottom: 8px;
+}
+.etl-file-form__mapping-list {
+  margin: 0 0 10px 0;
+  padding-left: 1.2em;
+  font-size: 0.9rem;
+  color: #475569;
+}
+.etl-file-form__mapping-list li {
+  margin-bottom: 2px;
+}
+.etl-file-form__mapping-type {
+  color: #64748b;
+  font-size: 0.85em;
+}
+.etl-file-form__summary-edit {
+  padding: 6px 12px;
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #475569;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.etl-file-form__summary-edit:hover {
+  background: #f1f5f9;
+  border-color: #64748b;
+}
 .etl-file-form__input {
   width: 100%;
   padding: 8px 12px;
@@ -229,10 +340,25 @@
 }
 .etl-file-form__result {
   margin: 12px 0;
-  padding: 10px 12px;
+  padding: 14px 16px;
   background: #f0fdf4;
-  border-radius: 6px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
   font-size: 0.9rem;
+  color: #166534;
+}
+.etl-file-form__result-main {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+}
+.etl-file-form__result-next {
+  margin: 0 0 6px 0;
+  line-height: 1.5;
+}
+.etl-file-form__result-cols {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.9;
 }
 .etl-file-form__submit {
   margin-top: 16px;
@@ -269,12 +395,34 @@
 .etl-db-form__section--card:last-child {
   margin-bottom: 0;
 }
+.etl-db-form__intro {
+  margin: 0 0 18px 0;
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.5;
+}
 .etl-db-form__heading {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0 0 6px 0;
   color: #1e293b;
   letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.etl-db-form__heading .etl-db-form__step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  flex-shrink: 0;
 }
 .etl-db-form__subtitle {
   margin: 0 0 14px 0;
@@ -394,6 +542,46 @@
 .etl-db-form__target-select-btn:hover {
   background: #eef2ff;
   color: #4338ca;
+}
+.etl-db-form__summary-box {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-top: 4px;
+}
+.etl-db-form__summary-line {
+  margin: 0 0 6px 0;
+  font-size: 0.95rem;
+}
+.etl-db-form__summary-line:last-of-type {
+  margin-bottom: 8px;
+}
+.etl-db-form__mapping-list {
+  margin: 0 0 10px 0;
+  padding-left: 1.2em;
+  font-size: 0.9rem;
+  color: #475569;
+}
+.etl-db-form__mapping-list li {
+  margin-bottom: 2px;
+}
+.etl-db-form__mapping-type {
+  color: #64748b;
+  font-size: 0.85em;
+}
+.etl-db-form__summary-edit {
+  padding: 6px 12px;
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #475569;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.etl-db-form__summary-edit:hover {
+  background: #f1f5f9;
+  border-color: #64748b;
 }
 .etl-db-form__input {
   width: 100%;
@@ -712,9 +900,27 @@
   cursor: not-allowed;
 }
 .etl-table-list__loading,
+.etl-table-list__empty-wrap {
+  padding: 24px 20px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  text-align: center;
+}
 .etl-table-list__empty {
-  color: #6b7280;
-  margin: 12px 0;
+  color: #475569;
+  margin: 0 0 10px 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.etl-table-list__empty-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+  line-height: 1.6;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .etl-table-list__error {
   color: #b91c1c;
@@ -1627,6 +1833,45 @@
 .etl-target-select-modal__column-type {
   color: #6b7280;
   font-size: 0.85em;
+}
+.etl-target-select-modal__mapping-wrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+.etl-target-select-modal__mapping-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.etl-target-select-modal__mapping-table th,
+.etl-target-select-modal__mapping-table td {
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: middle;
+}
+.etl-target-select-modal__mapping-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+}
+.etl-target-select-modal__mapping-table tbody tr:hover {
+  background: #fafafa;
+}
+.etl-target-select-modal__mapping-source {
+  white-space: nowrap;
+}
+.etl-target-select-modal__mapping-arrow {
+  text-align: center;
+  color: #6b7280;
+  width: 2em;
+}
+.etl-target-select-modal__mapping-target select {
+  min-width: 180px;
+}
+.etl-target-select-modal__select--mapping {
+  width: 100%;
+  max-width: 220px;
 }
 .etl-target-select-modal__footer {
   display: flex;

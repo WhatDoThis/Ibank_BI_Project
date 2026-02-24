@@ -90,7 +90,16 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
 
   if (loading) return <p className="etl-table-list__loading">목록 로딩 중…</p>;
   if (error) return <p className="etl-table-list__error">{error}</p>;
-  if (tables.length === 0) return <p className="etl-table-list__empty">등록된 ETL이 없습니다. 위에서 파일을 업로드하거나 DB 연동 테이블을 등록하세요.</p>;
+  if (tables.length === 0) {
+    return (
+      <div className="etl-table-list__empty-wrap">
+        <p className="etl-table-list__empty">등록된 ETL이 없습니다.</p>
+        <p className="etl-table-list__empty-hint">
+          <strong>파일 업로드</strong> 탭에서 파일을 올리거나, <strong>DB 연결</strong> 탭에서 외부 DB 테이블을 등록해 주세요. 등록 후 이 목록에 나타나면 <strong>실행</strong> 버튼으로 DB에 적재할 수 있습니다.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="etl-table-list">

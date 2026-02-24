@@ -14,6 +14,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { etl2RunTable, etl2GetJob, etl2CancelJob, etl2ListJobs, etl2PreviewTable, etl2TargetExists, etl2DeleteJob } from '@/shared/api/client';
 import SourceTypeSelector from './components/SourceTypeSelector';
 import FileUploadForm from './components/FileUploadForm';
@@ -26,9 +27,29 @@ import JobHistoryPanel from './components/JobHistoryPanel';
 import PreviewModal from './components/PreviewModal';
 import './etl.css';
 
+const VALID_TABS = ['file', 'db', 'storage', 'history'];
+
 function ETLPage() {
-  const [sourceType, setSourceType] = useState('file');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') || 'file';
+  const [sourceType, setSourceType] = useState(
+    () => (VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'file')
+  );
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const t = searchParams.get('tab') || 'file';
+    if (VALID_TABS.includes(t) && t !== sourceType) setSourceType(t);
+  }, [searchParams, sourceType]);
+
+  const setSourceTypeAndUrl = useCallback((next) => {
+    setSourceType(next);
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.set('tab', next);
+      return p;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [jobResults, setJobResults] = useState({});
   const [runLoading, setRunLoading] = useState(false);
   const [cancelLoadingJobId, setCancelLoadingJobId] = useState(null);
@@ -251,6 +272,33 @@ function ETLPage() {
     return (Number(bKey) || 0) - (Number(aKey) || 0);
   });
 
+  const howToFile = (
+    <ul className="etl-page__how-list">
+      <li><strong>1.</strong> 왼쪽에 CSV·Excel·Parquet 파일을 드래그하거나 &quot;파일 선택&quot;으로 올려주세요.</li>
+      <li><strong>2.</strong> 저장할 DB와 타겟 테이블명을 정한 뒤, 필요하면 &quot;테이블선택 및 컬럼매핑&quot;에서 컬럼을 맞춰주세요.</li>
+      <li><strong>3.</strong> &quot;업로드&quot;를 누르면 등록됩니다. 아래 목록에서 <strong>실행</strong>을 누르면 실제로 DB에 적재됩니다.</li>
+    </ul>
+  );
+  const howToDb = (
+    <ul className="etl-page__how-list">
+      <li><strong>1.</strong> &quot;연결 추가&quot;에서 외부 DB 정보를 입력하고 <strong>연결 테스트</strong> 후 &quot;연결 등록&quot;을 누르세요.</li>
+      <li><strong>2.</strong> &quot;등록된 연결&quot;에서 연결을 고른 뒤, 소스 테이블과 타겟 테이블명을 입력하고 &quot;ETL 테이블 등록&quot;을 누르세요.</li>
+      <li><strong>3.</strong> 아래 목록에서 <strong>실행</strong>을 누르면 해당 테이블이 우리 DB로 적재됩니다.</li>
+    </ul>
+  );
+  const howToStorage = (
+    <ul className="etl-page__how-list">
+      <li><strong>1.</strong> 적재할 PostgreSQL DB의 호스트·포트·DB명·사용자·비밀번호를 입력하세요.</li>
+      <li><strong>2.</strong> &quot;연결 테스트&quot;로 접속과 권한을 확인한 뒤 &quot;연결 등록&quot;을 누르세요.</li>
+      <li><strong>3.</strong> 파일 업로드나 DB 연동 시 &quot;저장할 DB&quot;에서 이 연결을 선택할 수 있습니다.</li>
+    </ul>
+  );
+  const howToHistory = (
+    <ul className="etl-page__how-list">
+      <li>실행 중이거나 완료·실패한 ETL Job 목록입니다. 상태별로 필터링하고, 필요 시 삭제할 수 있습니다.</li>
+    </ul>
+  );
+
   return (
     <div className="etl-page">
       <header className="etl-page__header">
@@ -258,13 +306,20 @@ function ETLPage() {
         <p className="etl-page__desc">
           {sourceType === 'file' && '파일을 업로드해 우리 DB에 적재합니다. CSV·Excel·Parquet 파일을 선택한 뒤 타겟 테이블을 지정하고 업로드하세요.'}
           {sourceType === 'db' && '외부 DB(PostgreSQL·MySQL·Oracle) 연결을 등록한 뒤, 소스 테이블을 선택해 우리 DB에 적재합니다.'}
-          {sourceType === 'storage' && '적재 대상(저장 DB) PostgreSQL 연결을 등록합니다. 연결 테스트로 접속·권한 확인 후 등록하세요. Phase 2에서 ETL 실행 시 선택할 수 있습니다.'}
+          {sourceType === 'storage' && '적재 대상(저장 DB) PostgreSQL 연결을 등록합니다. 연결 테스트로 접속·권한 확인 후 등록하세요.'}
           {sourceType === 'history' && 'ETL Job 실행 이력을 확인하고 삭제할 수 있습니다.'}
         </p>
+        <div className="etl-page__tip" role="region" aria-label="사용 방법">
+          <p className="etl-page__tip-title">처음 사용하시나요?</p>
+          {sourceType === 'file' && howToFile}
+          {sourceType === 'db' && howToDb}
+          {sourceType === 'storage' && howToStorage}
+          {sourceType === 'history' && howToHistory}
+        </div>
       </header>
 
       <section className="etl-page__body">
-        <SourceTypeSelector sourceType={sourceType} onChange={setSourceType} />
+        <SourceTypeSelector sourceType={sourceType} onChange={setSourceTypeAndUrl} />
 
         <div className="etl-page__panel">
           {sourceType === 'file' && <FileUploadForm onSuccess={handleRefresh} />}
@@ -275,6 +330,7 @@ function ETLPage() {
 
         <section className="etl-page__section">
           <h2 className="etl-page__section-title">등록된 ETL 목록</h2>
+          <p className="etl-page__section-desc">여기에서 실행을 누르면 데이터가 실제로 DB에 적재됩니다. 업로드·등록만으로는 적재되지 않습니다.</p>
           <ETLTableList
             onRun={handleRun}
             onPreview={handlePreview}

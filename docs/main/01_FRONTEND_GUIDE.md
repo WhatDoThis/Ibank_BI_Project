@@ -9,12 +9,12 @@
 ### 1.1 역할
 
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐). 공용 API·설정은 shared 에서 사용합니다.
+- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(ETL 업그레이드·**테스트중**). 공용 API·설정은 shared 에서 사용합니다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
 
-- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`, `.../etl2`(ETL2 테스트중)
 - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2, widgetboard, etl). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
 
 ### 1.3 프론트와 설정
@@ -107,20 +107,37 @@ Frontend/react-app/
 │   │   │   └── utils/
 │   │   │       └── dataUtils.js
 │   │   │
-│   │   └── etl/               # ETL (파일·DB → 우리 PostgreSQL 적재)
+│   │   ├── etl/               # ETL (파일·DB → 우리 PostgreSQL 적재)
+│   │   │   ├── ETLPage.jsx
+│   │   │   ├── index.jsx
+│   │   │   ├── etl.css
+│   │   │   └── components/
+│   │   │       ├── SourceTypeSelector.jsx  # 소스 유형(파일/DB) 선택
+│   │   │       ├── FileUploadForm.jsx      # 파일 업로드·etlUploadFile
+│   │   │       ├── DbConnectionForm.jsx    # DB 연결 등록·테스트·소스 테이블·etlCreateTable
+│   │   │       ├── ETLTableList.jsx        # 목록·실행/미리보기/데이터 추가/PK 설정/삭제·도움말
+│   │   │       ├── JobHistoryPanel.jsx     # Job 목록·실행 이력
+│   │   │       ├── JobLogPanel.jsx         # Job 로그
+│   │   │       ├── AddFileModal.jsx        # 단일 파일 추가 적재
+│   │   │       ├── PkColumnsModal.jsx      # PK 컬럼 설정
+│   │   │       └── PreviewModal.jsx        # 미리보기 10행
+│   │   │
+│   │   └── etl2/              # ETL2 (테스트중) — 저장 DB·컬럼 매핑·UI 사용성
 │   │       ├── ETLPage.jsx
 │   │       ├── index.jsx
 │   │       ├── etl.css
 │   │       └── components/
-│   │           ├── SourceTypeSelector.jsx  # 소스 유형(파일/DB) 선택
-│   │           ├── FileUploadForm.jsx      # 파일 업로드·etlUploadFile
-│   │           ├── DbConnectionForm.jsx    # DB 연결 등록·테스트·소스 테이블·etlCreateTable
-│   │           ├── ETLTableList.jsx        # 목록·실행/미리보기/데이터 추가/PK 설정/삭제·도움말
-│   │           ├── JobHistoryPanel.jsx     # Job 목록·실행 이력
-│   │           ├── JobLogPanel.jsx         # Job 로그
-│   │           ├── AddFileModal.jsx        # 단일 파일 추가 적재
-│   │           ├── PkColumnsModal.jsx      # PK 컬럼 설정
-│   │           └── PreviewModal.jsx        # 미리보기 10행
+│   │           ├── SourceTypeSelector.jsx   # 탭: 파일 업로드|DB 연결|저장 DB 등록|ETL 이력
+│   │           ├── FileUploadForm.jsx       # 단계 안내·etl2InferSchema·테이블선택 및 컬럼매핑
+│   │           ├── DbConnectionForm.jsx     # 저장 DB 선택·소스 컬럼·테이블선택 및 컬럼매핑·증분 컬럼 셀렉트
+│   │           ├── StorageConnectionForm.jsx # 저장 DB(적재 대상) 등록·테스트
+│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·타입 호환
+│   │           ├── ETLTableList.jsx         # 목록·실행/미리보기/데이터 추가/PK 설정·빈 목록 안내
+│   │           ├── JobHistoryPanel.jsx
+│   │           ├── JobLogPanel.jsx
+│   │           ├── AddFileModal.jsx
+│   │           ├── PkColumnsModal.jsx
+│   │           └── PreviewModal.jsx
 │   │
 │   ├── shared/
 │   │   ├── components/
@@ -224,6 +241,18 @@ Frontend/react-app/
 - **etl.css**: ETL 목록·연결·배치·동기화 열 스타일.
 - **API**(shared/api/client.js): etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables 등.
 
+### 4.5.1 ETL2 (테스트중) (/etl2)
+
+- **역할**: 09_ETL_Upgrade_Plan 적용 버전. 기존 ETL(etl·etl_server)과 형상 분리, **현재 테스트중**. 라우트 `/etl2`, API prefix `/api/etl2`.
+- **ETLPage.jsx**: 탭(파일 업로드·DB 연결·저장 DB 등록·ETL 이력). 탭별 "처음 사용하시나요?" 단계 안내. 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 설명. 실행 전 target-exists·full sync 시 메인/저장 DB 구분 확인 메시지.
+- **SourceTypeSelector.jsx**: 4탭 — 파일 업로드 | DB 연결 | 저장 DB 등록 | ETL 이력. URL `?tab=file|db|storage|history` 유지.
+- **FileUploadForm.jsx**: 상단 한 줄 안내, 단계(1 파일 선택 → 2 저장 위치·테이블 설정 → 3 등록). 저장할 DB·타겟 테이블명·"테이블선택 및 컬럼매핑" 버튼. 파일 있으면 etl2InferSchema 호출 후 모달에 sourceColumns 전달. 업로드 성공 시 "등록되었습니다"·"아래 목록에서 실행을 누르면 적재됩니다" 안내.
+- **DbConnectionForm.jsx**: 1 연결 추가 / 2 ETL 테이블 등록 단계 제목. 저장할 DB 선택. 연결·소스 테이블 선택 시 source-columns 로드 → 테이블선택 및 컬럼매핑 모달에 sourceColumns 전달. 증분 컬럼: 셀렉트(날짜형 컬럼)·직접 입력(커스텀)·validate-incremental-column 검증.
+- **StorageConnectionForm.jsx**: 저장 DB(적재 대상 PostgreSQL) 등록·연결 테스트·등록된 저장 DB 목록·삭제. 상단 한 줄 안내.
+- **TargetTableSelectModal.jsx**: 저장 DB 기준 테이블 목록·선택 테이블 컬럼. **sourceColumns** 있으면: 소스→타겟 매핑 테이블(소스별 타겟 드롭다운·"제외"), 기본 제안(이름·순서·타입 호환), 타입 불일치 시 알럿. 없으면 타겟 컬럼 체크박스만. 적용 시 onSelect(tableName, columnMapping).
+- **ETLTableList.jsx**: 목록·실행/미리보기/데이터 추가/PK 설정/삭제·도움말(?). 빈 목록 시 안내 박스(empty-wrap)·"파일 업로드/DB 연결 탭에서 등록 후 실행으로 적재" 문구.
+- **API**(shared/api/client.js): etl2ListTables, etl2CreateTable, etl2UploadFile, **etl2InferSchema**(파일→스키마만 반환), etl2ListTargetTables, etl2ListTargetColumns, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2GetSourceColumns, etl2ValidateIncrementalColumn, etl2ListJobs, etl2RunTable 등. 모두 `/api/etl2/*` 호출.
+
 ### 4.6 shared
 
 - **api/client.js**: health, listTables, describeTable, tableRelationships, joinOrder, saveQueryAsTable, saveQueryAsTableStatus, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData, **ETL**: etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables 등.
@@ -270,3 +299,6 @@ Frontend/react-app/
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 |
 
 - docs/report: 배포·실행 로그 등. 대외 소개 시에는 본 docs/main 문서만 사용.
+
+**변경 이력 (본 문서)**  
+- (2026-02-23) **ETL2 (테스트중)** §1.1·§1.2 접속 경로에 /etl2. §3 디렉터리 트리에 packages/etl2 및 컴포넌트(StorageConnectionForm, TargetTableSelectModal 등). **§4.5.1 ETL2 (테스트중)** 신설: ETLPage·탭·FileUploadForm·DbConnectionForm·StorageConnectionForm·TargetTableSelectModal·ETLTableList·API(etl2InferSchema, target-tables, target-columns, storage-connections, source-columns, validate-incremental-column 등).

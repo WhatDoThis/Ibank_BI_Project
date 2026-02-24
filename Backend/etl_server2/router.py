@@ -30,6 +30,7 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 271 - delete_table_row_only: DELETE /tables/{id}/row — 행·업로드 파일만 삭제(테이블 유지)
 283 - delete_table: DELETE /tables/{id} — ETL 테이블·타겟 DROP·파일 삭제
 303 - upload_file: POST /upload — 파일 업로드·스키마 추론·선택 시 메타 등록
+444 - infer_schema_from_file: POST /infer-schema — 파일만 받아 스키마(컬럼·타입) 반환, 메타 등록 없음
 369 - add_file_to_table: POST /tables/{id}/add-file — 동일 테이블 추가 적재(업서트), PK 검증 후 Job 등록
 480 - add_files_zip_to_table: POST /tables/{id}/add-files-zip — ZIP 압축 해제 후 파일명 순 Job 등록, skipped_files 반환
 626 - cleanup_expired_uploads: POST /cleanup-expired-uploads — 만료 업로드 삭제(cron용, zip_* 포함)
@@ -441,6 +442,33 @@ async def upload_file(
         pass
 
     return result
+
+
+@router.post("/infer-schema")
+async def infer_schema_from_file(file: UploadFile = File(...)):
+    """
+    업로드 파일만 받아 스키마(컬럼명·추론 타입)만 반환. 메타 등록·파일 보관 없음.
+    테이블선택 및 컬럼매핑 모달에서 소스 컬럼 제안용. 반환: { columns: [{ name, inferred_type }, ...] }.
+    """
+    try:
+        file_path, file_type = _save_upload(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        columns = schema_infer.infer_schema(file_path, file_type)
+    except Exception as e:
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"스키마 추론 실패: {e}")
+    try:
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
+    return {"columns": columns}
 
 
 def _natural_sort_key(name: str):

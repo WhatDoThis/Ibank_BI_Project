@@ -115,17 +115,23 @@ function DbConnectionForm({ onSuccess }) {
   }
 
   useEffect(() => {
-    if (syncMode !== 'incremental' || !selectedConnId || !selectedSourceTable) {
+    if (!selectedConnId || !selectedSourceTable) {
       setSourceColumns([]);
       setIncrementalColumnSelect('');
       setIncrementalColumnCustom('');
       return;
     }
+    if (syncMode !== 'incremental') {
+      setIncrementalColumnSelect('');
+      setIncrementalColumnCustom('');
+    }
     let cancelled = false;
     setSourceColumnsLoading(true);
     setSourceColumns([]);
-    setIncrementalColumnSelect('');
-    setIncrementalColumnCustom('');
+    if (syncMode === 'incremental') {
+      setIncrementalColumnSelect('');
+      setIncrementalColumnCustom('');
+    }
     etl2GetSourceColumns(Number(selectedConnId), selectedSourceTable)
       .then((res) => {
         if (!cancelled) setSourceColumns(res.columns || []);
@@ -311,8 +317,10 @@ function DbConnectionForm({ onSuccess }) {
 
   return (
     <div className="etl-db-form">
+      <p className="etl-db-form__intro">외부 DB 연결을 등록한 뒤, 가져올 테이블과 저장할 테이블명을 정해 등록하면 아래 목록에 뜹니다. 목록에서 <strong>실행</strong>을 눌러 적재하세요.</p>
       <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading">연결 추가</h3>
+        <h3 className="etl-db-form__heading"><span className="etl-db-form__step-num" aria-hidden="true">1</span> 연결 추가</h3>
+        <p className="etl-db-form__subtitle">DB 정보 입력 후 &quot;연결 테스트&quot;를 누르고, 성공하면 &quot;연결 등록&quot;을 누르세요.</p>
         <form onSubmit={handleAddConnection} className="etl-db-form__connect-form">
           <div className="etl-db-form__grid etl-db-form__grid--2">
             <div className="etl-db-form__field">
@@ -457,7 +465,7 @@ function DbConnectionForm({ onSuccess }) {
       {dbConnections.length > 0 && (
         <section className="etl-db-form__section etl-db-form__section--card">
           <h3 className="etl-db-form__heading">등록된 연결</h3>
-          <p className="etl-db-form__subtitle">연결 해제 시 해당 타겟 테이블이 DROP됩니다.</p>
+          <p className="etl-db-form__subtitle">아래에서 연결을 선택한 뒤 &quot;ETL 테이블 등록&quot;에서 소스 테이블을 고르세요. 연결 해제 시 해당 연결로 만든 타겟 테이블이 DROP됩니다.</p>
           <ul className="etl-db-form__conn-list">
             {dbConnections.map((c) => (
               <li key={c.connection_id} className="etl-db-form__conn-item">
@@ -477,7 +485,8 @@ function DbConnectionForm({ onSuccess }) {
       )}
 
       <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading">ETL 테이블 등록</h3>
+        <h3 className="etl-db-form__heading"><span className="etl-db-form__step-num" aria-hidden="true">2</span> ETL 테이블 등록</h3>
+        <p className="etl-db-form__subtitle">연결 선택 → 소스 테이블 선택 → 타겟 테이블명 입력(필요 시 테이블선택 및 컬럼매핑) 후 &quot;ETL 테이블 등록&quot;을 누르세요.</p>
         <div className="etl-db-form__grid etl-db-form__grid--2">
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">연결 선택</label>
@@ -549,12 +558,48 @@ function DbConnectionForm({ onSuccess }) {
               onClose={() => setTargetTableSelectOpen(false)}
               storageConnectionId={storageConnectionId}
               currentTargetTable={targetTable}
+              currentColumnMapping={columnMapping || []}
+              sourceColumns={sourceColumns}
               onSelect={(tableName, mapping) => {
                 setTargetTable(tableName);
                 setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
                 setTargetTableSelectOpen(false);
               }}
             />
+          )}
+          {(targetTable.trim() || (columnMapping && columnMapping.length > 0)) && (
+            <div className="etl-db-form__field etl-db-form__summary">
+              <label className="etl-db-form__label">설정 요약</label>
+              <div className="etl-db-form__summary-box">
+                {targetTable.trim() && (
+                  <p className="etl-db-form__summary-line">
+                    <strong>타겟 테이블:</strong> {targetTable.trim()}
+                  </p>
+                )}
+                {columnMapping && columnMapping.length > 0 && (
+                  <>
+                    <p className="etl-db-form__summary-line">
+                      <strong>컬럼 매핑 ({columnMapping.length}개):</strong>
+                    </p>
+                    <ul className="etl-db-form__mapping-list">
+                      {columnMapping.map((m, i) => (
+                        <li key={i}>
+                          {m.source || '(소스)'} → {m.target || '(타겟)'}
+                          {m.type && <span className="etl-db-form__mapping-type"> ({m.type})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="etl-db-form__summary-edit"
+                  onClick={() => setTargetTableSelectOpen(true)}
+                >
+                  수정
+                </button>
+              </div>
+            </div>
           )}
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">라벨명 (선택)</label>

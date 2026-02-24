@@ -1,5 +1,61 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: docs/main 최신화 (log.md 기준 그 이후 반영, ETL2는 테스트중 표기)
+
+### 목적
+- log.md 기준으로 가장 마지막 docs/main 업데이트(2026-02-19 메인 문서 자체 완결) **이후** 적용된 시스템·코드 변경을 docs/main에 반영. ETL2 관련 내용은 **(테스트중)** 으로 별도 표기.
+
+### 완료 작업
+- **00_PRD.md**: §1.2에 ETL2 (테스트중) 문단 추가. §2.1 패키지에 etl2, Backend에 etl_server2. §2.2 접속 경로에 /etl2. §5.2 API에 api/etl2 언급. **§6.3.1 ETL2 (테스트중)** 신설(탭·저장 DB·테이블선택 및 컬럼매핑·column_mapping·증분 컬럼·UI 사용성·API·01 §4.5.1·02 §6.7 참조). §8 변경 이력 2026-02-23 행 추가.
+- **01_FRONTEND_GUIDE.md**: §1.1 패키지에 etl2(테스트중). §1.2 접속 경로에 /etl2. §3 디렉터리 트리에 packages/etl2 및 컴포넌트(SourceTypeSelector 4탭, FileUploadForm, DbConnectionForm, StorageConnectionForm, TargetTableSelectModal, ETLTableList 등). **§4.5.1 ETL2 (테스트중)** 신설(ETLPage·탭·각 폼·모달·API etl2InferSchema·target-tables·storage-connections·source-columns·validate-incremental-column). 변경 이력 2026-02-23 추가.
+- **02_BACKEND_GUIDE.md**: §2 아키텍처에 etl_server2(테스트중) 블록 추가. §4.6 ETL2 (테스트중) API 표(infer-schema, target-tables, target-columns, storage-connections, source-columns, validate-incremental-column 등). §5.1 라우터에 etl2_router. **§6.7 etl_server2 (테스트중)** 신설(역할·저장 DB·테이블/컬럼 조회·infer-schema·column_mapping·소스 컬럼·증분 검증·router/service/load/db_load 요약). 변경 이력 2026-02-23 추가.
+
+### 수정·영향 파일
+- docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 UI 사용성 개선 (처음 쓰는 사람도 쉽게)
+
+### 목적
+- 사용하기 편하고, 처음 쓰는 사람도 쉽게 따라 할 수 있도록 안내·단계 표시·문구 개선.
+
+### 완료 작업
+- **ETLPage**: 탭별 "처음 사용하시나요?" 박스 추가 — 파일/DB/저장 DB/이력 탭마다 1~3단계 안내 문구. "등록된 ETL 목록" 섹션에 "실행을 누르면 적재됩니다" 설명 추가.
+- **FileUploadForm**: 상단 한 줄 안내, 단계 번호(1·2·3) 표시(파일 선택 → 저장 위치·테이블 설정 → 등록하기). 업로드 성공 메시지를 "등록되었습니다" + "아래 목록에서 실행을 누르면 적재됩니다"로 명확히 변경.
+- **DbConnectionForm**: 상단 한 줄 안내, "1 연결 추가" / "2 ETL 테이블 등록" 단계 제목 + 각 섹션에 한 줄 사용법(subtitle) 보강.
+- **StorageConnectionForm**: 상단 한 줄 안내 추가.
+- **ETLTableList**: 빈 목록 시 안내 박스(empty-wrap) + "파일 업로드/DB 연결 탭에서 등록 후 실행으로 적재" 문구.
+- **TargetTableSelectModal**: 모달 안내 문구를 더 친절하게 수정.
+- **etl.css**: etl-page__tip, etl-page__how-list, etl-page__section-desc, etl-file-form__intro/step-num/step-label/result-*, etl-db-form__intro/step-num, etl-table-list__empty-wrap/empty-hint 추가.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/ETLPage.jsx, FileUploadForm.jsx, DbConnectionForm.jsx, StorageConnectionForm.jsx, ETLTableList.jsx, TargetTableSelectModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 소스↔타겟 컬럼 매핑 제안·커스텀·타입 검사
+
+### 목적
+- 소스 테이블과 타겟 테이블 컬럼을 기본적으로 매칭해 제안하고, 사용자가 소스별로 타겟을 바꾸거나 매핑 제외(빼기)할 수 있게 함. 타입이 다르면 매핑 불가 + 알럿.
+
+### 완료 작업
+- **Backend**: POST `/api/etl2/infer-schema` — 파일만 업로드받아 스키마(컬럼명·inferred_type) 반환, 메타 등록 없음. 테이블선택 모달에서 파일 소스 컬럼 제안용.
+- **Frontend client**: `etl2InferSchema(file)` 추가.
+- **TargetTableSelectModal**: `sourceColumns` prop 추가. 소스 컬럼이 있으면 "소스 → 타겟" 매핑 테이블 UI(소스별 타겟 드롭다운, "제외" 옵션). 기본 제안: 이름·순서로 매칭, 타입 호환 시에만 제안. 타입 호환 패밀리: integer, float, boolean, datetime, text. 타입 불일치 선택 시 알럿 후 선택 취소. 소스 없으면 기존처럼 타겟 컬럼 체크박스만 표시.
+- **FileUploadForm**: "테이블선택 및 컬럼매핑" 클릭 시 파일이 있으면 `etl2InferSchema(file)` 호출 후 모달에 `sourceColumns` 전달. 수정 버튼 동일.
+- **DbConnectionForm**: 연결·소스 테이블 선택 시 항상 소스 컬럼 로드(증분 모드 여부 무관), 모달에 `sourceColumns` 전달.
+- **etl.css**: `.etl-target-select-modal__mapping-*` 매핑 테이블 스타일 추가.
+
+### 수정·영향 파일
+- Backend/etl_server2/router.py
+- Frontend: shared/api/client.js, packages/etl2/components/TargetTableSelectModal.jsx, FileUploadForm.jsx, DbConnectionForm.jsx, packages/etl2/etl.css
+- docs/report/log.md
+
+---
+
 ## 2026-02-23: ETL2 증분 컬럼 셀렉트·날짜 검증 (사용 안 함 / 날짜 컬럼 / 직접 입력)
 
 ### 목적

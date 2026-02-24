@@ -151,9 +151,10 @@ function StorageConnectionForm({ onSuccess }) {
 
   return (
     <div className="etl-db-form">
+      <p className="etl-db-form__intro">파일 업로드나 DB 연동 시 &quot;저장할 DB&quot;로 선택할 수 있는 적재 대상 DB를 여기서 등록합니다. PostgreSQL만 지원합니다.</p>
       <section className="etl-db-form__section etl-db-form__section--card">
         <h3 className="etl-db-form__heading">저장 DB(적재 대상) 추가</h3>
-        <p className="etl-db-form__subtitle">PostgreSQL만 지원합니다. 연결 테스트로 접속 및 CREATE/INSERT/DROP 권한을 확인한 뒤 등록하세요.</p>
+        <p className="etl-db-form__subtitle">연결 테스트로 접속과 CREATE/INSERT/DROP 권한을 확인한 뒤 등록하세요.</p>
         <form onSubmit={handleRegister} className="etl-db-form__connect-form">
           <div className="etl-db-form__grid etl-db-form__grid--2">
             <div className="etl-db-form__field">

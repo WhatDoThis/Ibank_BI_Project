@@ -368,6 +368,20 @@ export async function etl2UploadFile(formData) {
   return data;
 }
 
+/** POST /api/etl2/infer-schema - 파일만 업로드하여 스키마(컬럼·타입) 반환, 메타 등록 없음. 테이블선택 및 컬럼매핑용 */
+export async function etl2InferSchema(file) {
+  const url = `${baseUrlForEtl2()}/api/etl2/infer-schema`;
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(url, { method: 'POST', body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.detail != null ? String(data.detail) : (data.error || data.message || `HTTP ${res.status}`);
+    throw new Error(msg);
+  }
+  return data;
+}
+
 /** DELETE /api/etl2/tables/:id */
 export async function etl2DeleteTable(etlTableId) {
   return request('DELETE', `/api/etl2/tables/${encodeURIComponent(etlTableId)}`);
