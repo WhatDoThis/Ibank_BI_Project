@@ -16,10 +16,11 @@ report_router: /api/* (list-tables, describe-table, execute-query, explain-sql �
 dashboard_router: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
 dashboard2_router: /api/dashboard2/* (동일)
 etl_router: /api/etl/* (ETL 메타·업로드·연결 테스트·Job·add-file·add-files-zip 등)
+etl2_router: /api/etl2/* (ETL2 페이지용, 09_ETL_Upgrade_Plan 확장 예정)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router
+- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router, Backend.etl_server2.router
 - fastapi, uvicorn
 """
 
@@ -42,6 +43,7 @@ except ImportError:
 from Backend.api_server import db
 from Backend.api_server.routers import health_router, report_router, dashboard_router, dashboard2_router
 from Backend.etl_server import router as etl_router
+from Backend.etl_server2 import router as etl2_router
 
 app = FastAPI(
     title="Starbucks CRM NoCode Query Builder API",
@@ -61,6 +63,7 @@ app.include_router(report_router)
 app.include_router(dashboard_router)
 app.include_router(dashboard2_router)
 app.include_router(etl_router)
+app.include_router(etl2_router)
 
 
 @app.on_event("startup")

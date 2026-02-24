@@ -127,7 +127,9 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             const runDisabled = q?.status === 'running' || q?.status === 'pending';
             const rowRunning = q?.status === 'running';
             const rowPending = q?.status === 'pending';
-            const statusText = rowRunning ? '실행 중' : rowPending ? '대기 중' : (t.status || '—');
+            const statusLower = (t.status || '').toLowerCase();
+            const statusText = rowRunning ? '실행 중' : rowPending ? '대기 중' : (statusLower === 'done' ? '완료' : statusLower === 'error' ? '오류' : statusLower === 'draft' ? '미실행' : (t.status || '—'));
+            const statusCellClass = rowRunning ? 'etl-table-list__status--running' : rowPending ? 'etl-table-list__status--pending' : statusLower === 'done' ? 'etl-table-list__status--done' : statusLower === 'error' ? 'etl-table-list__status--error' : statusLower === 'draft' ? 'etl-table-list__status--draft' : undefined;
             const rowClass = [
               rowRunning && 'etl-table-list__row--running',
               rowPending && 'etl-table-list__row--pending'
@@ -155,7 +157,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
               <td>{t.source_table || t.file_path || '—'}</td>
               <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '전체 fetch'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
               <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert' : '전체: DROP+CREATE+INSERT') : undefined}>{syncText}</td>
-              <td className={rowRunning ? 'etl-table-list__status--running' : rowPending ? 'etl-table-list__status--pending' : undefined}>{statusText}</td>
+              <td className={statusCellClass}>{statusText}</td>
               <td className="etl-table-list__cell-actions">
                 <span className="etl-table-list__actions">
                   {(t.source_type === 'file' && (t.file_path || t.file_type)) || (['postgresql', 'mysql', 'oracle'].includes((t.source_type || '').toLowerCase()) && t.source_table) ? (
@@ -274,7 +276,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 적재 대기열 등록 후 실행.</li>
                   <li><strong>미리보기</strong> — 컬럼·상위 10행 미리보기.</li>
-                  <li><strong>데이터 추가</strong> — 파일만. 같은 테이블에 추가 적재(업서트).</li>
+                  <li><strong>데이터 추가</strong> — DB 연동: 마지막 동기화 시각 이후 데이터를 가져와 업서트. 파일: 업로드한 파일로 같은 테이블에 추가 적재(업서트).</li>
                   <li><strong>PK 설정</strong> — PK 컬럼 선택. 첫 실행 시 CREATE TABLE에 반영.</li>
                   <li><strong>삭제</strong> — ETL 삭제 + 타겟 테이블 DROP.</li>
                   <li><strong>×</strong> — 비활성. 동일 타겟 2건 이상일 때만 활성.</li>

@@ -227,9 +227,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     target_table = row.get("target_table")
     pk_columns = (row.get("pk_columns") or "").strip() or None
     incremental_column = (row.get("incremental_column") or "").strip() or None
-    sync_mode = (row.get("sync_mode") or "incremental").strip().lower()
-    if sync_mode not in ("full", "incremental"):
-        sync_mode = "incremental"
+    # 명시적으로 "full"인 경우만 전체 적재(DROP+INSERT). 그 외는 모두 증분(Upsert). service.get_sync_mode_for_load로 통일.
+    sync_mode = etl_service.get_sync_mode_for_load(etl_table_id)
     batch_size = (row.get("batch_size") or 0) if row.get("batch_size") is not None else 0
     try:
         batch_size = int(batch_size) if batch_size else 0
@@ -257,7 +256,10 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     else:
         etl_service.set_job_running(job_id)
     etl_service.update_etl_table_status(etl_table_id, "running")
-    logger.info("ETL db load started etl_table_id=%s job_id=%s sync_mode=%s", etl_table_id, job_id, sync_mode)
+    logger.info(
+        "ETL db load started etl_table_id=%s job_id=%s sync_mode=%s incremental_column=%s",
+        etl_table_id, job_id, sync_mode, incremental_column or "(none)",
+    )
 
     try:
         c = etl_service.get_connection_for_etl(connection_id)
@@ -338,6 +340,12 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             if last_synced is not None:
                 where_clause = f" WHERE {_quote(incremental_column)} > {bind_placeholder}"
                 params.append(last_synced)
+        elif sync_mode == "incremental" and not incremental_column:
+            logger.info(
+                "ETL db load etl_table_id=%s: 증분 모드이나 증분 컬럼 미지정 → 소스 전체 조회 후 업서트. "
+                "소스 테이블의 시간/순서 컬럼(예: updated_at)을 증분 컬럼으로 지정하면 이후 행만 조회합니다.",
+                etl_table_id,
+            )
         if stype == "oracle":
             limit_sql = f" FETCH FIRST {max_rows_per_load} ROWS ONLY" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
         else:
@@ -393,7 +401,12 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     col_defs = ", ".join(f'"{c[0]}" {c[1]}' for c in columns_final)
                     rows_batch = df_batch.replace({pd.NA: None}).to_dict("records")
                     if first_batch:
-                        if sync_mode == "full":
+                        # DROP 직전 항상 DB에서 sync_mode 재조회. full일 때만 DROP(증분인데 전체 삭제 방지).
+                        effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
+                        if sync_mode == "full" and effective_sync != "full":
+                            logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
+                            sync_mode = "incremental"
+                        if effective_sync == "full":
                             cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
                             pk_list_full = [p for p in source_pk_list if p in cols]
                             pk_part = (", PRIMARY KEY (" + ", ".join(f'"{p}"' for p in pk_list_full) + ")") if pk_list_full else ""
@@ -509,8 +522,13 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         col_defs = ", ".join(f'"{c[0]}" {c[1]}' for c in columns)
         cols = [c[0] for c in columns]
 
+        # DROP 직전 항상 DB에서 sync_mode 재조회. full일 때만 DROP(증분인데 전체 삭제 방지).
+        effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
+        if sync_mode == "full" and effective_sync != "full":
+            logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
+            sync_mode = "incremental"
         try:
-            if sync_mode == "full":
+            if effective_sync == "full":
                 cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
                 pk_list_full = [p for p in source_pk_list if p in cols]
                 pk_part = (", PRIMARY KEY (" + ", ".join(f'"{p}"' for p in pk_list_full) + ")") if pk_list_full else ""

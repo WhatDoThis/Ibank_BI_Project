@@ -75,6 +75,7 @@ function DbConnectionForm({ onSuccess }) {
   const [labelName, setLabelName] = useState('');
   const [description, setDescription] = useState('');
   const [syncMode, setSyncMode] = useState('incremental');
+  const [incrementalColumn, setIncrementalColumn] = useState('');
   const [batchSize, setBatchSize] = useState('');
   const [batchIntervalSeconds, setBatchIntervalSeconds] = useState('');
   const [selectedSourceTable, setSelectedSourceTable] = useState('');
@@ -213,6 +214,7 @@ function DbConnectionForm({ onSuccess }) {
         source_table: selectedSourceTable,
         pk_columns: null,
         sync_mode: syncMode,
+        incremental_column: syncMode === 'incremental' && incrementalColumn.trim() ? incrementalColumn.trim() : null,
         batch_size: batchSize.trim() ? parseInt(batchSize, 10) || null : null,
         batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
         created_by: 'user'
@@ -222,6 +224,7 @@ function DbConnectionForm({ onSuccess }) {
       setLabelName('');
       setDescription('');
       setSyncMode('incremental');
+      setIncrementalColumn('');
       setBatchSize('');
       setBatchIntervalSeconds('');
       setSelectedSourceTable('');
@@ -473,12 +476,25 @@ function DbConnectionForm({ onSuccess }) {
           </div>
           <div className="etl-db-form__field etl-db-form__field--full">
             <label className="etl-db-form__label">동기화 모드</label>
-            <span className="etl-db-form__label-desc">전체: 삭제 후 전체 적재. 증분: 마지막 시각 이후 행만 Upsert.</span>
+            <span className="etl-db-form__label-desc">전체: 삭제 후 전체 적재. 증분: 소스에서 증분 컬럼 기준 이후 행만 조회해 Upsert.</span>
             <select value={syncMode} onChange={(e) => setSyncMode(e.target.value)} className="etl-db-form__select">
               <option value="full">전체(Full)</option>
               <option value="incremental">증분(Incremental)</option>
             </select>
           </div>
+          {syncMode === 'incremental' && (
+            <div className="etl-db-form__field etl-db-form__field--full">
+              <label className="etl-db-form__label">증분 컬럼 (소스)</label>
+              <span className="etl-db-form__label-desc">소스 테이블에서 &quot;이 시각/값 이후&quot;로 필터할 컬럼명(예: updated_at, id). 비우면 매번 소스 전체를 읽어 업서트합니다.</span>
+              <input
+                type="text"
+                value={incrementalColumn}
+                onChange={(e) => setIncrementalColumn(e.target.value)}
+                placeholder="예: updated_at"
+                className="etl-db-form__input"
+              />
+            </div>
+          )}
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">배치 크기</label>
             <input

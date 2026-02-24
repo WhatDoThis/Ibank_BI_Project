@@ -1,5 +1,367 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: ETL2 Phase 0~5 흐름 검증·누락 보완·UI 가독성 개선
+
+### 목적
+- Phase 0부터 적용 사항 순차 검증, 누락·연결 이슈 수정, 프론트엔드 가독성 개선.
+
+### 수정·보완 사항
+- **target-exists API**: 기존에는 항상 메인 DB만 조회. `target_table_exists(storage_connection_id, table_name)` 추가하여 선택된 저장 DB 기준으로 테이블 존재 여부 조회. 응답에 `storage_connection_id` 포함.
+- **실행 전 확인 메시지**: ETLPage에서 full sync 시 "메인 DB" / "저장 DB" 구분 표시(응답의 storage_connection_id 기준).
+- **run_file_upsert 저장 DB 연동**: 저장 DB(storage_connection_id) 선택 시 타겟 테이블 컬럼·PK를 메인 DB가 아닌 해당 저장 DB에서 조회하도록 수정. `get_target_table_column_names`, `get_target_pk_columns` 추가.
+- **UI 가독성**: (1) DbConnectionForm 타겟 테이블명 라벨을 "타겟 테이블명 (우리 DB)" → "타겟 테이블명"으로 변경, 저장할 DB 선택 기준 안내 문구 추가. (2) FileUploadForm에 "저장할 DB"·"타겟 테이블명" 설명 힌트 추가. (3) TargetTableSelectModal 상단에 선택한 저장 DB 기준 조회·적용 시 매핑 저장 안내 문구 추가. (4) etl.css에 etl-file-form__hint, etl-target-select-modal__intro 스타일 추가.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, router.py, load_service.py
+- Frontend: packages/etl2/ETLPage.jsx, DbConnectionForm.jsx, FileUploadForm.jsx, TargetTableSelectModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 Phase 5 — 통합·검증 및 정리 (09_ETL_Upgrade_Plan)
+
+### 목적
+- Phase 2~4 연동 검증 요약, etl_limits·권한 정리 문서화.
+
+### 연동 검증 요약
+- **저장 DB 선택**: 파일/DB 폼에서 "저장할 DB"(기본 DB 또는 등록 저장 DB) 선택 → `storage_connection_id` 저장 → 적재 시 `get_target_db_connection(storage_connection_id)`로 해당 DB에 CREATE/INSERT.
+- **테이블·컬럼 선택**: "테이블선택 및 컬럼매핑" 모달에서 저장 DB 기준 테이블 목록 → 테이블 선택 → 컬럼 체크박스 선택 → 적용 시 타겟 테이블명 + `column_mapping` [{source, target, type}] 전달.
+- **실행 시 반영**: 파일 적재(load_service)·DB 적재(db_load_service) 모두 `storage_connection_id`·`column_mapping` 읽어 저장 DB 분기 및 컬럼 매핑 적용. `add_allowed_table`은 `storage_connection_id` 없을 때만 호출(Phase 2b).
+
+### etl_limits·권한 정리
+- **etl_limits**: config `backend.etl_limits`(max_file_size_mb, max_rows_per_load, max_batch_size)는 저장 DB가 기본 DB이든 등록 저장 DB이든 **동일 적용**. 적재는 항상 Backend 경유이므로 한도는 변경 없이 유지(09_ETL_Upgrade_Plan §2).
+- **저장 DB 권한**: 등록 시 `test_storage_connection`으로 CREATE TABLE → INSERT 1건 → DROP TABLE 검증. 해당 권한 있는 PostgreSQL 계정만 등록 가능.
+- **add_allowed_table 스킵**: `storage_connection_id`가 NOT NULL인 ETL은 적재 완료 후 `add_allowed_table` 호출하지 않음(ibank_db가 아닌 외부 저장 DB는 allowed_tables와 무관).
+
+### 완료
+- Phase 0~4 구현 완료. 위 연동·한도·권한 정리 반영. 추가 코드 변경 없음.
+
+---
+
+## 2026-02-23: ETL2 Phase 4 — column_mapping JSONB·적재 반영 (09_ETL_Upgrade_Plan)
+
+### 목적
+- 소스↔타겟 컬럼 매핑 메타 저장(etl_tables.column_mapping), 적재 시 CREATE/INSERT 컬럼·순서 반영. 기존 테이블 선택 시 선택 컬럼으로 매핑 전달(기본 source=target).
+
+### 마이그레이션 (시스템 DB에 1회 실행)
+```sql
+ALTER TABLE public.etl_tables ADD COLUMN IF NOT EXISTS column_mapping JSONB;
+```
+
+### 완료 작업
+- **Backend.etl_server2.service**: create_etl_table에 column_mapping 인자·INSERT, list_etl_tables·get_etl_table SELECT에 column_mapping 포함, update_etl_table에 column_mapping 갱신.
+- **Backend.etl_server2.router**: CreateTableBody·UpdateTableBody에 column_mapping, upload_file에 Form column_mapping(JSON 문자열), create_table·update_table·upload 시 전달.
+- **Backend.etl_server2.load_service**: run_file_load에서 column_mapping 있으면 CREATE TABLE·INSERT를 매핑 기준(타겟 컬럼/타입, 소스→타겟 값)으로 수행.
+- **Backend.etl_server2.db_load_service**: run_db_load에서 column_mapping 있으면 SELECT 컬럼을 매핑 소스로 제한, 타겟 컬럼/타입으로 CREATE·INSERT/upsert, PK·incremental_column을 타겟명으로 매핑.
+- **Frontend**: TargetTableSelectModal 적용 시 onSelect(tableName, columnMapping)으로 [{source, target, type}, ...] 전달. FileUploadForm·DbConnectionForm에서 columnMapping 상태 저장, 업로드/등록 시 column_mapping 전송.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, router.py, load_service.py, db_load_service.py
+- Frontend: packages/etl2/components/TargetTableSelectModal.jsx, FileUploadForm.jsx, DbConnectionForm.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 Phase 3 — 테이블선택 및 컬럼매핑 버튼·모달 (09_ETL_Upgrade_Plan)
+
+### 목적
+- 타겟 테이블명 입력창 옆에 "테이블선택 및 컬럼매핑" 버튼 추가. 모달에서 현재 폼의 저장 DB 기준 테이블 목록 조회 → 테이블 선택 → 해당 테이블 컬럼 목록 + 컬럼별 선택 체크박스. 적용 시 타겟 테이블명 반영.
+
+### 완료 작업
+- **Backend.etl_server2.service**: `list_target_tables(storage_connection_id)`, `list_target_columns(storage_connection_id, table_name)` 추가. `get_target_db_connection`으로 연결 후 PostgreSQL information_schema 조회.
+- **Backend.etl_server2.router**: GET `/api/etl2/target-tables` (query: storage_connection_id), GET `/api/etl2/target-columns` (query: storage_connection_id, table_name).
+- **Frontend shared/api/client.js**: `etl2ListTargetTables`, `etl2ListTargetColumns` 추가.
+- **Frontend packages/etl2**: `TargetTableSelectModal.jsx` 신규 — 저장 DB 테이블 셀렉트, 컬럼 목록+체크박스(전체 선택/해제), 적용 시 onSelect(tableName, selectedColumns). FileUploadForm·DbConnectionForm에 타겟 테이블명 행에 버튼 + 모달 연동. etl.css에 모달·input-group·target-select-btn 스타일 추가.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, router.py
+- Frontend: shared/api/client.js, packages/etl2/components/TargetTableSelectModal.jsx (신규), FileUploadForm.jsx, DbConnectionForm.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 Phase 2b — 저장 DB 분기 적재 + add_allowed_table 스킵 (09_ETL_Upgrade_Plan)
+
+### 목적
+- ETL 테이블에 지정된 `storage_connection_id`가 있으면 해당 저장 DB로 적재. 기본 DB(ibank_db)가 아닌 저장 DB로 적재한 테이블은 `add_allowed_table` 호출을 하지 않음.
+
+### 완료 작업
+- **Backend.etl_server2.service**: `get_target_db_connection(storage_connection_id)` 완전 구현. `storage_connection_id`가 있으면 `get_storage_connection`으로 연결 정보 조회 후 해당 PostgreSQL에 연결, `(conn, schema)` 반환. `None`이면 기존대로 api_db(ibank_db) 반환.
+- **Backend.etl_server2.load_service**: `run_file_load`·`run_file_upsert`에서 `get_target_db_connection(row.get("storage_connection_id"))` 사용. `run_file_load` 성공 후 `add_allowed_table(target_table)`은 `storage_connection_id`가 없을 때만 호출.
+- **Backend.etl_server2.db_load_service**: `run_db_load` 스트리밍·비스트리밍 경로 모두 `get_target_db_connection(row.get("storage_connection_id"))` 사용. `add_allowed_table(target_table)`은 `storage_connection_id`가 없을 때만 호출.
+- **delete_connection / delete_etl_table**: 메인 DB(ibank_db)의 테이블만 DROP하므로 기존대로 `get_target_db_connection(None)` 유지.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, load_service.py, db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 Phase 2a — 메타 확장 + 저장 DB 셀렉트 (09_ETL_Upgrade_Plan)
+
+### 목적
+- etl_tables에 저장 DB(storage_connection_id) 선택값 저장, 파일/DB 폼에 "저장할 DB" 셀렉트 추가. 적재 로직은 변경 없음(계속 ibank_db).
+
+### 마이그레이션 (시스템 DB에 1회 실행)
+```sql
+ALTER TABLE public.etl_tables ADD COLUMN IF NOT EXISTS storage_connection_id INTEGER;
+```
+
+### 완료 작업
+- **Backend.etl_server2.service**: `create_etl_table`에 `storage_connection_id` 인자 추가·INSERT 반영. `list_etl_tables`, `get_etl_table` SELECT에 `storage_connection_id` 포함. `update_etl_table`에 `storage_connection_id` 갱신 추가.
+- **Backend.etl_server2.router**: CreateTableBody·UpdateTableBody에 `storage_connection_id` 필드. create_table·update_table 전달. upload_file에 Form `storage_connection_id` 추가.
+- **Frontend**: FileUploadForm·DbConnectionForm에 "저장할 DB" 셀렉트(기본 DB(ibank_db) + etl2ListStorageConnections 목록). 업로드/ETL 테이블 등록 시 선택값 전달. 적재는 Phase 2b까지 기존대로 ibank_db.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, router.py
+- Frontend: packages/etl2/components/FileUploadForm.jsx, DbConnectionForm.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 Phase 1 — 저장 DB 등록·연결·권한 검증 (09_ETL_Upgrade_Plan)
+
+### 목적
+- 적재 대상(저장 DB) PostgreSQL 연결을 등록·테스트하고, Phase 2에서 ETL 실행 시 저장 DB를 선택할 수 있도록 기반 구축.
+
+### 완료 작업
+- **메타**: `etl_storage_connections` 테이블은 시스템 DB(ibank_system_data)에 적용 완료.
+- **Backend.etl_server2.service**: `list_storage_connections`, `get_storage_connection`, `create_storage_connection`, `update_storage_connection`, `delete_storage_connection`, `test_storage_connection` 추가. `test_storage_connection`은 접속 후 CREATE TABLE → INSERT 1건 → DROP TABLE로 권한 검증.
+- **Backend.etl_server2.router**: `/api/etl2/storage-connections` GET/POST/PATCH/DELETE, `/api/etl2/storage-connections/test` POST 추가. Pydantic: CreateStorageConnectionBody, UpdateStorageConnectionBody, TestStorageConnectionBody.
+- **Frontend**: `shared/api/client.js`에 etl2ListStorageConnections, etl2CreateStorageConnection, etl2UpdateStorageConnection, etl2DeleteStorageConnection, etl2TestStorageConnection 추가.
+- **Frontend**: SourceTypeSelector에 "저장 DB 등록" 탭 추가(순서: 파일 업로드 | DB 연결 | 저장 DB 등록 | ETL 이력). `packages/etl2/components/StorageConnectionForm.jsx` 신규 — 연결 이름·호스트·포트·DB명·스키마·사용자·비밀번호, 연결 테스트 → 등록, 등록된 저장 DB 목록·삭제. ETLPage에서 sourceType === 'storage' 시 StorageConnectionForm 렌더링.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, router.py
+- Frontend: shared/api/client.js, packages/etl2/components/SourceTypeSelector.jsx, StorageConnectionForm.jsx (신규), ETLPage.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 Phase 0 — 적재 DB 연결 헬퍼 추출 (09_ETL_Upgrade_Plan)
+
+### 목적
+- Phase 2b에서 저장 DB 분기 시 기존 코드를 최소만 건드리도록, 적재 대상 DB 연결 획득을 한 함수로 통일.
+
+### 완료 작업
+- **Backend.etl_server2.service**: `get_target_db_connection(storage_connection_id: Optional[int] = None)` 추가. Phase 0에서는 `None`만 지원(기본 ibank_db). 반환 `(conn, schema_name)`. Phase 2b에서 `storage_connection_id` 분기 추가 예정.
+- **load_service**: `run_file_load`, `run_file_upsert`에서 `api_db.get_table_schema()`/`get_db_connection()` 3줄을 `conn_main, main_schema = etl_service.get_target_db_connection(None)` + `cur = conn_main.cursor()`로 교체. 불필요한 `from Backend.api_server import db as api_db` 제거.
+- **db_load_service**: `run_db_load` 내 스트리밍·비스트리밍 경로 모두 동일 패턴으로 `get_target_db_connection(None)` 사용하도록 교체. `api_db` import 제거.
+- **service**: `delete_connection`, `delete_etl_table`에서 메인 DB 연결 획득부를 `get_target_db_connection(None)` 사용으로 통일.
+
+### 수정 파일
+- Backend/etl_server2/service.py, load_service.py, db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 페이지·라우팅·의존성 구성 (09_ETL_Upgrade_Plan 적용 전 기반)
+
+### 목적
+- 기존 ETL과 형상 분리하여 ETL2 페이지에서 09_ETL_Upgrade_Plan(저장 DB 등록·선택·테이블/컬럼 매핑 등)을 단계적으로 적용할 수 있도록, ETL2 전용 패키지·백엔드·라우팅을 구성.
+
+### 완료 작업
+- **Backend**
+  - `Backend.etl_server2`: prefix `/api/etl2`, tags `etl2`로 라우터 변경. 내부 import를 모두 `Backend.etl_server2`로 통일(service, load_service, db_load_service, preview_service, queue_worker, transform_rules_service, etl_limits 등).
+  - `Backend.api_server.main`: `etl2_router` 등록, `app.include_router(etl2_router)`. ETL/ETL2는 동일 시스템 DB(etl_* 테이블) 사용, Job 큐는 기존 etl_server 워커 1대로 처리.
+- **Frontend**
+  - `shared/api/client.js`: ETL2용 API 클라이언트 추가. `baseUrlForEtl2()`, `etl2ListTables`, `etl2CreateTable`, `etl2UploadFile`, `etl2DeleteTable`, `etl2UpdateTable`, `etl2DeleteTableRow`, `etl2PreviewTable`, `etl2TargetExists`, `etl2RunTable`, `etl2AddFileToTable`, `etl2AddFilesZipToTable`, `etl2ListJobs`, `etl2GetJob`, `etl2CancelJob`, `etl2DeleteJob`, `etl2DeleteConnection`, `etl2ListConnections`, `etl2CreateConnection`, `etl2TestConnection`, `etl2ListConnectionTables`, `etl2ListTransformRules` (모두 `/api/etl2/*` 호출).
+  - `packages/etl2`: 위 etl2* API만 사용하도록 컴포넌트·ETLPage 수정(DbConnectionForm, ETLTableList, FileUploadForm, PkColumnsModal, JobHistoryPanel, AddFileModal, ETLPage).
+  - `App.jsx`: `/etl2` 라우트 추가, 네비에 "ETL2" 링크 추가(ETL 옆). ETL2Page는 `packages/etl2` default export.
+- **문서·설명**
+  - etl2 패키지 index·ETLPage 파일 설명을 ETL2/09_ETL_Upgrade_Plan 기준으로 수정. 페이지 제목 "ETL2" 표시.
+
+### 수정·영향 파일
+- Backend: etl_server2/__init__.py, router.py, service.py, db_load_service.py, load_service.py, preview_service.py, queue_worker.py, transform_rules_service.py
+- Backend: api_server/main.py
+- Frontend: shared/api/client.js, App.jsx, packages/etl2/index.jsx, ETLPage.jsx, components/DbConnectionForm.jsx, ETLTableList.jsx, FileUploadForm.jsx, PkColumnsModal.jsx, JobHistoryPanel.jsx, AddFileModal.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL 업그레이드 계획(09_ETL_Upgrade_Plan) 피드백 반영 개정
+
+- **반영 사항**: Phase 0(적재 DB 연결 헬퍼 `get_target_db_connection` 선행 리팩토링), Phase 2를 2a(메타+UI만·적재 ibank_db 고정)와 2b(적재 분기+add_allowed_table 스킵)로 분리, 저장 DB PostgreSQL 전용 명시, Phase 4 컬럼 매핑은 etl_tables.column_mapping JSONB로 통일, Phase 1 연결 테스트 `test_storage_connection` 구체 구현(CREATE/INSERT/DROP+UUID 테이블명), 각 Phase별 작업 순서(권장) 및 Cursor 작업 팁 추가.
+- **파일**: docs/report/09_ETL_Upgrade_Plan.md
+
+---
+
+## 2026-02-23: 증분 모드 시 “이후 행만” 조회를 위한 증분 컬럼 안내·UI 추가
+
+### 배경
+- 증분 모드에서도 소스 전체를 읽는 이유: **증분 컬럼(incremental_column)**을 지정하지 않았기 때문.
+- 필터링은 **타겟**이 아니라 **소스 테이블** 기준. 소스에 “이 시각/값 이후”로 쓸 컬럼(예: updated_at, id)을 지정해야 `WHERE incremental_column > last_synced_at` 조건이 붙음.
+
+### 완료 작업
+- **DbConnectionForm**: 동기화 모드가 “증분”일 때 **증분 컬럼 (소스)** 입력 필드 추가. placeholder `예: updated_at`, 설명에 “비우면 매번 소스 전체를 읽어 업서트” 명시. 등록 시 `incremental_column` API 전달.
+- **db_load_service**: 증분 모드인데 증분 컬럼이 비어 있으면 INFO 로그로 “증분 컬럼 미지정 → 소스 전체 조회 후 업서트, 소스 테이블의 시간/순서 컬럼을 지정하면 이후 행만 조회” 안내.
+- **PATCH /api/etl/tables/{id}**: `incremental_column` body 추가. 기존 ETL에 나중에 증분 컬럼 지정 가능.
+
+### 수정 파일
+- Frontend: DbConnectionForm.jsx
+- Backend: db_load_service.py, service.py (update_etl_table), router.py (UpdateTableBody)
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL 목록 테이블 줄바꿈 제거(가로 스크롤만)
+
+- **요청**: 실행 중 등 상태에서 줄바꿈되지 않고, 목록은 좌우 스크롤로만 보이도록.
+- **조치**: `.etl-table-list__table th, .etl-table-list__table td`에 `white-space: nowrap` 적용. 모든 셀 한 줄 유지, 컨테이너 `overflow-x: auto`로 가로 스크롤만 발생.
+- **파일**: Frontend/react-app/src/packages/etl/etl.css, docs/report/log.md
+
+---
+
+## 2026-02-23: 증분 전체 동작 재수정 + 실행 시 항상 컨펌
+
+### 1) 증분인데도 전체로 동작하던 문제
+- **원인**: DROP 직전에 “타겟 테이블이 있을 때만” sync_mode를 재조회하고 있어, 첫 실행이나 타이밍에 따라 full로 판단돼 DROP이 나갈 수 있음.
+- **조치**  
+  - **db_load_service**: 스트리밍/비스트리밍 모두 **DROP 하기 직전에 항상** `get_sync_mode_for_load(etl_table_id)`로 DB에서 sync_mode 재조회.  
+  - 재조회 결과가 **full일 때만** DROP 실행. `incremental`이면 DROP 없이 Upsert만 수행.
+- **추가**: PATCH `/api/etl/tables/{id}`에 `sync_mode`(body) 추가. DB에 잘못 full로 저장된 행은 `sync_mode: "incremental"`로 PATCH 해서 수정 가능.
+
+### 2) 실행 시 컨펌이 없던 문제
+- **조치**: `handleRun` 맨 앞에서 **실행 클릭 시 항상** 한 번 확인  
+  - `"ETL을 실행하시겠습니까? 데이터 적재·덮어쓰기가 발생할 수 있습니다."`  
+- 업로드/DB 연동 공통. 그 다음 full이고 타겟 존재 시 기존처럼 “기존 테이블이 삭제됩니다” 추가 확인 유지.
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py (DROP 직전 항상 재조회)
+- Backend/etl_server/service.py (update_etl_table에 sync_mode 인자·UPDATE 추가)
+- Backend/etl_server/router.py (UpdateTableBody.sync_mode, update_table 인자)
+- Frontend/react-app/src/packages/etl/ETLPage.jsx (실행 시 항상 컨펌)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: 증분 ETL인데 전체 삭제(DROP) 되던 문제 수정
+
+### 현상
+- 증분(Incremental)으로 설정된 DB 연동 ETL에서 실행 시, 컨펌 없이 타겟 테이블 전체 삭제 후 다시 INSERT 되는 현상.
+
+### 원인
+- sync_mode 판단이 한 번만 사용되거나, 타겟 테이블이 이미 있어도 full로 잘못 해석되는 경우 DROP이 실행될 수 있음.
+
+### 완료 작업
+- **service.get_sync_mode_for_load(etl_table_id)** 추가: etl_tables.sync_mode를 조회해 명시적 `"full"`만 full로, 그 외는 모두 `"incremental"`로 반환. 조회·정규화를 한 곳에서 통일.
+- **db_load_service.run_db_load**  
+  - 초기 sync_mode는 `get_sync_mode_for_load(etl_table_id)` 사용.  
+  - **스트리밍/비스트리밍 공통**: DROP 실행 직전에 **타겟 테이블이 메인 DB에 이미 존재하면** sync_mode를 DB에서 한 번 더 조회(`get_sync_mode_for_load`). 이때 `"incremental"`이면 DROP 하지 않고 Upsert 경로로 진행.  
+  - 강제로 incremental로 바꾼 경우 WARNING 로그 출력.
+- **router.check_target_table_exists**: sync_mode 반환 시 `get_sync_mode_for_load` 사용하도록 변경.
+
+### 수정 파일
+- Backend/etl_server/service.py (get_sync_mode_for_load 추가, 모듈 설명 갱신)
+- Backend/etl_server/db_load_service.py (sync_mode 정규화·DROP 전 재조회)
+- Backend/etl_server/router.py (target-exists sync_mode)
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: 실행 취소 후 상태가 cancelled로 표시되도록 수정
+
+### 현상
+- 실행 취소를 눌렀을 때 상태가 running으로 남아 있음.
+
+### 완료 작업
+- **ETLPage.handleCancelJob**: 취소 API 호출 성공 후 **etlGetJob(jobId)** 로 해당 Job을 다시 조회해, 서버에 저장된 상태(status 등)를 그대로 반영하도록 변경. 기존에는 로컬에서만 status를 'cancelled'로 덮어썼는데, 취소 후 한 번 더 GET하여 갱신함.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/ETLPage.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: 증분 모드 실행 시 sync_mode 읽기·로그 보강 (기존 테이블 강제 업서트 로직 제거)
+
+### 요청
+- DB에 sync_mode가 incremental로 저장돼 있는데도 테이블 삭제 후 전체 적재가 발생. full일 때만 DROP+확인 동작이 맞음.
+
+### 완료 작업
+- **되돌림**: 「타겟 테이블이 이미 있으면 sync_mode를 무조건 incremental로 덮어쓰기」 로직 제거. full이면 기존대로 DROP 후 적재·컨펌 유지.
+- **db_load_service**: `row.get("sync_mode")`를 쓸 때 `str(_raw_val).strip().lower()`로 통일해, DB가 비문자열/공백을 반환해도 비교가 안정되도록 처리.
+- **로그**: 실행 시작 시 `sync_mode` 해석 결과와 함께 **raw 값·raw_type**을 남겨, 서버/워커에서 실제로 어떤 값이 들어오는지 확인 가능하도록 함.
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py
+- docs/report/log.md (본 로그)
+
+### 원인 추적
+- 증분인데도 DROP이 나오면, report-api·queue_worker 재시작 후 같은 ETL을 다시 실행하고 로그에서 `sync_mode=... (raw=... raw_type=...)` 를 확인. raw가 `'full'`이면 해당 행만 DB에서 sync_mode를 `incremental`로 수정하거나, 워커가 예전 코드로 동작하는지 확인.
+
+---
+
+## 2026-02-23: 증분 모드 실행/데이터 추가 시 "기존 테이블 삭제" 확인창 제거
+
+### 현상
+- 동기화가 증분인 ETL에서 실행 또는 데이터 추가를 눌렀을 때도 "기존 테이블이 삭제되고 새로 적재됩니다" confirm이 뜸. 증분일 때는 업서트만 하므로 해당 경고가 맞지 않음.
+
+### 완료 작업
+- **router.check_target_table_exists**: 응답에 `sync_mode` 추가. `"full"`(소문자)만 full, 그 외는 `"incremental"`로 반환.
+- **ETLPage.handleRun**: target-exists 응답의 `sync_mode`가 `"full"`일 때만 "기존 테이블이 삭제되고 새로 적재됩니다" confirm 표시. 증분이면 confirm 없이 바로 실행.
+
+### 수정 파일
+- Backend/etl_server/router.py
+- Frontend/react-app/src/packages/etl/ETLPage.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: DB 연동 ETL에서 "데이터 추가" 시 파일 창 대신 증분 적재 확인 후 실행
+
+### 현상
+- DB 연동 모드 ETL 목록에서 "데이터 추가"를 누르면 마지막 동기화 시각 이후 업서트 기능이 동작해야 하는데, 파일 업로드 창이 뜸.
+
+### 완료 작업
+- **ETLPage.jsx**: onAddFile에서 소스 유형 분기. DB 연동(postgresql/mysql/oracle + source_table)이면 confirm("마지막 동기화 시각 이후 데이터를 가져와 업서트합니다. 진행할까요?") 후 handleRun(etl_table_id) 호출. 파일 소스면 기존처럼 AddFileModal 오픈.
+- **ETLTableList.jsx**: 도움말 모달의 "데이터 추가" 설명을 DB(마지막 동기화 시각 이후 업서트) / 파일(업로드 파일로 추가 적재) 구분으로 수정.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/ETLPage.jsx
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx
+- docs/report/log.md (본 로그)
+
+---
+
+## 2026-02-23: 증분 설정 ETL 실행 시 전체 적재되는 문제 대응
+
+### 현상
+- 동기화 모드를 증분으로 둔 ETL에서 실행을 눌렀는데, 테이블을 삭제하고 전체를 다시 적재하는 동작이 발생.
+
+### 원인 가능성
+- DB에 저장된 `sync_mode`가 `"full"`이거나, NULL/빈 값이 DB 기본값으로 `"full"`이 들어간 경우.
+- 또는 컬럼/드라이버에 따라 대소문자·공백 등으로 `"full"`로 해석되는 경우.
+
+### 완료 작업
+- **db_load_service.run_db_load**: `sync_mode` 해석을 엄격히 정규화. **`"full"`(소문자, strip 후)인 경우에만** 전체 적재(DROP+INSERT). 그 외(null, 빈 문자열, 오타, 대소문자 혼합 등)는 모두 **증분(Upsert)** 로 처리.
+- 시작 시 로그에 `sync_mode`, DB 원본 값(`raw=`), `incremental_column` 출력해 원인 추적 가능하도록 함.
+
+### 수정 파일
+- Backend/etl_server/db_load_service.py
+- docs/report/log.md (본 로그)
+
+### 확인 방법
+- 서버 로그에서 `ETL db load started ... sync_mode=incremental (raw=...)` 로그로 해당 ETL의 DB 저장값 확인. `raw='full'`이면 해당 행의 sync_mode를 DB에서 `incremental`로 수정하거나, ETL을 증분 옵션으로 다시 등록하면 됨.
+
+---
+
+## 2026-02-23: ETL 목록 상태(done/error/draft) 구분 표시
+
+### 요청
+- 등록된 ETL 목록에서 done, error, draft가 글자도 비슷해 구분이 안 되어 버튼 실수 가능성이 있음. 구분해서 볼 수 있도록 적용.
+
+### 완료 작업
+- **ETLTableList.jsx**: 상태 셀에 `etl-table-list__status--done` / `--error` / `--draft` 클래스 적용. 표시 문구를 done→「완료」, error→「오류」, draft→「미실행」으로 통일.
+- **etl.css**: `.etl-table-list__status--done`(녹색 글자+연한 녹색 배경), `--error`(빨간 글자+연한 빨간 배경), `--draft`(회색 글자+연한 회색 배경) 추가.
+
+### 수정 파일
+- Frontend/react-app/src/packages/etl/components/ETLTableList.jsx
+- Frontend/react-app/src/packages/etl/etl.css
+- docs/report/log.md (본 로그)
+
+---
+
 ## 2026-02-23: Oracle DB 적재(ETL 실행) 지원
 
 ### 요청

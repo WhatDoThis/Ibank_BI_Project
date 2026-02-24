@@ -35,6 +35,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 344 - list_etl_tables: ETL 테이블 전체 목록(connection_name, source_type 포함)
 369 - create_etl_table: ETL 테이블 1건 등록, etl_table_id 반환
 425 - get_etl_table: etl_table_id로 1건 조회
+436 - get_sync_mode_for_load: sync_mode 조회 후 'full'|'incremental' 정규화(명시적 full만 full)
 452 - delete_etl_table: ETL 테이블 삭제, 메인 DB 타겟 DROP, file_path 반환
 491 - delete_etl_table_row_only: 행·업로드 파일만 삭제(메인 DB 테이블 유지)
 549 - update_last_synced_at: 증분 적재 후 last_synced_at 갱신
@@ -923,6 +924,16 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
         conn.close()
 
 
+def get_sync_mode_for_load(etl_table_id: int) -> str:
+    """etl_tables.sync_mode를 조회해 'full' | 'incremental' 반환. 명시적 'full'만 full, 그 외는 모두 incremental."""
+    row = get_etl_table(etl_table_id)
+    if not row:
+        return "incremental"
+    raw = row.get("sync_mode")
+    normalized = (str(raw).strip().lower() if raw is not None else "") or ""
+    return "full" if normalized == "full" else "incremental"
+
+
 def delete_etl_table(etl_table_id: int) -> dict:
     """
     ETL 테이블 1건 삭제. 메인 DB에서 타겟 테이블 DROP, 파일 소스면 file_path 반환(호출측에서 삭제),
@@ -1387,8 +1398,8 @@ def update_etl_table_status(etl_table_id: int, status: str):
         conn.close()
 
 
-def update_etl_table(etl_table_id: int, pk_columns: Optional[str] = None) -> None:
-    """etl_tables의 pk_columns 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
+def update_etl_table(etl_table_id: int, pk_columns: Optional[str] = None, sync_mode: Optional[str] = None, incremental_column: Optional[str] = None) -> None:
+    """etl_tables의 pk_columns, sync_mode, incremental_column 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -1398,6 +1409,19 @@ def update_etl_table(etl_table_id: int, pk_columns: Optional[str] = None) -> Non
             val = (pk_columns or "").strip() or None
             cur.execute(
                 f"UPDATE {_q(schema, 'etl_tables')} SET pk_columns = %s, updated_at = NOW() WHERE etl_table_id = %s",
+                (val, etl_table_id),
+            )
+        if sync_mode is not None:
+            raw = (sync_mode or "").strip().lower()
+            val = "full" if raw == "full" else "incremental"
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET sync_mode = %s, updated_at = NOW() WHERE etl_table_id = %s",
+                (val, etl_table_id),
+            )
+        if incremental_column is not None:
+            val = (incremental_column or "").strip() or None
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET incremental_column = %s, updated_at = NOW() WHERE etl_table_id = %s",
                 (val, etl_table_id),
             )
         conn.commit()

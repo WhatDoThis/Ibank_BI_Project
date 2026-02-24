@@ -131,9 +131,13 @@ function ETLPage() {
   }, []);
 
   async function handleRun(etlTableId) {
+    // 실행은 데이터 적재/덮어쓰기 등 위험 작업이므로 항상 한 번 확인
+    if (!window.confirm('ETL을 실행하시겠습니까?\n데이터 적재·덮어쓰기가 발생할 수 있습니다.')) return;
+
     try {
       const existsRes = await etlTargetExists(etlTableId);
-      if (existsRes?.exists && existsRes?.target_table) {
+      const isFullSync = (existsRes?.sync_mode || "").toLowerCase() === "full";
+      if (existsRes?.exists && existsRes?.target_table && isFullSync) {
         const msg = `동일한 테이블명 "${existsRes.target_table}"이(가) 이미 메인 DB에 있습니다.\n실행 시 기존 테이블이 삭제되고 새로 적재됩니다.\n진행하시겠습니까?`;
         if (!window.confirm(msg)) return;
       }
@@ -183,9 +187,23 @@ function ETLPage() {
     setCancelLoadingJobId(jobId);
     try {
       await etlCancelJob(jobId);
-      setJobResults((prev) =>
-        prev[jobId] ? { ...prev, [jobId]: { ...prev[jobId], status: 'cancelled', error_message: '사용자 취소' } } : prev
-      );
+      const updated = await etlGetJob(jobId);
+      setJobResults((prev) => ({
+        ...prev,
+        [jobId]: {
+          job_id: updated?.job_id,
+          etl_table_id: updated?.etl_table_id,
+          status: updated?.status ?? 'cancelled',
+          target_table: updated?.target_table,
+          description: updated?.description,
+          started_at: updated?.started_at,
+          finished_at: updated?.finished_at,
+          rows_processed: updated?.rows_processed ?? prev[jobId]?.rows_processed,
+          total_rows: updated?.total_rows,
+          error_message: updated?.error_message ?? '사용자 취소',
+          notice: updated?.notice,
+        },
+      }));
       handleRefresh();
     } catch (err) {
       setJobResults((prev) =>
@@ -256,7 +274,15 @@ function ETLPage() {
           <ETLTableList
             onRun={handleRun}
             onPreview={handlePreview}
-            onAddFile={(row) => setAddFileModal({ open: true, etlTableId: row.etl_table_id, targetTable: row.target_table || '', description: row.description || '' })}
+            onAddFile={(row) => {
+              const isDbSource = ['postgresql', 'mysql', 'oracle'].includes((row.source_type || '').toLowerCase()) && row.source_table;
+              if (isDbSource) {
+                if (!window.confirm('마지막 동기화 시각 이후 데이터를 가져와 업서트합니다. 진행할까요?')) return;
+                handleRun(row.etl_table_id);
+              } else {
+                setAddFileModal({ open: true, etlTableId: row.etl_table_id, targetTable: row.target_table || '', description: row.description || '' });
+              }
+            }}
             onDelete={handleRefresh}
             refreshing={refreshKey}
             runLoading={runLoading}

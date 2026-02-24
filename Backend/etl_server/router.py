@@ -257,13 +257,15 @@ class CreateTableBody(BaseModel):
 class UpdateTableBody(BaseModel):
     """PATCH /api/etl/tables/{id} 요청 body. 전달된 필드만 갱신."""
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분). 비우면 PK 미설정. 파일 적재 시 CREATE TABLE에 반영.")
+    sync_mode: Optional[str] = Field(None, description="full | incremental. DB 연동 ETL만 적용.")
+    incremental_column: Optional[str] = Field(None, description="증분 컬럼명(소스 테이블). 증분 모드에서 이 컬럼 > last_synced_at 조건으로 조회.")
 
 
 @router.patch("/tables/{etl_table_id}", status_code=204)
 def update_table(etl_table_id: int, body: UpdateTableBody):
-    """ETL 테이블 설정 일부 갱신. pk_columns 등."""
+    """ETL 테이블 설정 일부 갱신. pk_columns, sync_mode 등."""
     try:
-        etl_service.update_etl_table(etl_table_id, pk_columns=body.pk_columns)
+        etl_service.update_etl_table(etl_table_id, pk_columns=body.pk_columns, sync_mode=body.sync_mode, incremental_column=body.incremental_column)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -788,17 +790,18 @@ def delete_connection(connection_id: int):
 
 @router.get("/tables/{etl_table_id}/target-exists")
 def check_target_table_exists(etl_table_id: int):
-    """실행 전 확인용: 타겟 테이블이 메인 DB에 이미 존재하는지. exists=True면 실행 시 DROP 후 재적재됨."""
+    """실행 전 확인용: 타겟 테이블이 메인 DB에 이미 존재하는지. sync_mode 반환(증분이면 기존 테이블 삭제 없이 업서트)."""
     try:
         row = etl_service.get_etl_table(etl_table_id)
         if not row:
             raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
         target_table = (row.get("target_table") or "").strip()
         if not target_table:
-            return {"target_table": None, "exists": False}
+            return {"target_table": None, "exists": False, "sync_mode": None}
+        sync_mode = etl_service.get_sync_mode_for_load(etl_table_id)
         from Backend.api_server import db as api_db
         exists = api_db.table_exists_in_schema(target_table)
-        return {"target_table": target_table, "exists": exists}
+        return {"target_table": target_table, "exists": exists, "sync_mode": sync_mode}
     except HTTPException:
         raise
     except Exception as e:

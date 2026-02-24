@@ -455,11 +455,11 @@
   padding: 10px 12px;
   text-align: left;
   vertical-align: middle;
+  white-space: nowrap;
 }
 .etl-table-list__table th {
   background: #f3f4f6;
   font-weight: 600;
-  white-space: nowrap;
 }
 .etl-table-list__pk-cell {
   text-align: center;
@@ -585,6 +585,21 @@
 .etl-table-list__status--pending {
   font-weight: 600;
   color: #b45309;
+}
+.etl-table-list__status--done {
+  font-weight: 600;
+  color: #15803d;
+  background: #dcfce7;
+}
+.etl-table-list__status--error {
+  font-weight: 600;
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.etl-table-list__status--draft {
+  font-weight: 500;
+  color: #525252;
+  background: #f5f5f5;
 }
 .etl-table-list__actions {
   display: inline-flex;
