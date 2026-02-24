@@ -1,5 +1,57 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: ETL2 테이블선택 모달 폭 확대 + 새 테이블 생성 시 컬럼 제외 기능
+
+### 목적
+- 테이블선택 및 컬럼매핑 모달 내용을 보기 좋게 좌우 폭 확대.
+- 새 테이블로 만들기 선택 시에도 기존 테이블처럼 특정 컬럼을 적재에서 제외할 수 있는 기능 추가.
+
+### 완료 작업
+- **모달 폭**: `.etl-target-select-modal__box` max-width 520px → 720px.
+- **새 테이블 모드 컬럼 제외**: TargetTableSelectModal에 `newTableExcluded` state 추가. 매핑 테이블에 "제외" 열 + 행별 체크박스. 체크 시 해당 소스 컬럼은 columnMapping에서 제외. 제외된 행은 배경/글자색으로 구분, 타겟 컬럼명 입력 비활성화. 전부 제외 시 적용 버튼 비활성화. 기존 매핑에서 복원 시 제외 여부도 반영.
+- **CSS**: `.etl-target-select-modal__th--exclude`, `__cell--exclude`, `__exclude-label`, `__row--excluded` 추가.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/components/TargetTableSelectModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 타겟 테이블명 입력란 제거, 모달 전용 + 새 테이블명 모달 입력
+
+### 목적
+- 타겟 테이블을 모달로만 설정하므로 폼의 타겟 테이블명 입력란 제거. 표시만 하고 버튼만 두어 모달 중심 UX로 통일.
+- "새 테이블로 만들기" 선택 시 테이블명을 모달 안에서만 입력하도록 변경(폼에 입력란 없음).
+
+### 완료 작업
+- **FileUploadForm**: 타겟 테이블명 `<input>` 제거. "타겟 테이블: 미설정 / 이름" 표시 + "테이블선택 및 컬럼매핑" 버튼만 유지. 파일 선택 시 targetTable 자동 설정은 유지(모달 새 테이블명 기본값용).
+- **DbConnectionForm**: 동일하게 타겟 테이블명 입력란 제거, 표시 + 버튼만.
+- **TargetTableSelectModal**: "새 테이블로 만들기" 선택 시 "새 테이블명" 입력란 추가(state: newTableName, open 시 currentTargetTable으로 초기화). 적용 시 newTableName 사용, 비어 있으면 적용 버튼 비활성화. 옵션 문구 "새 테이블로 만들기 (입력한 이름 사용)" → "새 테이블로 만들기", 힌트 "위에서 입력한 이름으로 생성"으로 수정.
+- **etl.css**: .etl-file-form__target-row, __target-display / .etl-db-form__target-row, __target-display 추가.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/components/FileUploadForm.jsx, DbConnectionForm.jsx, TargetTableSelectModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 타겟 테이블명 수동 변경 시 매핑 초기화 + 새 테이블 컬럼명 지정
+
+### 목적
+- 설정요약이 있는 상태에서 타겟 테이블명을 커스텀으로 바꿔도 요약이 그대로 남아 헷갈리는 문제 해결.
+- 기존 테이블이 아닌 새 테이블로 만들 때 컬럼명을 그대로 쓰거나 변경할 수 있는 기능 추가.
+
+### 완료 작업
+- **타겟 테이블명 수동 변경 시**: FileUploadForm·DbConnectionForm에서 타겟 테이블 input onChange 시 columnMapping이 있으면 null로 초기화. 설정요약은 타겟 테이블명만 표시(매핑 목록 사라짐). 힌트 문구 추가: "테이블명을 직접 수정하면 컬럼 매핑이 초기화됩니다."
+- **새 테이블로 만들기**: TargetTableSelectModal에 "새 테이블로 만들기 (입력한 이름 사용)" 옵션 추가(소스 컬럼이 있을 때만 표시). 선택 시 기존 테이블 컬럼 대신 소스 컬럼별 "타겟 컬럼명" 입력란 표시(기본값=소스명, 그대로 두거나 변경 가능). 적용 시 폼에 입력한 테이블명으로 tableName, 입력한 타겟 컬럼명으로 column_mapping 반환. 입력한 테이블명이 저장 DB 목록에 없으면 자동으로 "새 테이블로 만들기" 선택.
+- **기타**: inferredTypeToPg(소스 타입→PG 타입), newTableTargetNames state·초기화(기존 매핑 또는 소스명), Apply 버튼 비활성화(새 테이블 시 테이블명 비어 있으면 비활성화). etl.css에 .etl-target-select-modal__input--target-name 스타일 추가.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/components/FileUploadForm.jsx, DbConnectionForm.jsx, TargetTableSelectModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
 ## 2026-02-23: docs/main 최신화 (log.md 기준 그 이후 반영, ETL2는 테스트중 표기)
 
 ### 목적

@@ -10,6 +10,8 @@
  * - open 시 etl2ListTargetTables(storage_connection_id)로 테이블 목록 로드
  * - 테이블 선택 시 etl2ListTargetColumns로 타겟 컬럼 로드
  * - sourceColumns 있을 때: 소스별 매핑 행(드롭다운), 타입 호환 검사, 적용 시 onSelect(tableName, columnMapping)
+ * - "새 테이블로 만들기" 선택 시 모달 내 "새 테이블명" 입력란 표시, 적용 시 newTableName 사용(폼에는 타겟 입력란 없음)
+ * - 새 테이블 모드: 소스별 타겟 컬럼명 입력 + "제외" 체크(적재에서 빼기). 전부 제외 시 적용 비활성화.
  * - sourceColumns 없을 때: 체크박스로 적재 컬럼 선택, 적용 시 source=target 매핑 반환
  *
  * [Dependencies]
@@ -33,6 +35,18 @@ function typeFamily(typeStr) {
 function isTypeCompatible(sourceType, targetType) {
   return typeFamily(sourceType) === typeFamily(targetType);
 }
+
+/** 소스 추론 타입 → 적재 시 사용할 PG 타입명 */
+function inferredTypeToPg(typeStr) {
+  const t = (typeStr || '').toString().trim().toLowerCase();
+  if (['integer', 'int'].some((x) => t === x || t.startsWith(x))) return 'BIGINT';
+  if (t === 'float') return 'DOUBLE PRECISION';
+  if (['boolean', 'bool'].some((x) => t === x || t.startsWith(x))) return 'BOOLEAN';
+  if (['datetime', 'date', 'timestamp'].some((x) => t === x || t.includes('date') || t.includes('time'))) return 'TIMESTAMP';
+  return 'TEXT';
+}
+
+const NEW_TABLE_VALUE = '__new__';
 
 /** sourceColumns 항목 정규화: { name, type } */
 function normalizeSourceCol(c) {
@@ -58,6 +72,8 @@ function TargetTableSelectModal({
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [tablesError, setTablesError] = useState('');
   const [columnsError, setColumnsError] = useState('');
+  /** 새 테이블로 만들기일 때 사용할 테이블명 (폼에 입력란 없이 모달에서만 설정) */
+  const [newTableName, setNewTableName] = useState('');
 
   const sid = storageConnectionId === '' || storageConnectionId == null ? null : storageConnectionId;
   const mapping = Array.isArray(currentColumnMapping) ? currentColumnMapping : [];
@@ -78,6 +94,8 @@ function TargetTableSelectModal({
       const current = (currentTargetTable || '').trim();
       if (current && list.some((t) => (t && t.table_name) === current)) {
         setSelectedTable(current);
+      } else if (current && sourceColumns.length > 0) {
+        setSelectedTable(NEW_TABLE_VALUE);
       } else {
         setSelectedTable('');
       }
@@ -88,7 +106,7 @@ function TargetTableSelectModal({
     } finally {
       setTablesLoading(false);
     }
-  }, [sid, currentTargetTable]);
+  }, [sid, currentTargetTable, sourceColumns.length]);
 
   useEffect(() => {
     if (open) {
@@ -96,13 +114,21 @@ function TargetTableSelectModal({
       setColumns([]);
       setSelectedColumns([]);
       setColumnsError('');
+      setNewTableName((currentTargetTable || '').trim());
     }
-  }, [open, loadTables]);
+  }, [open, loadTables, currentTargetTable]);
 
   useEffect(() => {
     if (!open || !selectedTable.trim()) {
       setColumns([]);
       setSelectedColumns([]);
+      return;
+    }
+    if (selectedTable === NEW_TABLE_VALUE) {
+      setColumns([]);
+      setSelectedColumns([]);
+      setColumnsLoading(false);
+      setColumnsError('');
       return;
     }
     setColumnsLoading(true);
@@ -139,6 +165,38 @@ function TargetTableSelectModal({
 
   const clearAllColumns = () => {
     setSelectedColumns([]);
+  };
+
+  // --- 새 테이블 모드: 소스별 타겟 컬럼명(입력, 기본=소스명) + 제외 여부
+  const [newTableTargetNames, setNewTableTargetNames] = useState({});
+  const [newTableExcluded, setNewTableExcluded] = useState({});
+  useEffect(() => {
+    if (selectedTable !== NEW_TABLE_VALUE || !sourceColumns.length) return;
+    if (mapping.length > 0) {
+      const next = {};
+      const excluded = {};
+      sourceColumns.forEach((src) => {
+        const m = mapping.find((x) => (x && x.source) === src.name);
+        if (m && m.target) {
+          next[src.name] = String(m.target).trim();
+          excluded[src.name] = false;
+        } else {
+          next[src.name] = src.name;
+          excluded[src.name] = true;
+        }
+      });
+      setNewTableTargetNames(next);
+      setNewTableExcluded(excluded);
+    } else {
+      const next = {};
+      sourceColumns.forEach((src) => { next[src.name] = src.name; });
+      setNewTableTargetNames(next);
+      setNewTableExcluded({});
+    }
+  }, [selectedTable, sourceColumns, mapping.length]);
+
+  const setNewTableExcludedFor = (sourceName, excluded) => {
+    setNewTableExcluded((prev) => ({ ...prev, [sourceName]: excluded }));
   };
 
   // --- 소스→타겟 매핑 모드: 소스별로 선택한 타겟 컬럼명 (빈 문자열 = 제외)
@@ -232,7 +290,24 @@ function TargetTableSelectModal({
     setSourceToTarget((prev) => ({ ...prev, [sourceName]: targetColumnName }));
   };
 
+  const newTableAllExcluded = selectedTable === NEW_TABLE_VALUE && sourceColumns.length > 0 && sourceColumns.every((src) => newTableExcluded[src.name]);
+
   function handleApply() {
+    if (selectedTable === NEW_TABLE_VALUE) {
+      const tableName = (newTableName || '').trim().replace(/\s+/g, '_') || (currentTargetTable || '').trim() || 'new_table';
+      if (!tableName) return;
+      const columnMapping = sourceColumns
+        .filter((src) => !newTableExcluded[src.name])
+        .map((src) => ({
+          source: src.name,
+          target: (newTableTargetNames[src.name] || src.name).trim().replace(/\s+/g, '_') || src.name,
+          type: inferredTypeToPg(src.type)
+        }));
+      if (onSelect) onSelect(tableName, columnMapping);
+      onClose();
+      return;
+    }
+
     const tableName = selectedTable.trim();
     if (!tableName) return;
 
@@ -291,6 +366,9 @@ function TargetTableSelectModal({
                 className="etl-target-select-modal__select"
               >
                 <option value="">테이블 선택</option>
+                {sourceColumns.length > 0 && (
+                  <option value={NEW_TABLE_VALUE}>새 테이블로 만들기</option>
+                )}
                 {(tables || []).map((t) => (
                   <option key={t.table_name} value={t.table_name || ''}>{t.table_name || '(이름 없음)'}</option>
                 ))}
@@ -298,10 +376,71 @@ function TargetTableSelectModal({
             )}
           </div>
 
+          {selectedTable === NEW_TABLE_VALUE && sourceColumns.length > 0 && (
+            <div className="etl-target-select-modal__row">
+              <label className="etl-target-select-modal__label">새 테이블명</label>
+              <input
+                type="text"
+                value={newTableName}
+                onChange={(e) => setNewTableName(e.target.value)}
+                placeholder="예: my_new_table"
+                className="etl-target-select-modal__input etl-target-select-modal__input--target-name"
+              />
+              <p className="etl-target-select-modal__hint">생성할 테이블 이름을 입력하세요.</p>
+            </div>
+          )}
+
           {hasSourceMapping && sourceColumns.length > 0 ? (
             <div className="etl-target-select-modal__row">
               <label className="etl-target-select-modal__label">소스 → 타겟 컬럼 매핑 (타입이 다른 경우 매핑 불가)</label>
-              {columnsLoading ? (
+              {selectedTable === NEW_TABLE_VALUE ? (
+                <>
+                  <p className="etl-target-select-modal__hint">새 테이블 컬럼명을 정하세요. 그대로 쓰거나 변경할 수 있습니다. 적재에서 빼고 싶은 컬럼은 &quot;제외&quot;를 체크하세요. 테이블명은 위에서 입력한 이름으로 생성됩니다.</p>
+                  <div className="etl-target-select-modal__mapping-wrap">
+                    <table className="etl-target-select-modal__mapping-table">
+                      <thead>
+                        <tr>
+                          <th>소스 컬럼 (타입)</th>
+                          <th>→</th>
+                          <th>타겟 컬럼명</th>
+                          <th className="etl-target-select-modal__th--exclude">제외</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sourceColumns.map((src) => (
+                          <tr key={src.name} className={newTableExcluded[src.name] ? 'etl-target-select-modal__row--excluded' : ''}>
+                            <td className="etl-target-select-modal__mapping-source">
+                              <span className="etl-target-select-modal__column-name">{src.name}</span>
+                              <span className="etl-target-select-modal__column-type"> ({src.type})</span>
+                            </td>
+                            <td className="etl-target-select-modal__mapping-arrow">→</td>
+                            <td className="etl-target-select-modal__mapping-target">
+                              <input
+                                type="text"
+                                value={newTableTargetNames[src.name] ?? src.name}
+                                onChange={(e) => setNewTableTargetNames((prev) => ({ ...prev, [src.name]: e.target.value }))}
+                                placeholder={src.name}
+                                className="etl-target-select-modal__input--target-name"
+                                disabled={!!newTableExcluded[src.name]}
+                              />
+                            </td>
+                            <td className="etl-target-select-modal__cell--exclude">
+                              <label className="etl-target-select-modal__exclude-label">
+                                <input
+                                  type="checkbox"
+                                  checked={!!newTableExcluded[src.name]}
+                                  onChange={(e) => setNewTableExcludedFor(src.name, e.target.checked)}
+                                />
+                                <span>제외</span>
+                              </label>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : columnsLoading ? (
                 <p className="etl-target-select-modal__loading">타겟 컬럼 로딩 중…</p>
               ) : columnsError ? (
                 <p className="etl-target-select-modal__error">{columnsError}</p>
@@ -398,7 +537,7 @@ function TargetTableSelectModal({
             type="button"
             className="etl-target-select-modal__btn etl-target-select-modal__btn--primary"
             onClick={handleApply}
-            disabled={!selectedTable.trim()}
+            disabled={selectedTable === NEW_TABLE_VALUE ? (!(newTableName || '').trim() || newTableAllExcluded) : !selectedTable.trim()}
           >
             적용
           </button>

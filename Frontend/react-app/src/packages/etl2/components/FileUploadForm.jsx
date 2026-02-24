@@ -1,17 +1,17 @@
 /**
- * packages/etl/components/FileUploadForm.jsx (파일 업로드 폼)
+ * packages/etl2/components/FileUploadForm.jsx (파일 업로드 폼)
  * ============================================================
- * 파일 선택, 테이블명·설명 입력, 업로드 후 스키마 표시, 적재 실행은 목록에서. Phase 5.
+ * 파일 선택, 저장 DB·타겟 테이블(모달로만 설정), 라벨·설명 입력, 업로드 후 목록에서 적재 실행.
  *
  * [Main Functions]
  * ===========
- * - 파일 업로드 → POST /api/etl/upload (target_table 있으면 메타 등록)
- * - 레이아웃: 왼쪽 절반 드래그앤드롭 영역(파일 선택 버튼 포함), 오른쪽 타겟 테이블·라벨·설명·업로드 버튼.
- * - 드래그 오버 시 --over(놓으세요 문구·강조 스타일), 파일 선택/드롭 후 --has(선택된 파일 뱃지·녹색 강조). onSuccess: 등록/업로드 성공 시 콜백.
+ * - 파일 업로드 → POST /api/etl2/upload (target_table, column_mapping 등)
+ * - 타겟 테이블: 입력란 없음. "타겟 테이블: 미설정/이름" 표시 + "테이블선택 및 컬럼매핑" 버튼으로 모달에서만 설정.
+ * - 파일 선택 시 targetTable을 파일명 기준으로 자동 설정(모달 새 테이블명 기본값용). 드래그앤드롭·설정요약·수정 버튼.
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2UploadFile)
+ * - React, @/shared/api/client (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -174,15 +174,9 @@ function FileUploadForm({ onSuccess }) {
           </div>
           <div className="etl-file-form__row">
             <label className="etl-file-form__label">타겟 테이블명</label>
-            <p className="etl-file-form__hint etl-file-form__hint--above">저장할 테이블 이름입니다. 파일을 선택하면 파일명으로 자동 채워집니다. 기존 테이블을 쓰거나 컬럼을 맞추려면 &quot;테이블선택 및 컬럼매핑&quot;을 누르세요.</p>
-            <div className="etl-file-form__input-group">
-              <input
-                type="text"
-                value={targetTable}
-                onChange={(e) => setTargetTable(e.target.value)}
-                placeholder="예: my_uploaded_table"
-                className="etl-file-form__input"
-              />
+            <p className="etl-file-form__hint etl-file-form__hint--above">저장할 테이블은 아래 버튼으로 선택·매핑하세요. 기존 테이블을 고르거나 새 테이블로 만들 수 있습니다.</p>
+            <div className="etl-file-form__target-row">
+              <span className="etl-file-form__target-display">타겟 테이블: <strong>{targetTable.trim() || '미설정'}</strong></span>
               <button
                 type="button"
                 className="etl-file-form__target-select-btn"

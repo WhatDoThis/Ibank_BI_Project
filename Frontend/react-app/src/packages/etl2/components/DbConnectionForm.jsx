@@ -534,15 +534,9 @@ function DbConnectionForm({ onSuccess }) {
           </div>
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">타겟 테이블명</label>
-            <span className="etl-db-form__label-desc">위에서 선택한 &quot;저장할 DB&quot;(기본 DB 또는 등록 저장 DB)에 생성·적재됩니다.</span>
-            <div className="etl-db-form__input-group">
-              <input
-                type="text"
-                value={targetTable}
-                onChange={(e) => setTargetTable(e.target.value)}
-                placeholder="예: external_orders"
-                className="etl-db-form__input"
-              />
+            <span className="etl-db-form__label-desc">저장할 DB에 생성·적재됩니다. 아래 버튼으로 테이블을 선택·매핑하세요.</span>
+            <div className="etl-db-form__target-row">
+              <span className="etl-db-form__target-display">타겟 테이블: <strong>{targetTable.trim() || '미설정'}</strong></span>
               <button
                 type="button"
                 className="etl-db-form__target-select-btn"

@@ -281,6 +281,19 @@
   background: #eef2ff;
   color: #4338ca;
 }
+.etl-file-form__target-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.etl-file-form__target-display {
+  font-size: 0.95rem;
+  color: #475569;
+}
+.etl-file-form__target-display strong {
+  color: #0f172a;
+}
 .etl-file-form__summary-box {
   padding: 12px 14px;
   background: #f8fafc;
@@ -542,6 +555,19 @@
 .etl-db-form__target-select-btn:hover {
   background: #eef2ff;
   color: #4338ca;
+}
+.etl-db-form__target-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.etl-db-form__target-display {
+  font-size: 0.95rem;
+  color: #475569;
+}
+.etl-db-form__target-display strong {
+  color: #0f172a;
 }
 .etl-db-form__summary-box {
   padding: 12px 14px;
@@ -1697,7 +1723,7 @@
   position: relative;
   background: #fff;
   border-radius: 12px;
-  max-width: 520px;
+  max-width: 720px;
   width: 100%;
   max-height: 85vh;
   overflow: hidden;
@@ -1869,9 +1895,51 @@
 .etl-target-select-modal__mapping-target select {
   min-width: 180px;
 }
+.etl-target-select-modal__th--exclude {
+  width: 72px;
+  text-align: center;
+  white-space: nowrap;
+}
+.etl-target-select-modal__cell--exclude {
+  text-align: center;
+  vertical-align: middle;
+}
+.etl-target-select-modal__exclude-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+.etl-target-select-modal__exclude-label input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.etl-target-select-modal__row--excluded {
+  background: #f9fafb;
+}
+.etl-target-select-modal__row--excluded .etl-target-select-modal__mapping-source,
+.etl-target-select-modal__row--excluded .etl-target-select-modal__column-type {
+  color: #9ca3af;
+}
 .etl-target-select-modal__select--mapping {
   width: 100%;
   max-width: 220px;
+}
+.etl-target-select-modal__input--target-name {
+  width: 100%;
+  max-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.etl-target-select-modal__input--target-name:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
 }
 .etl-target-select-modal__footer {
   display: flex;
