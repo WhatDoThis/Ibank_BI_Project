@@ -19,6 +19,10 @@ import logging
 import threading
 import time
 
+from Backend.etl_server2 import db_load_service
+from Backend.etl_server2 import load_service
+from Backend.etl_server2 import service as etl_service
+
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT = 2
@@ -30,10 +34,6 @@ _etl_tables_missing_logged = False
 
 def _run_one_job(job_id: int, etl_table_id: int) -> None:
     """Job 1건 실행. 파일/DB 분기 후 load_service 또는 db_load_service 호출."""
-from Backend.etl_server2 import db_load_service
-from Backend.etl_server2 import load_service
-from Backend.etl_server2 import service as etl_service
-
     row = etl_service.get_etl_table(etl_table_id)
     if not row:
         etl_service.update_job(job_id, "failed", error_message="ETL 테이블을 찾을 수 없습니다.")

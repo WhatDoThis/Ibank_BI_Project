@@ -116,7 +116,8 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
         onClose();
       }
     } catch (err) {
-      setError(err.message || '추가 적재 등록 실패');
+      const msg = err?.message || '추가 적재 등록 실패';
+      setError(msg);
     } finally {
       setLoading(false);
     }

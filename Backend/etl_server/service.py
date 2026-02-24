@@ -66,9 +66,48 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 import logging
 import os
 import re
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# 업로드 디렉터리(router·load_service와 동일). 삭제 시 경로 해석용.
+_UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
+
+
+def _resolve_upload_path_for_delete(file_path: Optional[str]) -> Optional[str]:
+    """
+    DB에 저장된 file_path로 실제 삭제할 파일 경로 반환.
+    절대 경로가 있으면 그대로, 없으면 uploads/파일명 또는 uploads/zip_xxx/... 로 해석. 존재하는 경로만 반환.
+    """
+    p = (file_path or "").strip()
+    if not p:
+        return None
+    if os.path.isfile(p):
+        return p
+    base = os.path.basename(p)
+    if base:
+        fallback = _UPLOAD_DIR / base
+        try:
+            if fallback.is_file():
+                return str(fallback.resolve())
+        except (OSError, PermissionError):
+            pass
+    # uploads 이후 상대 경로(예: zip_xxx/file.csv)로 해석
+    normalized = p.replace("\\", "/")
+    for sep in ["/uploads/", "/uploads", "\\uploads\\", "\\uploads"]:
+        if sep in normalized:
+            idx = normalized.rfind(sep)
+            suffix = normalized[idx + len(sep):].lstrip("/\\").replace("\\", "/")
+            if suffix:
+                fallback = _UPLOAD_DIR / suffix
+                try:
+                    if fallback.is_file():
+                        return str(fallback.resolve())
+                except (OSError, PermissionError):
+                    pass
+            break
+    return None
 
 try:
     import psycopg2
@@ -936,8 +975,9 @@ def get_sync_mode_for_load(etl_table_id: int) -> str:
 
 def delete_etl_table(etl_table_id: int) -> dict:
     """
-    ETL 테이블 1건 삭제. 메인 DB에서 타겟 테이블 DROP, 파일 소스면 file_path 반환(호출측에서 삭제),
-    etl_transform_rules·etl_jobs·etl_tables 행 삭제. 반환: {"file_path": 절대경로 또는 None}.
+    ETL 테이블 1건 삭제. 메인 DB에서 타겟 테이블 DROP,
+    해당 행의 file_path 및 해당 etl_table_id의 모든 job의 add_file_path 파일 삭제(경로 해석 후),
+    etl_transform_rules·etl_jobs·etl_tables 행 삭제. 반환: {"file_path": None}(호환용).
     """
     row = get_etl_table(etl_table_id)
     if not row:
@@ -948,20 +988,41 @@ def delete_etl_table(etl_table_id: int) -> dict:
     schema = _schema()
     main_schema = api_db.get_table_schema()
 
-    if target_table and re.match(r"^[a-zA-Z0-9_]+$", target_table):
-        conn_main = api_db.get_db_connection()
-        cur_main = conn_main.cursor()
-        try:
-            full_name = f'"{main_schema}"."{target_table}"'
-            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-            conn_main.commit()
-        finally:
-            cur_main.close()
-            conn_main.close()
-
+    add_file_paths: List[str] = []
     conn_sys = api_db.get_db_connection_system()
     cur_sys = conn_sys.cursor()
     try:
+        cur_sys.execute(
+            f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s AND add_file_path IS NOT NULL",
+            (etl_table_id,),
+        )
+        for r in cur_sys.fetchall():
+            try:
+                p = r.get("add_file_path") if hasattr(r, "get") else (r[0] if r else None)
+            except (KeyError, IndexError, TypeError):
+                p = None
+            p = (p or "").strip() if isinstance(p, str) else ""
+            if p:
+                add_file_paths.append(p)
+    except Exception as e:
+        if psycopg2 and isinstance(e, psycopg2.ProgrammingError):
+            conn_sys.rollback()
+        else:
+            cur_sys.close()
+            conn_sys.close()
+            raise
+    try:
+        if target_table and re.match(r"^[a-zA-Z0-9_]+$", target_table):
+            conn_main = api_db.get_db_connection()
+            cur_main = conn_main.cursor()
+            try:
+                full_name = f'"{main_schema}"."{target_table}"'
+                cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                conn_main.commit()
+            finally:
+                cur_main.close()
+                conn_main.close()
+
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
@@ -970,7 +1031,15 @@ def delete_etl_table(etl_table_id: int) -> dict:
         cur_sys.close()
         conn_sys.close()
 
-    return {"file_path": file_path}
+    for path_candidate in [file_path] + add_file_paths:
+        resolved = _resolve_upload_path_for_delete(path_candidate)
+        if resolved and os.path.isfile(resolved):
+            try:
+                os.remove(resolved)
+            except OSError:
+                pass
+
+    return {"file_path": None}
 
 
 def delete_etl_table_row_only(etl_table_id: int) -> None:
@@ -1018,15 +1087,17 @@ def delete_etl_table_row_only(etl_table_id: int) -> None:
         cur_sys.close()
         conn_sys.close()
 
-    if file_path and os.path.isfile(file_path):
+    resolved_main = _resolve_upload_path_for_delete(file_path)
+    if resolved_main and os.path.isfile(resolved_main):
         try:
-            os.remove(file_path)
+            os.remove(resolved_main)
         except OSError:
             pass
     for p in add_file_paths:
-        if p and os.path.isfile(p):
+        resolved = _resolve_upload_path_for_delete(p)
+        if resolved and os.path.isfile(resolved):
             try:
-                os.remove(p)
+                os.remove(resolved)
             except OSError:
                 pass
 
@@ -1174,11 +1245,13 @@ def delete_job(job_id: int) -> bool:
         cur.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s", (job_id,))
         conn.commit()
         ok = cur.rowcount > 0
-        if ok and add_file_path and os.path.isfile(add_file_path):
-            try:
-                os.remove(add_file_path)
-            except OSError:
-                pass
+        if ok and add_file_path:
+            resolved = _resolve_upload_path_for_delete(add_file_path)
+            if resolved and os.path.isfile(resolved):
+                try:
+                    os.remove(resolved)
+                except OSError:
+                    pass
         return ok
     finally:
         cur.close()

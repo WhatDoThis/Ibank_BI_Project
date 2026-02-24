@@ -311,18 +311,9 @@ def delete_table_row_only(etl_table_id: int):
 
 @router.delete("/tables/{etl_table_id}", status_code=204)
 def delete_table(etl_table_id: int):
-    """ETL 테이블 1건 삭제. 메인 DB 타겟 테이블 DROP, 업로드 파일 삭제, 메타 삭제."""
+    """ETL 테이블 1건 삭제. 메인 DB 타겟 테이블 DROP, 업로드 파일(file_path·add_file_path) 삭제, 메타 삭제. 파일 삭제는 service에서 경로 해석 후 수행."""
     try:
-        result = etl_service.delete_etl_table(etl_table_id)
-        fp = result.get("file_path")
-        if fp:
-            try:
-                p = Path(fp).resolve()
-                upload_abs = UPLOAD_DIR.resolve()
-                if p.is_file() and str(p).startswith(str(upload_abs)):
-                    p.unlink(missing_ok=True)
-            except (OSError, PermissionError):
-                pass
+        etl_service.delete_etl_table(etl_table_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

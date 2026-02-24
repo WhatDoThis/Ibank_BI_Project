@@ -398,12 +398,35 @@ export async function etl2RunTable(etlTableId) {
   return request('POST', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/run`);
 }
 
+/** 업로드 요청 공통: 긴 타임아웃(5분) + 네트워크 오류 시 안내 메시지 */
+const UPLOAD_FETCH_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function fetchUploadWithTimeout(url, formData) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPLOAD_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { method: 'POST', body: formData, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const msg = err?.message || '';
+    if (err?.name === 'AbortError' || msg.includes('aborted')) {
+      throw new Error('업로드 시간이 초과되었습니다. 파일 크기를 줄이거나 네트워크를 확인하세요.');
+    }
+    if (msg === 'Failed to fetch' || msg.includes('Load failed') || msg.includes('NetworkError')) {
+      throw new Error('API 서버에 연결할 수 없습니다. 백엔드(python run.py back)가 실행 중인지, 주소가 맞는지 확인하세요.');
+    }
+    throw err;
+  }
+}
+
 /** POST /api/etl2/tables/:id/add-file */
 export async function etl2AddFileToTable(etlTableId, file) {
   const url = `${baseUrlForEtl2()}/api/etl2/tables/${encodeURIComponent(etlTableId)}/add-file`;
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(url, { method: 'POST', body: formData });
+  const res = await fetchUploadWithTimeout(url, formData);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
   return data;
@@ -414,7 +437,7 @@ export async function etl2AddFilesZipToTable(etlTableId, file) {
   const url = `${baseUrlForEtl2()}/api/etl2/tables/${encodeURIComponent(etlTableId)}/add-files-zip`;
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(url, { method: 'POST', body: formData });
+  const res = await fetchUploadWithTimeout(url, formData);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
   return data;
