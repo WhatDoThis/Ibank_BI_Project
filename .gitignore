@@ -11,6 +11,10 @@ Env/config/config.json
 # ETL 업로드 파일 (서버 로컬 저장)
 Backend/etl_server/uploads/
 
+# 로그 (프로젝트 루트 debug.log = Chromium/Electron, Env/logs = execute_query 등)
+debug.log
+Env/logs/
+
 # Frontend/react-app (Vite/Node)
 node_modules/
 dist/

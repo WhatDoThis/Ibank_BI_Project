@@ -64,13 +64,15 @@ from Backend.api_server.schemas import (
     SaveQueryAsTableRequest,
 )
 
-_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent / "execute_query_debug.log"
+_DEBUG_LOG_DIR = Path(__file__).resolve().parent.parent.parent / "Env" / "logs"
+_DEBUG_LOG_PATH = _DEBUG_LOG_DIR / "execute_query_debug.log"
 
 
 def _log(msg, *args):
     line = f"[execute-query] {msg % args if args else msg}"
     print(line, flush=True)
     try:
+        _DEBUG_LOG_DIR.mkdir(parents=True, exist_ok=True)
         with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
     except Exception:
