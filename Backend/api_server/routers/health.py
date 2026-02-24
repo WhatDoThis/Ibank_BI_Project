@@ -3,16 +3,11 @@ Backend.api_server.routers.health (헬스·루트·API 안내)
 =====================================================
 FastAPI 라우터. DB 연결 확인·루트·API 엔드포인트 목록 안내. tags=["health"].
 
-[Main Functions]
+[Functions]
 ===========
-- health_check: GET /health (DB SELECT 1 포함)
-- index: GET / (루트 안내)
-- api_index: GET /api, GET /api/ (엔드포인트 목록 JSON, 리포트·대시보드1·대시보드2 포함)
-
-[Endpoints/Classes/Functions]
-=======================
-- GET /health: 헬스체크 (db 연결 확인)
-- GET /, GET /api, GET /api/: API 안내·엔드포인트 목록
+33 - health_check: GET /health (DB SELECT 1 포함)
+52 - index: GET / (루트 안내)
+64 - api_index: GET /api, GET /api/ (엔드포인트 목록 JSON)
 
 [Dependencies]
 =========

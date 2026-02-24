@@ -2,17 +2,27 @@
 Backend.api_server.db (DB 연결 및 검증)
 =======================================
 Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.get_db()로 연결 주입.
+메인 DB·시스템 DB 분리. ETL 타겟 테이블은 get_table_columns_for_etl_target, get_primary_key_columns_for_etl_target로 allowed_tables 미검사 조회.
 
-[Main Functions]
+[Functions]
 ===========
-- get_db_config: config.backend에서 DB 연결용 dict 반환 (필수 키 없으면 ValueError)
-- get_allowed_tables: 허용 테이블 목록 (allowed_tables)
-- get_table_schema: 테이블 스키마명 (table_schema)
-- get_table_columns: 테이블 컬럼명 목록 (information_schema)
-- get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
-- get_db_connection: DB 연결 생성 (UTF-8 인코딩)
-- format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
-- validate_table_name, validate_column_name: 허용 패턴·허용 테이블 검증
+get_db_config: config.backend에서 DB 연결용 dict 반환 (필수 키 없으면 ValueError)
+get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict 반환
+get_system_table_schema: 시스템 DB의 table_schema (ETL 메타 등)
+get_allowed_tables: 허용 테이블 목록 (allowed_tables)
+get_table_schema: 테이블 스키마명 (table_schema)
+get_table_columns: 테이블 컬럼명 목록 (information_schema, 허용 테이블만)
+get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
+get_all_tables_columns_with_types: 복수 테이블 컬럼·타입 일괄 조회
+get_primary_key_columns: 테이블 PK 컬럼명 목록 (허용 테이블만)
+table_exists_in_schema: 테이블 스키마 내 존재 여부 (allowed_tables 미검사)
+get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사)
+get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사)
+get_db_connection: 메인 DB 연결 생성 (UTF-8 인코딩)
+get_db_connection_system: 시스템 DB 연결 생성 (ETL 메타·세션 등용)
+format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
+validate_table_name: 허용 패턴·허용 테이블 검증
+validate_column_name: 컬럼명 허용 패턴 검증
 
 [Dependencies]
 =========
@@ -67,6 +77,55 @@ def get_db_config():
         'user': str(user).strip(),
         'password': str(password).strip() if password is not None else '',
     }
+
+
+def get_system_db_config():
+    """
+    config.backend.system_db 에서 시스템 DB 연결 설정 읽기.
+    시스템 관련 테이블(ETL 메타, 로그인·세션·프로젝트 등)용 DB(예: ibank_system_data).
+    system_db 가 없으면 ValueError.
+    """
+    backend = config.backend
+    sys_db = getattr(backend, 'system_db', None)
+    if sys_db is None:
+        raise ValueError(
+            'Env/config/config.json 에 backend.system_db 가 없습니다. '
+            '시스템 DB(ibank_system_data 등) 연결을 위해 system_db 를 추가하세요.'
+        )
+    host = getattr(sys_db, 'db_host', None)
+    port = getattr(sys_db, 'db_port', None)
+    database = getattr(sys_db, 'db_name', None)
+    user = getattr(sys_db, 'db_user', None)
+    password = getattr(sys_db, 'db_password', None)
+
+    if not host or not str(host).strip():
+        raise ValueError('backend.system_db.db_host 가 없거나 비어 있습니다.')
+    if database is None or not str(database).strip():
+        raise ValueError('backend.system_db.db_name 이 없거나 비어 있습니다.')
+    if not user or not str(user).strip():
+        raise ValueError('backend.system_db.db_user 가 없거나 비어 있습니다.')
+    if port is None or port == '':
+        raise ValueError('backend.system_db.db_port 가 없습니다.')
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise ValueError('backend.system_db.db_port 는 숫자여야 합니다.')
+
+    return {
+        'host': str(host).strip(),
+        'port': port,
+        'database': str(database).strip(),
+        'user': str(user).strip(),
+        'password': str(password).strip() if password is not None else '',
+    }
+
+
+def get_system_table_schema():
+    """시스템 DB의 table_schema. backend.system_db.table_schema 가 있으면 사용, 없으면 'public'."""
+    sys_db = getattr(config.backend, 'system_db', None)
+    if sys_db is None:
+        return 'public'
+    return getattr(sys_db, 'table_schema', None) or 'public'
 
 
 def get_allowed_tables():
@@ -166,9 +225,117 @@ def get_all_tables_columns_with_types(table_names):
         conn.close()
 
 
+def get_primary_key_columns(table_name):
+    """테이블의 PK 컬럼명 목록 반환 (information_schema). 허용된 테이블만. PK 없으면 []."""
+    validate_table_name(table_name)
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                 AND tc.table_catalog = kcu.table_catalog
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = %s AND tc.table_name = %s
+            ORDER BY kcu.ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [row["column_name"] for row in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def table_exists_in_schema(table_name: str) -> bool:
+    """메인 DB의 table_schema에 해당 table_name이 존재하는지 조회. allowed_tables 미검사(ETL 실행 전 타겟 존재 여부 확인용)."""
+    if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
+        return False
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s",
+            (schema, table_name),
+        )
+        return cur.fetchone() is not None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_table_columns_for_etl_target(table_name: str):
+    """ETL 타겟 테이블의 컬럼명 목록 반환. allowed_tables 미검사(ETL로 생성된 테이블용). 테이블이 없으면 []."""
+    if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
+        raise ValueError(f"잘못된 테이블 이름: {table_name}")
+    if not table_exists_in_schema(table_name):
+        raise ValueError(f"타겟 테이블이 메인 DB에 없습니다: {table_name}")
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [row["column_name"] for row in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_primary_key_columns_for_etl_target(table_name: str):
+    """ETL 타겟 테이블의 PK 컬럼명 목록 반환. allowed_tables 미검사. PK 없으면 []."""
+    if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
+        raise ValueError(f"잘못된 테이블 이름: {table_name}")
+    if not table_exists_in_schema(table_name):
+        raise ValueError(f"타겟 테이블이 메인 DB에 없습니다: {table_name}")
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                 AND tc.table_catalog = kcu.table_catalog
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = %s AND tc.table_name = %s
+            ORDER BY kcu.ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [row["column_name"] for row in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
 def get_db_connection():
     """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
     cfg = get_db_config()
+    conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+    conn.set_client_encoding("UTF8")
+    return conn
+
+
+def get_db_connection_system():
+    """시스템 DB 연결 생성. config.backend.system_db 사용. ETL 메타·로그인·세션 등 시스템 테이블용."""
+    cfg = get_system_db_config()
     conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
     conn.set_client_encoding("UTF8")
     return conn

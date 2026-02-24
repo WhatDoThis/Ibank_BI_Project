@@ -86,8 +86,9 @@ export default function ReportPage() {
       const conds = joinConditions[key]
       const first = (conds && conds[0]) ? conds[0] : (opts[0] && typeof opts[0] === 'object' && opts[0].prevColumn ? opts[0] : null)
       if (!first) return
-      resolved[fromTable][toTable] = first
+      if (!resolved[fromTable]) resolved[fromTable] = {}
       if (!resolved[toTable]) resolved[toTable] = {}
+      resolved[fromTable][toTable] = first
       resolved[toTable][fromTable] = { prevColumn: first.currColumn, currColumn: first.prevColumn }
     })
     return resolved

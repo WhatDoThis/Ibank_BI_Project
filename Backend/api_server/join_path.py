@@ -1,9 +1,19 @@
 """
-join_path.py
-JOIN 자동 생성 명세: 경로 탐색(BFS), 직접 관계, JOIN 순서 결정.
-- find_direct_relationship: 두 테이블 간 직접 FK 관계
-- find_join_path: BFS로 최단 경로 (간접 관계)
-- determine_join_order: base_table 기준 필요한 테이블들의 JOIN 순서 + 엣지 정보
+Backend.api_server.join_path (JOIN 경로·순서)
+=============================================
+JOIN 자동 생성: 경로 탐색(BFS), 직접 관계, JOIN 순서 결정. report 라우터에서 determine_join_order, validate_join_order 사용.
+
+[Functions]
+===========
+12 - _normalize_rel: 관계를 want_from→want_to 방향으로 정규화
+22 - find_direct_relationship: 두 테이블 간 직접 FK 관계
+34 - find_join_path: BFS로 from_table→to_table 최단 경로 (간접 관계)
+70 - determine_join_order: base_table 기준 required_tables의 JOIN 순서 + 엣지 정보
+139 - validate_join_order: join_order 유효성 검사 (max_depth 등)
+
+[Dependencies]
+=========
+- 표준 라이브러리 (collections.deque)
 """
 
 from collections import deque

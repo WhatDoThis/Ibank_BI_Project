@@ -3,7 +3,7 @@
 **docs/report** 는 **코드 정리·코드 분석·코드 실행** 관련 내용만 포함합니다.  
 개발문서(요구사항, 명세 등)는 **docs/main** 에만 둡니다.
 
-- **백엔드 Flask → FastAPI 전환 계획**: 단계별 플랜은 **docs/main/02_BACKEND_FASTAPI_MIGRATION_PLAN.md** 참고. 전환 작업 완료 시 본 report 폴더의 log.md에 기록.
+- **백엔드 가이드**: 구조·API·etl_server 상세는 **docs/main/02_BACKEND_GUIDE.md** 참고. Flask→FastAPI 전환 계획은 해당 문서 부록 A에 참고용으로 정리됨. 전환 완료 로그는 log.md에 기록.
 
 ---
 
@@ -17,6 +17,11 @@
 | 03_대시보드2_성과리포트_개선_플랜.md | 대시보드2: 대시보드1 복사(공유 없음) → 목표·컨텍스트(HttpOnly 쿠키)·기간 표시·Executive Summary·지표 툴팁·신호등 등 페이즈별 개선 플랜 |
 | 04_레이더차트_변경이력_데이터.md | 레이더 차트(ChartWidget2) 수정 회차별 요소·적용값·결과 데이터화, Recharts 동작 정리, 최적 속성 도출 및 적용 요약 |
 | 05_대시보드2_주간월간_비교리포팅_플랜.md | 대시보드2: 주간/월간 취합·이전 주·이전 월 비교 리포팅 기능 테스트 적용 방안, 데이터/API 옵션, UI 설계, 페이즈별 구현 제안 |
+| 06_I1_파생테이블_정의.md | I1 파생 테이블 정의, 생성 스크립트, 리포트 사이드바 폴더, 테이블명 소문자 등 |
+| 07_newDashboard_Develop_Plan.md | NewDashboard 범용 대시보드: 요구사항 정리, 현행 대비 검토, 가능성 검토, Phase 0~5 개발 계획(백엔드 범용 API → 프론트 테이블/헤더 → KPI·목표·집계 테이블 → 위젯 beta → 비교·정리) |
+| 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조: 목적·범위·시스템 개요, config·메타 테이블·모듈 의존, Job 확인(운영), 재실행 동작, 파일/DB 동작 요약, **DB 연결 실패 시 점검**(연결 구조·실패 지점·예외 메시지·점검 순서), Phase 순서, ZIP 추가 적재, ETL 목록 버튼·상태별 동작. (09 내용 통합) |
+| 09_ETL_Upgrade_Plan.md | ETL 업그레이드 계획: 저장 DB 등록 페이지(탭 위치·권한 검증), 저장할 DB 선택(기본 ibank_db), 테이블선택·컬럼매핑 모달, 컬럼 매핑·커스텀 컬럼명. Phase 1~5 구체 계획, etl_storage_connections DDL, config etl_limits 적용 검토. |
+| etc01_Backend_Learning_Flow.md | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |
 | nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 3500, /report_api → 8500). 서버 배포 시 참고 |

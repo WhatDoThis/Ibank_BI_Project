@@ -3,17 +3,14 @@ Backend.api_server.routers.dashboard (대시보드1 API)
 ====================================================
 FastAPI 라우터. prefix /api/dashboard. 대시보드1용 집계·필터 옵션·테이블 목록·필수 컬럼·차트 데이터.
 
-[Main Functions]
+[Functions]
 ===========
-- dashboard_data, dashboard_filter_options, dashboard_tables, dashboard_required_columns, dashboard_chart_data: 라우트 핸들러
-
-[Endpoints/Classes/Functions]
-=======================
-- POST /api/dashboard/data: 집계 데이터·KPI (DashboardDataRequest)
-- GET /api/dashboard/filter-options/{table_id}: 캠페인·워크플로우·채널 옵션
-- GET /api/dashboard/tables: 집계 가능 테이블 목록
-- GET /api/dashboard/required-columns: 필수 컬럼 목록
-- POST /api/dashboard/chart-data: 차트용 단일 dimension·metric 집계 (ChartDataRequest)
+35 - _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
+45 - dashboard_data: POST /api/dashboard/data (집계·KPI)
+69 - dashboard_filter_options: GET /api/dashboard/filter-options/{table_id}
+93 - dashboard_tables: GET /api/dashboard/tables
+103 - dashboard_required_columns: GET /api/dashboard/required-columns
+112 - dashboard_chart_data: POST /api/dashboard/chart-data (차트용 집계)
 
 [Dependencies]
 =========

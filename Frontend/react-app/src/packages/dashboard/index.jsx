@@ -3,13 +3,9 @@
  * ============================================
  * 대시보드1 메인 페이지 재export. App에서 /dashboard 라우트에 사용.
  *
- * [Main Functions]
+ * [Main]
  * ===========
- * - DashboardPage (default, named export)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - DashboardPage: DashboardPage.jsx
+ * DashboardPage (default, named export)
  *
  * [Dependencies]
  * =========
