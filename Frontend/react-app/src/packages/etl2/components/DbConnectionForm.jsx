@@ -15,7 +15,7 @@
  * - React, @/shared/api/client (etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   etl2ListConnections,
   etl2CreateConnection,
@@ -27,7 +27,9 @@ import {
   etl2DeleteConnection,
   etl2ListStorageConnections
 } from '@/shared/api/client';
-import TargetTableSelectModal from './TargetTableSelectModal.jsx';
+
+/** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ(Cannot access 'ie' before initialization) 방지 */
+const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
 
 function DbConnectionForm({ onSuccess }) {
   const [connections, setConnections] = useState([]);
@@ -93,6 +95,8 @@ function DbConnectionForm({ onSuccess }) {
   const [disconnectLoadingId, setDisconnectLoadingId] = useState(null);
   const [targetTableSelectOpen, setTargetTableSelectOpen] = useState(false);
   const [columnMapping, setColumnMapping] = useState(null);
+  const [pkColumns, setPkColumns] = useState('');
+  const [refetchingSourceForModal, setRefetchingSourceForModal] = useState(false);
 
   function isDateType(dataType) {
     const t = (dataType || '').trim().toLowerCase();
@@ -144,6 +148,25 @@ function DbConnectionForm({ onSuccess }) {
       });
     return () => { cancelled = true; };
   }, [syncMode, selectedConnId, selectedSourceTable]);
+
+  /** 테이블선택 모달을 연다. 연결·소스 테이블이 있으면 소스 컬럼을 먼저 최신으로 다시 불러온 뒤 모달을 연다. */
+  async function openTargetTableSelectModal() {
+    if (selectedConnId && selectedSourceTable) {
+      setRefetchingSourceForModal(true);
+      try {
+        const res = await etl2GetSourceColumns(Number(selectedConnId), selectedSourceTable);
+        setSourceColumns(res.columns || []);
+        setTargetTableSelectOpen(true);
+      } catch {
+        setSourceColumns([]);
+        setTargetTableSelectOpen(true);
+      } finally {
+        setRefetchingSourceForModal(false);
+      }
+    } else {
+      setTargetTableSelectOpen(true);
+    }
+  }
 
   async function handleDisconnect(connectionId, connectionName) {
     if (!window.confirm(`"${connectionName || connectionId}" 연결을 해제하시겠습니까? 해당 연결로 등록된 타겟 테이블이 메인 DB에서 DROP됩니다.`)) return;
@@ -283,7 +306,7 @@ function DbConnectionForm({ onSuccess }) {
         label_name: labelName.trim() || null,
         description: description.trim() || null,
         source_table: selectedSourceTable,
-        pk_columns: null,
+        pk_columns: (pkColumns || '').trim() || null,
         sync_mode: syncMode,
         incremental_column: syncMode === 'incremental' && finalIncremental ? finalIncremental : null,
         batch_size: batchSize.trim() ? parseInt(batchSize, 10) || null : null,
@@ -303,6 +326,7 @@ function DbConnectionForm({ onSuccess }) {
       setBatchIntervalSeconds('');
       setSelectedSourceTable('');
       setColumnMapping(null);
+      setPkColumns('');
     } catch (err) {
       setCreateError(err.message || 'ETL 테이블 등록 실패');
     } finally {
@@ -540,28 +564,33 @@ function DbConnectionForm({ onSuccess }) {
               <button
                 type="button"
                 className="etl-db-form__target-select-btn"
-                onClick={() => setTargetTableSelectOpen(true)}
+                onClick={openTargetTableSelectModal}
+                disabled={refetchingSourceForModal}
               >
-                테이블선택 및 컬럼매핑
+                {refetchingSourceForModal ? '컬럼 새로고침 중…' : '테이블선택 및 컬럼매핑'}
               </button>
             </div>
           </div>
           {targetTableSelectOpen && (
-            <TargetTableSelectModal
-              open={targetTableSelectOpen}
-              onClose={() => setTargetTableSelectOpen(false)}
-              storageConnectionId={storageConnectionId}
-              currentTargetTable={targetTable}
-              currentColumnMapping={columnMapping || []}
-              sourceColumns={sourceColumns}
-              onSelect={(tableName, mapping) => {
-                setTargetTable(tableName);
-                setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
-                setTargetTableSelectOpen(false);
-              }}
-            />
+            <Suspense fallback={null}>
+              <TargetTableSelectModal
+                open={targetTableSelectOpen}
+                onClose={() => setTargetTableSelectOpen(false)}
+                storageConnectionId={storageConnectionId}
+                currentTargetTable={targetTable}
+                currentColumnMapping={columnMapping || []}
+                currentPkColumns={pkColumns}
+                sourceColumns={sourceColumns}
+                onSelect={(tableName, mapping, pkCols) => {
+                  setTargetTable(tableName);
+                  setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
+                  setPkColumns(pkCols ?? '');
+                  setTargetTableSelectOpen(false);
+                }}
+              />
+            </Suspense>
           )}
-          {(targetTable.trim() || (columnMapping && columnMapping.length > 0)) && (
+          {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || pkColumns.trim()) && (
             <div className="etl-db-form__field etl-db-form__summary">
               <label className="etl-db-form__label">설정 요약</label>
               <div className="etl-db-form__summary-box">
@@ -584,6 +613,11 @@ function DbConnectionForm({ onSuccess }) {
                       ))}
                     </ul>
                   </>
+                )}
+                {pkColumns.trim() && (
+                  <p className="etl-db-form__summary-line">
+                    <strong>PK:</strong> {pkColumns.trim()}
+                  </p>
                 )}
                 <button
                   type="button"

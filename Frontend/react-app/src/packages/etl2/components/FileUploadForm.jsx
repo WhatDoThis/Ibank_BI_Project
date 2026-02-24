@@ -14,9 +14,11 @@
  * - React, @/shared/api/client (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/shared/api/client';
-import TargetTableSelectModal from './TargetTableSelectModal.jsx';
+
+/** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ 방지 */
+const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
 
 function FileUploadForm({ onSuccess }) {
   const [file, setFile] = useState(null);
@@ -31,6 +33,7 @@ function FileUploadForm({ onSuccess }) {
   const [dragOver, setDragOver] = useState(false);
   const [targetTableSelectOpen, setTargetTableSelectOpen] = useState(false);
   const [columnMapping, setColumnMapping] = useState(null);
+  const [pkColumns, setPkColumns] = useState('');
   const [sourceColumnsForModal, setSourceColumnsForModal] = useState([]);
   const [inferSchemaLoading, setInferSchemaLoading] = useState(false);
   const fileInputRef = useRef(null);
@@ -107,6 +110,7 @@ function FileUploadForm({ onSuccess }) {
       if (description.trim()) form.append('description', description.trim());
       if (storageConnectionId !== '' && storageConnectionId != null) form.append('storage_connection_id', String(storageConnectionId));
       if (columnMapping && Array.isArray(columnMapping) && columnMapping.length > 0) form.append('column_mapping', JSON.stringify(columnMapping));
+      if ((pkColumns || '').trim()) form.append('pk_columns', (pkColumns || '').trim());
       form.append('created_by', 'user');
       const data = await etl2UploadFile(form);
       setResult(data);
@@ -117,6 +121,7 @@ function FileUploadForm({ onSuccess }) {
         setDescription('');
         setFile(null);
         setColumnMapping(null);
+        setPkColumns('');
       }
     } catch (err) {
       setError(err.message || '업로드 실패');
@@ -188,19 +193,23 @@ function FileUploadForm({ onSuccess }) {
             </div>
           </div>
           {targetTableSelectOpen && (
-            <TargetTableSelectModal
-              open={targetTableSelectOpen}
-              onClose={() => setTargetTableSelectOpen(false)}
-              storageConnectionId={storageConnectionId}
-              currentTargetTable={targetTable}
-              currentColumnMapping={columnMapping || []}
-              sourceColumns={sourceColumnsForModal}
-              onSelect={(tableName, mapping) => {
-                setTargetTable(tableName);
-                setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
-                setTargetTableSelectOpen(false);
-              }}
-            />
+            <Suspense fallback={null}>
+              <TargetTableSelectModal
+                open={targetTableSelectOpen}
+                onClose={() => setTargetTableSelectOpen(false)}
+                storageConnectionId={storageConnectionId}
+                currentTargetTable={targetTable}
+                currentColumnMapping={columnMapping || []}
+                currentPkColumns={pkColumns}
+                sourceColumns={sourceColumnsForModal}
+                onSelect={(tableName, mapping, pkCols) => {
+                  setTargetTable(tableName);
+                  setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
+                  setPkColumns(pkCols ?? '');
+                  setTargetTableSelectOpen(false);
+                }}
+              />
+            </Suspense>
           )}
           {(targetTable.trim() || (columnMapping && columnMapping.length > 0)) && (
             <div className="etl-file-form__row etl-file-form__summary">
@@ -225,6 +234,11 @@ function FileUploadForm({ onSuccess }) {
                       ))}
                     </ul>
                   </>
+                )}
+                {pkColumns.trim() && (
+                  <p className="etl-file-form__summary-line">
+                    <strong>PK:</strong> {pkColumns.trim()}
+                  </p>
                 )}
                 <button
                   type="button"

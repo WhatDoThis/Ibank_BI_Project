@@ -1,5 +1,297 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-24: run_db_load COPY 프로토콜 적용 (09_ETL_Upgrade_Plan §14)
+
+### 목적
+- 메인 DB(PostgreSQL) 적재를 execute_values에서 **COPY FROM STDIN** 프로토콜로 전환해 INSERT/Upsert 처리량 추가 향상.
+
+### 완료 작업
+- **09_ETL_Upgrade_Plan.md**: §14 db_load_service COPY 프로토콜 적용 섹션 추가(헬퍼 4종, run_db_load 수정 요약, MySQL 배치 상한 유지).
+- **db_load_service.py**: `_serialize_value`, `_copy_buf`, `_copy_insert_batch`, `_copy_upsert_batch` 헬퍼 추가. 스트리밍·전체 fetch 분기에서 execute_values 제거 후 Full → `_copy_insert_batch`, Incremental → `_copy_upsert_batch`(TEMP TABLE TEXT + COPY + INSERT...SELECT ON CONFLICT) 호출. `col_types` first_batch/전체 fetch에서 확정·재사용. 배치별 commit·is_job_cancelled·last_synced_at·CREATE TABLE 로직 유지.
+
+### 수정·영향 파일
+- Backend: etl_server2/db_load_service.py
+- docs/report/09_ETL_Upgrade_Plan.md, 10_ETL_Mapping_TypeCast_And_DB_Performance.md, log.md
+
+---
+
+## 2026-02-24: run_db_load 성능 업그레이드 (execute_values·루프 최적화·MySQL 배치 상한)
+
+### 목적
+- 10_ETL_Mapping_TypeCast_And_DB_Performance.md 및 사용자 분석에 따른 MySQL/Oracle 적재 병목 제거: executemany 행 단위 실행, 루프 내 반복 연산, MySQL 배치 상한 과소.
+
+### 완료 작업
+- **executemany → execute_values**: 스트리밍 분기·전체 fetch 분기 모두 `cur_main.executemany(insert_sql|upsert_sql, rows_list)`를 **psycopg2.extras.execute_values**(cur_main, sql_template, rows_tuples, page_size=1000)로 교체. INSERT/Upsert SQL은 `VALUES %s` 템플릿으로 통일, rows는 list of tuple로 전달. 메인 DB INSERT 라운드트립 대폭 감소.
+- **루프 밖 고정값**: 스트리밍 while 진입 전 `transform_rules_svc.list_transform_rules(etl_table_id)` 1회 호출 후 루프 안에서 rules 재사용. columns_final, cols, col_defs, insert_sql_template, upsert_sql_template, pk_list_inc, set_parts는 **first_batch** 블록에서만 계산하고 이후 배치에서 재사용.
+- **MySQL 배치 상한**: 3,000 상한을 **10,000**으로 변경. execute_values로 INSERT가 빨라져 fetch 간격이 줄어 net_write_timeout 위험을 유지하면서 배치 크기 확대.
+
+### 수정·영향 파일
+- Backend: etl_server2/db_load_service.py (import execute_values, 스트리밍/전체 fetch 분기 전면 수정)
+- docs/report/10_ETL_Mapping_TypeCast_And_DB_Performance.md (섹션 3 적용 완료 개선 사항 추가)
+- docs/report/log.md
+
+---
+
+## 2026-02-24: MySQL ETL 실행 중 연결 끊김(2013) 수정
+
+### 목적
+- DB 소스(MySQL) ETL 실행 시 `(2013, 'Lost connection to MySQL server during query')` 및 SSCursor.close 시 `'NoneType' object has no attribute 'settimeout'` 방지.
+
+### 원인
+- SSCursor로 배치 단위 fetch 시: fetchmany(10000) 후 변환·메인 DB INSERT에 시간이 걸리는 동안 **MySQL 서버의 net_write_timeout(기본 30초)**을 넘기면 서버가 연결을 끊음. 다음 fetchmany()에서 "Lost connection" 발생.
+- 예외 발생 시 cur_src/src_conn을 닫지 않고 빠져나가서, 정리 단계에서 이미 끊긴 연결의 소켓이 None이 되어 SSCursor.close()에서 AttributeError 발생.
+
+### 완료 작업
+- **service.py**: MySQL 연결 시 `read_timeout=7200`, `write_timeout=7200` 추가. 클라이언트 측 대기 시간을 넉넉히 둠.
+- **db_load_service.py**: MySQL일 때 스트리밍 배치 상한 **3000** 적용(10000 → 3000). fetch 간격을 줄여 서버 net_write_timeout 내에 다음 fetch가 이루어지도록 함. 스트리밍 try/finally에서 예외 시에도 cur_src.close(), src_conn.close()를 try/except로 호출해 정리하도록 함.
+
+### 수정·영향 파일
+- Backend: etl_server2/service.py, etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: 파일 업로드 ETL 미리보기 빈 화면 수정
+
+### 목적
+- 파일 업로드 후 컬럼 매핑(변환) 설정하고 미리보기 시 아무 내용도 나오지 않는 문제 해결.
+
+### 원인
+- `preview_service._preview_file`에서 파일을 읽은 뒤 **DataFrame 컬럼명을 정규화**(영문·숫자·_ 만 남김)하여 `df.columns`를 교체함. 반면 `column_mapping`의 source는 **추론 스키마(파일 원본 컬럼명)**와 동일한 이름이라, 정규화된 `df.columns`와 비교 시 하나도 매칭되지 않음 → `mapping_filtered`가 빈 리스트 → `preview_columns`/`preview_rows`가 비어 미리보기가 빈 화면으로 표시됨.
+
+### 완료 작업
+- `Backend/etl_server2/preview_service.py`의 `_preview_file`에서 **컬럼명 정규화 블록 제거**. 파일에서 읽은 원본 `df.columns`를 그대로 두어, `column_mapping`의 source와 일치하도록 함. (미리보기는 표시 전용이므로 컬럼명 정규화 불필요.)
+
+### 수정·영향 파일
+- Backend: etl_server2/preview_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: TargetTableSelectModal TDZ 근본 수정 (선언 전 참조 제거)
+
+### 목적
+- "테이블선택 및 컬럼매핑" 모달 열 때 `Cannot access 'ce'/'ie' before initialization` 발생. lazy 분리 후에도 동일 청크 내에서 에러 → **번들러가 아니라 컴포넌트 내부 선언 순서 문제**로 확정.
+
+### 원인
+- **198~207행 useEffect**의 의존성 배열에 `mappingKey`가 있는데, **`mappingKey`는 301행에서 useMemo로 선언**되어 있어, 훅 평가 순서상 **선언 전 참조(TDZ)** 발생.
+
+### 완료 작업
+- `mappingKey` useMemo를 **hasSourceMapping 바로 아래**(useEffect들보다 위)로 이동. 동일 변수 선언을 301행에서 제거.
+- 훅 순서 정리: **useState 전부** → **useRef** → **useMemo**(sid, mapping, sourceColumns, hasSourceMapping, **mappingKey**) → useCallback → **useEffect 전부**. 새 테이블/매핑 관련 useState(newTableTargetNames, newTableExcluded, mappingOnError, sourceToTarget)를 상단 state 블록으로 올림.
+
+### 수정·영향 파일
+- Frontend: TargetTableSelectModal.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: 테이블선택 모달 TDZ 방지 — lazy 로드·백엔드 활용 방향
+
+### 목적
+- "테이블선택 및 컬럼매핑" 클릭 시 발생하던 `Cannot access 'ie' before initialization` (minify 변수 TDZ) 근본 완화.
+- 사용자 제안: 근본적 구조 변경·백엔드 활용 검토.
+
+### 완료 작업
+- **구조 변경**: `TargetTableSelectModal`을 **React.lazy**로 로드하도록 변경. `DbConnectionForm`·`FileUploadForm`에서 `const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'))` 사용, 모달 렌더 시 `<Suspense fallback={null}>`로 감쌈. 모달이 별도 청크로 분리되어 메인 번들과 minifier 재정렬 스코프가 달라져 TDZ 발생 가능성을 제거.
+- **백엔드 활용 방향**: 추후 모달 로직을 더 단순화하려면, 백엔드에 "테이블선택 모달용 상태" API를 두는 방안을 고려할 수 있음. 예: `GET/POST /api/etl2/table-select-state?storage_connection_id=...&source_table=...` → 테이블 목록·기본 선택 테이블·제안 매핑·타겟 컬럼 목록을 한 번에 반환하고, 프론트는 표시·선택값 제출만 담당. 이렇게 하면 모달 컴포넌트가 가벼워지고 TDZ·번들 크기 이슈도 추가로 완화 가능.
+
+### 수정·영향 파일
+- Frontend: DbConnectionForm.jsx, FileUploadForm.jsx (lazy + Suspense)
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL 매핑 형변환 구현·DB 성능 개선·PK 설정 버튼 제거
+
+### 목적
+- 10_ETL_Mapping_TypeCast_And_DB_Performance.md 제안대로 매핑 기반 형변환 및 변환 실패 시 정책 구현.
+- MySQL/Oracle 느림 원인 해결: SSCursor·arraysize·batch 기본값·executemany 적용.
+- ETL 목록에서 PK 설정 버튼 제거(PK는 테이블선택·컬럼매핑에서만 설정).
+
+### 완료 작업
+- **Backend 형변환**: transform_engine에 `_apply_type_cast` zero 옵션, `_apply_type_cast_with_mask`, `apply_mapping_type_cast(df, column_mapping, default_on_error)` 추가. on_error: null|zero|keep|skip_row|fail. db_load_service·load_service에서 매핑 사용 시 apply_mapping_type_cast 호출, fail 시 Job 실패 반환.
+- **Backend 성능**: db_load_service에서 (1) MySQL/Oracle batch_size=0이면 effective_batch_size=10000으로 스트리밍 (2) MySQL은 PyMySQL SSCursor 사용 (3) Oracle cursor.arraysize=min(batch,5000) (4) COUNT(*)는 PostgreSQL만 실행(ETA), MySQL/Oracle은 생략 (5) 메인 DB INSERT를 행 단위 대신 executemany(insert_sql, rows_list)로 배치 처리.
+- **Frontend**: TargetTableSelectModal에 컬럼별 "변환 실패 시" 드롭다운(NULL·0/빈값·원본 유지·행 제외·실패) 추가. mappingOnError 상태, 적용 시 columnMapping에 on_error 포함. 인트로 문구 보강. CSS: th--on-error, cell--on-error, select--on-error.
+- **ETL 목록**: PK 설정 버튼 및 PkColumnsModal 제거. 동작 안내 모달 문구를 "테이블선택·컬럼매핑에서 PK 설정"으로 정리.
+
+### 수정·영향 파일
+- Backend: transform_engine.py, db_load_service.py, load_service.py
+- Frontend: TargetTableSelectModal.jsx, ETLTableList.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL 매핑 형변환 제안 및 MySQL/Oracle 성능 분석 문서 추가
+
+### 목적
+- 매핑 시 타입 형변환(varchar→숫자 등) 필요 시 처리 방안 및 “형변환 실패 시” 정책 제안.
+- DB 연결로 데이터 가져올 때 MySQL/Oracle이 느린 원인 분석 및 개선 방향 정리.
+
+### 완료 작업
+- **docs/report/10_ETL_Mapping_TypeCast_And_DB_Performance.md** 신규 작성.  
+  - **형변환**: column_mapping 기반 형변환 단계 추가 제안, 변환 실패 시 옵션(null/zero/keep/skip_row/fail) 정의 및 구현 방향(apply_mapping_type_cast, on_error 확장, UI 드롭다운).  
+  - **성능 분석**: (1) batch_size=0일 때 fetchall()로 전체 로드 (2) PostgreSQL만 server-side cursor 사용, MySQL/Oracle은 기본 커서 (3) ETA용 COUNT(*) 선행 (4) 메인 DB 행 단위 INSERT. 개선 제안: batch_size 기본값, MySQL SSCursor, Oracle arraysize, COUNT(*) 옵션화, executemany/COPY.
+- **00_ReportIndex.md**: 10_ETL_Mapping_TypeCast_And_DB_Performance.md 목록 추가.
+
+### 수정·영향 파일
+- docs/report/10_ETL_Mapping_TypeCast_And_DB_Performance.md (신규), 00_ReportIndex.md, log.md
+
+---
+
+## 2026-02-23: 테이블선택 모달에서 기존 PK 체크·[PK] 표시 복구
+
+### 목적
+- 저장할 DB 테이블 선택 시, 해당 테이블에 이미 잡혀 있던 PK가 체크 디폴트로 보이고, PK 컬럼이었다는 [PK] 표시가 나오도록 함.
+
+### 원인
+- 모달이 열릴 때 컬럼이 아직 로드되지 않아 `targetColumnNamesForPk`가 비어 있는 시점에 `setSelectedPkColumns([])`가 호출되어 기존 PK가 지워짐.
+- 다른 테이블 선택 시에도 폼의 currentPkColumns를 그대로 써서 [PK]가 잘못 표시될 수 있음.
+
+### 완료 작업
+- **TargetTableSelectModal**: `targetColumnNamesForPk.length === 0`일 때는 PK를 비우지 않도록 수정(컬럼 로드 후 동기화만 수행). 선택 테이블이 폼의 현재 테이블(`currentTargetTable`)과 같을 때만 `currentPkColumns`로 체크/동기화하고, [PK] 뱃지는 `effectivePkForDisplay`(같을 때만 currentPkColumns 파싱)로 표시.
+
+### 수정·영향 파일
+- Frontend: TargetTableSelectModal.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: PK를 컬럼매핑 테이블 첫 열로 통합 (PK | 소스→타겟 | 제외)
+
+### 목적
+- PK 설정을 별도 섹션이 아닌 컬럼매핑 테이블 안에서, 각 행 오른쪽에 PK 체크박스와 기존 키 표시([PK])로 통합.
+
+### 완료 작업
+- **TargetTableSelectModal**  
+  - 새 테이블/기존 테이블(소스 매핑 있음): 테이블 헤더 **PK | 소스 컬럼(타입) | → | 타겟 컬럼명 | 제외**. 각 행: PK 체크박스(기존 키면 [PK] 표시), 제외 행은 PK 셀 "—".  
+  - 소스 없음(컬럼 목록만): 테이블 **PK | 선택 | 컬럼(타입)**. 각 행: PK 체크박스 + [PK], 선택(포함) 체크박스, 컬럼명(타입). 상단에 전체 선택/전체 해제 링크 유지.  
+- **CSS**: .etl-target-select-modal__th--pk, __cell--pk, __pk-cell-label, __th--include, __cell--include 추가. PK 관련 스타일을 테이블 셀용으로 정리.
+
+### 수정·영향 파일
+- Frontend: TargetTableSelectModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: PK 컬럼 선택 시 기존 PK 설정 컬럼명 앞 [PK] 표시
+
+### 목적
+- 기존에 PK로 설정돼 있던 컬럼을 체크 해제했을 때 헷갈리지 않도록, 해당 컬럼명 앞에 [PK] 표시.
+
+### 완료 작업
+- **TargetTableSelectModal**: PK 컬럼 선택 영역에서 currentPkColumns에 포함된 컬럼은 이름 앞에 `<span class="etl-target-select-modal__pk-badge">[PK]</span>` 표시. 힌트 문구에 "기존에 PK로 설정돼 있던 컬럼은 이름 앞에 [PK]로 표시됩니다" 추가.
+- **PkColumnsModal**: 동일하게 currentPkColumns에 포함된 컬럼명 앞에 [PK] 뱃지 표시, 안내 문구 추가.
+- **CSS**: .etl-target-select-modal__pk-badge, .etl-pk-modal__pk-badge, .etl-pk-modal__pk-badge-hint 추가(녹색 계열).
+
+### 수정·영향 파일
+- Frontend: TargetTableSelectModal.jsx, PkColumnsModal.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: PK 설정을 테이블선택·컬럼매핑 모달 내로 통합, 목록 PK 모달은 체크박스만
+
+### 목적
+- ETL 목록에 PK 설정 버튼이 있어 셀렉트/입력창이 섞여 보이던 점 개선. PK를 테이블선택 및 컬럼매핑 모달 안에서 체크박스로 선택하게 하고, 기존 PK가 있으면 디폴트 선택되게 함.
+- 목록의 "PK 설정" 모달은 이미 등록된 ETL용으로 유지하되, 체크박스만 사용(직접 입력 제거).
+
+### 완료 작업
+- **TargetTableSelectModal**: currentPkColumns prop 추가. 타겟 컬럼 후보 기준 "PK 컬럼 선택" 섹션(체크박스) 추가. 적용 시 onSelect(tableName, columnMapping, pkColumns)로 pkColumns(쉼표 구분 문자열) 전달. targetColumnNamesForPk는 새 테이블/기존 테이블·매핑 유무에 따라 계산, 기존 PK는 currentPkColumns로 초기 선택.
+- **FileUploadForm**: pkColumns state, currentPkColumns 전달, onSelect에서 pkCols 반영, 업로드 시 pk_columns 폼 필드 전송. 설정 요약에 PK 표시.
+- **DbConnectionForm**: pkColumns state, currentPkColumns 전달, onSelect에서 pkCols 반영, create 시 pk_columns 전달. 설정 요약에 PK 표시.
+- **Backend**: POST upload에 pk_columns Form 파라미터 추가, create_etl_table에 전달.
+- **PkColumnsModal**: fallback 직접 입력 제거. 컬럼이 없을 때는 안내 문구만 표시, 저장 버튼 비활성화. 기존 PK는 currentPkColumns로 체크박스 디폴트 유지.
+- **CSS**: .etl-target-select-modal__pk-wrap, __pk-label, __pk-checkbox 추가.
+
+### 수정·영향 파일
+- Frontend: TargetTableSelectModal.jsx, FileUploadForm.jsx, DbConnectionForm.jsx, PkColumnsModal.jsx, etl.css
+- Backend: etl_server2/router.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL 목록에 저장 DB 컬럼 표시
+
+### 목적
+- ETL 목록에서 어느 DB에 적재되는지(저장 DB) 한눈에 보이도록 함.
+
+### 완료 작업
+- **Backend**: list_etl_tables()에서 etl_storage_connections를 LEFT JOIN해 storage_connection_name 반환. null이면 기본 DB.
+- **Frontend**: ETLTableList 테이블에 "저장 DB" 열 추가. storage_connection_name이 있으면 해당 이름, 없으면 "기본 DB" 표시. 툴팁에 "저장 DB: 이름" / "기본 DB (ibank_db)".
+- **CSS**: .etl-table-list__th-storage, .etl-table-list__cell-storage에 연결 열과 동일한 max-width·ellipsis 적용.
+
+### 수정·영향 파일
+- Backend/etl_server2/service.py, Frontend/packages/etl2/components/ETLTableList.jsx, etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 파일 업로드 드래그앤드롭 영역 크기 복구
+
+### 목적
+- 파일 업로드 폼에서 드래그앤드롭 존이 너무 작아 보기 안 좋던 현상 수정.
+
+### 원인
+- 왼쪽 컬럼(.etl-file-form__step-block)에 flex 비율이 없어 너비가 내용만큼만 잡히고, 그 안의 드롭존이 50%만 쓰도록 되어 있어 전체적으로 좁게 보임.
+
+### 완료 작업
+- **.etl-file-form__step-block**: flex: 0 0 50%, min-width: 280px 지정 → 레이아웃에서 왼쪽이 전체의 절반을 차지하도록 함.
+- **.etl-file-form__drop-zone**: flex: 0 0 50% 제거, width: 100%, min-height: 220px, box-sizing: border-box → step-block 안에서 넓게 채우고 최소 높이 확보.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 DB 연결 ETL에서 "데이터 추가" 버튼 제거
+
+### 목적
+- DB 연결 ETL은 이미 전체/증분이 정해져 있어 "데이터 추가" 기능이 불필요. 파일 업로드 ETL에만 해당 버튼 표시.
+
+### 완료 작업
+- **ETLTableList**: "데이터 추가" 버튼을 파일 소스일 때만 표시 (`onAddFile && !isDbSource`). DB 연결(postgresql/mysql/oracle) 소스에는 미표시.
+- **ETLPage**: onAddFile을 파일만 호출되므로 모달 열기만 하도록 단순화(DB 분기 제거).
+- **도움말**: "데이터 추가" 설명을 "파일 소스만 표시… DB 연결은 전체/증분이 이미 정해져 있어 별도 버튼 없음"으로 수정. PK 미설정 실행 확인 메시지를 "파일 ETL의 경우…"로 조정.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/components/ETLTableList.jsx, ETLPage.jsx
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 미리보기에 컬럼 매핑(제외 반영) 적용
+
+### 목적
+- ETL 등록 시 컬럼 2개 제외 등으로 설정해도 미리보기에서 전체 컬럼이 보이던 문제 해결. 세팅한 ETL(column_mapping)대로만 표시.
+
+### 완료 작업
+- **preview_service**: `get_preview` 시 ETL 행의 `column_mapping`이 있으면 파일/DB 소스 모두 해당 매핑만 사용. `_normalize_mapping`으로 (source, target, type) 리스트 정규화(문자열이면 json.loads). 파일: 매핑에 있는 소스만, 타겟명·순서로 columns/preview_columns/preview_rows 구성. DB: SELECT 컬럼을 매핑 소스로 제한, 동일하게 타겟명·순서로 반환. 매핑 없으면 기존처럼 전체 컬럼 표시.
+
+### 수정·영향 파일
+- Backend/etl_server2/preview_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL2 DB 연결 소스 컬럼 최신 반영(모달 열 때 재조회)
+
+### 목적
+- 연결된 DB에서 소스 테이블을 선택한 뒤 타겟 테이블/컬럼 매핑 모달을 열었을 때, DB에 최근 추가·변경된 컬럼이 보이지 않는 문제 해결.
+
+### 원인
+- 소스 컬럼은 연결·소스 테이블이 바뀔 때만 API로 로드됨. 같은 연결·같은 테이블을 유지한 채로 DB만 수정하면 프론트 상태가 갱신되지 않음.
+
+### 완료 작업
+- **DbConnectionForm**: "테이블선택 및 컬럼매핑" 클릭 시, 연결·소스 테이블이 있으면 `etl2GetSourceColumns`를 먼저 다시 호출해 소스 컬럼을 최신으로 불러온 뒤 모달을 연다. 버튼에 `refetchingSourceForModal` 상태로 "컬럼 새로고침 중…" 표시 및 비활성화.
+
+### 수정·영향 파일
+- Frontend: packages/etl2/components/DbConnectionForm.jsx
+- docs/report/log.md
+
+---
+
 ## 2026-02-23: ETL2 테이블선택 모달 폭 확대 + 새 테이블 생성 시 컬럼 제외 기능
 
 ### 목적

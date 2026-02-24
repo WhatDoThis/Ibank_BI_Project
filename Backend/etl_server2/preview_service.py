@@ -14,7 +14,7 @@ Backend.etl_server.preview_service (ETL 미리보기)
 
 [Main]
 ===========
-169 - get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환
+get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. column_mapping 있으면 해당 매핑만 반영(제외 컬럼 미표시, 타겟명·순서로 표시).
 
 [Dependencies]
 =========
@@ -22,6 +22,7 @@ Backend.etl_server.preview_service (ETL 미리보기)
 - pandas
 """
 
+import json
 import re
 from datetime import date, datetime
 from typing import Any, List, Optional
@@ -68,6 +69,30 @@ def _serialize_row(obj: Any) -> Any:
     return obj
 
 
+def _normalize_mapping(column_mapping: Any) -> List[tuple]:
+    """column_mapping을 [(source, target, type), ...] 리스트로 정규화. 유효한 항목만."""
+    if column_mapping is None:
+        return []
+    if isinstance(column_mapping, str):
+        try:
+            column_mapping = json.loads(column_mapping)
+        except Exception:
+            return []
+    if not isinstance(column_mapping, list):
+        return []
+    out = []
+    for m in column_mapping:
+        if not isinstance(m, dict):
+            continue
+        s = (m.get("source") or "").strip()
+        t = (m.get("target") or "").strip()
+        if not s or not t:
+            continue
+        ty = (m.get("type") or "TEXT").strip().upper() or "TEXT"
+        out.append((s, t, ty))
+    return out
+
+
 def _preview_file(row: dict) -> dict:
     import pandas as pd
     file_path = row.get("file_path")
@@ -76,42 +101,40 @@ def _preview_file(row: dict) -> dict:
         raise ValueError("file_path, file_type이 필요합니다.")
     df = _read_file_preview(file_path, file_type, max_rows=10)
     if df.empty:
-        return {"columns": [], "preview_rows": [], "source_type": "file"}
+        return {"columns": [], "preview_rows": [], "preview_columns": [], "source_type": "file"}
 
-    used = set()
-    normalized_names = []
-    for col in df.columns:
-        base = str(col).strip() or "unnamed"
-        base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
-        name = base
-        idx = 0
-        while name in used:
-            idx += 1
-            name = f"{base}_{idx}"
-        used.add(name)
-        normalized_names.append(name)
-    df.columns = normalized_names
-
-    columns_out = []
-    for col in df.columns:
-        dtype = schema_infer._dtype_to_inferred(df[col].dtype)
-        pg_t = _pg_type(dtype)
-        can_save, reason = _check_column_save(str(col))
-        columns_out.append({
-            "name": str(col),
-            "inferred_type": pg_t,
-            "can_save": can_save,
-            "reason": reason,
-        })
-
-    rows = df.replace({pd.NA: None}).to_dict("records")
-    preview_rows = [[_serialize_row(r.get(c)) for c in df.columns] for r in rows]
-    col_names = list(df.columns)
+    # 컬럼명 정규화하지 않음: column_mapping의 source는 추론 스키마(파일 원본 컬럼명)와 동일해야 하므로, df.columns를 바꾸면 매칭이 깨져 미리보기가 비어 버림.
+    column_mapping = _normalize_mapping(row.get("column_mapping"))
+    if column_mapping:
+        # ETL에 설정된 컬럼 매핑만 사용: 소스명이 df에 있는 것만, 매핑 순서 유지
+        mapping_filtered = [(s, t, ty) for s, t, ty in column_mapping if s in df.columns]
+        preview_columns = [t for s, t, ty in mapping_filtered]
+        columns_out = []
+        for s, t, ty in mapping_filtered:
+            can_save, reason = _check_column_save(t)
+            columns_out.append({"name": t, "inferred_type": ty, "can_save": can_save, "reason": reason})
+        rows = df.replace({pd.NA: None}).to_dict("records")
+        preview_rows = [[_serialize_row(r.get(s)) for s, t, ty in mapping_filtered] for r in rows]
+    else:
+        columns_out = []
+        for col in df.columns:
+            dtype = schema_infer._dtype_to_inferred(df[col].dtype)
+            pg_t = _pg_type(dtype)
+            can_save, reason = _check_column_save(str(col))
+            columns_out.append({
+                "name": str(col),
+                "inferred_type": pg_t,
+                "can_save": can_save,
+                "reason": reason,
+            })
+        rows = df.replace({pd.NA: None}).to_dict("records")
+        preview_rows = [[_serialize_row(r.get(c)) for c in df.columns] for r in rows]
+        preview_columns = list(df.columns)
 
     return {
         "columns": columns_out,
         "preview_rows": preview_rows,
-        "preview_columns": col_names,
+        "preview_columns": preview_columns,
         "source_type": "file",
     }
 
@@ -183,10 +206,25 @@ def _preview_db(row: dict) -> dict:
             conn.close()
         except Exception:
             pass
-        return {"columns": [], "preview_rows": [], "source_type": "db"}
+        return {"columns": [], "preview_rows": [], "preview_columns": [], "source_type": "db"}
 
     col_names = [c[0] for c in columns]
-    select_list = ", ".join(_quote(c) for c in col_names)
+    column_mapping = _normalize_mapping(row.get("column_mapping"))
+    if column_mapping:
+        mapping_filtered = [(s, t, ty) for s, t, ty in column_mapping if s in col_names]
+        select_cols = [s for s, t, ty in mapping_filtered]
+    else:
+        mapping_filtered = []
+        select_cols = col_names
+
+    if not select_cols:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {"columns": [], "preview_rows": [], "preview_columns": [], "source_type": "db"}
+
+    select_list = ", ".join(_quote(c) for c in select_cols)
     cur = conn.cursor()
     if stype == "oracle":
         cur.execute(f"SELECT {select_list} FROM {quoted_src} FETCH FIRST 10 ROWS ONLY")
@@ -197,24 +235,35 @@ def _preview_db(row: dict) -> dict:
     conn.close()
 
     if stype in ("mysql", "oracle"):
-        rows = [dict(zip(col_names, r)) for r in rows]
+        rows = [dict(zip(select_cols, r)) for r in rows]
+    else:
+        rows = [dict(zip(select_cols, r)) for r in rows]
 
-    columns_out = []
-    for col_name, data_type in columns:
-        pg_t = type_mapper(data_type)
-        can_save, reason = _check_column_save(col_name)
-        columns_out.append({
-            "name": col_name,
-            "inferred_type": pg_t,
-            "can_save": can_save,
-            "reason": reason,
-        })
+    if column_mapping and mapping_filtered:
+        preview_columns = [t for s, t, ty in mapping_filtered]
+        columns_out = []
+        for s, t, ty in mapping_filtered:
+            can_save, reason = _check_column_save(t)
+            columns_out.append({"name": t, "inferred_type": ty, "can_save": can_save, "reason": reason})
+        preview_rows = [[_serialize_row(r.get(s)) for s, t, ty in mapping_filtered] for r in rows]
+    else:
+        preview_columns = col_names
+        columns_out = []
+        for col_name, data_type in columns:
+            pg_t = type_mapper(data_type)
+            can_save, reason = _check_column_save(col_name)
+            columns_out.append({
+                "name": col_name,
+                "inferred_type": pg_t,
+                "can_save": can_save,
+                "reason": reason,
+            })
+        preview_rows = [[_serialize_row(r.get(c)) for c in col_names] for r in rows]
 
-    preview_rows = [[_serialize_row(r.get(c)) for c in col_names] for r in rows]
     return {
         "columns": columns_out,
         "preview_rows": preview_rows,
-        "preview_columns": col_names,
+        "preview_columns": preview_columns,
         "source_type": "db",
     }
 

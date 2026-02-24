@@ -12,14 +12,16 @@
  * - sourceColumns 있을 때: 소스별 매핑 행(드롭다운), 타입 호환 검사, 적용 시 onSelect(tableName, columnMapping)
  * - "새 테이블로 만들기" 선택 시 모달 내 "새 테이블명" 입력란 표시, 적용 시 newTableName 사용(폼에는 타겟 입력란 없음)
  * - 새 테이블 모드: 소스별 타겟 컬럼명 입력 + "제외" 체크(적재에서 빼기). 전부 제외 시 적용 비활성화.
- * - sourceColumns 없을 때: 체크박스로 적재 컬럼 선택, 적용 시 source=target 매핑 반환
+ * - PK: 별도 섹션 없음. 매핑 테이블 첫 열이 "PK"(체크박스 + 기존 키면 [PK] 표시). 새 테이블/기존 매핑: PK | 소스→타겟 | 제외. 소스 없음: PK | 선택 | 컬럼(타입).
+ * - onSelect(tableName, columnMapping, pkColumns). currentPkColumns로 기존 PK 디폴트 선택.
+ * - sourceColumns 없을 때: 테이블(PK | 선택 | 컬럼), 전체선택/해제 링크, 적용 시 source=target 매핑 반환
  *
  * [Dependencies]
  * =========
  * - React, @/shared/api/client (etl2ListTargetTables, etl2ListTargetColumns)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { etl2ListTargetTables, etl2ListTargetColumns } from '@/shared/api/client';
 
 /** 소스/타겟 타입을 하나의 "패밀리"로 정규화. 호환 여부는 같은 패밀리만 허용 */
@@ -48,11 +50,32 @@ function inferredTypeToPg(typeStr) {
 
 const NEW_TABLE_VALUE = '__new__';
 
+/** 형변환 실패 시 선택 옵션 (모달 내 const TDZ 방지를 위해 모듈 스코프) */
+const ON_ERROR_OPTIONS = [
+  { value: 'null', label: 'NULL' },
+  { value: 'zero', label: '0/빈값' },
+  { value: 'keep', label: '원본 유지' },
+  { value: 'skip_row', label: '행 제외' },
+  { value: 'fail', label: '실패' }
+];
+
+/** mappingOnError에서 sourceKey에 해당하는 on_error 값 반환 (모듈 스코프로 TDZ 방지) */
+function getOnErrorValue(map, sourceKey) {
+  if (!map || typeof map !== 'object') return 'null';
+  const v = map[sourceKey];
+  return (v != null ? String(v) : 'null').trim().replace(/\s/g, '') || 'null';
+}
+
 /** sourceColumns 항목 정규화: { name, type } */
 function normalizeSourceCol(c) {
   const name = (c && (c.name ?? c.column_name)) ? String(c.name ?? c.column_name).trim() : '';
   const type = (c && (c.inferred_type ?? c.data_type)) ? String(c.inferred_type ?? c.data_type).trim() : 'text';
   return { name, type };
+}
+
+function parsePkColumns(str) {
+  if (!str || typeof str !== 'string') return [];
+  return str.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 function TargetTableSelectModal({
@@ -61,6 +84,7 @@ function TargetTableSelectModal({
   storageConnectionId,
   currentTargetTable,
   currentColumnMapping,
+  currentPkColumns,
   sourceColumns: sourceColumnsProp,
   onSelect
 }) {
@@ -74,15 +98,27 @@ function TargetTableSelectModal({
   const [columnsError, setColumnsError] = useState('');
   /** 새 테이블로 만들기일 때 사용할 테이블명 (폼에 입력란 없이 모달에서만 설정) */
   const [newTableName, setNewTableName] = useState('');
+  /** PK로 사용할 타겟 컬럼명 (체크박스) */
+  const [selectedPkColumns, setSelectedPkColumns] = useState([]);
+  /** 새 테이블 모드: 소스별 타겟 컬럼명(입력, 기본=소스명) + 제외 여부 */
+  const [newTableTargetNames, setNewTableTargetNames] = useState({});
+  const [newTableExcluded, setNewTableExcluded] = useState({});
+  /** 컬럼별 형변환 실패 시 정책: null | zero | keep | skip_row | fail */
+  const [mappingOnError, setMappingOnError] = useState({});
+  /** 소스→타겟 매핑 모드: 소스별로 선택한 타겟 컬럼명 (빈 문자열 = 제외) */
+  const [sourceToTarget, setSourceToTarget] = useState({});
 
-  const sid = storageConnectionId === '' || storageConnectionId == null ? null : storageConnectionId;
-  const mapping = Array.isArray(currentColumnMapping) ? currentColumnMapping : [];
+  const prevSelectedTableRef = useRef(selectedTable);
+
+  const sid = useMemo(() => (storageConnectionId === '' || storageConnectionId == null ? null : storageConnectionId), [storageConnectionId]);
+  const mapping = useMemo(() => (Array.isArray(currentColumnMapping) ? currentColumnMapping : []), [currentColumnMapping]);
   const sourceColumns = useMemo(() => {
     const list = Array.isArray(sourceColumnsProp) ? sourceColumnsProp : [];
     return list.map(normalizeSourceCol).filter((c) => c.name);
   }, [sourceColumnsProp]);
 
-  const hasSourceMapping = sourceColumns.length > 0;
+  const hasSourceMapping = useMemo(() => sourceColumns.length > 0, [sourceColumns.length]);
+  const mappingKey = useMemo(() => mapping.map((m) => `${(m && m.source) || ''}:${(m && m.target) || ''}`).join(','), [mapping]);
 
   const loadTables = useCallback(async () => {
     setTablesLoading(true);
@@ -167,12 +203,28 @@ function TargetTableSelectModal({
     setSelectedColumns([]);
   };
 
-  // --- 새 테이블 모드: 소스별 타겟 컬럼명(입력, 기본=소스명) + 제외 여부
-  const [newTableTargetNames, setNewTableTargetNames] = useState({});
-  const [newTableExcluded, setNewTableExcluded] = useState({});
   useEffect(() => {
+    if (open && mapping.length > 0) {
+      const next = {};
+      mapping.forEach((m) => {
+        const s = (m && m.source) ? String(m.source).trim() : '';
+        if (s) next[s] = ((m.on_error != null && m.on_error !== undefined) ? String(m.on_error) : 'null').trim().toLowerCase() || 'null';
+      });
+      setMappingOnError((prev) => (Object.keys(next).length ? { ...prev, ...next } : prev));
+    }
+  }, [open, mappingKey]);
+
+  useEffect(() => {
+    const prev = prevSelectedTableRef.current;
+    prevSelectedTableRef.current = selectedTable;
     if (selectedTable !== NEW_TABLE_VALUE || !sourceColumns.length) return;
-    if (mapping.length > 0) {
+    const cameFromExistingTable = prev && prev !== '' && prev !== NEW_TABLE_VALUE;
+    if (cameFromExistingTable) {
+      const next = {};
+      sourceColumns.forEach((src) => { next[src.name] = src.name; });
+      setNewTableTargetNames(next);
+      setNewTableExcluded({});
+    } else if (mapping.length > 0) {
       const next = {};
       const excluded = {};
       sourceColumns.forEach((src) => {
@@ -199,8 +251,6 @@ function TargetTableSelectModal({
     setNewTableExcluded((prev) => ({ ...prev, [sourceName]: excluded }));
   };
 
-  // --- 소스→타겟 매핑 모드: 소스별로 선택한 타겟 컬럼명 (빈 문자열 = 제외)
-  const [sourceToTarget, setSourceToTarget] = useState({});
   const targetColByName = useMemo(() => {
     const m = {};
     (columns || []).forEach((c) => {
@@ -251,8 +301,6 @@ function TargetTableSelectModal({
     return result;
   }, [sourceColumns, columns]);
 
-  const mappingKey = useMemo(() => mapping.map((m) => `${(m && m.source) || ''}:${(m && m.target) || ''}`).join(','), [mapping]);
-
   useEffect(() => {
     if (!hasSourceMapping || !columns.length) {
       setSourceToTarget({});
@@ -290,9 +338,53 @@ function TargetTableSelectModal({
     setSourceToTarget((prev) => ({ ...prev, [sourceName]: targetColumnName }));
   };
 
-  const newTableAllExcluded = selectedTable === NEW_TABLE_VALUE && sourceColumns.length > 0 && sourceColumns.every((src) => newTableExcluded[src.name]);
+  const newTableAllExcluded = useMemo(
+    () => selectedTable === NEW_TABLE_VALUE && sourceColumns.length > 0 && sourceColumns.every((src) => newTableExcluded[src.name]),
+    [selectedTable, sourceColumns, newTableExcluded]
+  );
 
-  function handleApply() {
+  /** 적용 시 테이블에 들어갈 타겟 컬럼명 목록 (PK 선택 후보) */
+  const targetColumnNamesForPk = useMemo(() => {
+    if (selectedTable === NEW_TABLE_VALUE && sourceColumns.length > 0) {
+      return sourceColumns
+        .filter((src) => !newTableExcluded[src.name])
+        .map((src) => ((newTableTargetNames[src.name] || src.name).trim().replace(/\s+/g, '_') || src.name))
+        .filter(Boolean);
+    }
+    if (hasSourceMapping && sourceColumns.length > 0 && columns.length > 0) {
+      const names = sourceColumns.map((src) => sourceToTarget[src.name]).filter(Boolean);
+      return [...new Set(names)];
+    }
+    if (columns.length > 0 && selectedColumns.length > 0) {
+      return selectedColumns.slice();
+    }
+    return [];
+  }, [selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, hasSourceMapping, columns.length, sourceToTarget, selectedColumns]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (targetColumnNamesForPk.length === 0) {
+      return;
+    }
+    const isCurrentTable = (selectedTable || '').trim() === (currentTargetTable || '').trim();
+    const current = isCurrentTable ? parsePkColumns(currentPkColumns) : [];
+    const valid = current.filter((n) => targetColumnNamesForPk.includes(n));
+    setSelectedPkColumns(valid);
+  }, [open, currentPkColumns, currentTargetTable, selectedTable, targetColumnNamesForPk.join(',')]);
+
+  /** 선택된 테이블이 폼의 현재 테이블과 같을 때만 기존 PK 표시([PK] 뱃지용) */
+  const effectivePkForDisplay = useMemo(() => {
+    const isCurrentTable = (selectedTable || '').trim() === (currentTargetTable || '').trim();
+    return isCurrentTable ? parsePkColumns(currentPkColumns) : [];
+  }, [selectedTable, currentTargetTable, currentPkColumns]);
+
+  const togglePkColumn = (name) => {
+    setSelectedPkColumns((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  };
+
+  const handleApply = useCallback(() => {
     if (selectedTable === NEW_TABLE_VALUE) {
       const tableName = (newTableName || '').trim().replace(/\s+/g, '_') || (currentTargetTable || '').trim() || 'new_table';
       if (!tableName) return;
@@ -301,9 +393,11 @@ function TargetTableSelectModal({
         .map((src) => ({
           source: src.name,
           target: (newTableTargetNames[src.name] || src.name).trim().replace(/\s+/g, '_') || src.name,
-          type: inferredTypeToPg(src.type)
+          type: inferredTypeToPg(src.type),
+          on_error: getOnErrorValue(mappingOnError, src.name)
         }));
-      if (onSelect) onSelect(tableName, columnMapping);
+      const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
+      if (onSelect) onSelect(tableName, columnMapping, pkCols);
       onClose();
       return;
     }
@@ -321,23 +415,34 @@ function TargetTableSelectModal({
         columnMapping.push({
           source: src.name,
           target: targetName,
-          type: (tgtCol.data_type && String(tgtCol.data_type).toUpperCase()) || 'TEXT'
+          type: (tgtCol.data_type && String(tgtCol.data_type).toUpperCase()) || 'TEXT',
+          on_error: getOnErrorValue(mappingOnError, src.name)
         });
       });
-      if (onSelect) onSelect(tableName, columnMapping);
+      const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
+      if (onSelect) onSelect(tableName, columnMapping, pkCols);
       onClose();
       return;
     }
 
     const selectedList = (columns || []).filter((c) => selectedColumns.includes((c && c.column_name) ? String(c.column_name) : ''));
-    const columnMapping = selectedList.map((c) => ({
-      source: (c && c.column_name) ? String(c.column_name) : '',
-      target: (c && c.column_name) ? String(c.column_name) : '',
-      type: (c && c.data_type) ? String(c.data_type).toUpperCase() : 'TEXT'
-    }));
-    if (onSelect) onSelect(tableName, columnMapping);
+    const columnMapping = selectedList.map((c) => {
+      const name = (c && c.column_name) ? String(c.column_name) : '';
+      return {
+        source: name,
+        target: name,
+        type: (c && c.data_type) ? String(c.data_type).toUpperCase() : 'TEXT',
+        on_error: getOnErrorValue(mappingOnError, name)
+      };
+    });
+    const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
+    if (onSelect) onSelect(tableName, columnMapping, pkCols);
     onClose();
-  }
+  }, [
+    selectedTable, newTableName, currentTargetTable, sourceColumns, newTableExcluded, newTableTargetNames,
+    mappingOnError, targetColumnNamesForPk, selectedPkColumns, onSelect, onClose,
+    hasSourceMapping, columns, sourceToTarget, targetColByName, selectedColumns
+  ]);
 
   if (!open) return null;
 
@@ -351,7 +456,7 @@ function TargetTableSelectModal({
         </div>
         <div className="etl-target-select-modal__body">
           <p className="etl-target-select-modal__intro">
-            아래에서 <strong>저장할 DB</strong>에 있는 테이블을 고르고, 필요하면 소스 컬럼을 타겟 컬럼에 맞춰 주세요. &quot;적용&quot;을 누르면 테이블명과 매핑이 저장됩니다.
+            아래에서 <strong>저장할 DB</strong>에 있는 테이블을 고르고, 필요하면 소스 컬럼을 타겟 컬럼에 맞춰 주세요. 숫자/날짜 등 타입이 다를 때는 <strong>변환 실패 시</strong>에서 NULL·0·원본 유지·행 제외·실패 중 동작을 선택할 수 있습니다. &quot;적용&quot;을 누르면 테이블명과 매핑이 저장됩니다.
           </p>
           <div className="etl-target-select-modal__row">
             <label className="etl-target-select-modal__label">저장 DB 테이블</label>
@@ -395,47 +500,83 @@ function TargetTableSelectModal({
               <label className="etl-target-select-modal__label">소스 → 타겟 컬럼 매핑 (타입이 다른 경우 매핑 불가)</label>
               {selectedTable === NEW_TABLE_VALUE ? (
                 <>
-                  <p className="etl-target-select-modal__hint">새 테이블 컬럼명을 정하세요. 그대로 쓰거나 변경할 수 있습니다. 적재에서 빼고 싶은 컬럼은 &quot;제외&quot;를 체크하세요. 테이블명은 위에서 입력한 이름으로 생성됩니다.</p>
+                  <p className="etl-target-select-modal__hint">새 테이블 컬럼명을 정하세요. PK로 쓸 컬럼은 PK 체크, 적재에서 빼려면 제외를 체크하세요. 기존 PK로 설정돼 있던 컬럼은 [PK]로 표시됩니다.</p>
                   <div className="etl-target-select-modal__mapping-wrap">
                     <table className="etl-target-select-modal__mapping-table">
                       <thead>
                         <tr>
+                          <th className="etl-target-select-modal__th--pk">PK</th>
                           <th>소스 컬럼 (타입)</th>
                           <th>→</th>
                           <th>타겟 컬럼명</th>
+                          <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
                           <th className="etl-target-select-modal__th--exclude">제외</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sourceColumns.map((src) => (
-                          <tr key={src.name} className={newTableExcluded[src.name] ? 'etl-target-select-modal__row--excluded' : ''}>
-                            <td className="etl-target-select-modal__mapping-source">
-                              <span className="etl-target-select-modal__column-name">{src.name}</span>
-                              <span className="etl-target-select-modal__column-type"> ({src.type})</span>
-                            </td>
-                            <td className="etl-target-select-modal__mapping-arrow">→</td>
-                            <td className="etl-target-select-modal__mapping-target">
-                              <input
-                                type="text"
-                                value={newTableTargetNames[src.name] ?? src.name}
-                                onChange={(e) => setNewTableTargetNames((prev) => ({ ...prev, [src.name]: e.target.value }))}
-                                placeholder={src.name}
-                                className="etl-target-select-modal__input--target-name"
-                                disabled={!!newTableExcluded[src.name]}
-                              />
-                            </td>
-                            <td className="etl-target-select-modal__cell--exclude">
-                              <label className="etl-target-select-modal__exclude-label">
+                        {sourceColumns.map((src) => {
+                          const targetColName = ((newTableTargetNames[src.name] ?? src.name).trim().replace(/\s+/g, '_') || src.name);
+                          const excluded = !!newTableExcluded[src.name];
+                          const wasPk = effectivePkForDisplay.includes(targetColName);
+                          return (
+                            <tr key={src.name} className={excluded ? 'etl-target-select-modal__row--excluded' : ''}>
+                              <td className="etl-target-select-modal__cell--pk">
+                                {excluded ? (
+                                  '—'
+                                ) : (
+                                  <label className="etl-target-select-modal__pk-cell-label">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedPkColumns.includes(targetColName)}
+                                      onChange={() => togglePkColumn(targetColName)}
+                                      className="etl-target-select-modal__pk-checkbox"
+                                    />
+                                    {wasPk && <span className="etl-target-select-modal__pk-badge">[PK]</span>}
+                                  </label>
+                                )}
+                              </td>
+                              <td className="etl-target-select-modal__mapping-source">
+                                <span className="etl-target-select-modal__column-name">{src.name}</span>
+                                <span className="etl-target-select-modal__column-type"> ({src.type})</span>
+                              </td>
+                              <td className="etl-target-select-modal__mapping-arrow">→</td>
+                              <td className="etl-target-select-modal__mapping-target">
                                 <input
-                                  type="checkbox"
-                                  checked={!!newTableExcluded[src.name]}
-                                  onChange={(e) => setNewTableExcludedFor(src.name, e.target.checked)}
+                                  type="text"
+                                  value={newTableTargetNames[src.name] ?? src.name}
+                                  onChange={(e) => setNewTableTargetNames((prev) => ({ ...prev, [src.name]: e.target.value }))}
+                                  placeholder={src.name}
+                                  className="etl-target-select-modal__input--target-name"
+                                  disabled={!!newTableExcluded[src.name]}
                                 />
-                                <span>제외</span>
-                              </label>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td className="etl-target-select-modal__cell--on-error">
+                                {excluded ? '—' : (
+                                  <select
+                                    value={getOnErrorValue(mappingOnError, src.name)}
+                                    onChange={(e) => setMappingOnError((prev) => ({ ...prev, [src.name]: e.target.value }))}
+                                    className="etl-target-select-modal__select--on-error"
+                                    title="형변환 실패 시 NULL·0·원본 유지·행 제외·실패 중 선택"
+                                  >
+                                    {ON_ERROR_OPTIONS.map((o) => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </td>
+                              <td className="etl-target-select-modal__cell--exclude">
+                                <label className="etl-target-select-modal__exclude-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!newTableExcluded[src.name]}
+                                    onChange={(e) => setNewTableExcludedFor(src.name, e.target.checked)}
+                                  />
+                                  <span>제외</span>
+                                </label>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -451,40 +592,75 @@ function TargetTableSelectModal({
                   <table className="etl-target-select-modal__mapping-table">
                     <thead>
                       <tr>
+                        <th className="etl-target-select-modal__th--pk">PK</th>
                         <th>소스 컬럼 (타입)</th>
                         <th>→</th>
                         <th>타겟 컬럼</th>
+                        <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {sourceColumns.map((src) => (
-                        <tr key={src.name}>
-                          <td className="etl-target-select-modal__mapping-source">
-                            <span className="etl-target-select-modal__column-name">{src.name}</span>
-                            <span className="etl-target-select-modal__column-type"> ({src.type})</span>
-                          </td>
-                          <td className="etl-target-select-modal__mapping-arrow">→</td>
-                          <td className="etl-target-select-modal__mapping-target">
-                            <select
-                              value={sourceToTarget[src.name] ?? ''}
-                              onChange={(e) => setMappingForSource(src.name, e.target.value)}
-                              className="etl-target-select-modal__select etl-target-select-modal__select--mapping"
-                            >
-                              <option value="">제외</option>
-                              {(columns || []).map((c) => {
-                                const name = (c && c.column_name) ? String(c.column_name) : '';
-                                const dtype = (c && c.data_type) ? String(c.data_type) : '';
-                                const compatible = isTypeCompatible(src.type, dtype);
-                                return (
-                                  <option key={name} value={name} disabled={!compatible}>
-                                    {name} ({dtype}){compatible ? '' : ' — 타입 불일치'}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
+                      {sourceColumns.map((src) => {
+                        const targetColName = sourceToTarget[src.name] ?? '';
+                        const wasPk = targetColName && effectivePkForDisplay.includes(targetColName);
+                        return (
+                          <tr key={src.name}>
+                            <td className="etl-target-select-modal__cell--pk">
+                              {!targetColName ? (
+                                '—'
+                              ) : (
+                                <label className="etl-target-select-modal__pk-cell-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedPkColumns.includes(targetColName)}
+                                    onChange={() => togglePkColumn(targetColName)}
+                                    className="etl-target-select-modal__pk-checkbox"
+                                  />
+                                  {wasPk && <span className="etl-target-select-modal__pk-badge">[PK]</span>}
+                                </label>
+                              )}
+                            </td>
+                            <td className="etl-target-select-modal__mapping-source">
+                              <span className="etl-target-select-modal__column-name">{src.name}</span>
+                              <span className="etl-target-select-modal__column-type"> ({src.type})</span>
+                            </td>
+                            <td className="etl-target-select-modal__mapping-arrow">→</td>
+                            <td className="etl-target-select-modal__mapping-target">
+                              <select
+                                value={targetColName}
+                                onChange={(e) => setMappingForSource(src.name, e.target.value)}
+                                className="etl-target-select-modal__select etl-target-select-modal__select--mapping"
+                              >
+                                <option value="">제외</option>
+                                {(columns || []).map((c) => {
+                                  const name = (c && c.column_name) ? String(c.column_name) : '';
+                                  const dtype = (c && c.data_type) ? String(c.data_type) : '';
+                                  const compatible = isTypeCompatible(src.type, dtype);
+                                  return (
+                                    <option key={name} value={name} disabled={!compatible}>
+                                      {name} ({dtype}){compatible ? '' : ' — 타입 불일치'}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </td>
+                            <td className="etl-target-select-modal__cell--on-error">
+                              {!targetColName ? '—' : (
+                                <select
+                                  value={getOnErrorValue(mappingOnError, src.name)}
+                                  onChange={(e) => setMappingOnError((prev) => ({ ...prev, [src.name]: e.target.value }))}
+                                  className="etl-target-select-modal__select--on-error"
+                                  title="형변환 실패 시 NULL·0·원본 유지·행 제외·실패 중 선택"
+                                >
+                                  {ON_ERROR_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -492,7 +668,7 @@ function TargetTableSelectModal({
             </div>
           ) : (
             <div className="etl-target-select-modal__row">
-              <label className="etl-target-select-modal__label">컬럼 매핑 (적재할 컬럼 선택 — 선택한 컬럼은 소스→타겟 동일명으로 매핑)</label>
+              <label className="etl-target-select-modal__label">컬럼 매핑 (적재할 컬럼 선택 — 선택한 컬럼은 소스→타겟 동일명으로 매핑. PK로 쓸 컬럼은 PK 체크.)</label>
               {columnsLoading ? (
                 <p className="etl-target-select-modal__loading">컬럼 목록 로딩 중…</p>
               ) : columnsError ? (
@@ -500,33 +676,73 @@ function TargetTableSelectModal({
               ) : columns.length === 0 ? (
                 <p className="etl-target-select-modal__hint">테이블을 선택하면 컬럼 목록이 표시됩니다.</p>
               ) : (
-                <div className="etl-target-select-modal__columns">
+                <>
                   <div className="etl-target-select-modal__column-actions">
                     <button type="button" className="etl-target-select-modal__btn-link" onClick={selectAllColumns}>전체 선택</button>
                     <span className="etl-target-select-modal__sep">|</span>
                     <button type="button" className="etl-target-select-modal__btn-link" onClick={clearAllColumns}>전체 해제</button>
                   </div>
-                  <ul className="etl-target-select-modal__column-list">
-                    {columns.map((c) => {
-                      const name = (c && c.column_name) ? String(c.column_name) : '';
-                      const dtype = (c && c.data_type) ? String(c.data_type) : '';
-                      const checked = selectedColumns.includes(name);
-                      return (
-                        <li key={name} className="etl-target-select-modal__column-item">
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleColumn(name)}
-                            />
-                            <span className="etl-target-select-modal__column-name">{name}</span>
-                            {dtype && <span className="etl-target-select-modal__column-type"> ({dtype})</span>}
-                          </label>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div className="etl-target-select-modal__mapping-wrap">
+                    <table className="etl-target-select-modal__mapping-table etl-target-select-modal__mapping-table--no-source">
+                      <thead>
+                        <tr>
+                          <th className="etl-target-select-modal__th--pk">PK</th>
+                          <th className="etl-target-select-modal__th--include">선택</th>
+                          <th>컬럼 (타입)</th>
+                          <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
+                        </tr>
+                      </thead>
+                    <tbody>
+                      {columns.map((c) => {
+                        const name = (c && c.column_name) ? String(c.column_name) : '';
+                        const dtype = (c && c.data_type) ? String(c.data_type) : '';
+                        const checked = selectedColumns.includes(name);
+                        const wasPk = effectivePkForDisplay.includes(name);
+                        return (
+                          <tr key={name}>
+                            <td className="etl-target-select-modal__cell--pk">
+                              <label className="etl-target-select-modal__pk-cell-label">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPkColumns.includes(name)}
+                                  onChange={() => togglePkColumn(name)}
+                                  className="etl-target-select-modal__pk-checkbox"
+                                />
+                                {wasPk && <span className="etl-target-select-modal__pk-badge">[PK]</span>}
+                              </label>
+                            </td>
+                            <td className="etl-target-select-modal__cell--include">
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleColumn(name)}
+                                />
+                              </label>
+                            </td>
+                            <td className="etl-target-select-modal__mapping-source">
+                              <span className="etl-target-select-modal__column-name">{name}</span>
+                              {dtype && <span className="etl-target-select-modal__column-type"> ({dtype})</span>}
+                            </td>
+                            <td className="etl-target-select-modal__cell--on-error">
+                              <select
+                                value={getOnErrorValue(mappingOnError, name)}
+                                onChange={(e) => setMappingOnError((prev) => ({ ...prev, [name]: e.target.value }))}
+                                className="etl-target-select-modal__select--on-error"
+                                title="형변환 실패 시 NULL·0·원본 유지·행 제외·실패 중 선택"
+                              >
+                                {ON_ERROR_OPTIONS.map((o) => (
+                                  <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
+                </>
               )}
             </div>
           )}

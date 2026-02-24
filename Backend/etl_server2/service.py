@@ -291,15 +291,19 @@ def _connect_postgres(host: str, port: int, database: str, user: str, password: 
         raise
 
 
+# SSCursor 스트리밍 시 fetchmany 간 대기 시간이 길어지면 MySQL 서버가 net_write_timeout으로 연결을 끊을 수 있음. 클라이언트 read/write timeout을 넉넉히 둠.
+_MYSQL_READ_WRITE_TIMEOUT_SEC = 7200
+
+
 def _connect_mysql(host: str, port: int, database: str, user: str, password: str):
-    """외부 MySQL 연결. PyMySQL connection 반환. connect_timeout 적용."""
+    """외부 MySQL 연결. PyMySQL connection 반환. connect_timeout·read_timeout·write_timeout 적용."""
     try:
         import pymysql
     except ImportError:
         raise RuntimeError("MySQL 연결을 위해 PyMySQL이 필요합니다. pip install PyMySQL")
     logger.info(
-        "ETL MySQL 연결 시도: host=%s port=%s database=%s user=%s connect_timeout=%ss",
-        host, port, database, user, _CONNECT_TIMEOUT_SEC,
+        "ETL MySQL 연결 시도: host=%s port=%s database=%s user=%s connect_timeout=%ss read_timeout=%ss",
+        host, port, database, user, _CONNECT_TIMEOUT_SEC, _MYSQL_READ_WRITE_TIMEOUT_SEC,
     )
     try:
         conn = pymysql.connect(
@@ -309,6 +313,8 @@ def _connect_mysql(host: str, port: int, database: str, user: str, password: str
             password=password or "",
             database=database,
             connect_timeout=_CONNECT_TIMEOUT_SEC,
+            read_timeout=_MYSQL_READ_WRITE_TIMEOUT_SEC,
+            write_timeout=_MYSQL_READ_WRITE_TIMEOUT_SEC,
         )
         logger.info("ETL MySQL 연결 성공: host=%s port=%s database=%s", host, port, database)
         return conn
@@ -1122,9 +1128,11 @@ def list_etl_tables() -> list:
                    t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
                    t.column_mapping,
-                   c.connection_name, c.source_type
+                   c.connection_name, c.source_type,
+                   sc.connection_name AS storage_connection_name
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
+            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON sc.storage_connection_id = t.storage_connection_id AND sc.is_active = TRUE
             ORDER BY t.created_at DESC
             """
         )

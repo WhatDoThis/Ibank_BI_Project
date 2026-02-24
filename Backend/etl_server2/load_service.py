@@ -206,17 +206,29 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     except Exception:
         pass
 
-    # Phase 4: column_mapping 있으면 타겟 컬럼/타입·INSERT 순서를 매핑 기준으로 사용
+    # Phase 4: column_mapping 있으면 타겟 컬럼/타입·INSERT 순서를 매핑 기준으로 사용 + 매핑 기반 형변환
     column_mapping = row.get("column_mapping")
     mapping_used: List[dict] = []
     if isinstance(column_mapping, list) and len(column_mapping) > 0:
         for m in column_mapping:
             target_name = (m.get("target") or "").strip()
-            if not target_name:
+            src = (m.get("source") or "").strip()
+            if not target_name or not src:
                 continue
             etl_service._validate_identifier(target_name, "컬럼명")
-            mapping_used.append(m)
+            mapping_used.append({
+                "source": src,
+                "target": target_name,
+                "type": (m.get("type") or "TEXT").strip().upper() or "TEXT",
+                "on_error": (m.get("on_error") or "null").strip().lower() or "null",
+            })
         if mapping_used:
+            try:
+                df = transform_engine.apply_mapping_type_cast(df, mapping_used, default_on_error="null")
+            except ValueError as cast_err:
+                etl_service.update_job(job_id, "failed", error_message=str(cast_err))
+                etl_service.update_etl_table_status(etl_table_id, "error")
+                return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": str(cast_err)}
             columns = [(m.get("target", "").strip(), (m.get("type") or "TEXT").strip().upper() or "TEXT") for m in mapping_used]
         else:
             mapping_used = []

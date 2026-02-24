@@ -335,13 +335,7 @@ function ETLPage() {
             onRun={handleRun}
             onPreview={handlePreview}
             onAddFile={(row) => {
-              const isDbSource = ['postgresql', 'mysql', 'oracle'].includes((row.source_type || '').toLowerCase()) && row.source_table;
-              if (isDbSource) {
-                if (!window.confirm('마지막 동기화 시각 이후 데이터를 가져와 업서트합니다. 진행할까요?')) return;
-                handleRun(row.etl_table_id);
-              } else {
-                setAddFileModal({ open: true, etlTableId: row.etl_table_id, targetTable: row.target_table || '', description: row.description || '' });
-              }
+              setAddFileModal({ open: true, etlTableId: row.etl_table_id, targetTable: row.target_table || '', description: row.description || '' });
             }}
             onDelete={handleRefresh}
             refreshing={refreshKey}

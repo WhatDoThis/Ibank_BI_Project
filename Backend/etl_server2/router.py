@@ -386,6 +386,7 @@ async def upload_file(
     created_by: str = Form("user"),
     storage_connection_id: Optional[int] = Form(None),
     column_mapping: Optional[str] = Form(None),
+    pk_columns: Optional[str] = Form(None),
 ):
     """
     파일 업로드 → 저장 후 스키마 추론.
@@ -393,6 +394,7 @@ async def upload_file(
     label_name은 추후 테이블 마스터에서 관리 예정, 당장은 수신만.
     storage_connection_id: null=기본 DB. Phase 2b에서 적재 분기.
     column_mapping: Phase 4. JSON 문자열 [{source, target, type}, ...].
+    pk_columns: PK 컬럼(쉼표 구분). 테이블선택·컬럼매핑 모달에서 설정한 값.
     """
     try:
         file_path, file_type = _save_upload(file)
@@ -418,6 +420,7 @@ async def upload_file(
                 except (ValueError, TypeError):
                     cm = None
             conn_id = etl_service.get_or_create_file_connection(created_by)
+            pk_cols = (pk_columns or "").strip() or None
             etl_table_id = etl_service.create_etl_table(
                 connection_id=conn_id,
                 target_table=target_table.strip(),
@@ -428,6 +431,7 @@ async def upload_file(
                 file_path=file_path,
                 storage_connection_id=storage_connection_id,
                 column_mapping=cm,
+                pk_columns=pk_cols,
             )
             result["etl_table_id"] = etl_table_id
         except ValueError as e:

@@ -6,11 +6,13 @@ DataFrame에 etl_transform_rules를 apply_order 순으로 적용. cleansing/type
 [Functions]
 ===========
 26 - _apply_cleansing: TRIM, empty_to_null, default_value
-36 - _apply_type_cast: target_type(date/timestamp/integer/bigint/numeric/text), on_error, date_format
-69 - _apply_code_map: mappings, default
-76 - _apply_derived: formula(concat, year_minus), columns/separator, source_column
-97 - _apply_masking: type(right_n/left_n/email_domain), n, char
-136 - apply_rules: (df, rules) → 변환된 DataFrame. is_active=True만, source_column→target_column
+36 - _apply_type_cast: target_type(date/timestamp/integer/bigint/numeric/text), on_error(null|zero|keep), date_format
+69 - _apply_type_cast_with_mask: 변환 + 실패 행 마스크 반환. on_error fail 시 ValueError
+76 - _apply_code_map: mappings, default
+77 - _apply_derived: formula(concat, year_minus), columns/separator, source_column
+98 - _apply_masking: type(right_n/left_n/email_domain), n, char
+137 - apply_rules: (df, rules) → 변환된 DataFrame. is_active=True만, source_column→target_column
+138 - apply_mapping_type_cast: column_mapping의 type·on_error로 소스 컬럼 형변환. skip_row/fail 지원
 
 [Dependencies]
 =========
@@ -34,10 +36,21 @@ def _apply_cleansing(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
 
 
 def _apply_type_cast(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
-    """target_type: date, timestamp, integer, bigint, numeric, text. on_error: null | keep."""
+    """target_type: date, timestamp, integer, bigint, numeric, text. on_error: null | zero | keep."""
     target = (config.get("target_type") or "text").strip().lower()
     on_error = (config.get("on_error") or "null").strip().lower()
     date_fmt = config.get("date_format") or "%Y-%m-%d"
+
+    def _fallback(val, on_err: str):
+        if on_err == "null":
+            return None
+        if on_err == "zero":
+            if target in ("integer", "bigint", "numeric"):
+                return 0 if target == "numeric" else 0
+            if target in ("date", "timestamp"):
+                return None
+            return "" if target == "text" else val
+        return val  # keep
 
     def try_convert(val):
         if pd.isna(val) or val == "":
@@ -58,12 +71,115 @@ def _apply_type_cast(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
             if target == "text":
                 return str(val).strip()
         except Exception:
-            if on_error == "null":
-                return None
-            return val
+            return _fallback(val, on_error)
         return None
 
     return series.map(try_convert)
+
+
+def _apply_type_cast_with_mask(series: pd.Series, config: Dict[str, Any]):
+    """
+    target_type + on_error 적용. 반환: (변환된 Series, 실패한 행 마스크).
+    on_error가 'fail'이면 변환 실패 시 ValueError 발생.
+    """
+    target = (config.get("target_type") or "text").strip().lower()
+    on_error = (config.get("on_error") or "null").strip().lower()
+    date_fmt = config.get("date_format") or "%Y-%m-%d"
+    failed_mask = pd.Series(False, index=series.index)
+
+    def try_convert(val, idx):
+        if pd.isna(val) or val == "":
+            return None
+        try:
+            if target == "integer" or target == "bigint":
+                return int(float(val))
+            if target == "numeric":
+                return float(val)
+            if target == "date":
+                if isinstance(val, datetime):
+                    return val.date() if hasattr(val, "date") else val
+                return datetime.strptime(str(val).strip()[:10], date_fmt).date()
+            if target == "timestamp":
+                if isinstance(val, datetime):
+                    return val
+                return pd.to_datetime(val)
+            if target == "text":
+                return str(val).strip()
+        except Exception as e:
+            if on_error == "fail":
+                raise ValueError(f"행 변환 실패 (인덱스 {idx}, 값: {val!r}): {e}") from e
+            if on_error == "skip_row":
+                failed_mask.at[idx] = True
+                return None
+            if on_error == "null":
+                return None
+            if on_error == "zero":
+                if target in ("integer", "bigint", "numeric"):
+                    return 0
+                if target in ("date", "timestamp"):
+                    return None
+                return "" if target == "text" else val
+            return val  # keep
+        return None
+
+    out = series.copy()
+    for idx in series.index:
+        try:
+            out.at[idx] = try_convert(series.at[idx], idx)
+        except ValueError:
+            raise
+    return out, failed_mask
+
+
+def apply_mapping_type_cast(
+    df: pd.DataFrame,
+    column_mapping: List[Dict[str, Any]],
+    default_on_error: str = "null",
+) -> pd.DataFrame:
+    """
+    column_mapping의 type·on_error에 따라 소스 컬럼을 형변환.
+    on_error: null | zero | keep | skip_row | fail.
+    skip_row면 변환 실패 행 제거, fail이면 첫 실패 시 ValueError.
+    """
+    if df.empty or not column_mapping:
+        return df
+    out = df.copy()
+    drop_mask = pd.Series(False, index=df.index)
+    for m in column_mapping:
+        src = (m.get("source") or "").strip()
+        if not src or src not in out.columns:
+            continue
+        pg_type = (m.get("type") or "TEXT").strip().upper() or "TEXT"
+        target = "text"
+        if pg_type in ("INTEGER", "INT", "BIGINT", "SMALLINT"):
+            target = "bigint"
+        elif pg_type in ("NUMERIC", "DECIMAL", "REAL", "DOUBLE PRECISION", "FLOAT"):
+            target = "numeric"
+        elif pg_type in ("DATE",):
+            target = "date"
+        elif pg_type in ("TIMESTAMP", "TIMESTAMPTZ", "TIME"):
+            target = "timestamp"
+        elif pg_type in ("BOOLEAN", "BOOL"):
+            target = "text"  # keep as text for simplicity; could add boolean
+        on_error = (m.get("on_error") or default_on_error).strip().lower()
+        if on_error not in ("null", "zero", "keep", "skip_row", "fail"):
+            on_error = default_on_error
+        config = {"target_type": target, "on_error": on_error}
+        try:
+            if on_error == "fail":
+                converted, _ = _apply_type_cast_with_mask(out[src], config)
+                out[src] = converted
+            elif on_error == "skip_row":
+                converted, failed = _apply_type_cast_with_mask(out[src], config)
+                out[src] = converted
+                drop_mask = drop_mask | failed
+            else:
+                out[src] = _apply_type_cast(out[src], config)
+        except ValueError:
+            raise
+    if drop_mask.any():
+        out = out.loc[~drop_mask].reset_index(drop=True)
+    return out
 
 
 def _apply_code_map(series: pd.Series, config: Dict[str, Any]) -> pd.Series:

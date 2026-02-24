@@ -6,9 +6,9 @@
  * [Main Functions]
  * ===========
  * - GET /api/etl/tables 목록(batch_size, batch_interval_seconds 포함). GET /api/etl/jobs로 실행 중·대기 중 Job 조회 후 행별 버튼 문구(실행|대기 중|실행 중)
- * - DB 소스(postgresql/mysql/oracle)인 경우 배치 열에 배치 크기·대기 시간, 연결 열에 connection_name(서버 구분), 동기화 열에 full/전체·incremental/증분 표시
+ * - DB 소스(postgresql/mysql/oracle)인 경우 배치 열에 배치 크기·대기 시간, 연결 열에 connection_name(서버 구분), 동기화 열에 full/전체·incremental/증분 표시. 저장 DB 열에 storage_connection_name 또는 기본 DB 표시.
  * - 실행 버튼: PK 미설정 시 confirm("PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?") 후 진행 여부 선택
- * - 동작 안내(?) 모달: 권장 순서 "업로드 → 미리보기 → PK 설정 → 실행" 및 상태별 버튼 설명
+ * - 동작 안내(?) 모달: 권장 순서 및 상태별 버튼 설명. PK는 테이블선택·컬럼매핑에서 설정.
  * - ×(행만 삭제): 기본 비활성화, 동일 타겟 테이블명이 2건 이상일 때만 활성화
  *
  * [Dependencies]
@@ -18,14 +18,12 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { etl2ListTables, etl2ListJobs, etl2DeleteTable, etl2DeleteTableRow } from '@/shared/api/client';
-import PkColumnsModal from './PkColumnsModal';
 
 function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onDelete, queueStatusTrigger }) {
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [queueStatus, setQueueStatus] = useState({});
-  const [pkModal, setPkModal] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const pollRef = useRef(null);
 
@@ -114,6 +112,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             <th>소스</th>
             <th className="etl-table-list__th-batch">배치</th>
             <th className="etl-table-list__th-sync">동기화</th>
+            <th className="etl-table-list__th-storage">저장 DB</th>
             <th>상태</th>
             <th className="etl-table-list__th-actions">
               동작
@@ -166,6 +165,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
               <td>{t.source_table || t.file_path || '—'}</td>
               <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '전체 fetch'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
               <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert' : '전체: DROP+CREATE+INSERT') : undefined}>{syncText}</td>
+              <td className="etl-table-list__cell-storage" title={t.storage_connection_name ? `저장 DB: ${t.storage_connection_name}` : '기본 DB (ibank_db)'}>{t.storage_connection_name ? t.storage_connection_name : '기본 DB'}</td>
               <td className={statusCellClass}>{statusText}</td>
               <td className="etl-table-list__cell-actions">
                 <span className="etl-table-list__actions">
@@ -187,14 +187,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                         className={`etl-table-list__run ${runDisabled ? 'etl-table-list__run--busy' : ''}`}
                         onClick={() => {
                           const hasPk = (t.pk_columns || '').trim().length > 0;
-                          if (!hasPk && !window.confirm('PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?\n(실행 후에는 타겟 테이블에 PK가 없어, 나중에 "데이터 추가" 시 오류가 날 수 있습니다.)')) return;
+                          if (!hasPk && !window.confirm('PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?\n(파일 ETL의 경우 나중에 "데이터 추가" 시 PK가 없으면 오류가 날 수 있습니다.)')) return;
                           onRun(t.etl_table_id);
                         }}
                         disabled={runDisabled}
                       >
                         {runLabel}
                       </button>
-                      {onAddFile && (
+                      {onAddFile && !isDbSource && (
                         <button
                           type="button"
                           className="etl-table-list__add-file"
@@ -204,15 +204,6 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                           데이터 추가
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="etl-table-list__pk-set"
-                        onClick={() => setPkModal({ etlTableId: t.etl_table_id, targetTable: t.target_table, currentPkColumns: t.pk_columns })}
-                        disabled={runDisabled}
-                        title="PK 컬럼 설정 (실행 시 테이블 생성에 반영)"
-                      >
-                        PK 설정
-                      </button>
                     </>
                   ) : (
                     '—'
@@ -256,16 +247,6 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
           })}
         </tbody>
       </table>
-      {pkModal && (
-        <PkColumnsModal
-          open={!!pkModal}
-          onClose={() => setPkModal(null)}
-          etlTableId={pkModal.etlTableId}
-          targetTable={pkModal.targetTable}
-          currentPkColumns={pkModal.currentPkColumns}
-          onSuccess={() => { if (onDelete) onDelete(); load(); }}
-        />
-      )}
       {helpOpen && (
         <div className="etl-help-modal" role="dialog" aria-modal="true" aria-labelledby="etl-help-modal-title">
           <div className="etl-help-modal__backdrop" onClick={() => setHelpOpen(false)} />
@@ -277,16 +258,16 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             <div className="etl-help-modal__body">
               <section className="etl-help-modal__section etl-help-modal__section--order">
                 <h4 className="etl-help-modal__section-title">권장 순서 (파일 ETL)</h4>
-                <p className="etl-help-modal__order">업로드 → 미리보기 → PK 설정 → 실행</p>
-                <p className="etl-help-modal__order-desc">PK를 설정하지 않고 실행하면, 테이블에 PK/UNIQUE가 없어 나중에 "데이터 추가" 시 오류가 발생할 수 있습니다.</p>
+                <p className="etl-help-modal__order">업로드 → 테이블선택·컬럼매핑에서 PK 선택 → 미리보기 → 실행</p>
+                <p className="etl-help-modal__order-desc">테이블선택·컬럼매핑에서 PK를 체크해 두지 않으면, 나중에 &quot;데이터 추가&quot; 시 오류가 날 수 있습니다.</p>
               </section>
               <section className="etl-help-modal__section">
                 <h4 className="etl-help-modal__section-title">draft (아직 실행 안 함)</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 적재 대기열 등록 후 실행.</li>
                   <li><strong>미리보기</strong> — 컬럼·상위 10행 미리보기.</li>
-                  <li><strong>데이터 추가</strong> — DB 연동: 마지막 동기화 시각 이후 데이터를 가져와 업서트. 파일: 업로드한 파일로 같은 테이블에 추가 적재(업서트).</li>
-                  <li><strong>PK 설정</strong> — PK 컬럼 선택. 첫 실행 시 CREATE TABLE에 반영.</li>
+                  <li><strong>데이터 추가</strong> — 파일 소스만 표시. 업로드한 파일로 같은 테이블에 추가 적재(업서트). DB 연결은 전체/증분이 이미 정해져 있어 별도 버튼 없음.</li>
+                  <li><strong>PK</strong> — 테이블선택·컬럼매핑 모달에서 행별 PK 체크로 설정. 첫 실행 시 CREATE TABLE에 반영.</li>
                   <li><strong>삭제</strong> — ETL 삭제 + 타겟 테이블 DROP.</li>
                   <li><strong>×</strong> — 비활성. 동일 타겟 2건 이상일 때만 활성.</li>
                 </ul>
@@ -295,14 +276,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <h4 className="etl-help-modal__section-title">error (실패 후)</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 재시도(대기열 등록).</li>
-                  <li><strong>미리보기</strong> · <strong>데이터 추가</strong> · <strong>PK 설정</strong> · <strong>삭제</strong> · <strong>×</strong> — draft와 동일.</li>
+                  <li><strong>미리보기</strong> · <strong>데이터 추가</strong> · <strong>삭제</strong> · <strong>×</strong> — draft와 동일.</li>
                 </ul>
               </section>
               <section className="etl-help-modal__section">
                 <h4 className="etl-help-modal__section-title">done (적재 완료)</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 다시 실행 시 DROP+CREATE 후 적재(파일) 또는 full/incremental(DB).</li>
-                  <li><strong>PK 설정</strong> — 변경 시 다음 실행·추가 적재부터 반영. 이미 만들어진 테이블 PK는 메인 DB에서 직접 변경.</li>
+                  <li><strong>PK 변경</strong> — 테이블선택·컬럼매핑에서 수정 후 적용하면 다음 실행부터 반영. 이미 만들어진 테이블 PK는 메인 DB에서 직접 변경.</li>
                   <li><strong>미리보기</strong> · <strong>데이터 추가</strong> · <strong>삭제</strong> · <strong>×</strong> — draft와 동일.</li>
                 </ul>
               </section>
@@ -310,7 +291,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <h4 className="etl-help-modal__section-title">실행 중 / 대기 중</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>미리보기</strong> — 사용 가능.</li>
-                  <li><strong>실행</strong> · <strong>데이터 추가</strong> · <strong>PK 설정</strong> · <strong>삭제</strong> · <strong>×</strong> — 모두 비활성.</li>
+                  <li><strong>실행</strong> · <strong>데이터 추가</strong> · <strong>삭제</strong> · <strong>×</strong> — 모두 비활성.</li>
                 </ul>
               </section>
               <section className="etl-help-modal__section etl-help-modal__section--batch">

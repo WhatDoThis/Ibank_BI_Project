@@ -292,3 +292,36 @@ ALTER TABLE etl_tables ADD COLUMN IF NOT EXISTS column_mapping JSONB;
 - **08_ETL_Phase_Implement_Guide.md**: 현행 ETL 구조·메타·config·Job 확인.
 - **config.json**: `backend.etl_limits`, `backend.db_*`, `backend.system_db` 구조 유지. 저장 DB 추가는 메타(etl_storage_connections)로만 확장.
 - **Report 인덱스**: 본 문서는 00_ReportIndex.md에 `09_ETL_Upgrade_Plan.md` 항목으로 등록.
+
+---
+
+## 14. db_load_service COPY 프로토콜 적용 (성능 업그레이드)
+
+**목적**: 메인 DB(PostgreSQL) 적재 시 `execute_values` 대신 **COPY FROM STDIN** 프로토콜을 사용해 INSERT/Upsert 처리량을 더 높임. 대용량 DB 소스(MySQL/Oracle) 적재 시간 단축.
+
+**범위**: `Backend/etl_server2/db_load_service.py`의 `run_db_load` 내 스트리밍 분기·전체 fetch 분기.
+
+### 14.1 헬퍼 함수 (run_db_load 위에 추가)
+
+| 함수 | 역할 |
+|------|------|
+| `_serialize_value(v)` | COPY TEXT 포맷용 값 직렬화. `None`, `float('nan')`, `math.isinf`, `pd.NaT`, `pd.isna(v)` → `\N`. 그 외는 `str(v)` 후 `\`→`\\`, `\t`→`\\t`, `\n`→`\\n`, `\r`→`\\r` 이스케이프. |
+| `_copy_buf(cols, rows_tuples)` | `rows_tuples`(list of tuple)를 COPY용 텍스트 버퍼로 변환. 행마다 탭 구분·줄 끝 개행. `io.StringIO` 반환, `seek(0)` 완료. |
+| `_copy_insert_batch(cur, full_name, cols, rows_tuples)` | Full 모드: `COPY full_name (cols) FROM STDIN WITH (FORMAT text, NULL '\N')`로 직접 적재. |
+| `_copy_upsert_batch(cur, full_name, cols, col_types, pk_list, rows_tuples)` | Incremental: (1) TEMP 테이블 전 컬럼 TEXT 생성, ON COMMIT DROP (2) COPY로 스테이징 (3) `INSERT INTO full_name SELECT col::type ... FROM stg ON CONFLICT (pk) DO UPDATE SET ...` 로 Upsert. COPY 단계는 TEXT만 다루어 타입 오류는 INSERT...SELECT 단계에서 명확한 메시지 확보. |
+
+### 14.2 run_db_load 수정 요약
+
+- **루프 진입 전**: `rules = list_transform_rules(etl_table_id)` 1회 (기존 유지).
+- **first_batch에서 확정·재사용**: `columns_final`, `cols`, `col_defs`, **`col_types`**(`[t for _, t in columns_final]`). `insert_sql_template`/`upsert_sql_template` 제거.
+- **적재 호출**: Full → `_copy_insert_batch(cur_main, full_name, cols, rows_tuples)`. Incremental → `_copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list_inc, rows_tuples)`.
+- **전체 fetch 분기**: 동일하게 `col_types` 도출 후 `_copy_insert_batch` / `_copy_upsert_batch` 사용.
+- **유지**: 배치별 commit, `is_job_cancelled`, incremental `last_synced_at`, first_batch의 CREATE TABLE/존재 확인, 함수 시그니처·반환 형태.
+
+### 14.3 MySQL 배치 상한
+
+- INSERT가 COPY로 더 빨라지므로 fetch 간격이 줄어듦. MySQL 배치 상한은 10,000 유지(기존 적용분).
+
+### 14.4 참고
+
+- **10_ETL_Mapping_TypeCast_And_DB_Performance.md**: execute_values 적용 후 COPY로 한 단계 업그레이드. COPY는 upsert와 조합 시 임시 테이블 + INSERT...SELECT ON CONFLICT 패턴 사용.
