@@ -6,6 +6,9 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 [Helpers]
 ===========
 41 - _get_source_connection: connection_id로 소스 PostgreSQL 연결
+59 - _is_date_type: data_type이 날짜/시간 타입인지 여부(증분 컬럼 추천용)
+71 - get_source_columns: connection_id·source_table으로 소스 테이블 컬럼 목록(column_name, data_type) 반환
+125 - validate_incremental_column: 증분 컬럼 날짜 검증(date 타입 또는 샘플 isdate)
 55 - _fetch_source_columns_mysql: MySQL information_schema.COLUMNS (column_name, data_type)
 72 - _pg_type_from_mysql: MySQL DATA_TYPE → PostgreSQL 타입 문자열
 88 - _fetch_source_columns: PostgreSQL information_schema.columns
@@ -54,6 +57,159 @@ def _get_source_connection(connection_id: int):
         c["username"],
         c.get("encrypted_password") or "",
     )
+
+
+def _is_date_type(data_type: str) -> bool:
+    """DB data_type이 날짜/시간 타입인지 여부. 증분 컬럼 추천용."""
+    t = (data_type or "").strip().lower()
+    if t in ("date", "datetime", "timestamp", "timestamptz", "timestamp with time zone",
+             "timestamp without time zone", "time", "timetz", "time with time zone",
+             "year", "interval"):
+        return True
+    if "date" in t or "time" in t:
+        return True
+    return False
+
+
+def get_source_columns(connection_id: int, source_table: str) -> List[dict]:
+    """
+    소스 DB의 지정 테이블 컬럼 목록. connection_id, source_table 필수.
+    반환: [{"column_name": str, "data_type": str}, ...] (ordinal_position 순)
+    """
+    c = etl_service.get_connection_for_etl(connection_id)
+    if not c:
+        raise ValueError("연결을 찾을 수 없습니다.")
+    stype = (c.get("source_type") or "postgresql").strip().lower()
+    if stype not in ("postgresql", "mysql", "oracle"):
+        raise ValueError("postgresql, mysql, oracle만 지원합니다.")
+    source_table = etl_service._validate_source_table(source_table)
+    conn_schema_pg = (c.get("schema_name") or "public").strip()
+    conn_db_mysql = (c.get("database_name") or "").strip()
+    conn_schema_oracle = (c.get("schema_name") or c.get("username") or "").strip()
+    src_schema, source_table_name = etl_service.parse_source_table_parts(
+        source_table, stype,
+        conn_schema=conn_schema_oracle if stype == "oracle" else conn_schema_pg,
+        conn_db=conn_db_mysql,
+    )
+    if not source_table_name:
+        raise ValueError("source_table이 비어 있습니다.")
+    src_conn = None
+    try:
+        if stype == "mysql":
+            src_conn = etl_service._connect_mysql(
+                c["host"], c.get("port") or 3306, c["database_name"],
+                c["username"], c.get("encrypted_password") or "",
+            )
+            cols = _fetch_source_columns_mysql(src_conn, src_schema, source_table_name)
+        elif stype == "oracle":
+            src_conn = etl_service._connect_oracle(
+                c["host"], c.get("port") or 1521, c["database_name"],
+                c["username"], c.get("encrypted_password") or "",
+            )
+            owner = (src_schema or "").strip().upper() or (c.get("username") or "").strip().upper()
+            tbl = source_table_name.strip().upper()
+            cols = _fetch_source_columns_oracle(src_conn, owner, tbl)
+        else:
+            src_conn = _get_source_connection(connection_id)
+            cols = _fetch_source_columns(src_conn, src_schema, source_table_name)
+        return [{"column_name": col[0], "data_type": col[1]} for col in cols]
+    finally:
+        if src_conn:
+            try:
+                src_conn.close()
+            except Exception:
+                pass
+
+
+def validate_incremental_column(connection_id: int, source_table: str, column_name: str) -> dict:
+    """
+    증분 컬럼이 날짜(또는 날짜 파싱 가능)인지 검증.
+    - 날짜/시간 타입이면 valid=True.
+    - 그 외 타입이면 샘플 행으로 pd.to_datetime 파싱 시도; 모두 파싱 가능하면 valid=True, 아니면 valid=False.
+    반환: {"valid": bool, "message": str}
+    """
+    if not (column_name or "").strip():
+        return {"valid": False, "message": "컬럼명이 비어 있습니다."}
+    etl_service._validate_identifier(column_name.strip(), "incremental_column")
+    columns = get_source_columns(connection_id, source_table)
+    col_map = {(c.get("column_name") or "").strip().lower(): c for c in columns}
+    col_key = column_name.strip().lower()
+    if col_key not in col_map:
+        return {"valid": False, "message": f"소스 테이블에 컬럼 '{column_name}'이(가) 없습니다."}
+    data_type = (col_map[col_key].get("data_type") or "").strip().lower()
+    if _is_date_type(data_type):
+        return {"valid": True, "message": "날짜/시간 타입 컬럼입니다."}
+    # 비날짜 타입: 샘플로 isdate 검사
+    c = etl_service.get_connection_for_etl(connection_id)
+    if not c:
+        return {"valid": False, "message": "연결을 찾을 수 없습니다."}
+    stype = (c.get("source_type") or "postgresql").strip().lower()
+    source_table = etl_service._validate_source_table(source_table)
+    conn_schema_pg = (c.get("schema_name") or "public").strip()
+    conn_db_mysql = (c.get("database_name") or "").strip()
+    conn_schema_oracle = (c.get("schema_name") or c.get("username") or "").strip()
+    src_schema, source_table_name = etl_service.parse_source_table_parts(
+        source_table, stype,
+        conn_schema=conn_schema_oracle if stype == "oracle" else conn_schema_pg,
+        conn_db=conn_db_mysql,
+    )
+    if not source_table_name:
+        return {"valid": False, "message": "source_table이 비어 있습니다."}
+    # 실제 컬럼명(원본 대소문자)
+    orig_col = next((x.get("column_name") for x in columns if (x.get("column_name") or "").strip().lower() == col_key), column_name.strip())
+    src_conn = None
+    try:
+        if stype == "mysql":
+            src_conn = etl_service._connect_mysql(
+                c["host"], c.get("port") or 3306, c["database_name"],
+                c["username"], c.get("encrypted_password") or "",
+            )
+            quoted_src = f"`{src_schema}`.`{source_table_name}`"
+            qcol = f"`{orig_col}`"
+        elif stype == "oracle":
+            src_conn = etl_service._connect_oracle(
+                c["host"], c.get("port") or 1521, c["database_name"],
+                c["username"], c.get("encrypted_password") or "",
+            )
+            owner = (src_schema or "").strip().upper() or (c.get("username") or "").strip().upper()
+            tbl = source_table_name.strip().upper()
+            quoted_src = f'"{owner}"."{tbl}"'
+            qcol = f'"{orig_col.upper()}"' if orig_col else f'"{column_name.upper()}"'
+        else:
+            src_conn = _get_source_connection(connection_id)
+            quoted_src = f'"{src_schema}"."{source_table_name}"'
+            qcol = f'"{orig_col}"'
+        cur = src_conn.cursor()
+        try:
+            if stype == "oracle":
+                cur.execute(f"SELECT {qcol} FROM {quoted_src} WHERE ROWNUM <= 200")
+            else:
+                cur.execute(f"SELECT {qcol} FROM {quoted_src} LIMIT 200")
+            rows = cur.fetchall()
+            if not rows:
+                return {"valid": True, "message": "테이블에 데이터가 없어 샘플 검증을 건너뜁니다."}
+            if hasattr(rows[0], "keys") and rows:
+                vals = [r.get(orig_col) or r.get(orig_col.upper()) or (r[0] if isinstance(r, (list, tuple)) else None) for r in rows]
+            else:
+                vals = [r[0] if isinstance(r, (list, tuple)) else r for r in rows] if rows else []
+        finally:
+            cur.close()
+        for v in vals:
+            if v is None or (isinstance(v, str) and not v.strip()):
+                continue
+            try:
+                conv = pd.to_datetime(v, errors="coerce")
+                if pd.isna(conv):
+                    return {"valid": False, "message": f"일부 값이 날짜 형식이 아닙니다. (예: '{str(v)[:50]}')"}
+            except Exception:
+                return {"valid": False, "message": "날짜로 파싱할 수 없는 값이 있습니다."}
+        return {"valid": True, "message": "샘플 값이 모두 날짜 형식으로 파싱됩니다."}
+    finally:
+        if src_conn:
+            try:
+                src_conn.close()
+            except Exception:
+                pass
 
 
 def _fetch_source_columns_mysql(conn, table_schema: str, table_name: str) -> List[Tuple[str, str]]:

@@ -21,6 +21,8 @@ import {
   etl2CreateConnection,
   etl2TestConnection,
   etl2ListConnectionTables,
+  etl2GetSourceColumns,
+  etl2ValidateIncrementalColumn,
   etl2CreateTable,
   etl2DeleteConnection,
   etl2ListStorageConnections
@@ -77,7 +79,10 @@ function DbConnectionForm({ onSuccess }) {
   const [labelName, setLabelName] = useState('');
   const [description, setDescription] = useState('');
   const [syncMode, setSyncMode] = useState('incremental');
-  const [incrementalColumn, setIncrementalColumn] = useState('');
+  const [incrementalColumnSelect, setIncrementalColumnSelect] = useState('');
+  const [incrementalColumnCustom, setIncrementalColumnCustom] = useState('');
+  const [sourceColumns, setSourceColumns] = useState([]);
+  const [sourceColumnsLoading, setSourceColumnsLoading] = useState(false);
   const [batchSize, setBatchSize] = useState('');
   const [batchIntervalSeconds, setBatchIntervalSeconds] = useState('');
   const [selectedSourceTable, setSelectedSourceTable] = useState('');
@@ -88,6 +93,14 @@ function DbConnectionForm({ onSuccess }) {
   const [disconnectLoadingId, setDisconnectLoadingId] = useState(null);
   const [targetTableSelectOpen, setTargetTableSelectOpen] = useState(false);
   const [columnMapping, setColumnMapping] = useState(null);
+
+  function isDateType(dataType) {
+    const t = (dataType || '').trim().toLowerCase();
+    if (['date', 'datetime', 'timestamp', 'timestamptz', 'timestamp with time zone',
+      'timestamp without time zone', 'time', 'timetz', 'year', 'interval'].includes(t)) return true;
+    if (t.includes('date') || t.includes('time')) return true;
+    return false;
+  }
 
   async function loadConnections() {
     setLoadingConn(true);
@@ -100,6 +113,31 @@ function DbConnectionForm({ onSuccess }) {
       setLoadingConn(false);
     }
   }
+
+  useEffect(() => {
+    if (syncMode !== 'incremental' || !selectedConnId || !selectedSourceTable) {
+      setSourceColumns([]);
+      setIncrementalColumnSelect('');
+      setIncrementalColumnCustom('');
+      return;
+    }
+    let cancelled = false;
+    setSourceColumnsLoading(true);
+    setSourceColumns([]);
+    setIncrementalColumnSelect('');
+    setIncrementalColumnCustom('');
+    etl2GetSourceColumns(Number(selectedConnId), selectedSourceTable)
+      .then((res) => {
+        if (!cancelled) setSourceColumns(res.columns || []);
+      })
+      .catch(() => {
+        if (!cancelled) setSourceColumns([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSourceColumnsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [syncMode, selectedConnId, selectedSourceTable]);
 
   async function handleDisconnect(connectionId, connectionName) {
     if (!window.confirm(`"${connectionName || connectionId}" 연결을 해제하시겠습니까? 해당 연결로 등록된 타겟 테이블이 메인 DB에서 DROP됩니다.`)) return;
@@ -210,6 +248,26 @@ function DbConnectionForm({ onSuccess }) {
       setCreateError('연결, 소스 테이블, 타겟 테이블명을 입력하세요.');
       return;
     }
+    const finalIncremental =
+      syncMode === 'incremental'
+        ? (incrementalColumnSelect === '__custom__' ? incrementalColumnCustom.trim() : (incrementalColumnSelect || ''))
+        : '';
+    if (syncMode === 'incremental' && incrementalColumnSelect === '__custom__' && finalIncremental) {
+      try {
+        const res = await etl2ValidateIncrementalColumn(
+          Number(selectedConnId),
+          selectedSourceTable,
+          finalIncremental
+        );
+        if (res && res.valid === false) {
+          setCreateError(res.message || '증분 컬럼이 날짜 형식이 아닙니다.');
+          return;
+        }
+      } catch (err) {
+        setCreateError(err.message || '증분 컬럼 검증 실패');
+        return;
+      }
+    }
     setCreateError('');
     setCreateLoading(true);
     try {
@@ -221,7 +279,7 @@ function DbConnectionForm({ onSuccess }) {
         source_table: selectedSourceTable,
         pk_columns: null,
         sync_mode: syncMode,
-        incremental_column: syncMode === 'incremental' && incrementalColumn.trim() ? incrementalColumn.trim() : null,
+        incremental_column: syncMode === 'incremental' && finalIncremental ? finalIncremental : null,
         batch_size: batchSize.trim() ? parseInt(batchSize, 10) || null : null,
         batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
         storage_connection_id: storageConnectionId === '' || storageConnectionId == null ? null : Number(storageConnectionId),
@@ -233,7 +291,8 @@ function DbConnectionForm({ onSuccess }) {
       setLabelName('');
       setDescription('');
       setSyncMode('incremental');
-      setIncrementalColumn('');
+      setIncrementalColumnSelect('');
+      setIncrementalColumnCustom('');
       setBatchSize('');
       setBatchIntervalSeconds('');
       setSelectedSourceTable('');
@@ -531,14 +590,32 @@ function DbConnectionForm({ onSuccess }) {
           {syncMode === 'incremental' && (
             <div className="etl-db-form__field etl-db-form__field--full">
               <label className="etl-db-form__label">증분 컬럼 (소스)</label>
-              <span className="etl-db-form__label-desc">소스 테이블에서 &quot;이 시각/값 이후&quot;로 필터할 컬럼명(예: updated_at, id). 비우면 매번 소스 전체를 읽어 업서트합니다.</span>
-              <input
-                type="text"
-                value={incrementalColumn}
-                onChange={(e) => setIncrementalColumn(e.target.value)}
-                placeholder="예: updated_at"
-                className="etl-db-form__input"
-              />
+              <span className="etl-db-form__label-desc">소스 테이블에서 &quot;이 시각/값 이후&quot;로 필터할 컬럼. 날짜/시간 컬럼을 선택하거나 직접 입력 시 날짜 형식으로 검증됩니다.</span>
+              <select
+                value={incrementalColumnSelect}
+                onChange={(e) => setIncrementalColumnSelect(e.target.value)}
+                className="etl-db-form__select"
+                disabled={sourceColumnsLoading}
+              >
+                <option value="">사용 안 함</option>
+                {(sourceColumns || [])
+                  .filter((c) => isDateType(c.data_type))
+                  .map((c) => (
+                    <option key={c.column_name} value={c.column_name}>
+                      {c.column_name} ({c.data_type})
+                    </option>
+                  ))}
+                <option value="__custom__">직접 입력 (커스텀)</option>
+              </select>
+              {incrementalColumnSelect === '__custom__' && (
+                <input
+                  type="text"
+                  value={incrementalColumnCustom}
+                  onChange={(e) => setIncrementalColumnCustom(e.target.value)}
+                  placeholder="예: updated_at (날짜 형식 검증됨)"
+                  className="etl-db-form__input etl-db-form__input--mt"
+                />
+              )}
             </div>
           )}
           <div className="etl-db-form__field">

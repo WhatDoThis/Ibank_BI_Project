@@ -41,7 +41,9 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 541 - update_transform_rule: PUT /transform-rules/{id} — 룰 수정
 561 - delete_transform_rule: DELETE /transform-rules/{id} — 룰 삭제
 570 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
-582 - delete_connection: DELETE /connections/{id} — 연결 삭제
+582 - list_source_columns: GET /connections/{id}/source-columns — 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용)
+591 - validate_incremental_column: POST /connections/{id}/validate-incremental-column — 증분 컬럼 날짜 검증
+602 - delete_connection: DELETE /connections/{id} — 연결 삭제
 591 - check_target_table_exists: GET /tables/{id}/target-exists — 타겟 테이블 메인 DB 존재 여부
 919 - list_target_tables: GET /target-tables — Phase 3 저장 DB 테이블 목록
 928 - list_target_columns: GET /target-columns — Phase 3 저장 DB 컬럼 목록
@@ -68,7 +70,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from Backend.etl_server2 import db_load_service
@@ -103,6 +105,12 @@ class TestConnectionBody(BaseModel):
     database_name: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
+
+
+class ValidateIncrementalColumnBody(BaseModel):
+    """POST /api/etl2/connections/{id}/validate-incremental-column 요청 body."""
+    source_table: str = Field(..., description="소스 테이블(schema.table 또는 table)")
+    column_name: str = Field(..., description="증분 컬럼명")
 
 
 class CreateStorageConnectionBody(BaseModel):
@@ -834,6 +842,32 @@ def list_connection_tables(connection_id: int):
     try:
         tables = etl_service.list_source_tables(connection_id)
         return {"tables": tables}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/connections/{connection_id}/source-columns")
+def list_source_columns(connection_id: int, source_table: str = Query(..., description="소스 테이블(schema.table 또는 table)")):
+    """소스 DB의 지정 테이블 컬럼 목록. 증분 컬럼 셀렉트 등에 사용."""
+    try:
+        columns = db_load_service.get_source_columns(connection_id, source_table)
+        return {"columns": columns}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/connections/{connection_id}/validate-incremental-column")
+def validate_incremental_column(connection_id: int, body: ValidateIncrementalColumnBody):
+    """증분 컬럼이 날짜(또는 날짜 파싱 가능)인지 검증. date/datetime 타입이면 통과, 그 외는 샘플 isdate 검사."""
+    try:
+        result = db_load_service.validate_incremental_column(
+            connection_id, body.source_table, body.column_name
+        )
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

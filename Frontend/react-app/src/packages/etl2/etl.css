@@ -417,6 +417,9 @@
 .etl-db-form__input--short {
   max-width: 120px;
 }
+.etl-db-form__input--mt {
+  margin-top: 0.5rem;
+}
 .etl-db-form__select {
   width: 100%;
   max-width: 100%;
@@ -549,6 +552,13 @@
 .etl-table-list__th-connection,
 .etl-table-list__cell-connection {
   max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etl-table-list__th-description,
+.etl-table-list__cell-description {
+  max-width: 12em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -98,7 +98,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
         <thead>
           <tr>
             <th>타겟 테이블</th>
-            <th>설명</th>
+            <th className="etl-table-list__th-description">설명</th>
             <th>PK</th>
             <th>소스 유형</th>
             <th className="etl-table-list__th-connection">연결</th>
@@ -150,7 +150,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             return (
             <tr key={t.etl_table_id} className={rowClass || undefined}>
               <td>{t.target_table}</td>
-              <td>{t.description || '—'}</td>
+              <td className="etl-table-list__cell-description" title={t.description ? String(t.description) : undefined}>{t.description || '—'}</td>
               <td className="etl-table-list__pk-cell">{(t.pk_columns || '').trim() ? <span className="etl-table-list__pk-check" aria-label="PK 설정됨">✓</span> : '—'}</td>
               <td>{t.source_type || '—'}</td>
               <td className="etl-table-list__cell-connection" title={isDbSource && t.connection_name ? `연결: ${t.connection_name}` : undefined}>{connectionText}</td>

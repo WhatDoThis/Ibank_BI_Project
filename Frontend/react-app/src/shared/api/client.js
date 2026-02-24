@@ -456,6 +456,20 @@ export async function etl2ListConnectionTables(connectionId) {
   return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/tables`);
 }
 
+/** GET /api/etl2/connections/:id/source-columns - 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용) */
+export async function etl2GetSourceColumns(connectionId, sourceTable) {
+  const params = new URLSearchParams({ source_table: sourceTable });
+  return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/source-columns?${params.toString()}`);
+}
+
+/** POST /api/etl2/connections/:id/validate-incremental-column - 증분 컬럼 날짜 검증(커스텀 입력 시) */
+export async function etl2ValidateIncrementalColumn(connectionId, sourceTable, columnName) {
+  return request('POST', `/api/etl2/connections/${encodeURIComponent(connectionId)}/validate-incremental-column`, {
+    source_table: sourceTable,
+    column_name: columnName
+  });
+}
+
 /** GET /api/etl2/tables/:id/transform-rules */
 export async function etl2ListTransformRules(etlTableId) {
   return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/transform-rules`);

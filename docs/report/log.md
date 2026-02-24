@@ -1,5 +1,23 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-23: ETL2 증분 컬럼 셀렉트·날짜 검증 (사용 안 함 / 날짜 컬럼 / 직접 입력)
+
+### 목적
+- 증분 컬럼을 기본적으로 셀렉트박스로 선택. Date/datetime 등 일자 관련 컬럼만 옵션으로 노출. 직접 입력(커스텀)도 가능하되 비날짜 타입은 isdate 방식 검증 후 실패 시 알럿.
+
+### 완료 작업
+- **Backend db_load_service**: `_is_date_type`, `get_source_columns(connection_id, source_table)` — 소스 테이블 컬럼 목록 반환. `validate_incremental_column(connection_id, source_table, column_name)` — 날짜 타입이면 valid, 그 외는 샘플 200행으로 pd.to_datetime 파싱 검증.
+- **Backend router**: GET `/api/etl2/connections/{id}/source-columns?source_table=...`, POST `/api/etl2/connections/{id}/validate-incremental-column` (body: source_table, column_name). ValidateIncrementalColumnBody 추가.
+- **Frontend client**: `etl2GetSourceColumns`, `etl2ValidateIncrementalColumn` 추가.
+- **Frontend DbConnectionForm**: 동기화 모드가 증분일 때 연결·소스 테이블 선택 시 source-columns API 호출. 증분 컬럼 UI를 셀렉트로 변경 — 옵션: "사용 안 함", 날짜형 컬럼들(컬럼명 (data_type)), "직접 입력 (커스텀)". 커스텀 선택 시 텍스트 입력 표시. 등록 시 커스텀 입력이면 validate-incremental-column 호출, valid=false면 에러 메시지 표시 후 제출 중단. etl.css에 `.etl-db-form__input--mt` 추가.
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py, router.py
+- Frontend: shared/api/client.js, packages/etl2/components/DbConnectionForm.jsx, packages/etl2/etl.css
+- docs/report/log.md
+
+---
+
 ## 2026-02-23: ETL2 Phase 0~5 흐름 검증·누락 보완·UI 가독성 개선
 
 ### 목적
