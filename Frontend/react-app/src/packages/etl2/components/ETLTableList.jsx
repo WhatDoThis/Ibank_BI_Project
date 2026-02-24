@@ -298,6 +298,9 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <h4 className="etl-help-modal__section-title">배치·실행 시점 안내</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>배치 크기 / 대기 시간</strong> — 한 번 실행할 때만 적용됩니다. (몇 행씩 가져올지, 배치 간 몇 초 쉴지)</li>
+                  <li><strong>MySQL</strong> — 배치 크기 0이면 1만 행 단위 배치. 1만 초과 입력 시 최대 1만 행으로 적용(연결 유지).</li>
+                  <li><strong>Oracle</strong> — 배치 크기 0이면 1만 행 단위 배치. 설정값(또는 config 상한) 그대로 적용.</li>
+                  <li><strong>예상 행 수</strong> — PostgreSQL 소스만 표시. MySQL·Oracle은 진행률만 표시됩니다.</li>
                   <li><strong>매일 몇 시 자동 실행</strong> — 현재 없습니다. 스케줄(예: 매일 02시) 기능은 미지원입니다.</li>
                   <li><strong>실행</strong> — “실행” 버튼을 눌렀을 때만 대기열에 들어가고 워커가 처리합니다.</li>
                   <li><strong>draft 상태</strong> — draft로 두어도 해당 시간에 자동으로 증분이 돌지 않습니다. 증분 적재를 하려면 직접 “실행”을 눌러야 합니다.</li>
