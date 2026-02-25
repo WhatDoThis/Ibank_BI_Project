@@ -24,6 +24,7 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 369 - _row_fallback: COPY 실패 시 행 단위 INSERT...ON CONFLICT, 동일 에러 50건 연속 시 조기 중단
 370 - _copy_upsert_batch_safe: 1차 COPY upsert, 실패 시 _row_fallback
 371 - _ensure_unique_constraint: 증분 시 타겟 테이블에 pk_list UNIQUE 없으면 ALTER TABLE 추가
+372 - _get_target_column_list: 타겟(PostgreSQL) 테이블의 컬럼명 목록. 증분 시 INSERT 컬럼을 타겟에 맞출 때 사용
 
 [Main]
 ===========
@@ -41,7 +42,7 @@ import logging
 import math
 import re
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
 import pandas as pd
@@ -339,6 +340,26 @@ def _ensure_unique_constraint(
     except Exception as e:
         conn.rollback()
         return str(e)[:500]
+
+
+def _get_target_column_list(cur, schema: str, table_name: str) -> List[str]:
+    """
+    타겟(PostgreSQL) 테이블의 컬럼명 목록(ordinal_position 순).
+    테이블이 없거나 조회 실패 시 [] 반환. 증분 적재 시 INSERT 컬럼을 타겟에 맞추기 위해 사용.
+    """
+    try:
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [r["column_name"] for r in cur.fetchall()]
+    except Exception:
+        return []
 
 
 def _fetch_source_columns_oracle(conn, owner: str, table_name: str) -> List[Tuple[str, str]]:
@@ -729,7 +750,20 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             last_synced = row.get("last_synced_at")
             if last_synced is not None:
                 where_clause = f" WHERE {_quote(incremental_column)} > {bind_placeholder}"
-                params.append(last_synced)
+                # Oracle DATE는 초 단위만 저장·비교. 바인드 시 마이크로초가 잘려 WHERE > 08:17:11 이 되어
+                # 같은 초(08:17:11.xxx)인 176건이 매번 다시 조회됨. last_synced+1초 기준으로 >= 사용해
+                # 해당 초 전체를 제외하고 다음 초(08:17:12)부터 포함.
+                if stype == "oracle":
+                    if isinstance(last_synced, datetime):
+                        bound_val = last_synced + timedelta(seconds=1)
+                    elif hasattr(last_synced, "to_pydatetime"):
+                        bound_val = last_synced.to_pydatetime() + timedelta(seconds=1)
+                    else:
+                        bound_val = last_synced
+                    where_clause = f" WHERE {_quote(incremental_column)} >= {bind_placeholder}"
+                    params.append(bound_val)
+                else:
+                    params.append(last_synced)
         elif sync_mode == "incremental" and not incremental_column:
             logger.info(
                 "ETL db load etl_table_id=%s: 증분 모드이나 증분 컬럼 미지정 → 소스 전체 조회 후 업서트. "
@@ -878,6 +912,33 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                             pk_list_inc = [x.strip() for x in pk_columns.split(",") if x.strip()]
                             if mapping_used:
                                 pk_list_inc = [m["target"] for m in mapping_used if m["source"] in pk_list_inc] or pk_list_inc
+                        # 증분이고 타겟 테이블이 이미 있을 때: INSERT 컬럼을 타겟에 실제 존재하는 컬럼만으로 제한
+                        if not run_is_full and cols:
+                            target_columns = _get_target_column_list(cur_main, main_schema, target_table)
+                            if target_columns:
+                                target_set = set(target_columns)
+                                missing_pk = [p for p in pk_list_inc if p not in target_set]
+                                if missing_pk:
+                                    etl_service.update_job(
+                                        job_id, "failed",
+                                        error_message=f"타겟 테이블에 PK 컬럼({', '.join(missing_pk)})이 없습니다. 증분 적재를 위해 타겟 테이블에 PK를 추가하거나 동기화 모드를 전체로 변경하세요.",
+                                    )
+                                    etl_service.update_etl_table_status(etl_table_id, "error")
+                                    cur_main.close()
+                                    conn_main.close()
+                                    cur_src.close()
+                                    src_conn.close()
+                                    return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "PK 컬럼 없음"}
+                                _cols_before = list(cols)
+                                cols_filtered = [c for c in cols if c in target_set]
+                                if len(cols_filtered) < len(cols):
+                                    logger.info(
+                                        "ETL db load etl_table_id=%s: 타겟 테이블에 없는 컬럼 %s 건 제외 후 증분 적재",
+                                        etl_table_id, len(cols) - len(cols_filtered),
+                                    )
+                                col_types = [col_types[_cols_before.index(c)] for c in cols_filtered]
+                                cols = cols_filtered
+                                pk_list_inc = [p for p in pk_list_inc if p in cols]
                         first_batch = False
                     if etl_service.is_job_cancelled(job_id):
                         conn_main.rollback()
@@ -889,7 +950,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         etl_service.update_etl_table_status(etl_table_id, "error")
                         return {"job_id": job_id, "status": "cancelled", "rows_processed": total_processed, "error_message": "사용자 취소"}
                     rows_tuples = [
-                        tuple(r.get(m["source"]) for m in mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
+                        tuple(r.get(c) for c in cols)
                         for r in rows_batch
                     ]
                     if sync_mode == "full":
@@ -910,14 +971,14 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                             batch_inserted = len(rows_tuples)
                     total_processed += batch_inserted
                     if incremental_column and incremental_column in col_names and rows_batch:
-                        max_vals = [r.get(incremental_column) for r in rows_batch if r.get(incremental_column) is not None]
+                        # column_mapping 사용 시 rows_batch는 타겟 컬럼명 키 → 증분 컬럼(소스명)에 대응하는 타겟 키로 조회
+                        inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
+                        max_vals = [r.get(inc_key) for r in rows_batch if r.get(inc_key) is not None]
                         if max_vals:
                             from datetime import datetime as dt
                             latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
-                            if run_is_full:
-                                last_synced_candidate = latest if last_synced_candidate is None else max(last_synced_candidate, latest)
-                            else:
-                                etl_service.update_last_synced_at(etl_table_id, latest)
+                            # 전역 최대값 유지(full/증분 공통). 루프 끝에서 한 번만 update_last_synced_at 호출.
+                            last_synced_candidate = latest if last_synced_candidate is None else max(last_synced_candidate, latest)
                     etl_service.update_job_progress(job_id, total_processed)
                     if max_rows_per_load > 0 and total_processed >= max_rows_per_load:
                         break
@@ -934,7 +995,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     src_conn.close()
                 except Exception:
                     pass
-            if run_is_full and last_synced_candidate is not None:
+            if last_synced_candidate is not None:
                 etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
             if not row.get("storage_connection_id"):
                 from Env.config.loader import add_allowed_table
@@ -1034,7 +1095,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 _copy_insert_batch(cur_main, full_name, cols, rows_tuples)
                 conn_main.commit()
                 if incremental_column and incremental_column in col_names:
-                    max_vals = [r.get(incremental_column) for r in rows_data if r.get(incremental_column) is not None]
+                    inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
+                    max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
                     if max_vals:
                         from datetime import datetime as dt
                         latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
@@ -1065,13 +1127,37 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         cur_main.close()
                         conn_main.close()
                         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": err_msg}
+                    # 타겟 테이블에 실제 존재하는 컬럼만으로 INSERT 제한
+                    target_columns = _get_target_column_list(cur_main, main_schema, target_table)
+                    if target_columns:
+                        target_set = set(target_columns)
+                        missing_pk = [p for p in pk_list if p not in target_set]
+                        if missing_pk:
+                            etl_service.update_job(
+                                job_id, "failed",
+                                error_message=f"타겟 테이블에 PK 컬럼({', '.join(missing_pk)})이 없습니다. 증분 적재를 위해 타겟 테이블에 PK를 추가하거나 동기화 모드를 전체로 변경하세요.",
+                            )
+                            etl_service.update_etl_table_status(etl_table_id, "error")
+                            cur_main.close()
+                            conn_main.close()
+                            return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "PK 컬럼 없음"}
+                        _cols_before = list(cols)
+                        cols_filtered = [c for c in cols if c in target_set]
+                        if len(cols_filtered) < len(cols):
+                            logger.info(
+                                "ETL db load etl_table_id=%s: 타겟 테이블에 없는 컬럼 %s 건 제외 후 증분 적재",
+                                etl_table_id, len(cols) - len(cols_filtered),
+                            )
+                        col_types = [col_types[_cols_before.index(c)] for c in cols_filtered]
+                        cols = cols_filtered
+                        pk_list = [p for p in pk_list if p in cols]
                 if etl_service.is_job_cancelled(job_id):
                     conn_main.rollback()
                     etl_service.update_job(job_id, "cancelled", rows_processed=0, error_message="사용자 취소")
                     etl_service.update_etl_table_status(etl_table_id, "error")
                     return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
                 rows_tuples_inc = [
-                    tuple(r.get(m["source"]) for m in mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
+                    tuple(r.get(c) for c in cols)
                     for r in rows_data
                 ]
                 if on_row_error == "skip":
@@ -1090,7 +1176,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     full_fetch_notice = None
                 # last_synced_at: 이번에 가져온 행들 중 incremental_column 최대값
                 if incremental_column and incremental_column in col_names:
-                    max_vals = [r.get(incremental_column) for r in rows_data if r.get(incremental_column) is not None]
+                    inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
+                    max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
                     if max_vals:
                         from datetime import datetime as dt
                         if isinstance(max_vals[0], dt):

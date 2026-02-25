@@ -5,6 +5,9 @@ __pycache__/
 .venv/
 venv/
 
+# Cursor 에이전트·스킬·커맨드·룰 (개인 설정, 공유 안 함)
+.cursor/
+
 # 환경 설정 (비밀/환경별 값 포함 가능)
 Env/config/config.json
 

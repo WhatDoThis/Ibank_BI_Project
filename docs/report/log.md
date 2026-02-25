@@ -1,5 +1,140 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-25: Oracle 증분 WHERE 바인딩 — DATE 초 단위 잘림으로 같은 176건 반복 조회 수정
+
+### 목적
+- 로그: last_synced=08:17:11.801403, WHERE "UPDATED_AT" > :1, 첫 배치 176건, batch latest=08:17:11.801403(동일). Oracle DATE는 초 단위만 저장·비교하는데 바인드 시 마이크로초가 잘려 실제로는 WHERE > 08:17:11 로 실행됨 → 같은 초(08:17:11.xxx)인 176건이 매번 다시 조회됨.
+
+### 완료 작업
+- Oracle 증분 시 WHERE 바인드 값으로 last_synced + 1초 사용. (last_synced가 datetime이면 +timedelta(seconds=1), pandas Timestamp면 to_pydatetime() 후 +1초.) 동일 초 행 제외되어 다음 실행 시 0건 기대.
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-25: column_mapping 사용 시 증분 컬럼 값 조회 키 수정 (Oracle 176건 반복)
+
+### 목적
+- Oracle 증분 적재 후 추가 실행 시 수정(전역 최대 한 번 갱신)해도 여전히 176건 조회. 원인: **column_mapping** 사용 시 apply_mapping_type_cast 후 rows_batch/rows_data는 **타겟** 컬럼명 키인데, last_synced_candidate 계산 시 **소스** 컬럼명(incremental_column)으로 r.get() 해서 항상 None → last_synced_at이 갱신되지 않음.
+
+### 완료 작업
+- 스트리밍 경로: incremental_column에 대응하는 **타겟 키**로 행에서 값 조회. `inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column`, `max_vals = [r.get(inc_key) for r in rows_batch ...]`
+- 전체 fetch 경로(Full 적재 완료 시·증분 Upsert 완료 시) 동일하게 inc_key로 rows_data에서 max_vals 계산 후 update_last_synced_at 호출.
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-25: 증분 스트리밍 시 last_synced_at 전역 최대값으로 갱신 (중복 176건 원인)
+
+### 목적
+- 75만 건 증분 적재 후 추가 실행 시 0건이어야 하는데 176건 조회됨. 원인: 스트리밍 증분에서 매 배치마다 update_last_synced_at(현재 배치의 최대값)만 호출해, **마지막 배치(176건)의 최대값**만 저장됨. 전체 75만 건 중 전역 최대는 이전 배치에 있을 수 있어, 다음 실행 시 WHERE incremental_column > last_synced_at 가 176건을 다시 반환함.
+
+### 완료 작업
+- 스트리밍 경로(MySQL/Oracle 공통): incremental_column 처리 시 **last_synced_candidate**에 전역 최대를 누적하고, 루프 종료 후 **한 번만** update_last_synced_at(etl_table_id, last_synced_candidate) 호출하도록 변경. 기존에는 full 모드만 누적 후 한 번 갱신, 증분은 배치마다 갱신했음.
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-25: Oracle 증분 적재 시 타겟 테이블에 없는 컬럼으로 INSERT 오류 수정
+
+### 목적
+- 75만 건 Full 적재 후 추가 증분 실행 시 "column \"CAMPAIGN_ID\" of relation \"sample_woodb_oracle\" does not exist" 발생. 소스(Oracle)에는 있으나 타겟(PostgreSQL) 테이블에는 없는 컬럼을 INSERT에 포함해 발생. 증분 적재 시 **타겟 테이블에 실제 존재하는 컬럼만**으로 INSERT하도록 수정.
+
+### 완료 작업
+- **_get_target_column_list**: 타겟(PostgreSQL) information_schema.columns에서 컬럼명 목록 조회.
+- **스트리밍 증분 경로**(effective_batch_size > 0): 타겟 테이블 존재 시 target_columns 조회 후 cols/col_types/pk_list_inc를 타겟에 있는 컬럼만으로 필터. PK가 타겟에 없으면 Job failed 메시지 반환. 타겟에 없는 컬럼 제외 시 로그 출력.
+- **전체 fetch 증분 경로**(effective_batch_size == 0): 동일하게 타겟 컬럼 필터 적용 후 rows_tuples_inc 생성.
+- rows_tuples 생성 시 `tuple(r.get(c) for c in cols)`로 통일(필터된 cols 기준).
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-25: Tech Lead 오케스트레이션 규칙 추가
+
+### 목적
+- 사용자가 개발 프롬프트만 입력해도 메인 에이전트가 스킬·서브에이전트를 자동으로 찾아 협력하도록 하기. PM 역할은 메인 에이전트(Tech Lead)가 담당하므로 별도 PM 에이전트 없음.
+
+### 완료 작업
+- **tech-lead-orchestration.mdc** (alwaysApply: true): (1) 요청에 맞는 스킬 자동 선택·활용 (2) mcp_task로 be-router/be-data/be-worker/fe-state/fe-markup/fe-style/linker/verifier 위임 (3) 기능 추가 시 위임 순서·병렬 가이드 (4) 사용자는 하고 싶은 일만 프롬프트로 주면 됨 안내.
+- add-feature.md에 "프롬프트만 주면 자동 협업" 문구 추가.
+
+### 수정·영향 파일
+- .cursor/rules/tech-lead-orchestration.mdc (신규)
+- .cursor/commands/add-feature.md
+- docs/report/log.md
+
+---
+
+## 2026-02-25: Cursor Commands·Rules 생성 (.cursor/commands/, .cursor/rules/)
+
+### 목적
+- 기능 추가·검증·빌드 확인을 슬래시 커맨드로 실행하고, 모든 대화에 적용되는 컨벤션 룰을 두어 개발 속도·정확성 강화.
+
+### 완료 작업
+- **Commands**: add-feature(백엔드→라우터→client→UI→CSS→verifier), verify-chain(linker→verifier), build-check(npm build + Python import).
+- **Rules**: project-conventions.mdc(설정·백엔드/프론트 구조·파일 상단 주석·커밋, alwaysApply), file-header.mdc(코드 파일 상단 docstring 형식, alwaysApply).
+
+### 수정·영향 파일
+- .cursor/commands/add-feature.md, verify-chain.md, build-check.md (신규)
+- .cursor/rules/project-conventions.mdc, file-header.mdc (신규)
+- docs/report/log.md
+
+---
+
+## 2026-02-25: Cursor Sub-Agents 8종 생성 (.cursor/agents/)
+
+### 목적
+- Sub-Agent별 병렬 작업으로 개발 속도·능률·정확성 향상. 설계서와 docs/main 기준으로 **서브에이전트 8종**을 `.cursor/agents/` 에 생성.
+
+### 완료 작업
+- **be-router**: FastAPI 라우터/엔드포인트. Pydantic, HTTPException, Form+UploadFile, prefix 규칙.
+- **be-data**: DB 연결·적재·메타. PostgreSQL/MySQL/Oracle 분기, sync_mode, storage_connection_id, etl_limits.
+- **be-worker**: Job 큐·변환 엔진·미리보기·스키마 추론·대시보드 서비스·etl_limits.
+- **fe-state**: React 상태·API(client.js)·폴링·비교 모드·localStorage.
+- **fe-markup**: JSX 구조·모달/폼/테이블/탭·드래그앤드롭·라우팅.
+- **fe-style**: CSS·BEM-ish·상태색·비교색·모달/드롭존/카드·반응형.
+- **verifier**: 구현 검증(API 경로·시그니처·SQL·import·빌드). readonly.
+- **linker**: 프론트→API→라우터→서비스→DB 체인 추적·끊어진 링크 탐지. readonly.
+
+### 수정·영향 파일
+- .cursor/agents/be-router.md, be-data.md, be-worker.md, fe-state.md, fe-markup.md, fe-style.md, verifier.md, linker.md (신규)
+- docs/report/log.md
+
+---
+
+## 2026-02-25: Cursor Skills 5종 생성 (.cursor/skills/)
+
+### 목적
+- Cursor Sub-Agent & Skill 설계서와 docs/main 개발문서를 기반으로, 에이전트가 작업 맥락에 따라 자동 로드할 **스킬 5종**을 프로젝트 `.cursor/skills/` 에 생성.
+
+### 완료 작업
+- **fastapi-endpoint**: FastAPI 엔드포인트 추가·수정 시 라우터·Pydantic·서비스·main.py 등록·client.js 연동 체크리스트. prefix 규칙(/api, /api/etl, /api/etl2 등) 및 프로젝트 경로 반영.
+- **api-client-sync**: 백엔드 엔드포인트 변경 시 client.js 동기화. baseUrl 분기(etl/etl2/dashboard2), FormData·JSON·에러 처리 규칙.
+- **db-load-pipeline**: ETL DB 적재(Full/Incremental) 신규 DB 추가·로직 수정 시. sync_mode 규칙, 스트리밍 배치, 수정 파일 목록(service, db_load_service, preview, router, queue_worker). 08_ETL_Phase_Implement_Guide 참조 명시.
+- **react-component**: React 컴포넌트(모달·폼·테이블·탭) 추가·수정 시. 패키지별 components/ 위치, 모달·폼·테이블·탭 패턴, CSS 패키지 전용 규칙.
+- **cross-check**: 기능 구현 완료 후 백엔드-프론트 연결 정합성 검증. API 경로·필드명·SELECT 컬럼·CSS 클래스·상단 주석 매칭 체크리스트.
+
+### 수정·영향 파일
+- .cursor/skills/fastapi-endpoint/SKILL.md (신규)
+- .cursor/skills/api-client-sync/SKILL.md (신규)
+- .cursor/skills/db-load-pipeline/SKILL.md (신규)
+- .cursor/skills/react-component/SKILL.md (신규)
+- .cursor/skills/cross-check/SKILL.md (신규)
+- docs/report/log.md
+
+---
+
 ## 2026-02-25: Full 적재 완료 시 last_synced_at 갱신 (Full→Incremental 전환 시 불필요한 전체 재적재 방지)
 
 ### 목적
