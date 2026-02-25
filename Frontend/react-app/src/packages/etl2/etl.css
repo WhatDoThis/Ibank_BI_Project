@@ -706,6 +706,10 @@
   white-space: pre-wrap;
   line-height: 1.5;
 }
+.etl-db-form__hint--block {
+  display: block;
+  margin-top: 6px;
+}
 .etl-db-form__error {
   color: #b91c1c;
 }
@@ -791,6 +795,21 @@
   white-space: nowrap;
   width: 1%;
 }
+.etl-table-list__th-row-error,
+.etl-table-list__cell-row-error {
+  width: 1%;
+  min-width: 7em;
+  white-space: nowrap;
+}
+.etl-table-list__select-row-error,
+.etl-table-list__select-sync-mode {
+  font-size: inherit;
+  padding: 4px 8px;
+  min-width: 6.5em;
+}
+.etl-table-list__select-sync-mode {
+  min-width: 5.5em;
+}
 .etl-table-list__help {
   width: 22px;
   height: 22px;
@@ -841,6 +860,23 @@
 }
 .etl-table-list__add-file:disabled {
   opacity: 0.6;
+}
+.etl-table-list__settings {
+  padding: 5px 10px;
+  border: 1px solid #64748b;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.etl-table-list__settings:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #334155;
+}
+.etl-table-list__settings:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .etl-table-list__run {
   padding: 5px 10px;
@@ -1717,6 +1753,155 @@
   background: #1d4ed8;
 }
 .etl-pk-modal__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 동기화·배치 설정 모달 */
+.etl-settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.etl-settings-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.etl-settings-modal__box {
+  position: relative;
+  background: #fff;
+  border-radius: 12px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  padding: 24px;
+}
+.etl-settings-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.etl-settings-modal__head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #111827;
+}
+.etl-settings-modal__close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  border-radius: 6px;
+}
+.etl-settings-modal__close:hover {
+  color: #111;
+  background: #f3f4f6;
+}
+.etl-settings-modal__hint,
+.etl-settings-modal__target {
+  margin: 0 0 16px 0;
+  font-size: 0.9rem;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.etl-settings-modal__target strong {
+  color: #111827;
+}
+.etl-settings-modal__form {
+  margin-top: 4px;
+}
+.etl-settings-modal__field {
+  margin-bottom: 18px;
+}
+.etl-settings-modal__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #334155;
+}
+.etl-settings-modal__required {
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+.etl-settings-modal__desc {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.etl-settings-modal__select,
+.etl-settings-modal__input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+}
+.etl-settings-modal__select:focus,
+.etl-settings-modal__input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.etl-settings-modal__input--mt {
+  margin-top: 8px;
+}
+.etl-settings-modal__loading {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+.etl-settings-modal__error {
+  margin: 8px 0 0 0;
+  font-size: 0.9rem;
+  color: #b91c1c;
+}
+.etl-settings-modal__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+.etl-settings-modal__btn {
+  padding: 8px 18px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.etl-settings-modal__btn:hover {
+  background: #f9fafb;
+}
+.etl-settings-modal__btn--primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+.etl-settings-modal__btn--primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+.etl-settings-modal__btn--primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

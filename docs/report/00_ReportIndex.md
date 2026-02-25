@@ -19,10 +19,8 @@
 | 05_대시보드2_주간월간_비교리포팅_플랜.md | 대시보드2: 주간/월간 취합·이전 주·이전 월 비교 리포팅 기능 테스트 적용 방안, 데이터/API 옵션, UI 설계, 페이즈별 구현 제안 |
 | 06_I1_파생테이블_정의.md | I1 파생 테이블 정의, 생성 스크립트, 리포트 사이드바 폴더, 테이블명 소문자 등 |
 | 07_newDashboard_Develop_Plan.md | NewDashboard 범용 대시보드: 요구사항 정리, 현행 대비 검토, 가능성 검토, Phase 0~5 개발 계획(백엔드 범용 API → 프론트 테이블/헤더 → KPI·목표·집계 테이블 → 위젯 beta → 비교·정리) |
-| 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조: 목적·범위·시스템 개요, config·메타 테이블·모듈 의존, Job 확인(운영), 재실행 동작, 파일/DB 동작 요약, **DB 연결 실패 시 점검**(연결 구조·실패 지점·예외 메시지·점검 순서), Phase 순서, ZIP 추가 적재, ETL 목록 버튼·상태별 동작. (09 내용 통합) |
-| 09_ETL_Upgrade_Plan.md | ETL 업그레이드 계획: 저장 DB 등록 페이지(탭 위치·권한 검증), 저장할 DB 선택(기본 ibank_db), 테이블선택·컬럼매핑 모달, 컬럼 매핑·커스텀 컬럼명. Phase 1~5 구체 계획, etl_storage_connections DDL, config etl_limits 적용 검토. |
-| 10_ETL_Mapping_TypeCast_And_DB_Performance.md | ETL 매핑 형변환: 타입 형변환 필요 시 매핑 기반 변환 + 변환 실패 시 정책(null/zero/keep/skip_row/fail) 제안. MySQL/Oracle DB 연결 느림 원인 분석(전체 fetch, 서버 커서 미사용, COUNT(*), 행 단위 INSERT) 및 개선 제안. |
-| etc01_Backend_Learning_Flow.md | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
+| 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조: 목적·범위·시스템 개요, config·메타 테이블·모듈 의존, Job 확인(운영), 재실행·파일/DB 동작, DB 연결 실패 시 점검, Phase·구현 요약, ZIP 추가 적재, ETL 목록 버튼·설정 모달, **COPY 적재 이해하기**(비유·단계·Upsert·on_row_error), DB 적재 상세(COPY·Upsert·fallback), 매핑 형변환·행 실패 정책. |
+| etc01_Backend_Learning_Flow.md | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |
 | nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 3500, /report_api → 8500). 서버 배포 시 참고 |

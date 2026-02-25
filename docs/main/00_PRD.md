@@ -17,8 +17,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), **비교 모드**(일반/일간/주간/월간/연간)·**디멘션별 비교(B)/요약 보기(A)** 토글, KPI·채널 도넛·기준별 막대 차트(복수 차원 시 X축 단일 차원·**일자 제외** 캠페인/워크플로우/채널만)·집계 테이블·차트 생성 위젯·**위젯 생성 (beta)**. 주요 지표·채널별 분석 섹션 상단 **기간 표시**(PeriodLabel).
 - **대시보드2**(성과리포트): 보기 모드(일반/일간·주간·월간·연간 비교), 기준·비교 주/월/일/연 선택(비어두면 전 주/전 월/전일/전년), **디멘션별 비교(B)/요약 보기(A)** 토글, 기준별 발송 현황·집계 테이블 복수 차원 시 **X축 단일 차원(일자 제외)**. KPI 순서 통일, 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리), 위젯 rate형 Y축 소수점 둘째자리·info 버튼. 상세는 §6.2.1.
 - **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드 대시보드. 기존 대시보드 API·데이터 유틸 활용.
-- **ETL**(/etl): 파일 업로드·외부 DB 연동으로 우리 PostgreSQL에 적재. 소스: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL 적재 지원, Oracle은 테이블 목록·미리보기·PK 자동 조회, 적재 Phase 3 예정). Oracle 연결은 **Service Name**만 지원(SID 미지원). 동기화 모드: 전체(삭제 후 적재)/증분(last_synced_at 이후 Upsert). 타겟 테이블명 중복 시 etl_tables·메인 DB 존재 검사(증분 모드면 기존 테이블 허용). 등록된 연결 목록에 호스트:포트/DB명 표시. 배치 크기·배치 간 대기는 한 번 실행 시 적용. 실행은 수동(실행 버튼)만, 매일 몇 시 자동 실행 스케줄 미지원. 상세는 **01_FRONTEND_GUIDE.md §4.5**, **02_BACKEND_GUIDE.md §6**.
-- **ETL2 (테스트중)**(/etl2): ETL 업그레이드 계획(09_ETL_Upgrade_Plan) 적용 버전. 탭: 파일 업로드·DB 연결·**저장 DB 등록**·ETL 이력. 저장 DB(적재 대상 PostgreSQL) 등록·선택, **테이블선택 및 컬럼매핑** 모달(저장 DB 기준 테이블/컬럼, 소스→타겟 매핑·타입 호환 검사·제외), **column_mapping** JSONB 저장·적재 반영. 증분 컬럼 셀렉트(날짜형 컬럼/직접 입력·검증). UI: 단계 안내·"처음 사용하시나요?"·등록된 ETL 목록에서 실행 시 적재 안내. API prefix **/api/etl2**, Backend **etl_server2**. 상세는 **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**.
+- **ETL**(/etl): 파일 업로드·외부 DB 연동으로 우리 PostgreSQL에 적재. 소스: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle 목록·미리보기·PK·적재 모두 지원). Oracle 연결은 **Service Name**만 지원(SID 미지원). 동기화 모드: 전체(삭제 후 적재)/증분(last_synced_at 이후 Upsert). 등록된 연결 목록에 호스트:포트/DB명 표시. 배치 크기·배치 간 대기는 한 번 실행 시 적용. 실행은 수동(실행 버튼)만, 스케줄 미지원. 상세는 **01_FRONTEND_GUIDE.md §4.5**, **02_BACKEND_GUIDE.md §6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- **ETL2**(/etl2): 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. **목록에서 설정 버튼**으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental). API prefix **/api/etl2**, Backend **etl_server2**. 상세는 **01 §4.5.1**, **02 §6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -29,9 +29,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(ETL 업그레이드·테스트중), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(저장 DB·컬럼 매핑·설정 모달·COPY 적재), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·**dashboard2**), dashboard_service.py. **Backend/etl_server**: ETL 메타·업로드·DB 적재·Job 큐(router, service, load_service, db_load_service, preview_service, schema_infer 등). **Backend/etl_server2**: ETL2(테스트중) 전용 API·저장 DB·컬럼 매핑·infer-schema 등. 상세는 **02_BACKEND_GUIDE.md** (§6 etl_server, §6.7 etl_server2 포함).
+- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·**dashboard2**), dashboard_service.py. **Backend/etl_server**: ETL 메타·업로드·DB 적재·Job 큐(router, service, load_service, db_load_service, preview_service, schema_infer 등). **Backend/etl_server2**: ETL2 전용 API·저장 DB·컬럼 매핑·COPY 적재·on_row_error·설정 모달. 상세는 **02_BACKEND_GUIDE.md** (§6 etl_server, §6.7 etl_server2 포함).
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -40,7 +40,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - `python run.py serve`: 빌드 없이 정적 서버만 (report-front 서비스 기동용, 배포 시 502 방지)
 - **Linux 배포**: 실제 업데이트 배포 시 루트의 **deploy.sh** 사용 (빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md 참고.
 - **접속 경로**
-  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2(성과리포트) `.../dashboard2`, 위젯보드 `.../widgetboard`, ETL `.../etl`, **ETL2(테스트중)** `.../etl2`
+  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2(성과리포트) `.../dashboard2`, 위젯보드 `.../widgetboard`, ETL `.../etl`, ETL2 `.../etl2`
   - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`, `.../etl2`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
 
 ---
@@ -102,7 +102,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성
-- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, **save-query-as-table/status/{job_id}**, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, dashboard2/*, **api/etl/**(connections, tables, jobs, preview, run, add-file, add-files-zip 등), **api/etl2/**(테스트중: tables, upload, infer-schema, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column 등). 요청/응답·라우터 구분은 **02_BACKEND_GUIDE.md §4**. ETL 상세는 **02 §6**, ETL2(테스트중)는 **02 §6.7**. chart-data는 차트 전용·LIMIT 없음(전건 반환).
+- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, **save-query-as-table/status/{job_id}**, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, dashboard2/*, **api/etl/** (connections, tables, jobs, preview, run, add-file, add-files-zip 등), **api/etl2/** (tables, upload, infer-schema, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, preview, run, jobs 등). 요청/응답·라우터 구분은 **02_BACKEND_GUIDE.md §4**. ETL 상세는 **02 §6**, ETL2는 **02 §6.7**, 운영·COPY·설정 모달은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
 - main.py·db·routers·dependencies·schemas·dashboard_service 역할은 **02_BACKEND_GUIDE.md §5** 참고.
 
 ---
@@ -141,25 +141,26 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 6.3 ETL (/etl)
 - **목적**: 고객 데이터(파일 업로드 또는 외부 DB)를 우리 PostgreSQL에 적재. 변환(T): 클렌징·타입 변환·매핑·파생·마스킹 1차. 실시간 스트리밍·스케줄(매일 몇 시) 미구현.
-- **소스 유형**: (1) **파일**: CSV, Excel(.xlsx/.xls), Parquet. 업로드 파일 3일 보관 후 자동 삭제. (2) **DB**: PostgreSQL·MySQL 적재 지원(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). Oracle은 테이블 목록·미리보기·PK 자동 조회만 지원, 적재는 Phase 3 예정.
+- **소스 유형**: (1) **파일**: CSV, Excel(.xlsx/.xls), Parquet. 업로드 파일 3일 보관 후 자동 삭제. (2) **DB**: PostgreSQL·MySQL·Oracle 연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재 모두 지원.
 - **DB 연결**: 등록 시 연결 테스트 통과 후에만 등록 가능. 등록된 연결 목록·연결 선택 옵션에 **호스트:포트/DB명** 표시. Oracle은 **Service Name**만 지원(JDBC @호스트:1521/서비스명 형태, SID 미지원). Oracle 테이블 목록: 스키마 미지정 시 **USER_TABLES**(접속 사용자 소유만), 스키마 지정 시 ALL_TABLES 해당 OWNER. 선택 시 OWNER.TABLE_NAME 저장. MySQL은 TABLE_SCHEMA=DB명. 연결 실패 시 Backend 호스트 IP가 외부 DB 방화벽에 허용돼야 함(경유 구조·점검 순서는 **02_BACKEND_GUIDE.md §6.3**).
 - **동기화 모드**: **전체(Full)** — 매 실행 시 타겟 테이블 DROP 후 CREATE+INSERT. **증분(Incremental)** — last_synced_at 이후 행만 SELECT 후 Upsert(PK 필요). 라벨·목록에 설명 표시.
 - **배치·실행 시점**: 배치 크기(batch_size)·배치 간 대기(batch_interval_seconds)는 **한 번 실행 시** 적용(스트리밍 행 수·배치 간 쉬는 초). **매일 몇 시 자동 실행** 스케줄 없음. 실행은 사용자 "실행" 버튼만(pending 등록 → 워커 처리). draft/done 여부와 관계없이 자동 실행 없음.
 - **목록 표시**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(크기/대기)·**동기화**(전체/증분)·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). 도움말(?)에 상태별 버튼 설명·배치·실행 시점 안내.
 - **파일 ETL**: 미리보기(10행)·PK 설정(체크박스)·실행(전체 교체)·데이터 추가(단일 파일 또는 ZIP 다중 파일, 건너뛴 파일 목록 표시). 파일 업로드용 연결은 삭제 불가(보호).
 - **Job 큐**: pending → running(동시 2건 제한), completed/failed/cancelled. Job 목록·실행 이력 패널.
-- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size). 상세·메타 테이블·모듈은 **02_BACKEND_GUIDE.md §3·§6**.
+- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size). 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 
-### 6.3.1 ETL2 (테스트중) (/etl2)
+### 6.3.1 ETL2 (/etl2)
 
-- **목적**: 09_ETL_Upgrade_Plan 적용 버전. 형상은 기존 ETL(etl_server·packages/etl)과 분리되어 있으며, **현재 테스트중**으로 운영 반영 전 검증용.
+- **목적**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table**을 다른 연결(다른 DB)에서 추가 적재할 수 있도록 등록 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental, 증분 시 임시 테이블 COPY 후 INSERT...ON CONFLICT).
 - **탭 구성**: 파일 업로드 | DB 연결 | **저장 DB 등록** | ETL 이력. URL 쿼리 `?tab=file|db|storage|history` 로 탭 유지.
 - **저장 DB**: 적재 대상 PostgreSQL 연결을 "저장 DB 등록" 탭에서 등록·테스트(CREATE/INSERT/DROP 권한 검증). 파일·DB 폼에서 "저장할 DB"로 기본 DB 또는 등록한 저장 DB 선택 → `storage_connection_id` 저장·적재 시 해당 DB에 CREATE/INSERT.
-- **테이블선택 및 컬럼매핑**: 타겟 테이블명 입력 옆 버튼으로 모달 오픈. 저장 DB 기준 테이블 목록·선택 테이블의 컬럼 조회. **소스 컬럼이 있으면**(파일: infer-schema API, DB: source-columns API): 소스→타겟 매핑 테이블(소스별 타겟 드롭다운·"제외"), 기본 제안(이름·순서·타입 호환), **타입 불일치 시 알럿**. 소스 없으면 타겟 컬럼 체크박스만(기존 동작). 적용 시 `column_mapping` [{source, target, type}] 전달.
-- **column_mapping**: etl_tables.column_mapping JSONB. 적재 시 CREATE/INSERT 컬럼·순서 반영. add_allowed_table은 `storage_connection_id` 없을 때만 호출.
+- **테이블선택 및 컬럼매핑**: 타겟 테이블명 옆 버튼으로 모달 오픈. 저장 DB 기준 테이블 목록·선택 테이블의 컬럼 조회. **소스 컬럼이 있으면**(파일: infer-schema API, DB: source-columns API): 소스→타겟 매핑 테이블(소스별 타겟 드롭다운·"제외"), 기본 제안(이름·순서·타입 호환), **타입 불일치 시 알럿**. 소스 없으면 타겟 컬럼 체크박스만. 적용 시 `column_mapping` [{source, target, type, on_error}] 전달.
+- **column_mapping**: etl_tables.column_mapping JSONB. 적재 직전 apply_mapping_type_cast로 타겟 타입 변환·변환 실패 시 on_error(null/zero/keep/skip_row/fail) 적용. add_allowed_table은 `storage_connection_id` 없을 때만 호출.
+- **on_row_error**: etl_tables.on_row_error. `fail`(한 건이라도 적재 실패 시 Job 실패), `skip`(실패 행 제외 적재·실패 내역 Job notice). Incremental 모드에서만 적용.
 - **증분 컬럼**: DB 연동 시 증분 모드에서 셀렉트(날짜형 컬럼만 옵션)·직접 입력(커스텀) 가능. 비날짜 타입은 validate-incremental-column로 검증 후 실패 시 알럿.
-- **UI 사용성**: 탭별 "처음 사용하시나요?" 단계 안내, 파일 폼 1→2→3 단계 표시, DB 폼 1 연결 추가 / 2 ETL 테이블 등록, 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 안내, 빈 목록 시 안내 박스.
-- **API·구현**: prefix **/api/etl2**. Backend **etl_server2**(router, service, load_service, db_load_service, preview_service, schema_infer 등). infer-schema, target-tables, target-columns, source-columns, validate-incremental-column, storage-connections. 상세는 **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**.
+- **UI 사용성**: 탭별 "처음 사용하시나요?" 단계 안내, 파일 폼 1→2→3 단계 표시, DB 폼 1 연결 추가 / 2 ETL 테이블 등록, 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 안내, 빈 목록 시 안내 박스. 목록에 **설정** 버튼(DB 소스만)·**저장 DB** 열·**동기화** 드롭다운·**행 실패 시** 드롭다운.
+- **API·구현**: prefix **/api/etl2**. Backend **etl_server2**(router, service, load_service, db_load_service, preview_service, schema_infer, transform_engine 등). infer-schema, target-tables, target-columns, source-columns, validate-incremental-column, storage-connections. 상세는 **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 
 ### 6.4 공통
 - API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
@@ -199,4 +200,5 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (2026-02-19) | docs/report·log 반영하여 PRD 정리. **ETL** §1.2·§2.1·§2.2·§4·§5·**§6.3** 추가: 파일·DB 연동(PostgreSQL·MySQL 적재, Oracle 목록·미리보기·PK), 동기화 모드(전체/증분)·배치·실행 시점(수동만·스케줄 미지원), 목록 열(연결·배치·동기화)·도움말. config §3.2에 system_db·etl_limits 언급. |
 | (2026-02-19) | **01_FRONTEND_GUIDE.md**·**02_BACKEND_GUIDE.md** 업데이트. 01: ETL 패키지(§1.1·§1.2·§3·§4.5)·접속 경로·shared API(ETL·joinOrder·saveQueryAsTable). 02: 가이드 명세(구조·기술 스택·API·설정·api_server/etl_server 상세), Flask→FastAPI 계획은 부록 A 참고. |
 | (2026-02-13) | **ETL 현행 반영**: Oracle Service Name만 지원(SID 미지원), 등록된 연결에 호스트:포트/DB명 표시. 타겟 테이블명 중복 검사(etl_tables·메인 DB, 증분 시 기존 테이블 허용). Oracle 테이블 목록: 스키마 미지정 시 USER_TABLES(접속 사용자 소유만), 지정 시 ALL_TABLES 해당 OWNER. 소스 테이블 OWNER.TABLE_NAME 저장. |
-| (2026-02-23) | **ETL2 (테스트중) 반영**: §1.2·§2.1·§2.2에 ETL2(테스트중)·etl2 패키지·etl_server2·접속 경로 /etl2 추가. §5.2 API에 api/etl2 언급. **§6.3.1 ETL2 (테스트중)** 신설: 탭(파일·DB·저장 DB 등록·이력), 저장 DB·테이블선택 및 컬럼매핑·column_mapping·증분 컬럼 셀렉트·UI 사용성·API·01 §4.5.1·02 §6.7 참조. |
+| (2026-02-23) | **ETL2 (테스트중) 반영**: §1.2·§2.1·§2.2에 ETL2·etl2 패키지·etl_server2·접속 경로 /etl2 추가. §5.2 API에 api/etl2 언급. **§6.3.1 ETL2 (테스트중)** 신설: 탭(파일·DB·저장 DB 등록·이력), 저장 DB·테이블선택 및 컬럼매핑·column_mapping·증분 컬럼 셀렉트·UI 사용성·API·01 §4.5.1·02 §6.7 참조. |
+| (2026-02-23) | **docs/main 최신화(08·log 기준)**: ETL Oracle 적재 지원 반영. ETL2 "테스트중" 제거·현행 반영: 설정 모달·on_row_error·동일 target_table 허용·COPY FROM STDIN·08 참조. §6.3·§6.3.1 정리. |

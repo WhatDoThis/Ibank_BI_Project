@@ -21,10 +21,13 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 366 - _copy_buf: rows_tuples → COPY용 StringIO 버퍼
 367 - _copy_insert_batch: Full 모드 COPY FROM STDIN 적재
 368 - _copy_upsert_batch: Incremental TEMP TABLE COPY + INSERT...SELECT ON CONFLICT DO UPDATE
+369 - _row_fallback: COPY 실패 시 행 단위 INSERT...ON CONFLICT, 동일 에러 50건 연속 시 조기 중단
+370 - _copy_upsert_batch_safe: 1차 COPY upsert, 실패 시 _row_fallback
+371 - _ensure_unique_constraint: 증분 시 타겟 테이블에 pk_list UNIQUE 없으면 ALTER TABLE 추가
 
 [Main]
 ===========
-run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 DB CREATE+INSERT 또는 Upsert. postgresql·mysql·oracle 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT 사용.
+run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 DB CREATE+INSERT 또는 Upsert. postgresql·mysql·oracle 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT 사용. incremental_column이 설정된 경우 Full 적재 완료 시에도 해당 컬럼 최대값으로 last_synced_at 갱신(Full→Incremental 전환 시 불필요한 전체 재적재 방지).
 
 [Dependencies]
 =========
@@ -289,6 +292,55 @@ def _fetch_source_pk_columns(conn, schema: str, table: str) -> List[str]:
         cur.close()
 
 
+def _ensure_unique_constraint(
+    cur, conn, main_schema: str, target_table: str, pk_list: List[str]
+) -> Optional[str]:
+    """
+    타겟 테이블에 pk_list 컬럼에 대한 UNIQUE 또는 PRIMARY KEY가 있는지 확인.
+    없으면 ALTER TABLE ADD CONSTRAINT ... UNIQUE (pk_list) 시도.
+    반환: None(성공 또는 이미 존재), 실패 시 에러 메시지 문자열.
+    """
+    if not pk_list:
+        return None
+    try:
+        cur.execute(
+            """
+            SELECT tc.constraint_name,
+                   array_agg(kcu.column_name ORDER BY kcu.ordinal_position) AS cols
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                 AND tc.table_catalog = kcu.table_catalog
+            WHERE tc.table_schema = %s AND tc.table_name = %s
+              AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+            GROUP BY tc.constraint_name
+            """,
+            (main_schema, target_table),
+        )
+        pk_set = set(pk_list)
+        for row in cur.fetchall():
+            raw = row["cols"]
+            if isinstance(raw, list):
+                cols = raw
+            elif hasattr(raw, "__iter__") and not isinstance(raw, str):
+                cols = list(raw)
+            else:
+                cols = [x.strip() for x in str(raw).strip("{}").split(",")] if raw else []
+            if set(cols) == pk_set:
+                return None
+        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in target_table)[:50]
+        constraint_name = f"{safe_name}_etl_uq"
+        pk_cols = ", ".join(f'"{p}"' for p in pk_list)
+        full_name = f'"{main_schema}"."{target_table}"'
+        cur.execute(f'ALTER TABLE {full_name} ADD CONSTRAINT "{constraint_name}" UNIQUE ({pk_cols})')
+        conn.commit()
+        return None
+    except Exception as e:
+        conn.rollback()
+        return str(e)[:500]
+
+
 def _fetch_source_columns_oracle(conn, owner: str, table_name: str) -> List[Tuple[str, str]]:
     """Oracle ALL_TAB_COLUMNS / USER_TAB_COLUMNS에서 (column_name, data_type) 목록. owner 없으면 USER_TAB_COLUMNS. 테이블/컬럼명은 대문자로 조회."""
     cur = conn.cursor()
@@ -435,6 +487,94 @@ def _copy_upsert_batch(
     )
 
 
+def _row_fallback(
+    cur, conn, full_name: str, cols: List[str], pk_list: List[str], rows_tuples: List[tuple],
+    job_id: Optional[int] = None, batch_offset: int = 0,
+) -> Tuple[int, List[dict]]:
+    """
+    행 단위 INSERT...ON CONFLICT 시도. 성공 행은 적재, 실패 행은 스킵하고 기록.
+    동일 에러가 연속 50건 이상이면 구조적 문제로 판단하고 조기 중단.
+    반환: (inserted_count, failed_rows) — failed_rows는 [{"row_index", "data", "error"}, ...]
+    """
+    col_str = ", ".join(f'"{c}"' for c in cols)
+    pk_str = ", ".join(f'"{p}"' for p in pk_list)
+    set_parts = [f'"{c}" = EXCLUDED."{c}"' for c in cols if c not in pk_list]
+    if not set_parts:
+        set_parts = [f'"{c}" = EXCLUDED."{c}"' for c in cols]
+    set_str = ", ".join(set_parts)
+    placeholders = ", ".join(["%s"] * len(cols))
+    upsert_sql = (
+        f'INSERT INTO {full_name} ({col_str}) VALUES ({placeholders}) '
+        f'ON CONFLICT ({pk_str}) DO UPDATE SET {set_str}'
+    )
+    inserted = 0
+    failed_rows: List[dict] = []
+    consecutive_same_error = 0
+    last_error: Optional[str] = None
+    early_stop_at: Optional[int] = None
+    for i, row in enumerate(rows_tuples):
+        if early_stop_at is not None and i >= early_stop_at:
+            break
+        try:
+            cur.execute(upsert_sql, row)
+            inserted += 1
+            consecutive_same_error = 0
+            last_error = None
+        except Exception as row_err:
+            conn.rollback()
+            err_str = str(row_err)[:200]
+            failed_rows.append({
+                "row_index": batch_offset + i,
+                "data": row[:5] if len(row) > 5 else row,
+                "error": err_str,
+            })
+            logger.warning(
+                "행 적재 실패 job_id=%s row_index=%s: %s",
+                job_id, batch_offset + i, err_str,
+            )
+            if last_error == err_str:
+                consecutive_same_error += 1
+                if consecutive_same_error >= 50:
+                    early_stop_at = i + 1
+                    remaining = len(rows_tuples) - early_stop_at
+                    failed_rows.append({
+                        "row_index": batch_offset + early_stop_at,
+                        "data": None,
+                        "error": f"동일 오류 50건 연속 → 조기 중단 (구조적 문제 가능성). 미적재 {remaining}건.",
+                    })
+                    logger.warning(
+                        "행 단위 fallback 조기 중단 job_id=%s: 동일 에러 50건 연속, 미적재 %s건",
+                        job_id, remaining,
+                    )
+                    break
+            else:
+                last_error = err_str
+                consecutive_same_error = 1
+    if inserted > 0:
+        conn.commit()
+    return inserted, failed_rows
+
+
+def _copy_upsert_batch_safe(
+    cur, conn, full_name: str, cols: List[str], col_types: List[str], pk_list: List[str],
+    rows_tuples: List[tuple], job_id: Optional[int] = None, batch_offset: int = 0,
+) -> Tuple[int, List[dict]]:
+    """
+    1차: _copy_upsert_batch 시도. 실패 시 rollback 후 행 단위 fallback.
+    반환: (inserted_count, failed_rows)
+    """
+    try:
+        _copy_upsert_batch(cur, full_name, cols, col_types, pk_list, rows_tuples)
+        return len(rows_tuples), []
+    except Exception as e:
+        conn.rollback()
+        logger.warning(
+            "COPY upsert 실패, 행 단위 fallback 전환 (batch_offset=%s): %s",
+            batch_offset, e,
+        )
+        return _row_fallback(cur, conn, full_name, cols, pk_list, rows_tuples, job_id, batch_offset)
+
+
 def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     """
     ETL 테이블(DB 연동) 1건에 대해 추출·적재 실행.
@@ -467,6 +607,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         batch_interval_seconds = max(0, int(batch_interval_seconds))
     except (TypeError, ValueError):
         batch_interval_seconds = 0
+    on_row_error = (row.get("on_row_error") or "fail").strip().lower()
+    if on_row_error not in ("fail", "skip"):
+        on_row_error = "fail"
 
     if not connection_id or not source_table or not target_table:
         raise ValueError("connection_id, source_table, target_table가 필요합니다.")
@@ -638,6 +781,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 cur_src.arraysize = min(effective_batch_size, 5000)
             cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}', params)
             total_processed, first_batch = 0, True
+            total_failed: List[dict] = []
+            run_is_full = False
+            last_synced_candidate = None
             conn_main, main_schema = etl_service.get_target_db_connection(row.get("storage_connection_id"))
             cur_main = conn_main.cursor()
             full_name = f'"{main_schema}"."{target_table}"'
@@ -691,6 +837,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         col_types = [t for _, t in columns_final]
                         col_defs = ", ".join(f'"{c[0]}" {c[1]}' for c in columns_final)
                         effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
+                        run_is_full = (effective_sync == "full")
                         if sync_mode == "full" and effective_sync != "full":
                             logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
                             sync_mode = "incremental"
@@ -717,6 +864,16 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                                 uniq_part = f", UNIQUE ({', '.join(chr(34) + p + chr(34) for p in pk_list)})" if pk_list else ""
                                 cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{uniq_part})")
                                 conn_main.commit()
+                            else:
+                                err_msg = _ensure_unique_constraint(cur_main, conn_main, main_schema, target_table, pk_list)
+                                if err_msg:
+                                    etl_service.update_job(job_id, "failed", error_message=f"타겟 테이블에 UNIQUE 제약을 추가할 수 없습니다. {err_msg}")
+                                    etl_service.update_etl_table_status(etl_table_id, "error")
+                                    cur_main.close()
+                                    conn_main.close()
+                                    cur_src.close()
+                                    src_conn.close()
+                                    return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": err_msg}
                         if sync_mode != "full":
                             pk_list_inc = [x.strip() for x in pk_columns.split(",") if x.strip()]
                             if mapping_used:
@@ -737,16 +894,30 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     ]
                     if sync_mode == "full":
                         _copy_insert_batch(cur_main, full_name, cols, rows_tuples)
+                        conn_main.commit()
+                        batch_inserted = len(rows_tuples)
                     else:
-                        _copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list_inc, rows_tuples)
-                    total_processed += len(rows_batch)
-                    conn_main.commit()
+                        if on_row_error == "skip":
+                            batch_inserted, failed = _copy_upsert_batch_safe(
+                                cur_main, conn_main, full_name, cols, col_types, pk_list_inc,
+                                rows_tuples, job_id=job_id, batch_offset=total_processed,
+                            )
+                            total_failed.extend(failed)
+                            conn_main.commit()
+                        else:
+                            _copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list_inc, rows_tuples)
+                            conn_main.commit()
+                            batch_inserted = len(rows_tuples)
+                    total_processed += batch_inserted
                     if incremental_column and incremental_column in col_names and rows_batch:
                         max_vals = [r.get(incremental_column) for r in rows_batch if r.get(incremental_column) is not None]
                         if max_vals:
                             from datetime import datetime as dt
                             latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
-                            etl_service.update_last_synced_at(etl_table_id, latest)
+                            if run_is_full:
+                                last_synced_candidate = latest if last_synced_candidate is None else max(last_synced_candidate, latest)
+                            else:
+                                etl_service.update_last_synced_at(etl_table_id, latest)
                     etl_service.update_job_progress(job_id, total_processed)
                     if max_rows_per_load > 0 and total_processed >= max_rows_per_load:
                         break
@@ -763,10 +934,20 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     src_conn.close()
                 except Exception:
                     pass
+            if run_is_full and last_synced_candidate is not None:
+                etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
             if not row.get("storage_connection_id"):
                 from Env.config.loader import add_allowed_table
                 add_allowed_table(target_table)
-            etl_service.update_job(job_id, "completed", rows_processed=total_processed)
+            if total_failed:
+                notice = f"적재 실패 {len(total_failed)}건 (총 {total_processed + len(total_failed)}건 중)"
+                details = "; ".join(f"row#{f['row_index']}: {f['error'][:80]}" for f in total_failed[:10])
+                etl_service.update_job(
+                    job_id, "completed", rows_processed=total_processed,
+                    notice=f"{notice}. {details}",
+                )
+            else:
+                etl_service.update_job(job_id, "completed", rows_processed=total_processed)
             etl_service.update_etl_table_status(etl_table_id, "done")
             logger.info("ETL db load completed job_id=%s rows_processed=%s (streaming)", job_id, total_processed)
             return {"job_id": job_id, "status": "completed", "rows_processed": total_processed}
@@ -829,6 +1010,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         if sync_mode == "full" and effective_sync != "full":
             logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
             sync_mode = "incremental"
+        full_fetch_notice = None
         try:
             if effective_sync == "full":
                 cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
@@ -851,6 +1033,12 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 ]
                 _copy_insert_batch(cur_main, full_name, cols, rows_tuples)
                 conn_main.commit()
+                if incremental_column and incremental_column in col_names:
+                    max_vals = [r.get(incremental_column) for r in rows_data if r.get(incremental_column) is not None]
+                    if max_vals:
+                        from datetime import datetime as dt
+                        latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
+                        etl_service.update_last_synced_at(etl_table_id, latest)
             else:
                 # incremental: Upsert. PK 필요.
                 if not pk_columns:
@@ -869,6 +1057,14 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     uniq_part = f", UNIQUE ({', '.join(chr(34) + p + chr(34) for p in pk_list)})" if pk_list else ""
                     cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{uniq_part})")
                     conn_main.commit()
+                else:
+                    err_msg = _ensure_unique_constraint(cur_main, conn_main, main_schema, target_table, pk_list)
+                    if err_msg:
+                        etl_service.update_job(job_id, "failed", error_message=f"타겟 테이블에 UNIQUE 제약을 추가할 수 없습니다. {err_msg}")
+                        etl_service.update_etl_table_status(etl_table_id, "error")
+                        cur_main.close()
+                        conn_main.close()
+                        return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": err_msg}
                 if etl_service.is_job_cancelled(job_id):
                     conn_main.rollback()
                     etl_service.update_job(job_id, "cancelled", rows_processed=0, error_message="사용자 취소")
@@ -878,8 +1074,20 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     tuple(r.get(m["source"]) for m in mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
                     for r in rows_data
                 ]
-                _copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list, rows_tuples_inc)
-                conn_main.commit()
+                if on_row_error == "skip":
+                    rows_processed, full_fetch_failed = _copy_upsert_batch_safe(
+                        cur_main, conn_main, full_name, cols, col_types, pk_list,
+                        rows_tuples_inc, job_id=job_id, batch_offset=0,
+                    )
+                    conn_main.commit()
+                    full_fetch_notice = None
+                    if full_fetch_failed:
+                        full_fetch_notice = f"적재 실패 {len(full_fetch_failed)}건 (총 {rows_processed + len(full_fetch_failed)}건 중). "
+                        full_fetch_notice += "; ".join(f"row#{f['row_index']}: {f['error'][:80]}" for f in full_fetch_failed[:10])
+                else:
+                    _copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list, rows_tuples_inc)
+                    conn_main.commit()
+                    full_fetch_notice = None
                 # last_synced_at: 이번에 가져온 행들 중 incremental_column 최대값
                 if incremental_column and incremental_column in col_names:
                     max_vals = [r.get(incremental_column) for r in rows_data if r.get(incremental_column) is not None]
@@ -898,7 +1106,10 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             from Env.config.loader import add_allowed_table
             add_allowed_table(target_table)
 
-        etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
+        if full_fetch_notice:
+            etl_service.update_job(job_id, "completed", rows_processed=rows_processed, notice=full_fetch_notice)
+        else:
+            etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
         etl_service.update_etl_table_status(etl_table_id, "done")
         logger.info("ETL db load completed job_id=%s rows_processed=%s", job_id, rows_processed)
         return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}

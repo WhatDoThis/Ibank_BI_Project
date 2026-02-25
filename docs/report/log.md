@@ -1,5 +1,106 @@
 # 작업 완료 로그 (Task Completion Log)
 
+## 2026-02-25: Full 적재 완료 시 last_synced_at 갱신 (Full→Incremental 전환 시 불필요한 전체 재적재 방지)
+
+### 목적
+- Full로 75만 건 적재 후 동기화 모드를 Incremental로 바꾸면 last_synced_at이 NULL이라, 첫 증분 실행에서 WHERE 없이 소스 전체를 다시 읽어 전부 Upsert하는 비효율 발생. **Full 적재 완료 시에도 incremental_column이 설정돼 있으면 해당 컬럼 최대값으로 last_synced_at을 갱신**하여, 증분 전환 후 첫 실행부터 변경분만 가져오도록 함.
+
+### 완료 작업
+- **전체 fetch 분기 (effective_batch_size == 0)**: `if effective_sync == "full":` 블록 안, COPY 적재 및 `conn_main.commit()` 직후에 `incremental_column`이 있고 `col_names`에 포함되면 `rows_data`에서 해당 컬럼 최대값을 구해 `etl_service.update_last_synced_at(etl_table_id, latest)` 호출 추가.
+- **스트리밍 분기 (effective_batch_size > 0)**: Full 모드일 때는 배치마다 DB에 갱신하지 않고 `last_synced_candidate`에 전역 최대값을 누적. 루프 종료 후 `run_is_full and last_synced_candidate is not None`이면 한 번만 `update_last_synced_at` 호출. Incremental 모드는 기존처럼 배치마다 갱신 유지.
+- **run_is_full**: first_batch에서 `effective_sync == "full"` 여부를 저장해 루프 밖에서 Full 완료 시 한 번만 갱신하는 데 사용.
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-25: ETL 증분 적재 — ON CONFLICT 제약 누락·행 fallback 조기 중단
+
+### 목적
+- 증분 실행 시 "there is no unique or exclusion constraint matching the ON CONFLICT specification" 발생 → 타겟 테이블에 pk_columns 기준 UNIQUE/PRIMARY KEY가 없을 때(기존 full로 생성 시 소스 PK 미반영·외부 생성 테이블 등) ON CONFLICT 실패. 이에 대한 **자동 UNIQUE 추가** 및 **행 단위 fallback 시 동일 에러 연속 50건이면 조기 중단**으로 MySQL 연결 끊김 방지.
+
+### 완료 작업
+- **_ensure_unique_constraint**: 타겟 테이블의 information_schema로 pk_list 컬럼에 대한 UNIQUE/PRIMARY KEY 존재 여부 확인. 없으면 `ALTER TABLE ... ADD CONSTRAINT {target}_etl_uq UNIQUE (pk_cols)` 실행. 실패 시(중복 데이터 등) 에러 메시지 반환.
+- **스트리밍·전체 fetch 증분 분기**: 테이블이 이미 존재할 때(SELECT 1 성공) **else**에서 _ensure_unique_constraint 호출. 실패 시 Job failed·error_message에 "타겟 테이블에 UNIQUE 제약을 추가할 수 없습니다. ..." 기록 후 반환.
+- **_row_fallback**: 동일 에러 메시지가 **연속 50건** 나면 구조적 문제로 판단해 조기 중단. failed_rows에 "동일 오류 50건 연속 → 조기 중단 (구조적 문제 가능성). 미적재 N건." 요약 추가 후 반환. MySQL net_write_timeout으로 연결 끊김 방지.
+
+### 수정·영향 파일
+- Backend/etl_server2/db_load_service.py
+- docs/report/log.md
+
+---
+
+## 2026-02-23: docs/main 최신화 (08·log 기준)
+
+### 목적
+- 08_ETL_Phase_Implement_Guide.md·log.md 내용을 기반으로 docs/main(00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE)을 최신 시스템에 맞게 업데이트. 미래 계획·이전 버전·미사용 내용 제거, 당장 적용된 내용만 반영.
+
+### 완료 작업
+- **00_PRD.md**: §1.2 ETL에 Oracle 적재 지원·08 참조 반영. ETL2 "테스트중" 제거·설정 모달·on_row_error·동일 target_table 허용·COPY FROM STDIN 반영. §2.1 패키지·§2.2 접속 경로·§5.2 API·§6.3 ETL(Oracle 적재·설정 08 참조)·§6.3.1 ETL2(목적·on_row_error·설정 버튼·저장 DB 열·API·08 참조) 갱신. 변경 이력 2026-02-23 docs/main 최신화 행 추가.
+- **01_FRONTEND_GUIDE.md**: §1.1 etl2 "테스트중" 제거. §1.2 접속 경로 /etl2 정리. §3 디렉터리 트리에 EtlTableSettingsModal·ETLTableList(설정·저장 DB·동기화·행 실패 시) 반영. §4.5.1 ETL2: 설정 모달·on_row_error·저장 DB 열·08 참조. 변경 이력 갱신.
+- **02_BACKEND_GUIDE.md**: 목적에 etl_server2·08 참조 추가. §2 아키텍처 etl_server Oracle 적재·etl_server2 COPY·on_row_error 반영. §3.2 메타 테이블에 etl_storage_connections·etl_tables.on_row_error·etl_jobs.notice 추가. §4.6 ETL2에 PATCH tables/{id}·add-files-zip. §6.1 etl_server db_load_service Oracle·etl_server2 COPY 언급. §6.2 Oracle 적재 ✅. §6.7 etl_server2: COPY·on_row_error·동일 target_table 허용·PATCH·08 참조. 변경 이력 갱신.
+
+### 수정·영향 파일
+- docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md
+- docs/report/log.md
+
+---
+
+## 2026-02-23: ETL 문서 통합 (08·09·10 정리)
+
+### 목적
+- 08·09·10 세 문서에서 미래 계획·이전 버전·미사용 내용 제거 후 **08 한 문서로 통합**하여 관리. 기본→고도화 순으로 섹션 재구성. COPY 적재 이해하기(비유·단계·Upsert·on_row_error) 내용을 문서 형식에 맞게 08에 통합.
+
+### 완료 작업
+- **08_ETL_Phase_Implement_Guide.md**: 전면 재작성. 요약·시스템 개요·전제·메타 테이블·모듈 의존·Job 확인·재실행·파일/DB 동작·DB 연결 실패 점검·Phase·구현 요약·ZIP 추가 적재·ETL 목록 버튼·**§13 COPY 적재 이해하기**(비유·1~3단계·Upsert 우회·on_row_error·전체 흐름도)·§14 DB 적재 상세(헬퍼·run_db_load)·§15 매핑 형변환·행 실패 정책. etl_server2·on_row_error·target_table 중복 허용·설정 모달 반영.
+- **09_ETL_Upgrade_Plan.md**, **10_ETL_Mapping_TypeCast_And_DB_Performance.md**: 삭제. 내용은 08에 통합되어 있음.
+- **00_ReportIndex.md**: 08 설명 유지. 09·10 행 제거.
+
+### 수정·영향 파일
+- docs/report/08_ETL_Phase_Implement_Guide.md, 09_ETL_Upgrade_Plan.md, 10_ETL_Mapping_TypeCast_And_DB_Performance.md, 00_ReportIndex.md, log.md
+
+---
+
+## 2026-02-23: 동기화 모드 편집 + 동일 타겟 테이블 허용
+
+### 목적
+- 전체 적재 후 같은 ETL을 증분으로 바꿔 이후만 증분 적재하고 싶은데, 목록에서 동기화 모드를 수정할 수 없음 → **동기화 모드(전체/증분) 목록에서 편집 가능**하도록 UI 추가.
+- 동일 타겟 테이블을 다른 DB(연결)에서 추가 적재하려면 등록이 필요함 → **동일 target_table 중복 등록 허용**, 삭제 시 다른 ETL이 해당 타겟을 쓰면 DROP 하지 않음.
+
+### 완료 작업
+- **service.py**: create_etl_table에서 target_table 유일성 검사 제거(동일 타겟 허용). delete_etl_table에서 동일 target_table을 쓰는 다른 ETL이 있으면 DROP 생략. delete_connection에서 각 타겟에 대해 다른 연결이 사용 중이면 DROP 생략.
+- **ETLTableList.jsx**: DB 소스 행의 "동기화" 열을 드롭다운(전체/증분)으로 변경, 변경 시 PATCH sync_mode로 반영.
+- **etl.css**: 동기화 모드 select 스타일 추가.
+
+### 수정·영향 파일
+- Backend: etl_server2/service.py
+- Frontend: etl2/components/ETLTableList.jsx, etl2/etl.css
+- docs/report/log.md
+
+---
+
+## 2026-02-23: COPY fallback + on_row_error 옵션 (행 실패 시 전체 실패 vs 제외 적재)
+
+### 목적
+- CAST 등으로 일부 행만 실패할 때: 한 건 실패 시 Job 전체 실패 vs 실패 행 제외하고 적재할지 **테이블별로 선택** 가능하도록 함.
+- 1차 COPY upsert 실패 시 해당 배치만 **행 단위 fallback**(성공 행 적재, 실패 행 스킵·notice 기록).
+
+### 완료 작업
+- **DB**: etl_tables에 on_row_error 컬럼 추가(사용자 적용 완료 가정). 값: 'fail'(기본) | 'skip'.
+- **service.py**: get_etl_table / list_etl_tables SELECT에 t.on_row_error 추가. create_etl_table에 on_row_error 파라미터(기본 'fail') 및 INSERT 컬럼 추가. update_etl_table에 on_row_error 파라미터 추가('fail'|'skip'만 허용).
+- **db_load_service.py**: _row_fallback(행 단위 INSERT...ON CONFLICT, 실패 행 수집), _copy_upsert_batch_safe(1차 COPY upsert → 실패 시 _row_fallback) 추가. run_db_load에서 on_row_error 읽기, incremental 시 skip이면 _copy_upsert_batch_safe 호출·total_failed 수집·완료 시 notice 기록. 스트리밍·전체 fetch 분기 모두 동일 적용. full 모드는 fallback 미적용.
+- **router**: CreateTableBody / UpdateTableBody에 on_row_error 필드 추가. create_table / update_table에서 service 호출 시 전달.
+- **UI**: DbConnectionForm에 "행 적재 실패 시" 선택(전체 실패 / 실패 행 제외하고 적재) 추가, 등록 시 on_row_error 전송. ETLTableList에 "행 실패 시" 열 추가, DB 소스 행에서 드롭다운으로 변경 시 PATCH로 반영. etl.css에 행 실패 열·드롭다운·hint 스타일 추가.
+
+### 수정·영향 파일
+- Backend: etl_server2/service.py, etl_server2/db_load_service.py, etl_server2/router.py
+- Frontend: etl2/components/DbConnectionForm.jsx, etl2/components/ETLTableList.jsx, etl2/etl.css
+- docs/report/log.md
+
+---
+
 ## 2026-02-24: run_db_load COPY 프로토콜 적용 (09_ETL_Upgrade_Plan §14)
 
 ### 목적

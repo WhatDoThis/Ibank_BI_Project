@@ -87,6 +87,7 @@ function DbConnectionForm({ onSuccess }) {
   const [sourceColumnsLoading, setSourceColumnsLoading] = useState(false);
   const [batchSize, setBatchSize] = useState('');
   const [batchIntervalSeconds, setBatchIntervalSeconds] = useState('');
+  const [onRowError, setOnRowError] = useState('fail');
   const [selectedSourceTable, setSelectedSourceTable] = useState('');
   const [storageConnectionId, setStorageConnectionId] = useState('');
   const [storageConnections, setStorageConnections] = useState([]);
@@ -313,6 +314,7 @@ function DbConnectionForm({ onSuccess }) {
         batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
         storage_connection_id: storageConnectionId === '' || storageConnectionId == null ? null : Number(storageConnectionId),
         column_mapping: columnMapping && columnMapping.length > 0 ? columnMapping : null,
+        on_row_error: (onRowError || 'fail').toLowerCase() === 'skip' ? 'skip' : 'fail',
         created_by: 'user'
       });
       if (onSuccess) onSuccess();
@@ -324,6 +326,7 @@ function DbConnectionForm({ onSuccess }) {
       setIncrementalColumnCustom('');
       setBatchSize('');
       setBatchIntervalSeconds('');
+      setOnRowError('fail');
       setSelectedSourceTable('');
       setColumnMapping(null);
       setPkColumns('');
@@ -720,6 +723,27 @@ function DbConnectionForm({ onSuccess }) {
               placeholder="0"
               className="etl-db-form__input"
             />
+          </div>
+          <div className="etl-db-form__field etl-db-form__field--full">
+            <label className="etl-db-form__label">행 적재 실패 시</label>
+            {syncMode === 'incremental' ? (
+              <>
+                <span className="etl-db-form__label-desc">한 건이라도 타입/CAST 등으로 실패할 때: 전체 실패로 Job을 중단할지, 실패한 행만 제외하고 나머지를 적재할지 선택합니다. &quot;제외 적재&quot; 시 실패 건수·요약이 Job 안내(notice)에 기록됩니다.</span>
+                <select
+                  value={onRowError}
+                  onChange={(e) => setOnRowError(e.target.value)}
+                  className="etl-db-form__select"
+                  aria-describedby="on-row-error-desc"
+                >
+                  <option value="fail">전체 실패 (기본)</option>
+                  <option value="skip">실패 행 제외하고 적재</option>
+                </select>
+              </>
+            ) : (
+              <span className="etl-db-form__label-desc" id="on-row-error-desc">
+                전체(Full) 모드에서는 적용되지 않습니다. 재실행 시 DROP+CREATE로 초기화되므로, 실패 시 소스/매핑 보정 후 다시 실행하면 됩니다.
+              </span>
+            )}
           </div>
         </div>
         {createError && <p className="etl-db-form__error">{createError}</p>}

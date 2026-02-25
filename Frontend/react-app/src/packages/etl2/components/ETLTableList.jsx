@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { etl2ListTables, etl2ListJobs, etl2DeleteTable, etl2DeleteTableRow } from '@/shared/api/client';
+import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
 
 function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onDelete, queueStatusTrigger }) {
   const [tables, setTables] = useState([]);
@@ -25,6 +26,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
   const [error, setError] = useState('');
   const [queueStatus, setQueueStatus] = useState({});
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsModalTable, setSettingsModalTable] = useState(null);
   const pollRef = useRef(null);
 
   async function loadQueueStatus() {
@@ -112,6 +114,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             <th>소스</th>
             <th className="etl-table-list__th-batch">배치</th>
             <th className="etl-table-list__th-sync">동기화</th>
+            <th className="etl-table-list__th-row-error">행 실패 시</th>
             <th className="etl-table-list__th-storage">저장 DB</th>
             <th>상태</th>
             <th className="etl-table-list__th-actions">
@@ -155,6 +158,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             const connectionText = isDbSource ? (t.connection_name || '—') : '—';
             const syncMode = (t.sync_mode || '').toLowerCase();
             const syncText = !isDbSource ? '—' : syncMode === 'incremental' ? '증분' : '전체';
+            const onRowErrorVal = (t.on_row_error || 'fail').toLowerCase();
+            const onRowErrorText = !isDbSource ? '—' : onRowErrorVal === 'skip' ? '제외 적재' : '전체 실패';
             return (
             <tr key={t.etl_table_id} className={rowClass || undefined}>
               <td>{t.target_table}</td>
@@ -164,7 +169,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
               <td className="etl-table-list__cell-connection" title={isDbSource && t.connection_name ? `연결: ${t.connection_name}` : undefined}>{connectionText}</td>
               <td>{t.source_table || t.file_path || '—'}</td>
               <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '전체 fetch'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
-              <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert' : '전체: DROP+CREATE+INSERT') : undefined}>{syncText}</td>
+              <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
+              <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
               <td className="etl-table-list__cell-storage" title={t.storage_connection_name ? `저장 DB: ${t.storage_connection_name}` : '기본 DB (ibank_db)'}>{t.storage_connection_name ? t.storage_connection_name : '기본 DB'}</td>
               <td className={statusCellClass}>{statusText}</td>
               <td className="etl-table-list__cell-actions">
@@ -202,6 +208,17 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                           disabled={runDisabled}
                         >
                           데이터 추가
+                        </button>
+                      )}
+                      {isDbSource && (
+                        <button
+                          type="button"
+                          className="etl-table-list__settings"
+                          onClick={() => setSettingsModalTable(t)}
+                          disabled={runDisabled}
+                          title="동기화 모드, 증분 컬럼, 배치, 행 실패 시 동작 수정"
+                        >
+                          설정
                         </button>
                       )}
                     </>
@@ -266,7 +283,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 적재 대기열 등록 후 실행.</li>
                   <li><strong>미리보기</strong> — 컬럼·상위 10행 미리보기.</li>
-                  <li><strong>데이터 추가</strong> — 파일 소스만 표시. 업로드한 파일로 같은 테이블에 추가 적재(업서트). DB 연결은 전체/증분이 이미 정해져 있어 별도 버튼 없음.</li>
+                  <li><strong>데이터 추가</strong> — 파일 소스만 표시. 업로드한 파일로 같은 테이블에 추가 적재(업서트). DB 연결은 <strong>설정</strong> 버튼에서 동기화·배치 등을 수정.</li>
+                  <li><strong>설정</strong> — DB 소스만 표시. 동기화 모드(전체/증분), 증분 컬럼(증분 시 필수), 배치 크기·대기, 행 실패 시 동작을 모달에서 수정.</li>
                   <li><strong>PK</strong> — 테이블선택·컬럼매핑 모달에서 행별 PK 체크로 설정. 첫 실행 시 CREATE TABLE에 반영.</li>
                   <li><strong>삭제</strong> — ETL 삭제 + 타겟 테이블 DROP.</li>
                   <li><strong>×</strong> — 비활성. 동일 타겟 2건 이상일 때만 활성.</li>
@@ -309,6 +327,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             </div>
           </div>
         </div>
+      )}
+      {settingsModalTable && (
+        <EtlTableSettingsModal
+          open={!!settingsModalTable}
+          onClose={() => setSettingsModalTable(null)}
+          table={settingsModalTable}
+          onSuccess={() => load()}
+        />
       )}
     </div>
   );

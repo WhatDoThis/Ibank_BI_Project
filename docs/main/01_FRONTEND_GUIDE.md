@@ -9,12 +9,12 @@
 ### 1.1 역할
 
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(ETL 업그레이드·**테스트중**). 공용 API·설정은 shared 에서 사용합니다.
+- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(저장 DB·컬럼 매핑·설정 모달·COPY 적재), shared(API·config). 공용 API·설정은 shared 에서 사용합니다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
 
-- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`, `.../etl2`(ETL2 테스트중)
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`, `.../etl2`
 - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2, widgetboard, etl). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
 
 ### 1.3 프론트와 설정
@@ -122,17 +122,18 @@ Frontend/react-app/
 │   │   │       ├── PkColumnsModal.jsx      # PK 컬럼 설정
 │   │   │       └── PreviewModal.jsx        # 미리보기 10행
 │   │   │
-│   │   └── etl2/              # ETL2 (테스트중) — 저장 DB·컬럼 매핑·UI 사용성
+│   │   └── etl2/              # ETL2 — 저장 DB·컬럼 매핑·설정 모달·COPY 적재
 │   │       ├── ETLPage.jsx
 │   │       ├── index.jsx
 │   │       ├── etl.css
 │   │       └── components/
 │   │           ├── SourceTypeSelector.jsx   # 탭: 파일 업로드|DB 연결|저장 DB 등록|ETL 이력
 │   │           ├── FileUploadForm.jsx       # 단계 안내·etl2InferSchema·테이블선택 및 컬럼매핑
-│   │           ├── DbConnectionForm.jsx     # 저장 DB 선택·소스 컬럼·테이블선택 및 컬럼매핑·증분 컬럼 셀렉트
+│   │           ├── DbConnectionForm.jsx    # 저장 DB 선택·소스 컬럼·테이블선택 및 컬럼매핑·증분 컬럼·on_row_error
 │   │           ├── StorageConnectionForm.jsx # 저장 DB(적재 대상) 등록·테스트
-│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·타입 호환
-│   │           ├── ETLTableList.jsx         # 목록·실행/미리보기/데이터 추가/PK 설정·빈 목록 안내
+│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·타입 호환·on_error
+│   │           ├── ETLTableList.jsx         # 목록·실행/미리보기/데이터 추가/설정/삭제·저장 DB·동기화·행 실패 시
+│   │           ├── EtlTableSettingsModal.jsx # 설정 모달: 동기화 모드·증분 컬럼·배치·on_row_error
 │   │           ├── JobHistoryPanel.jsx
 │   │           ├── JobLogPanel.jsx
 │   │           ├── AddFileModal.jsx
@@ -241,17 +242,18 @@ Frontend/react-app/
 - **etl.css**: ETL 목록·연결·배치·동기화 열 스타일.
 - **API**(shared/api/client.js): etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables 등.
 
-### 4.5.1 ETL2 (테스트중) (/etl2)
+### 4.5.1 ETL2 (/etl2)
 
-- **역할**: 09_ETL_Upgrade_Plan 적용 버전. 기존 ETL(etl·etl_server)과 형상 분리, **현재 테스트중**. 라우트 `/etl2`, API prefix `/api/etl2`.
+- **역할**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 목록에서 설정 모달로 동기화 모드·증분 컬럼·배치·행 실패 시 동작(fail/skip) 수정. 라우트 `/etl2`, API prefix `/api/etl2`. 상세·COPY 적재·운영은 **docs/report/08_ETL_Phase_Implement_Guide.md** 참조.
 - **ETLPage.jsx**: 탭(파일 업로드·DB 연결·저장 DB 등록·ETL 이력). 탭별 "처음 사용하시나요?" 단계 안내. 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 설명. 실행 전 target-exists·full sync 시 메인/저장 DB 구분 확인 메시지.
 - **SourceTypeSelector.jsx**: 4탭 — 파일 업로드 | DB 연결 | 저장 DB 등록 | ETL 이력. URL `?tab=file|db|storage|history` 유지.
 - **FileUploadForm.jsx**: 상단 한 줄 안내, 단계(1 파일 선택 → 2 저장 위치·테이블 설정 → 3 등록). 저장할 DB·타겟 테이블명·"테이블선택 및 컬럼매핑" 버튼. 파일 있으면 etl2InferSchema 호출 후 모달에 sourceColumns 전달. 업로드 성공 시 "등록되었습니다"·"아래 목록에서 실행을 누르면 적재됩니다" 안내.
-- **DbConnectionForm.jsx**: 1 연결 추가 / 2 ETL 테이블 등록 단계 제목. 저장할 DB 선택. 연결·소스 테이블 선택 시 source-columns 로드 → 테이블선택 및 컬럼매핑 모달에 sourceColumns 전달. 증분 컬럼: 셀렉트(날짜형 컬럼)·직접 입력(커스텀)·validate-incremental-column 검증.
+- **DbConnectionForm.jsx**: 1 연결 추가 / 2 ETL 테이블 등록 단계 제목. 저장할 DB 선택. **행 적재 실패 시**(on_row_error): 전체 실패 / 실패 행 제외하고 적재 선택·등록 시 전송. 연결·소스 테이블 선택 시 source-columns 로드 → 테이블선택 및 컬럼매핑 모달에 sourceColumns 전달. 증분 컬럼: 셀렉트(날짜형 컬럼)·직접 입력(커스텀)·validate-incremental-column 검증.
 - **StorageConnectionForm.jsx**: 저장 DB(적재 대상 PostgreSQL) 등록·연결 테스트·등록된 저장 DB 목록·삭제. 상단 한 줄 안내.
-- **TargetTableSelectModal.jsx**: 저장 DB 기준 테이블 목록·선택 테이블 컬럼. **sourceColumns** 있으면: 소스→타겟 매핑 테이블(소스별 타겟 드롭다운·"제외"), 기본 제안(이름·순서·타입 호환), 타입 불일치 시 알럿. 없으면 타겟 컬럼 체크박스만. 적용 시 onSelect(tableName, columnMapping).
-- **ETLTableList.jsx**: 목록·실행/미리보기/데이터 추가/PK 설정/삭제·도움말(?). 빈 목록 시 안내 박스(empty-wrap)·"파일 업로드/DB 연결 탭에서 등록 후 실행으로 적재" 문구.
-- **API**(shared/api/client.js): etl2ListTables, etl2CreateTable, etl2UploadFile, **etl2InferSchema**(파일→스키마만 반환), etl2ListTargetTables, etl2ListTargetColumns, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2GetSourceColumns, etl2ValidateIncrementalColumn, etl2ListJobs, etl2RunTable 등. 모두 `/api/etl2/*` 호출.
+- **TargetTableSelectModal.jsx**: 저장 DB 기준 테이블 목록·선택 테이블 컬럼. **sourceColumns** 있으면: 소스→타겟 매핑 테이블(소스별 타겟 드롭다운·"제외"), 기본 제안(이름·순서·타입 호환), 타입 불일치 시 알럿. 컬럼별 **변환 실패 시**(on_error) 드롭다운. 없으면 타겟 컬럼 체크박스만. 적용 시 onSelect(tableName, columnMapping).
+- **ETLTableList.jsx**: 목록·실행/미리보기/데이터 추가(파일 소스만)/**설정**(DB 소스만)/삭제·도움말(?). **저장 DB** 열·**동기화** 드롭다운(전체/증분)·**행 실패 시** 드롭다운(fail/skip). 빈 목록 시 안내 박스(empty-wrap)·"파일 업로드/DB 연결 탭에서 등록 후 실행으로 적재" 문구.
+- **EtlTableSettingsModal.jsx**: DB 소스 ETL용 설정 모달. 동기화 모드(전체/증분)·증분 컬럼·배치 크기·배치 간 대기·**행 실패 시 동작**(fail/skip) 수정 후 PATCH 반영.
+- **API**(shared/api/client.js): etl2ListTables, etl2CreateTable, etl2UploadFile, **etl2InferSchema**(파일→스키마만 반환), etl2ListTargetTables, etl2ListTargetColumns, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2GetSourceColumns, etl2ValidateIncrementalColumn, etl2ListJobs, etl2RunTable, etl2UpdateTable(PATCH)·etl2AddFilesZip 등. 모두 `/api/etl2/*` 호출.
 
 ### 4.6 shared
 
@@ -301,4 +303,4 @@ Frontend/react-app/
 - docs/report: 배포·실행 로그 등. 대외 소개 시에는 본 docs/main 문서만 사용.
 
 **변경 이력 (본 문서)**  
-- (2026-02-23) **ETL2 (테스트중)** §1.1·§1.2 접속 경로에 /etl2. §3 디렉터리 트리에 packages/etl2 및 컴포넌트(StorageConnectionForm, TargetTableSelectModal 등). **§4.5.1 ETL2 (테스트중)** 신설: ETLPage·탭·FileUploadForm·DbConnectionForm·StorageConnectionForm·TargetTableSelectModal·ETLTableList·API(etl2InferSchema, target-tables, target-columns, storage-connections, source-columns, validate-incremental-column 등).
+- (2026-02-23) **ETL2** §1.1·§1.2 접속 경로에 /etl2. §3 디렉터리 트리에 packages/etl2 및 컴포넌트(EtlTableSettingsModal, 동기화·행 실패 시 드롭다운). **§4.5.1 ETL2** 갱신: 설정 모달·on_row_error·저장 DB 열·08 참조.

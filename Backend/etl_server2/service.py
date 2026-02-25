@@ -1090,6 +1090,8 @@ def delete_connection(connection_id: int) -> None:
         conn_sys.close()
 
     tables = list_etl_tables_by_connection(connection_id)
+    conn_sys = api_db.get_db_connection_system()
+    cur_sys = conn_sys.cursor()
     conn_main, main_schema = get_target_db_connection(None)
     cur_main = conn_main.cursor()
     try:
@@ -1097,15 +1099,21 @@ def delete_connection(connection_id: int) -> None:
             target_table = (row.get("target_table") or "").strip()
             if not target_table or not re.match(r"^[a-zA-Z0-9_]+$", target_table):
                 continue
-            full_name = f'"{main_schema}"."{target_table}"'
-            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+            # 다른 연결에서 같은 target_table을 쓰는 ETL이 있으면 DROP 하지 않음.
+            cur_sys.execute(
+                f"SELECT COUNT(*) FROM {_q(schema, 'etl_tables')} WHERE target_table = %s AND connection_id != %s",
+                (target_table, connection_id),
+            )
+            n = cur_sys.fetchone()
+            other_count = n[0] if isinstance(n, (list, tuple)) else (list(n.values())[0] if n else 0)
+            if other_count == 0:
+                full_name = f'"{main_schema}"."{target_table}"'
+                cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
         conn_main.commit()
     finally:
         cur_main.close()
         conn_main.close()
 
-    conn_sys = api_db.get_db_connection_system()
-    cur_sys = conn_sys.cursor()
     try:
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE connection_id = %s", (connection_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_connections')} WHERE connection_id = %s", (connection_id,))
@@ -1127,7 +1135,7 @@ def list_etl_tables() -> list:
             SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
                    t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
-                   t.column_mapping,
+                   t.column_mapping, t.on_row_error,
                    c.connection_name, c.source_type,
                    sc.connection_name AS storage_connection_name
             FROM {_q(schema, "etl_tables")} t
@@ -1158,9 +1166,10 @@ def create_etl_table(
     batch_interval_seconds: Optional[int] = None,
     storage_connection_id: Optional[int] = None,
     column_mapping: Optional[List[dict]] = None,
+    on_row_error: Optional[str] = None,
 ) -> int:
     """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id.
-    - 이미 등록된 타겟명(etl_tables에 동일 target_table)이면 ValueError.
+    - 동일 target_table은 다른 연결(DB)에서 같은 테이블로 추가 적재할 수 있으므로 중복 허용.
     - 메인 DB에 해당 테이블이 이미 있을 때: full 모드면 ValueError, incremental 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능).
     DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
     api_db = _get_db()
@@ -1168,12 +1177,11 @@ def create_etl_table(
     if (source_table or "").strip():
         source_table = _validate_source_table(source_table)
     schema = _schema()
+    # 동일 타겟 테이블은 다른 DB(연결)에서 같은 테이블로 추가 적재할 수 있으므로 target_table 유일성 검사 제거.
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(f"SELECT 1 FROM {_q(schema, 'etl_tables')} WHERE target_table = %s", (target_table,))
-        if cur.fetchone():
-            raise ValueError("이미 등록된 타겟 테이블명입니다. 다른 이름을 사용하거나 기존 ETL을 삭제한 후 등록하세요.")
+        pass  # target_table 중복 허용
     finally:
         cur.close()
         conn.close()
@@ -1250,14 +1258,17 @@ def create_etl_table(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        on_row_error_val = (on_row_error or "fail").strip().lower() if on_row_error is not None else "fail"
+        if on_row_error_val not in ("fail", "skip"):
+            on_row_error_val = "fail"
         batch_val = batch_size if batch_size is not None and batch_size > 0 else None
         interval_val = batch_interval_seconds if batch_interval_seconds is not None and batch_interval_seconds >= 0 else 0
         column_mapping_json = json.dumps(column_mapping) if column_mapping is not None else None
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_tables")}
-            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, status, created_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, 'draft', %s, NOW())
+            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, on_row_error, status, created_by, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, 'draft', %s, NOW())
             RETURNING etl_table_id
             """,
             (
@@ -1274,6 +1285,7 @@ def create_etl_table(
                 interval_val,
                 storage_connection_id,
                 column_mapping_json,
+                on_row_error_val,
                 created_by,
             ),
         )
@@ -1298,6 +1310,7 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
                    t.file_type, t.file_path, t.status, t.created_at,
                    t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.storage_connection_id, t.column_mapping,
+                   t.on_row_error,
                    c.connection_name, c.source_type
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
@@ -1360,16 +1373,25 @@ def delete_etl_table(etl_table_id: int) -> dict:
             conn_sys.close()
             raise
     try:
+        # 동일 target_table을 쓰는 다른 ETL이 있으면 DROP 하지 않음(다른 연결에서 같은 테이블로 적재 중일 수 있음).
         if target_table and re.match(r"^[a-zA-Z0-9_]+$", target_table):
-            conn_main, main_schema = get_target_db_connection(None)
-            cur_main = conn_main.cursor()
-            try:
-                full_name = f'"{main_schema}"."{target_table}"'
-                cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-                conn_main.commit()
-            finally:
-                cur_main.close()
-                conn_main.close()
+            cur_sys.execute(
+                f"SELECT COUNT(*) FROM {_q(schema, 'etl_tables')} WHERE target_table = %s AND etl_table_id != %s",
+                (target_table, etl_table_id),
+            )
+            other_count = cur_sys.fetchone()
+            cnt = next(iter(other_count.values()), 0) if isinstance(other_count, dict) else (other_count[0] if other_count else 0)
+            other_using = int(cnt) > 0
+            if not other_using:
+                conn_main, main_schema = get_target_db_connection(row.get("storage_connection_id"))
+                cur_main = conn_main.cursor()
+                try:
+                    full_name = f'"{main_schema}"."{target_table}"'
+                    cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                    conn_main.commit()
+                finally:
+                    cur_main.close()
+                    conn_main.close()
 
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
@@ -1826,13 +1848,23 @@ def update_etl_table(
     incremental_column: Optional[str] = None,
     storage_connection_id: Optional[int] = None,
     column_mapping: Optional[List[dict]] = None,
+    on_row_error: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    batch_interval_seconds: Optional[int] = None,
 ) -> None:
-    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
+    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        if on_row_error is not None:
+            val = (on_row_error or "fail").strip().lower()
+            val = "fail" if val not in ("fail", "skip") else val
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET on_row_error = %s, updated_at = NOW() WHERE etl_table_id = %s",
+                (val, etl_table_id),
+            )
         if pk_columns is not None:
             val = (pk_columns or "").strip() or None
             cur.execute(
@@ -1861,6 +1893,18 @@ def update_etl_table(
             cur.execute(
                 f"UPDATE {_q(schema, 'etl_tables')} SET column_mapping = %s::jsonb, updated_at = NOW() WHERE etl_table_id = %s",
                 (json.dumps(column_mapping), etl_table_id),
+            )
+        if batch_size is not None:
+            val = batch_size if batch_size > 0 else None
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET batch_size = %s, updated_at = NOW() WHERE etl_table_id = %s",
+                (val, etl_table_id),
+            )
+        if batch_interval_seconds is not None:
+            val = max(0, batch_interval_seconds)
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET batch_interval_seconds = %s, updated_at = NOW() WHERE etl_table_id = %s",
+                (val, etl_table_id),
             )
         conn.commit()
     finally:

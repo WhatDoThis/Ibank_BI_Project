@@ -298,6 +298,7 @@ class CreateTableBody(BaseModel):
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
     storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB(ibank_db). Phase 2b에서 실제 적재 분기.")
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...]. 적재 시 컬럼 매핑 반영.")
+    on_row_error: Optional[str] = Field("fail", description="행 적재 실패 시: fail=전체 실패, skip=실패 행 제외하고 적재·notice 기록.")
 
 
 class UpdateTableBody(BaseModel):
@@ -307,6 +308,9 @@ class UpdateTableBody(BaseModel):
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명(소스 테이블). 증분 모드에서 이 컬럼 > last_synced_at 조건으로 조회.")
     storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB.")
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...].")
+    on_row_error: Optional[str] = Field(None, description="행 적재 실패 시: fail | skip. null이면 변경 안 함.")
+    batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). null이면 변경 안 함.")
+    batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). null이면 변경 안 함.")
 
 
 @router.patch("/tables/{etl_table_id}", status_code=204)
@@ -320,6 +324,9 @@ def update_table(etl_table_id: int, body: UpdateTableBody):
             incremental_column=body.incremental_column,
             storage_connection_id=body.storage_connection_id,
             column_mapping=body.column_mapping,
+            on_row_error=body.on_row_error,
+            batch_size=body.batch_size,
+            batch_interval_seconds=body.batch_interval_seconds,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -346,6 +353,7 @@ def create_table(body: CreateTableBody):
             batch_interval_seconds=body.batch_interval_seconds,
             storage_connection_id=body.storage_connection_id,
             column_mapping=body.column_mapping,
+            on_row_error=body.on_row_error,
         )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:

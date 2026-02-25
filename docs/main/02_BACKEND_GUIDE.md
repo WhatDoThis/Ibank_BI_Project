@@ -1,8 +1,8 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`.  
+본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`, `Backend/etl_server2`.  
 **목적**: 백엔드 구조·기술 스택·API·설정·모듈 역할을 정리한 가이드.  
-(Flask → FastAPI 전환 계획은 **부록 A**에 참고용으로 둠.)
+(Flask → FastAPI 전환 계획은 **부록 A**에 참고용으로 둠. 운영·COPY 적재·설정 모달 등은 **docs/report/08_ETL_Phase_Implement_Guide.md** 참조.)
 
 ---
 
@@ -48,11 +48,11 @@ Backend/
 │       ├── dashboard.py           # prefix /api/dashboard — data, filter-options, tables, required-columns, chart-data
 │       └── dashboard2.py           # prefix /api/dashboard2 — 동일
 │
-├── etl_server/                    # ETL API·메타·업로드·DB 적재·Job 큐
+├── etl_server/                    # ETL API·메타·업로드·DB 적재·Job 큐 (/api/etl)
 │   ├── router.py                  # prefix /api/etl — connections, tables, jobs, preview, run, add-file, add-files-zip 등
 │   ├── service.py                 # 시스템 DB 메타 CRUD·Job 상태·list_source_tables(PostgreSQL/MySQL/Oracle)
 │   ├── load_service.py            # 파일 적재(파싱·변환·메인 DB DROP/CREATE/INSERT)
-│   ├── db_load_service.py         # DB 적재(PostgreSQL/MySQL Full·Incremental, Oracle Phase 3 예정)
+│   ├── db_load_service.py         # DB 적재(PostgreSQL/MySQL/Oracle Full·Incremental)
 │   ├── preview_service.py         # 미리보기(파일·DB 10행)
 │   ├── queue_worker.py            # pending Job 선점·실행·동시 2건 제한
 │   ├── schema_infer.py            # 스키마 추론(pandas)
@@ -60,17 +60,17 @@ Backend/
 │   ├── transform_rules_service.py # etl_transform_rules CRUD
 │   └── etl_limits.py              # max_file_size_mb, max_rows_per_load, max_batch_size 적용
 │
-└── etl_server2/                   # ETL2 (테스트중) — 저장 DB·컬럼 매핑·infer-schema
-    ├── router.py                  # prefix /api/etl2 — tables, upload, infer-schema, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column 등
-    ├── service.py                 # 메타 CRUD·get_target_db_connection·list_target_tables·list_target_columns·list_storage_connections
-    ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping 반영
-    ├── db_load_service.py         # DB 적재·storage_connection_id·column_mapping·get_source_columns·validate_incremental_column
+└── etl_server2/                   # ETL2 API — 저장 DB·컬럼 매핑·COPY 적재·on_row_error
+    ├── router.py                  # prefix /api/etl2 — tables, upload, infer-schema, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, run, jobs 등
+    ├── service.py                 # 메타 CRUD·get_target_db_connection·list_target_tables·list_target_columns·list_storage_connections·on_row_error
+    ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping·apply_mapping_type_cast
+    ├── db_load_service.py         # DB 적재·COPY FROM STDIN·임시 테이블 Upsert·_copy_upsert_batch_safe·on_row_error
     ├── preview_service.py
     ├── schema_infer.py            # infer_schema(파일→컬럼·타입)
-    └── (queue_worker·transform 등은 etl_server 공유 또는 동일 구조)
+    └── (queue_worker·transform_engine 등 etl_server와 공유 또는 동일 구조)
 ```
 
-- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **etl2_router**(Backend.etl_server2.router, 테스트중).
+- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **etl2_router**(Backend.etl_server2.router).
 
 ---
 
@@ -85,14 +85,15 @@ Backend/
 ### 3.2 시스템 DB (ETL)
 
 - **backend.system_db**: ETL 메타 저장용. db_name 예: `ibank_system_data`. db.get_db_connection_system(), get_system_table_schema() 사용.
-- **메타 테이블** (시스템 DB에 4개 필수):
+- **메타 테이블** (시스템 DB에 5개 필수):
 
 | 테이블 | 용도 |
 |--------|------|
 | **etl_connections** | 소스 연결 정보(연결명, source_type, host, port, database_name, schema_name, username, encrypted_password). |
-| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, status, batch_size, batch_interval_seconds 등). |
+| **etl_storage_connections** | 저장 DB(적재 대상 PostgreSQL) 등록. connection_name, host, port, database_name, schema_name, username, encrypted_password, is_active. ETL2에서 사용. |
+| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error** 등). on_row_error: 'fail'\|'skip'(증분 모드에서 행 적재 실패 시 동작). |
 | **etl_transform_rules** | 변환 룰(etl_table_id, source_column, target_column, rule_type, rule_config, apply_order, is_active). |
-| **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message). |
+| **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message, notice). |
 
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
 
@@ -186,7 +187,7 @@ Backend/
 
 - 요청/응답 형식: JSON.
 
-### 4.6 ETL2 (테스트중) (prefix /api/etl2)
+### 4.6 ETL2 (prefix /api/etl2)
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -202,11 +203,13 @@ Backend/
 | GET | /api/etl2/connections/{id}/source-columns | 소스 테이블 컬럼 목록 (query: source_table) |
 | POST | /api/etl2/connections/{id}/validate-incremental-column | 증분 컬럼 날짜 검증 |
 | GET | /api/etl2/tables/{id}/preview | 미리보기 |
+| PATCH | /api/etl2/tables/{id} | ETL 테이블 설정 일부 갱신(sync_mode, on_row_error, incremental_column, batch_size 등) |
 | POST | /api/etl2/tables/{id}/run | 실행(대기열 등록) |
+| POST | /api/etl2/tables/{id}/add-files-zip | ZIP 다중 파일 추가 적재 |
 | GET | /api/etl2/jobs | Job 목록 |
 | GET | /api/etl2/jobs/{job_id} | Job 1건 조회 |
 
-- etl_tables에 storage_connection_id·column_mapping(JSONB) 저장. 적재 시 get_target_db_connection(storage_connection_id)·column_mapping 반영. 상세는 **§6.7**.
+- etl_tables에 storage_connection_id·column_mapping(JSONB)·on_row_error 저장. 적재 시 get_target_db_connection(storage_connection_id)·column_mapping·apply_mapping_type_cast·COPY FROM STDIN 반영. 상세는 **§6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 
 ---
 
@@ -252,9 +255,9 @@ Backend/
 ### 6.1 역할
 
 - **router.py**: /api/etl API 진입. service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service 호출.
-- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능).
+- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능). (동일 target_table 허용·삭제 시 DROP 생략은 **etl_server2**에서 적용.)
 - **load_service.py**: 파일 적재 — get_etl_table → 파싱(CSV/Excel/Parquet) → 변환 룰 → 메인 DB DROP/CREATE/INSERT. 업로드 파일은 **3일** 초과 시 자동 삭제.
-- **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full(DROP+CREATE+INSERT) / Incremental(last_synced_at 이후 Upsert). PostgreSQL·MySQL 지원, Oracle은 Phase 3 예정.
+- **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full(DROP+CREATE+INSERT) / Incremental(last_synced_at 이후 Upsert). PostgreSQL·MySQL·**Oracle** 모두 지원. (etl_server2는 COPY FROM STDIN·임시 테이블 Upsert·on_row_error 적용.)
 - **preview_service.py**: 파일·DB 소스 미리보기(10행).
 - **queue_worker.py**: pending Job 선점 → running, 동시 2건 제한, load_service/db_load_service 호출 후 completed/failed 갱신.
 
@@ -264,7 +267,7 @@ Backend/
 |----|------------|------------|------------------|---------------------------|------|
 | **PostgreSQL** | 5432 | ✅ | ✅ | ✅ | psycopg2. |
 | **MySQL** | 3306 | ✅ | ✅ | ✅ | PyMySQL. TABLE_SCHEMA=DB명, backtick 인용. |
-| **Oracle** | 1521 | ✅ | ✅ | 🔲 Phase 3 예정 | oracledb. **Service Name만** 지원(DSN host:port/서비스명, SID 미지원). 목록·미리보기·PK 자동 조회. list_source_tables: 스키마 미지정·PUBLIC이면 USER_TABLES(접속 사용자 소유만), 스키마 지정 시 ALL_TABLES 해당 OWNER. source_table 저장 형식 OWNER.TABLE_NAME. |
+| **Oracle** | 1521 | ✅ | ✅ | ✅ | oracledb. **Service Name만** 지원(DSN host:port/서비스명, SID 미지원). 목록·미리보기·PK 자동 조회·적재 모두 지원(etl_server2). list_source_tables: 스키마 미지정·PUBLIC이면 USER_TABLES(접속 사용자 소유만), 스키마 지정 시 ALL_TABLES 해당 OWNER. source_table 저장 형식 OWNER.TABLE_NAME. |
 
 ### 6.3 외부 DB 연결 구조·실패 시 점검
 
@@ -301,14 +304,14 @@ Backend/
 | 6 | transform_engine.py | 변환 룰 적용(pandas) |
 | 7 | schema_infer.py | 스키마 추론(pandas) |
 
-### 6.7 etl_server2 (테스트중)
+### 6.7 etl_server2
 
-- **역할**: ETL2 페이지(09_ETL_Upgrade_Plan) 전용 API. **현재 테스트중**. prefix **/api/etl2**. 기존 etl_server와 형상 분리, 동일 시스템 DB(etl_* 테이블)·Job 큐(etl_server 워커) 사용 가능.
-- **주요 기능**: (1) **저장 DB**: etl_storage_connections 등록·테스트, etl_tables.storage_connection_id 저장, 적재 시 get_target_db_connection(storage_connection_id)로 해당 PostgreSQL에 CREATE/INSERT. (2) **테이블·컬럼 조회**: list_target_tables(storage_connection_id), list_target_columns(storage_connection_id, table_name). (3) **infer-schema**: POST /api/etl2/infer-schema — 파일만 업로드받아 스키마(컬럼명·inferred_type) 반환, 메타 등록 없음(테이블선택 모달 소스 컬럼 제안용). (4) **column_mapping**: etl_tables.column_mapping JSONB, 적재 시 CREATE/INSERT 컬럼·순서 반영. (5) **소스 컬럼·증분 검증**: get_source_columns(connection_id, source_table), validate_incremental_column(connection_id, source_table, column_name) — 날짜 타입/비날짜 샘플 파싱 검증.
-- **router.py**: upload, infer_schema_from_file, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, tables, jobs, preview, run 등. CreateTableBody·UpdateTableBody에 storage_connection_id·column_mapping 포함.
-- **service.py**: get_target_db_connection(storage_connection_id), list_target_tables, list_target_columns, list_storage_connections, get_storage_connection, test_storage_connection, create_etl_table(storage_connection_id·column_mapping).
-- **load_service.py / db_load_service.py**: storage_connection_id·column_mapping 읽어 저장 DB 분기·매핑 적용. add_allowed_table은 storage_connection_id 없을 때만 호출.
-- **메타**: etl_tables에 storage_connection_id, column_mapping(JSONB) 컬럼 필요. etl_storage_connections 테이블(시스템 DB). 상세 마이그레이션·엔드포인트는 docs/report/log.md 및 09_ETL_Upgrade_Plan 참고.
+- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table**을 다른 연결(다른 DB)에서 추가 적재할 수 있도록 등록 허용. 삭제 시 같은 target_table을 쓰는 다른 ETL이 있으면 해당 테이블 DROP하지 않음.
+- **주요 기능**: (1) **저장 DB**: etl_storage_connections 등록·테스트, etl_tables.storage_connection_id 저장, 적재 시 get_target_db_connection(storage_connection_id)로 해당 PostgreSQL에 CREATE/INSERT. (2) **테이블·컬럼 조회**: list_target_tables(storage_connection_id), list_target_columns(storage_connection_id, table_name). (3) **infer-schema**: POST /api/etl2/infer-schema — 파일만 업로드받아 스키마(컬럼명·inferred_type) 반환, 메타 등록 없음. (4) **column_mapping**: etl_tables.column_mapping JSONB, 적재 직전 apply_mapping_type_cast로 타겟 타입 변환·on_error(null/zero/keep/skip_row/fail) 적용. (5) **on_row_error**: etl_tables.on_row_error. fail(한 건 실패 시 Job 실패), skip(실패 행 제외 적재·notice 기록). Incremental 모드에서만 적용. (6) **COPY 적재**: Full → _copy_insert_batch, Incremental → _copy_upsert_batch(임시 테이블 TEXT + COPY + INSERT...ON CONFLICT). 실패 시 _copy_upsert_batch_safe(행 단위 fallback). (7) **소스 컬럼·증분 검증**: get_source_columns(connection_id, source_table), validate_incremental_column(connection_id, source_table, column_name).
+- **router.py**: upload, infer_schema_from_file, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, tables, **PATCH tables/{id}**(sync_mode, on_row_error, incremental_column, batch_size 등), jobs, preview, run, add-files-zip 등. CreateTableBody·UpdateTableBody에 storage_connection_id·column_mapping·on_row_error 포함.
+- **service.py**: get_target_db_connection(storage_connection_id), list_target_tables, list_target_columns, list_storage_connections, create_etl_table(storage_connection_id·column_mapping·on_row_error), update_etl_table(on_row_error 등). **동일 target_table 허용**(create_etl_table에서 유일성 검사 제거). delete_etl_table에서 동일 target_table 사용 중인 다른 ETL 있으면 DROP 생략.
+- **load_service.py / db_load_service.py**: storage_connection_id·column_mapping·apply_mapping_type_cast·on_row_error 읽어 저장 DB 분기·매핑·형변환·COPY·fallback 적용. add_allowed_table은 storage_connection_id 없을 때만 호출.
+- **메타**: etl_tables에 storage_connection_id, column_mapping(JSONB), on_row_error 컬럼. etl_storage_connections 테이블(시스템 DB). 상세·COPY 적재 이해·운영은 **docs/report/08_ETL_Phase_Implement_Guide.md** 참조.
 
 ---
 
@@ -323,7 +326,8 @@ Backend/
 - docs/report: 배포·실행 로그 등. 대외 소개 시에는 본 docs/main 문서만 사용.
 
 **변경 이력 (본 문서)**  
-- (2026-02-23) **ETL2 (테스트중)** §2 아키텍처에 etl_server2 추가. §4.6 ETL2 API 표(infer-schema, target-tables, target-columns, storage-connections, source-columns, validate-incremental-column 등). §5.1 라우터에 etl2_router. **§6.7 etl_server2 (테스트중)** 신설: 저장 DB·테이블/컬럼 조회·infer-schema·column_mapping·소스 컬럼·증분 검증·router/service/load_service/db_load_service 요약.
+- (2026-02-23) **ETL2** §2 아키텍처에 etl_server2 추가. §4.6 ETL2 API 표(PATCH tables/{id}, add-files-zip). §5.1 라우터에 etl2_router. **§6.7 etl_server2** 신설: 저장 DB·테이블/컬럼 조회·infer-schema·column_mapping·on_row_error·COPY 적재·동일 target_table 허용·08 참조.
+- (2026-02-23) **docs/main 최신화(08·log 기준)**: §3.2 메타에 etl_storage_connections·on_row_error 추가. §6.2 Oracle 적재 지원. §6.1 etl_server create_etl_table 설명 유지(동일 타겟 허용은 etl_server2). §6.7 COPY·on_row_error·설정(PATCH)·08 참조 반영.
 
 ---
 
