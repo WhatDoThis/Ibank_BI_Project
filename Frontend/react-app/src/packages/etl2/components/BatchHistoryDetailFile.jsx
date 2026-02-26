@@ -35,24 +35,31 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
   const [deletingFilename, setDeletingFilename] = useState(null);
   const [rollingBackFilename, setRollingBackFilename] = useState(null);
 
-  const loadDetail = useCallback(async () => {
+  const loadDetail = useCallback(async (silent = false) => {
     if (batchJobId == null || runId == null) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await batchGetJobHistoryDetail(batchJobId, runId);
       setDetail(res);
     } catch (err) {
-      setError(err?.message || '상세 조회 실패');
+      if (!silent) setError(err?.message || '상세 조회 실패');
       setDetail(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [batchJobId, runId]);
 
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+
+  const isRunning = (detail?.status || '').toLowerCase() === 'running';
+  useEffect(() => {
+    if (!isRunning || batchJobId == null || runId == null) return;
+    const interval = setInterval(() => loadDetail(true), 2000);
+    return () => clearInterval(interval);
+  }, [isRunning, batchJobId, runId, loadDetail]);
 
   function formatDt(v) {
     if (v == null || v === '') return '-';
@@ -109,9 +116,9 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
           <p className="etl-db-form__muted" style={{ marginBottom: '8px' }}>
             성공 {okCount}건 · 실패 {errCount}건 · 스킵 {skipCount}건
           </p>
-          <h4 className="etl-db-form__heading" style={{ fontSize: '0.95rem', marginBottom: '8px' }}>파일별 결과</h4>
+          <h4 className="etl-db-form__heading" style={{ fontSize: '0.8rem', marginBottom: '8px' }}>파일별 결과</h4>
           <div className="etl-db-form__table-wrap">
-            <table className="etl-db-form__table">
+            <table className="etl-db-form__table etl-db-form__table--compact">
               <thead>
                 <tr>
                   <th>파일명</th>
@@ -148,11 +155,11 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
                         <td>{updated}</td>
                         <td>{errOrReason}</td>
                         <td>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'nowrap', gap: '6px' }}>
                             <button
                               type="button"
                               className="etl-db-form__btn etl-db-form__btn--secondary"
-                              style={{ padding: '4px 8px', fontSize: '0.85rem' }}
+                              style={{ padding: '4px 8px' }}
                               onClick={() => setExpandedFileIdx(isExpanded ? null : idx)}
                             >
                               {isExpanded ? '상세 접기' : '상세'}
@@ -160,7 +167,7 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
                             <button
                               type="button"
                               className="etl-db-form__btn etl-db-form__btn--secondary"
-                              style={{ padding: '4px 8px', fontSize: '0.85rem' }}
+                              style={{ padding: '4px 8px' }}
                               disabled={isDeleting}
                               onClick={async () => {
                                 const fname = file.filename;
@@ -181,7 +188,7 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
                             <button
                               type="button"
                               className="etl-db-form__btn etl-db-form__btn--secondary"
-                              style={{ padding: '4px 8px', fontSize: '0.85rem' }}
+                              style={{ padding: '4px 8px' }}
                               disabled={!rollbackEnabled || isRollingBack}
                               title={!canRollbackByFile ? 'PK를 설정하면 파일 단위 롤백이 가능합니다.' : !fileOk ? '성공한 파일만 롤백할 수 있습니다.' : '해당 파일로 적재된 행만 타겟 테이블에서 삭제합니다.'}
                               onClick={async () => {
@@ -205,7 +212,7 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={8} style={{ padding: '12px', background: 'var(--etl-bg-muted, #f5f5f5)', fontSize: '0.9rem' }}>
+                          <td colSpan={8} style={{ padding: '12px', background: 'var(--etl-bg-muted, #f5f5f5)', fontSize: '0.8rem' }}>
                             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', margin: 0 }}>
                               <dt>파일명</dt><dd>{file.filename ?? '-'}</dd>
                               <dt>타임스탬프</dt><dd>{file.timestamp ?? '-'}</dd>

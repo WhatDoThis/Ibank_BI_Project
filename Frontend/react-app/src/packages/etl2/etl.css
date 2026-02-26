@@ -108,7 +108,9 @@
   margin-bottom: 16px;
 }
 .etl-source-type__tab {
-  padding: 10px 20px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 12px;
   border: 1px solid #ccc;
   background: #fff;
   cursor: pointer;
@@ -864,6 +866,16 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+}
+/* ETL 목록 테이블과 동일한 글씨 크기·줄바꿈 방지 (배치 Job 목록 / 이력 / 상세 파일 테이블) */
+.etl-db-form__table--compact {
+  font-size: 0.8rem;
+}
+.etl-db-form__table--compact th,
+.etl-db-form__table--compact td {
+  white-space: nowrap;
+  vertical-align: middle;
+  padding: 10px 12px;
 }
 .etl-db-form__table th,
 .etl-db-form__table td {

@@ -1,3 +1,21 @@
+## 2026-02-26 ETL2 실행 이력·상세 실시간 갱신 (폴링 + 진행 중 file_list 반영)
+
+**문제:** 실행 이력 모달에서 진행 중(running)인 run이 있어도 목록·상세가 한 번만 로드되어 실시간으로 갱신되지 않음. 상세 창에서 파일별 진행이 보이지 않음.
+
+**원인:** (1) 프론트: 이력 목록·상세 모두 마운트 시 1회만 API 호출, 폴링 없음. (2) 백엔드: `file_list`·집계는 `finish_run` 시에만 DB 반영되어, running 중에는 상세 API가 빈 결과만 반환.
+
+**수정:**
+- **BatchHistoryPanelFile.jsx**: `status === 'running'`인 run이 있으면 2초 간격으로 `batchListJobHistory` 재호출(조용한 갱신, 로딩 플래그 없음).
+- **BatchHistoryDetailFile.jsx**: `detail.status === 'running'`이면 2초 간격으로 `batchGetJobHistoryDetail` 재호출. `loadDetail(silent=true)`로 배경 갱신하여 로딩 깜빡임 없음.
+- **service_file.py**: `update_run_progress(run_id, files_processed, rows_inserted, rows_updated, file_list, conn)` 추가. `status='running'`인 run만 갱신(상세 화면 실시간 반영용).
+- **batch_executor_file.py**: 파일 1건 처리(성공·스킵) 후 매번 `update_run_progress` 호출. 스킵(크기 초과·중복·빈 파일) 시에도 호출.
+
+**효과:** 이력 목록에서 진행 중 run의 상태가 주기적으로 갱신되고, 상세 창을 열어두면 처리된 파일 수·file_list·삽입/갱신 행이 실시간으로 표시됨.
+
+**변경 파일:** BatchHistoryPanelFile.jsx, BatchHistoryDetailFile.jsx, service_file.py, batch_executor_file.py, log.md.
+
+---
+
 ## 2026-02-26 ETL2 PK 컬럼 "컬럼 가져와서 선택" 로딩 최적화
 
 **원인:** 컬럼명만 필요한데도 원격(SFTP/S3)에서 **파일 전체**를 다운로드한 뒤 `read_file(..., max_rows=1)`로 1행만 읽고 있어, 대용량 CSV일수록 전송 시간이 길어짐.

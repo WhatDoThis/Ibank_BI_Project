@@ -28,9 +28,9 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (silent = false) => {
     if (batchJobId == null) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await batchListJobHistory(batchJobId);
@@ -40,13 +40,20 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
       setError(err?.message || '이력 조회 실패');
       setRuns([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [batchJobId]);
 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  const hasRunning = runs.some((r) => (String(r.status || '').toLowerCase()) === 'running');
+  useEffect(() => {
+    if (!hasRunning || batchJobId == null) return;
+    const interval = setInterval(() => loadHistory(true), 2000);
+    return () => clearInterval(interval);
+  }, [hasRunning, batchJobId, loadHistory]);
 
   function formatDt(v) {
     if (v == null || v === '') return '-';
@@ -64,7 +71,7 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
         <p className="etl-db-form__muted">실행 이력이 없습니다.</p>
       ) : (
         <div className="etl-db-form__table-wrap">
-          <table className="etl-db-form__table">
+          <table className="etl-db-form__table etl-db-form__table--compact">
             <thead>
               <tr>
                 <th>run_id</th>

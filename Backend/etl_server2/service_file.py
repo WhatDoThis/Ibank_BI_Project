@@ -10,7 +10,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
   update_folder_connection, delete_folder_connection, set_folder_connection_verified
 - get_folder_adapter: folder_connection_id → FolderAdapter
 - list_batch_jobs, get_batch_job (folder_connection_id, protocol 포함), create_batch_job, update_batch_job, delete_batch_job
-- create_batch_run, finish_run, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
+- create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
 - list_run_history, get_run_detail
@@ -526,6 +526,46 @@ def create_batch_run(batch_job_id: int, conn: Any = None) -> int:
         run_id = row["run_id"]
         conn.commit()
         return run_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        if should_close:
+            conn.close()
+
+
+def update_run_progress(
+    run_id: int,
+    *,
+    files_processed: int = 0,
+    rows_inserted: int = 0,
+    rows_updated: int = 0,
+    file_list: Optional[List[dict]] = None,
+    conn: Any = None,
+) -> None:
+    """실행 중 진행 상황 갱신. status=running인 run만 갱신(상세 화면 실시간 반영용)."""
+    schema = _schema()
+    should_close = conn is None
+    if conn is None:
+        conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            UPDATE {_q(schema, "batch_run_history")}
+            SET files_processed = %s, rows_inserted = %s, rows_updated = %s, file_list = %s
+            WHERE run_id = %s AND status = 'running'
+            """,
+            (
+                files_processed,
+                rows_inserted,
+                rows_updated,
+                json.dumps(file_list) if file_list is not None else None,
+                run_id,
+            ),
+        )
+        conn.commit()
     except Exception:
         conn.rollback()
         raise

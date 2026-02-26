@@ -1,7 +1,7 @@
 /**
  * packages/etl2/components/SourceTypeSelector.jsx (소스 유형 선택)
  * ================================================================
- * 파일 업로드 | DB 연결 | 폴더 등록 | 저장 DB 등록 | ETL 이력 탭.
+ * 파일 업로드 | 타겟DB 연결 | 배치폴더 등록 | 저장DB 등록 | ETL 이력 탭.
  * sourceType 'file' | 'db' | 'folder' | 'storage' | 'history', onChange 콜백.
  *
  * [Components]
@@ -28,21 +28,21 @@ function SourceTypeSelector({ sourceType, onChange }) {
         className={`etl-source-type__tab ${sourceType === 'db' ? 'etl-source-type__tab--active' : ''}`}
         onClick={() => onChange('db')}
       >
-        DB 연결
+        타겟DB 연결
       </button>
       <button
         type="button"
         className={`etl-source-type__tab ${sourceType === 'folder' ? 'etl-source-type__tab--active' : ''}`}
         onClick={() => onChange('folder')}
       >
-        폴더 등록
+        배치폴더 등록
       </button>
       <button
         type="button"
         className={`etl-source-type__tab ${sourceType === 'storage' ? 'etl-source-type__tab--active' : ''}`}
         onClick={() => onChange('storage')}
       >
-        저장 DB 등록
+        저장DB 등록
       </button>
       <button
         type="button"

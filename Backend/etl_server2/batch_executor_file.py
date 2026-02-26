@@ -12,7 +12,7 @@ Backend.etl_server2.batch_executor_file (배치 실행기 — 다운로드·파�
 
 [Dependencies]
 =========
-- Backend.etl_server2.service_file (get_batch_job, create_batch_run, finish_run, update_job_status, update_last_processed_ts, is_duplicate_checksum, check_consecutive_failures, get_folder_adapter)
+- Backend.etl_server2.service_file (get_batch_job, create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts, is_duplicate_checksum, check_consecutive_failures, get_folder_adapter)
 - Backend.etl_server2.parser_file (get_pending_files, read_file)
 - Backend.etl_server2.load_service_file (get_target_connection, load_dataframe)
 - Backend.etl_server2.etl_limits (get_etl_limits)
@@ -180,6 +180,7 @@ def run_batch_job(batch_job_id: int) -> None:
                             "size_mb": round(size_mb, 2),
                             "limit_mb": max_file_mb,
                         })
+                        batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                         continue
 
                 checksum = _compute_sha256(local_path)
@@ -189,6 +190,7 @@ def run_batch_job(batch_job_id: int) -> None:
                         "status": "skipped",
                         "reason": "duplicate_checksum",
                     })
+                    batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                     continue
 
                 df = parser_file.read_file(local_path, ext, max_rows=max_rows)
@@ -203,6 +205,7 @@ def run_batch_job(batch_job_id: int) -> None:
                         "checksum": checksum,
                     })
                     batch_service.update_last_processed_ts(batch_job_id, ts, conn=sys_conn)
+                    batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                     continue
 
                 result = load_service_file.load_dataframe(
@@ -265,6 +268,14 @@ def run_batch_job(batch_job_id: int) -> None:
                         os.remove(local_path)
                     except OSError as oe:
                         logger.warning("run_batch_job temp file remove %s: %s", local_path, oe)
+            batch_service.update_run_progress(
+                run_id,
+                files_processed=len(file_results),
+                rows_inserted=total_ins,
+                rows_updated=total_upd,
+                file_list=file_results,
+                conn=sys_conn,
+            )
 
         batch_service.finish_run(
             run_id,

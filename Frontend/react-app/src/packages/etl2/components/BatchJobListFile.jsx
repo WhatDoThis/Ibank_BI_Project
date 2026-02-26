@@ -193,7 +193,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
       <h3 className="etl-db-form__heading">배치 Job 목록</h3>
       {error && <p className="etl-db-form__error" role="alert">{error}</p>}
       <div className="etl-db-form__table-wrap">
-        <table className="etl-db-form__table etl-batch-job-list__table">
+        <table className="etl-db-form__table etl-db-form__table--compact etl-batch-job-list__table">
           <thead>
             <tr>
               <th>Job 이름</th>
