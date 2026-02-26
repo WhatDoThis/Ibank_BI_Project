@@ -525,6 +525,26 @@ export async function etl2ListTransformRules(etlTableId) {
   return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/transform-rules`);
 }
 
+/** POST /api/etl2/transform-rules - 변환 룰 1건 등록 */
+export async function etl2CreateTransformRule(body) {
+  return request('POST', '/api/etl2/transform-rules', body);
+}
+
+/** PUT /api/etl2/transform-rules/:id - 변환 룰 수정 */
+export async function etl2UpdateTransformRule(ruleId, body) {
+  return request('PUT', `/api/etl2/transform-rules/${encodeURIComponent(ruleId)}`, body);
+}
+
+/** DELETE /api/etl2/transform-rules/:id - 변환 룰 삭제 */
+export async function etl2DeleteTransformRule(ruleId) {
+  return request('DELETE', `/api/etl2/transform-rules/${encodeURIComponent(ruleId)}`);
+}
+
+/** POST /api/etl2/transform/preview - 변환 룰 미리보기. body: { etl_table_id?, rules?, sample_data?, max_rows? } */
+export async function etl2TransformPreview(body) {
+  return request('POST', '/api/etl2/transform/preview', body);
+}
+
 /** GET /api/etl2/storage-connections - 저장 DB(적재 대상) 목록 */
 export async function etl2ListStorageConnections() {
   return request('GET', '/api/etl2/storage-connections');
@@ -620,6 +640,16 @@ export async function batchListTargetTables(storageConnectionId = null) {
 /** POST /api/etl2/batch/jobs/validate-target - 기존 테이블 적재 가능 여부 검증. 반환: { valid: boolean, message: string } */
 export async function batchValidateTarget(body) {
   return request('POST', '/api/etl2/batch/jobs/validate-target', body);
+}
+
+/** GET /api/etl2/batch/target-registry - ETL 목록용 배치 타겟 등록 목록 (batch_job_id NULL 포함) */
+export async function etl2ListBatchTargetRegistry() {
+  return request('GET', '/api/etl2/batch/target-registry');
+}
+
+/** DELETE /api/etl2/batch/target-registry/:id - 배치 유래 행 삭제 + 타겟 테이블 DROP */
+export async function etl2DeleteBatchTargetRegistry(registryId) {
+  return request('DELETE', `/api/etl2/batch/target-registry/${encodeURIComponent(registryId)}`);
 }
 
 /** GET /api/etl2/batch/jobs - 배치 Job 목록. folderConnectionId, isActive 쿼리 선택 */

@@ -41,7 +41,8 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 521 - create_transform_rule: POST /transform-rules — 룰 등록
 541 - update_transform_rule: PUT /transform-rules/{id} — 룰 수정
 561 - delete_transform_rule: DELETE /transform-rules/{id} — 룰 삭제
-570 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
+562 - transform_preview: POST /transform/preview — 변환 룰 미리보기(before/after, column_changes, new_columns)
+563 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
 582 - list_source_columns: GET /connections/{id}/source-columns — 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용)
 591 - validate_incremental_column: POST /connections/{id}/validate-incremental-column — 증분 컬럼 날짜 검증
 602 - delete_connection: DELETE /connections/{id} — 연결 삭제
@@ -79,6 +80,7 @@ from Backend.etl_server2 import load_service
 from Backend.etl_server2 import preview_service
 from Backend.etl_server2 import schema_infer
 from Backend.etl_server2 import service as etl_service
+from Backend.etl_server2 import transform_engine
 from Backend.etl_server2 import transform_rules_service as transform_rules_svc
 from Backend.etl_server2.router_file import router as batch_router
 
@@ -168,6 +170,15 @@ class UpdateTransformRuleBody(BaseModel):
     rule_config: Optional[dict] = None
     apply_order: Optional[int] = None
     is_active: Optional[bool] = None
+
+
+class TransformPreviewBody(BaseModel):
+    """POST /api/etl2/transform/preview 요청 body. sample_data 또는 etl_table_id로 원본 확보."""
+    etl_table_id: Optional[int] = Field(None, description="ETL 테이블 ID. sample_data 없을 때 원본 샘플·저장 룰 사용")
+    rules: Optional[list] = Field(None, description="임시 적용할 룰 목록. 없으면 etl_table_id 기준 저장 룰 사용")
+    sample_data: Optional[list] = Field(None, description="임시 원본 데이터(행 dict 목록). 있으면 이걸 DataFrame으로 사용")
+    max_rows: int = Field(10, description="원본 샘플 행 수(sample_data 없고 etl_table_id 있을 때)")
+
 
 # 업로드 파일 저장 디렉터리 (etl_server 기준 상대)
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
@@ -866,6 +877,106 @@ def delete_transform_rule(rule_id: int):
     try:
         transform_rules_svc.delete_transform_rule(rule_id)
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/transform/preview")
+def transform_preview(body: TransformPreviewBody):
+    """
+    변환 룰 미리보기. sample_data 또는 etl_table_id로 원본 확보 후 rules 적용해 before/after 반환.
+    응답: before, after(행 dict 목록), column_changes, new_columns, rows_before, rows_after.
+    """
+    import pandas as pd
+    try:
+        if body.sample_data and len(body.sample_data) > 0:
+            df_before = pd.DataFrame(body.sample_data)
+        elif body.etl_table_id is not None:
+            df_before = preview_service.get_raw_sample(body.etl_table_id, max_rows=body.max_rows)
+            if df_before.empty:
+                return {
+                    "before": [],
+                    "after": [],
+                    "column_changes": [],
+                    "new_columns": [],
+                    "rows_before": 0,
+                    "rows_after": 0,
+                }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="sample_data 또는 etl_table_id가 필요합니다.",
+            )
+
+        rules = body.rules
+        if rules is None and body.etl_table_id is not None:
+            rules = transform_rules_svc.list_transform_rules(body.etl_table_id)
+
+        if not rules:
+            rows_before = df_before.replace({pd.NA: None}).to_dict("records")
+            for r in rows_before:
+                for k, v in r.items():
+                    if hasattr(v, "isoformat"):
+                        r[k] = v.isoformat()
+            return {
+                "before": rows_before,
+                "after": rows_before,
+                "column_changes": [],
+                "new_columns": [],
+                "rows_before": len(rows_before),
+                "rows_after": len(rows_before),
+            }
+
+        df_after = transform_engine.apply_rules(df_before, rules)
+        rows_before = df_before.replace({pd.NA: None}).to_dict("records")
+        rows_after = df_after.replace({pd.NA: None}).to_dict("records")
+        for r in rows_before:
+            for k, v in list(r.items()):
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+        for r in rows_after:
+            for k, v in list(r.items()):
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+
+        new_columns = list(set(df_after.columns) - set(df_before.columns))
+        col_changes = []
+        for col in df_before.columns:
+            if col not in df_after.columns:
+                continue
+            b = df_before[col]
+            a = df_after[col]
+            null_before = int(b.isna().sum())
+            null_after = int(a.isna().sum())
+            changed = int(((b != a) | (b.isna() != a.isna())).sum()) if len(b) else 0
+            col_changes.append({
+                "column": col,
+                "changed_rows": changed,
+                "null_before": null_before,
+                "null_after": null_after,
+            })
+        for col in new_columns:
+            a = df_after[col]
+            col_changes.append({
+                "column": col,
+                "changed_rows": len(a),
+                "null_before": 0,
+                "null_after": int(a.isna().sum()),
+            })
+
+        return {
+            "before": rows_before,
+            "after": rows_after,
+            "column_changes": col_changes,
+            "new_columns": new_columns,
+            "rows_before": len(rows_before),
+            "rows_after": len(rows_after),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("POST /transform/preview failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

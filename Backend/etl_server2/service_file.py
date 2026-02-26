@@ -10,6 +10,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
   update_folder_connection, delete_folder_connection, set_folder_connection_verified
 - get_folder_adapter: folder_connection_id → FolderAdapter
 - list_batch_jobs, get_batch_job (folder_connection_id, protocol 포함), create_batch_job, update_batch_job, delete_batch_job
+- etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry, upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table
 - create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
@@ -398,6 +399,7 @@ def create_batch_job(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        # storage_connection_id=None 이면 기본 DB(config ibank_db) 사용. DB에는 NULL로 저장.
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "batch_jobs")}
@@ -422,6 +424,12 @@ def create_batch_job(
         row = cur.fetchone()
         batch_job_id = row["batch_job_id"]
         conn.commit()
+        target_table = (target_table or "").strip()
+        if target_table:
+            try:
+                upsert_batch_target_registry(target_table, storage_connection_id, batch_job_id)
+            except Exception as e:
+                logger.warning("etl_batch_target_registry upsert 실패(배치 Job은 생성됨): %s", e)
         return batch_job_id
     except Exception:
         conn.rollback()
@@ -474,8 +482,10 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
 
 def delete_batch_job(batch_job_id: int) -> None:
     """
-    배치 Job 삭제. FK 제약을 위해 자식 테이블(batch_loaded_keys, batch_run_history)을 먼저 삭제한 뒤 batch_jobs 삭제.
+    배치 Job 삭제. ETL 목록용 레지스트리에서 batch_job_id만 NULL로 한 뒤,
+    FK 제약을 위해 자식 테이블(batch_loaded_keys, batch_run_history) 삭제 후 batch_jobs 삭제. 타겟 테이블은 DROP하지 않음.
     """
+    clear_batch_job_from_registry(batch_job_id)
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -496,6 +506,217 @@ def delete_batch_job(batch_job_id: int) -> None:
             f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE batch_job_id = %s",
             (batch_job_id,),
         )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------- etl_batch_target_registry (ETL 목록에 배치 타겟 테이블 행으로 관리) ----------
+
+_REGISTRY_TABLE = "etl_batch_target_registry"
+
+
+def _ensure_batch_target_registry_table(conn) -> None:
+    """etl_batch_target_registry 테이블이 없으면 생성. (target_table, storage_connection_id) UNIQUE."""
+    schema = _schema()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {_q(schema, _REGISTRY_TABLE)} (
+                id SERIAL PRIMARY KEY,
+                target_table VARCHAR(200) NOT NULL,
+                storage_connection_id INTEGER,
+                batch_job_id INTEGER,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (target_table, storage_connection_id)
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        cur.close()
+
+
+def list_batch_target_registry() -> List[dict]:
+    """
+    ETL 목록용 배치 타겟 등록 목록. batch_jobs·folder·storage LEFT JOIN으로 job_name, connection_name, storage_connection_name 포함.
+    batch_job_id가 NULL이어도 행 반환(잡 삭제 후 테이블만 관리하는 행).
+    기존 batch_jobs 행이 레지스트리에 없으면 자동 backfill(upsert) 후 조회.
+    """
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    _ensure_batch_target_registry_table(conn)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"SELECT target_table, storage_connection_id, batch_job_id FROM {_q(schema, 'batch_jobs')}"
+        )
+        for row in cur.fetchall():
+            tt = (row.get("target_table") if hasattr(row, "get") else row[0]) or ""
+            sid = row.get("storage_connection_id") if hasattr(row, "get") else row[1]
+            jid = row.get("batch_job_id") if hasattr(row, "get") else row[2]
+            if (tt or "").strip() and jid is not None:
+                try:
+                    upsert_batch_target_registry(tt.strip(), sid, int(jid))
+                except Exception as e:
+                    logger.debug("registry backfill skip %s: %s", (tt, sid), e)
+        cur.execute(
+            f"""
+            SELECT r.id, r.target_table, r.storage_connection_id, r.batch_job_id, r.created_at, r.updated_at,
+                   j.job_name, j.folder_connection_id, j.interval_minutes, j.is_active, j.last_run_status, j.last_run_at,
+                   c.connection_name,
+                   sc.connection_name AS storage_connection_name
+            FROM {_q(schema, _REGISTRY_TABLE)} r
+            LEFT JOIN {_q(schema, "batch_jobs")} j ON r.batch_job_id = j.batch_job_id
+            LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
+            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON r.storage_connection_id = sc.storage_connection_id AND sc.is_active = TRUE
+            ORDER BY r.updated_at DESC
+            """
+        )
+        rows = cur.fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def upsert_batch_target_registry(target_table: str, storage_connection_id: Optional[int], batch_job_id: int) -> int:
+    """
+    (target_table, storage_connection_id)에 해당하는 레지스트리 행이 있으면 batch_job_id만 UPDATE, 없으면 INSERT.
+    동일 타겟으로 새 배치 Job 생성 시 기존 ETL 목록 행을 갱신하기 위함. 반환: registry id.
+    """
+    target_table = (target_table or "").strip()
+    if not target_table:
+        raise ValueError("target_table이 비어 있습니다.")
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    _ensure_batch_target_registry_table(conn)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            SELECT id FROM {_q(schema, _REGISTRY_TABLE)}
+            WHERE target_table = %s AND (storage_connection_id IS NOT DISTINCT FROM %s)
+            """,
+            (target_table, storage_connection_id),
+        )
+        row = cur.fetchone()
+        if row:
+            rid = row["id"] if hasattr(row, "get") else row[0]
+            cur.execute(
+                f"UPDATE {_q(schema, _REGISTRY_TABLE)} SET batch_job_id = %s, updated_at = NOW() WHERE id = %s",
+                (batch_job_id, rid),
+            )
+            conn.commit()
+            return int(rid)
+        cur.execute(
+            f"""
+            INSERT INTO {_q(schema, _REGISTRY_TABLE)} (target_table, storage_connection_id, batch_job_id)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (target_table, storage_connection_id, batch_job_id),
+        )
+        r = cur.fetchone()
+        conn.commit()
+        return int(r["id"] if hasattr(r, "get") else r[0])
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def clear_batch_job_from_registry(batch_job_id: int) -> None:
+    """배치 Job 삭제 시 레지스트리에서 해당 batch_job_id만 NULL로 둠. 행은 유지(ETL 목록에 테이블 관리용으로 계속 표시)."""
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    _ensure_batch_target_registry_table(conn)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"UPDATE {_q(schema, _REGISTRY_TABLE)} SET batch_job_id = NULL, updated_at = NOW() WHERE batch_job_id = %s",
+            (batch_job_id,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
+    """
+    ETL 목록에서 "배치 유래 행" 삭제 시: 연결된 배치 Job이 있으면 먼저 삭제(cascade),
+    해당 스토리지 연결에서 타겟 테이블 DROP 후 레지스트리 행 삭제.
+    """
+    from Backend.etl_server2 import service as etl_service
+
+    api_db = _get_db()
+    schema = _schema()
+    conn = api_db.get_db_connection_system()
+    _ensure_batch_target_registry_table(conn)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"SELECT target_table, storage_connection_id, batch_job_id FROM {_q(schema, _REGISTRY_TABLE)} WHERE id = %s",
+            (registry_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"레지스트리 행을 찾을 수 없습니다: id={registry_id}")
+        target_table = (row.get("target_table") if hasattr(row, "get") else row[0]) or ""
+        storage_connection_id = row.get("storage_connection_id") if hasattr(row, "get") else row[1]
+        batch_job_id = row.get("batch_job_id") if hasattr(row, "get") else row[2]
+        cur.close()
+        conn.close()
+    except Exception:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise
+
+    if batch_job_id is not None:
+        try:
+            from Backend.etl_server2 import scheduler_file as sched
+            sched.remove_job(int(batch_job_id))
+        except Exception as e:
+            logger.debug("스케줄러 제거 스킵(batch_job_id=%s): %s", batch_job_id, e)
+        try:
+            delete_batch_job(int(batch_job_id))
+        except Exception as e:
+            logger.warning("배치 Job cascade 삭제 실패(batch_job_id=%s), 테이블·레지스트리 삭제는 계속 진행: %s", batch_job_id, e)
+
+    target_table = (target_table or "").strip()
+    if target_table and isinstance(target_table, str) and len(target_table) <= 200:
+        import re
+        if re.match(r"^[a-zA-Z0-9_]+$", target_table):
+            conn_main, main_schema = etl_service.get_target_db_connection(storage_connection_id)
+            cur_main = conn_main.cursor()
+            try:
+                full_name = f'"{main_schema}"."{target_table}"'
+                cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                conn_main.commit()
+            finally:
+                cur_main.close()
+                conn_main.close()
+
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(f"DELETE FROM {_q(schema, _REGISTRY_TABLE)} WHERE id = %s", (registry_id,))
         conn.commit()
     except Exception:
         conn.rollback()

@@ -22,7 +22,9 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { etl2ListTargetTables, etl2ListTargetColumns } from '@/shared/api/client';
+import { etl2ListTargetTables, etl2ListTargetColumns, etl2ListTransformRules, etl2CreateTransformRule, etl2DeleteTransformRule } from '@/shared/api/client';
+import { normalizeStorageConnectionId } from '../utils/storageDb.js';
+import TransformPreviewPanel from './TransformPreviewPanel.jsx';
 
 /** 소스/타겟 타입을 하나의 "패밀리"로 정규화. 호환 여부는 같은 패밀리만 허용 */
 function typeFamily(typeStr) {
@@ -59,6 +61,15 @@ const ON_ERROR_OPTIONS = [
   { value: 'fail', label: '실패' }
 ];
 
+/** 변환 종류: 없음 | 정리 | 타입 변환 | 정리+타입 변환 | 값 매핑 (derived, masking은 이번 UI 미포함) */
+const TRANSFORM_OPTIONS = [
+  { value: 'none', label: '없음' },
+  { value: 'cleansing', label: '정리' },
+  { value: 'type_cast', label: '타입 변환' },
+  { value: 'cleansing_and_type_cast', label: '정리 + 타입 변환' },
+  { value: 'code_map', label: '값 매핑' }
+];
+
 /** mappingOnError에서 sourceKey에 해당하는 on_error 값 반환 (모듈 스코프로 TDZ 방지) */
 function getOnErrorValue(map, sourceKey) {
   if (!map || typeof map !== 'object') return 'null';
@@ -78,6 +89,74 @@ function parsePkColumns(str) {
   return str.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/** 값 매핑 인라인 편집: 원본값→변환값 쌍, [+ 추가], 매핑 안 된 값: NULL/유지/기본값 */
+function CodeMapInlineEditor({ sourceName, config, onChange }) {
+  const map = config.map || {};
+  const entries = Object.entries(map);
+  const unmapped = config.unmapped || 'null';
+  const defaultVal = config.default_value ?? '';
+
+  const setMap = (next) => onChange({ ...config, map: next });
+  const setUnmapped = (v) => onChange({ ...config, unmapped: v });
+  const setDefault = (v) => onChange({ ...config, default_value: v });
+
+  const addRow = () => {
+    const next = { ...map, '': '' };
+    setMap(next);
+  };
+  const setKey = (idx, key) => {
+    const keys = Object.keys(map);
+    const oldKey = keys[idx];
+    const val = map[oldKey];
+    const newMap = {};
+    for (const k of keys) if (k !== oldKey) newMap[k] = map[k];
+    newMap[key] = val;
+    setMap(newMap);
+  };
+  const setVal = (idx, val) => {
+    const keys = Object.keys(map);
+    const k = keys[idx];
+    if (k === undefined) return;
+    const newMap = { ...map, [k]: val };
+    setMap(newMap);
+  };
+  const removeRow = (idx) => {
+    const keys = Object.keys(map);
+    const k = keys[idx];
+    if (k === undefined) return;
+    const newMap = { ...map };
+    delete newMap[k];
+    setMap(newMap);
+  };
+
+  return (
+    <div className="etl-target-select-modal__code-map-editor" data-source={sourceName}>
+      <div className="etl-target-select-modal__code-map-rows">
+        {entries.map(([k, v], idx) => (
+          <div key={idx} className="etl-target-select-modal__code-map-row">
+            <input type="text" value={k} onChange={(e) => setKey(idx, e.target.value)} placeholder="원본값" className="etl-target-select-modal__input--code-map" />
+            <span>→</span>
+            <input type="text" value={v} onChange={(e) => setVal(idx, e.target.value)} placeholder="변환값" className="etl-target-select-modal__input--code-map" />
+            <button type="button" className="etl-target-select-modal__btn--code-map-remove" onClick={() => removeRow(idx)} aria-label="삭제">×</button>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="etl-target-select-modal__btn-link" onClick={addRow}>+ 추가</button>
+      <div className="etl-target-select-modal__code-map-unmapped">
+        <span>매핑 안 된 값:</span>
+        <select value={unmapped} onChange={(e) => setUnmapped(e.target.value)} className="etl-target-select-modal__select--unmapped">
+          <option value="null">NULL</option>
+          <option value="keep">유지</option>
+          <option value="default">기본값</option>
+        </select>
+        {unmapped === 'default' && (
+          <input type="text" value={defaultVal} onChange={(e) => setDefault(e.target.value)} placeholder="기본값" className="etl-target-select-modal__input--code-map-default" />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TargetTableSelectModal({
   open,
   onClose,
@@ -86,6 +165,7 @@ function TargetTableSelectModal({
   currentColumnMapping,
   currentPkColumns,
   sourceColumns: sourceColumnsProp,
+  etlTableId = null,
   onSelect
 }) {
   const [tables, setTables] = useState([]);
@@ -107,10 +187,16 @@ function TargetTableSelectModal({
   const [mappingOnError, setMappingOnError] = useState({});
   /** 소스→타겟 매핑 모드: 소스별로 선택한 타겟 컬럼명 (빈 문자열 = 제외) */
   const [sourceToTarget, setSourceToTarget] = useState({});
+  /** 컬럼별 변환 종류: none | cleansing | type_cast | cleansing_and_type_cast | code_map */
+  const [transformKind, setTransformKind] = useState({});
+  /** 값 매핑(code_map) 설정: { [sourceName]: { map: { [원본값]: 변환값 }, unmapped: 'null'|'keep'|'default', default_value? } } */
+  const [codeMapConfig, setCodeMapConfig] = useState({});
+  /** 값 매핑 인라인 편집 열림: sourceName → true */
+  const [codeMapEditorOpen, setCodeMapEditorOpen] = useState({});
 
   const prevSelectedTableRef = useRef(selectedTable);
 
-  const sid = useMemo(() => (storageConnectionId === '' || storageConnectionId == null ? null : storageConnectionId), [storageConnectionId]);
+  const sid = useMemo(() => normalizeStorageConnectionId(storageConnectionId), [storageConnectionId]);
   const mapping = useMemo(() => (Array.isArray(currentColumnMapping) ? currentColumnMapping : []), [currentColumnMapping]);
   const sourceColumns = useMemo(() => {
     const list = Array.isArray(sourceColumnsProp) ? sourceColumnsProp : [];
@@ -384,7 +470,40 @@ function TargetTableSelectModal({
     );
   };
 
-  const handleApply = useCallback(() => {
+  /** 현재 모달 상태에서 변환 룰 배열 조립 (미리보기·저장용). apply_order = 컬럼인덱스*10 + 서브인덱스 */
+  const getAssembledRules = useCallback(() => {
+    const list = selectedTable === NEW_TABLE_VALUE
+      ? sourceColumns.filter((src) => !newTableExcluded[src.name])
+      : sourceColumns.filter((src) => sourceToTarget[src.name]);
+    const rules = [];
+    list.forEach((src, idx) => {
+      const targetName = selectedTable === NEW_TABLE_VALUE
+        ? ((newTableTargetNames[src.name] || src.name).trim().replace(/\s+/g, '_') || src.name)
+        : sourceToTarget[src.name];
+      if (!targetName) return;
+      const kind = transformKind[src.name] || 'none';
+      if (kind === 'none') return;
+      const baseOrder = idx * 10;
+      const onError = getOnErrorValue(mappingOnError, src.name);
+      const pgType = selectedTable === NEW_TABLE_VALUE
+        ? inferredTypeToPg(src.type)
+        : (targetColByName[targetName]?.data_type || 'TEXT');
+      if (kind === 'cleansing') {
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+      } else if (kind === 'type_cast') {
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'type_cast', rule_config: { target_type: pgType, on_error: onError }, apply_order: baseOrder });
+      } else if (kind === 'cleansing_and_type_cast') {
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'type_cast', rule_config: { target_type: pgType, on_error: onError }, apply_order: baseOrder + 1 });
+      } else if (kind === 'code_map') {
+        const cfg = codeMapConfig[src.name] || {};
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'code_map', rule_config: { map: cfg.map || {}, unmapped: cfg.unmapped || 'null', default_value: cfg.default_value }, apply_order: baseOrder });
+      }
+    });
+    return rules;
+  }, [selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, sourceToTarget, transformKind, mappingOnError, codeMapConfig, targetColByName]);
+
+  const handleApply = useCallback(async () => {
     if (selectedTable === NEW_TABLE_VALUE) {
       const tableName = (newTableName || '').trim().replace(/\s+/g, '_') || (currentTargetTable || '').trim() || 'new_table';
       if (!tableName) return;
@@ -398,6 +517,24 @@ function TargetTableSelectModal({
         }));
       const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
       if (onSelect) onSelect(tableName, columnMapping, pkCols);
+      if (etlTableId != null && etlTableId !== '') {
+        const assembled = getAssembledRules();
+        try {
+          const { rules: existing } = await etl2ListTransformRules(etlTableId);
+          const sourceColumnsWithTransform = new Set(assembled.map((r) => r.source_column));
+          for (const r of existing || []) {
+            if (r.rule_id != null && sourceColumnsWithTransform.has(r.source_column)) {
+              await etl2DeleteTransformRule(r.rule_id);
+            }
+          }
+          for (const r of assembled) {
+            await etl2CreateTransformRule({ etl_table_id: etlTableId, ...r, is_active: true });
+          }
+        } catch (err) {
+          console.error('변환 룰 저장 실패:', err);
+          window.alert('변환 룰 저장에 실패했습니다. ' + (err.message || ''));
+        }
+      }
       onClose();
       return;
     }
@@ -421,6 +558,24 @@ function TargetTableSelectModal({
       });
       const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
       if (onSelect) onSelect(tableName, columnMapping, pkCols);
+      if (etlTableId != null && etlTableId !== '') {
+        const assembled = getAssembledRules();
+        try {
+          const { rules: existing } = await etl2ListTransformRules(etlTableId);
+          const sourceColumnsWithTransform = new Set(assembled.map((r) => r.source_column));
+          for (const r of existing || []) {
+            if (r.rule_id != null && sourceColumnsWithTransform.has(r.source_column)) {
+              await etl2DeleteTransformRule(r.rule_id);
+            }
+          }
+          for (const r of assembled) {
+            await etl2CreateTransformRule({ etl_table_id: etlTableId, ...r, is_active: true });
+          }
+        } catch (err) {
+          console.error('변환 룰 저장 실패:', err);
+          window.alert('변환 룰 저장에 실패했습니다. ' + (err.message || ''));
+        }
+      }
       onClose();
       return;
     }
@@ -441,7 +596,7 @@ function TargetTableSelectModal({
   }, [
     selectedTable, newTableName, currentTargetTable, sourceColumns, newTableExcluded, newTableTargetNames,
     mappingOnError, targetColumnNamesForPk, selectedPkColumns, onSelect, onClose,
-    hasSourceMapping, columns, sourceToTarget, targetColByName, selectedColumns
+    hasSourceMapping, columns, sourceToTarget, targetColByName, selectedColumns, etlTableId, getAssembledRules
   ]);
 
   if (!open) return null;
@@ -510,6 +665,7 @@ function TargetTableSelectModal({
                           <th>→</th>
                           <th>타겟 컬럼명</th>
                           <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
+                          <th className="etl-target-select-modal__th--transform">변환</th>
                           <th className="etl-target-select-modal__th--exclude">제외</th>
                         </tr>
                       </thead>
@@ -564,6 +720,29 @@ function TargetTableSelectModal({
                                   </select>
                                 )}
                               </td>
+                              <td className="etl-target-select-modal__cell--transform">
+                                {excluded ? '—' : (
+                                  <>
+                                    <select
+                                      value={transformKind[src.name] || 'none'}
+                                      onChange={(e) => setTransformKind((prev) => ({ ...prev, [src.name]: e.target.value }))}
+                                      className="etl-target-select-modal__select etl-target-select-modal__select--transform"
+                                    >
+                                      {TRANSFORM_OPTIONS.map((o) => (
+                                        <option key={o.value} value={o.value}>{o.label}</option>
+                                      ))}
+                                    </select>
+                                    {(transformKind[src.name] || '') === 'code_map' && (
+                                      <button type="button" className="etl-target-select-modal__btn-link" onClick={() => setCodeMapEditorOpen((p) => ({ ...p, [src.name]: !p[src.name] }))}>
+                                        {codeMapEditorOpen[src.name] ? '접기' : '편집'}
+                                      </button>
+                                    )}
+                                    {(transformKind[src.name] || '') === 'code_map' && codeMapEditorOpen[src.name] && (
+                                      <CodeMapInlineEditor sourceName={src.name} config={codeMapConfig[src.name] || {}} onChange={(cfg) => setCodeMapConfig((prev) => ({ ...prev, [src.name]: cfg }))} />
+                                    )}
+                                  </>
+                                )}
+                              </td>
                               <td className="etl-target-select-modal__cell--exclude">
                                 <label className="etl-target-select-modal__exclude-label">
                                   <input
@@ -597,6 +776,7 @@ function TargetTableSelectModal({
                         <th>→</th>
                         <th>타겟 컬럼</th>
                         <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
+                        <th className="etl-target-select-modal__th--transform">변환</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -656,6 +836,38 @@ function TargetTableSelectModal({
                                     <option key={o.value} value={o.value}>{o.label}</option>
                                   ))}
                                 </select>
+                              )}
+                            </td>
+                            <td className="etl-target-select-modal__cell--transform">
+                              {!targetColName ? '—' : (
+                                <>
+                                  <select
+                                    value={transformKind[src.name] || 'none'}
+                                    onChange={(e) => setTransformKind((prev) => ({ ...prev, [src.name]: e.target.value }))}
+                                    className="etl-target-select-modal__select etl-target-select-modal__select--transform"
+                                    title="변환 룰"
+                                  >
+                                    {TRANSFORM_OPTIONS.map((o) => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                  {(transformKind[src.name] || '') === 'code_map' && (
+                                    <button
+                                      type="button"
+                                      className="etl-target-select-modal__btn-link etl-target-select-modal__btn--code-map-edit"
+                                      onClick={() => setCodeMapEditorOpen((p) => ({ ...p, [src.name]: !p[src.name] }))}
+                                    >
+                                      {codeMapEditorOpen[src.name] ? '접기' : '편집'}
+                                    </button>
+                                  )}
+                                  {(transformKind[src.name] || '') === 'code_map' && codeMapEditorOpen[src.name] && (
+                                    <CodeMapInlineEditor
+                                      sourceName={src.name}
+                                      config={codeMapConfig[src.name] || {}}
+                                      onChange={(cfg) => setCodeMapConfig((prev) => ({ ...prev, [src.name]: cfg }))}
+                                    />
+                                  )}
+                                </>
                               )}
                             </td>
                           </tr>
@@ -747,6 +959,9 @@ function TargetTableSelectModal({
             </div>
           )}
         </div>
+        {hasSourceMapping && sourceColumns.length > 0 && (
+          <TransformPreviewPanel etlTableId={etlTableId} rules={getAssembledRules()} />
+        )}
         <div className="etl-target-select-modal__footer">
           <button type="button" className="etl-target-select-modal__btn etl-target-select-modal__btn--secondary" onClick={onClose}>취소</button>
           <button

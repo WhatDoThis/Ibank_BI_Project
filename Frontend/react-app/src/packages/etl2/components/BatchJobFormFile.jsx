@@ -32,6 +32,7 @@ import {
   batchValidateTarget,
   batchCreateJob
 } from '@/shared/api/client';
+import { normalizeStorageConnectionId } from '../utils/storageDb.js';
 import '../etl.css';
 
 const INTERVAL_MIN = 10;
@@ -76,12 +77,8 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
     loadLists();
   }, [loadLists, refreshKey]);
 
-  const sidForTarget = (storage_connection_id === '' || storage_connection_id == null) ? null : Number(storage_connection_id);
+  const sidForTarget = normalizeStorageConnectionId(storage_connection_id);
   useEffect(() => {
-    if (sidForTarget !== null && Number.isNaN(sidForTarget)) {
-      setTargetTables([]);
-      return;
-    }
     batchListTargetTables(sidForTarget)
       .then((res) => setTargetTables(Array.isArray(res?.tables) ? res.tables : []))
       .catch(() => setTargetTables([]));
@@ -170,7 +167,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       setError('타겟 테이블을 선택하거나 새 테이블명을 입력하세요.');
       return;
     }
-    const sid = (storage_connection_id === '' || storage_connection_id == null) ? null : Number(storage_connection_id);
+    const sid = normalizeStorageConnectionId(storage_connection_id);
     if (sid !== null && Number.isNaN(sid)) {
       setError('저장 DB를 선택하세요.');
       return;
@@ -185,7 +182,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       try {
         const validation = await batchValidateTarget({
           folder_connection_id: fid,
-          storage_connection_id: sid ?? undefined,
+          storage_connection_id: sid,
           file_pattern: file_pattern.trim(),
           target_table: targetTableFinal
         });
@@ -204,7 +201,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       folder_connection_id: fid,
       job_name: job_name.trim(),
       file_pattern: file_pattern.trim(),
-      ...(sid != null && { storage_connection_id: sid }),
+      storage_connection_id: sid, // null = 기본 DB(config). utils/storageDb.js
       target_table: targetTableFinal,
       pk_columns: pk_columns?.trim() || null,
       interval_minutes: interval,

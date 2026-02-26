@@ -1,3 +1,133 @@
+## 2026-02-26 ETL 목록 배치 행 삭제 시 배치 Job cascade 삭제
+
+**문제:** ETL 목록에서 배치 유래 행을 먼저 삭제하면 삭제가 되지 않음. 배치 잡을 먼저 지우고 ETL 목록에서 지우는 흐름이 아님.
+
+**변경:** ETL 목록에서 "삭제" 시 연결된 배치 Job이 있으면 먼저 cascade 삭제(스케줄러 제거 + delete_batch_job), 이어서 타겟 테이블 DROP 및 레지스트리 행 삭제. 한 번에 ETL 목록에서만 삭제해도 배치 Job·테이블·레지스트리가 정리되도록 함.
+
+**변경 파일:** service_file.py (delete_batch_target_registry_and_drop_table), ETLTableList.jsx (확인 문구), log.md.
+
+---
+
+## 2026-02-26 ETL 목록에 배치 타겟 레지스트리 연동 (배치 행 = 테이블 관리용만)
+
+**목표:** 배치 Job을 ETL 목록에 “행”으로 넣어 관리. 배치 삭제 시 잡만 삭제·테이블 유지; ETL 목록에서 해당 행 삭제 시에만 타겟 DROP. 동일 target_table로 새 배치 생성 시 기존 행 업데이트.
+
+**구현:**
+- **etl_batch_target_registry** (시스템 DB): id, target_table, storage_connection_id, batch_job_id(NULLABLE), created_at, updated_at. UNIQUE(target_table, storage_connection_id). CREATE TABLE IF NOT EXISTS로 초기 생성.
+- **service_file:** list_batch_target_registry(backfill 포함), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table. create_batch_job 후 upsert 호출; delete_batch_job 전에 clear_batch_job_from_registry 호출.
+- **router_file:** GET /batch/target-registry, DELETE /batch/target-registry/:id.
+- **client.js:** etl2ListBatchTargetRegistry, etl2DeleteBatchTargetRegistry.
+- **ETLTableList:** 목록 소스를 etl2ListTables + etl2ListBatchTargetRegistry로 변경. type 'batch_target' 행은 즉시실행·이력 없이 삭제 버튼만 표시. 삭제 시 etl2DeleteBatchTargetRegistry(id) → 타겟 DROP + 레지스트리 행 삭제.
+
+**효과:** (1) 배치 Job 삭제 시 타겟 테이블 유지, ETL 목록에는 해당 타겟 행이 계속 표시. (2) ETL 목록에서 해당 행 삭제 시에만 타겟 DROP. (3) 동일 target_table+storage로 새 배치 생성 시 기존 레지스트리 행의 batch_job_id만 갱신.
+
+**변경 파일:** service_file.py, router_file.py, client.js, ETLTableList.jsx, log.md.
+
+---
+
+## 2026-02-26 배치 upsert 삽입/갱신 건수 구분 수정
+
+**문제:** 두 번째 파일 적재 시 실제로는 새 행 추가(삽입)인데도 이력에 "갱신 200001"로만 표시됨. 삽입 행 0, 갱신 행 200001로 나옴.
+
+**원인:** `load_service_file._batch_upsert`가 INSERT ... ON CONFLICT DO UPDATE 한 번만 실행하고 반환을 항상 `(0, total)`로 해서, 실제 INSERT된 행도 전부 "갱신"으로 집계됨.
+
+**수정:** `_batch_upsert`에서 삽입/갱신 건수를 구분하도록 2단계 실행.
+1. `INSERT ... ON CONFLICT (pk) DO NOTHING` 실행 → `cursor.rowcount` = 실제 삽입 건수.
+2. 같은 배치로 `UPDATE table SET ... FROM (VALUES ...) AS v(...) WHERE table.pk = v.pk` 실행 → `cursor.rowcount` = 갱신 건수.
+non_pk가 없으면 기존처럼 DO NOTHING만 사용하며 updated=0.
+
+**효과:** 이력의 "삽입 행"/"갱신 행"이 실제 INSERT/UPDATE 건수와 일치함.
+
+**변경 파일:** load_service_file.py, log.md.
+
+---
+
+## 2026-02-26 배치 첫 실행 큐 처리 변경 — 잠재 이슈 점검
+
+**목적:** "첫 실행 시 대기 파일 전부 반환" 변경에 따른 기능·로직·알고리즘 잠재 문제 점검.
+
+**점검 결과 요약:**
+- **정상:** run 시작 시 get_pending_files 1회 호출, 동일 pending으로 파일별 순회. 메모리는 파일 단위만 사용. 에러/취소 시 이미 처리분 커밋 유지·다음 run에서 실패 파일부터 재시도. list_folder_columns/validate-target은 pending[0]만 사용해 변경 영향 없음.
+- **주의:** 스킵(크기 초과/중복 체크섬) 시 last_processed_ts 미갱신 — 스킵 파일이 중간에 있으면 영구 스킵, 맨 마지막이면 매 run 재시도. 대량 대기 파일 시 1 run 장시간·연결 유지 가능성; 필요 시 run당 상한 확장 고려.
+- **문서:** 09_ETL_SFTP_Connection.md §4.2에 "주의·잠재 이슈" 문단 추가.
+
+**변경 파일:** 09_ETL_SFTP_Connection.md, log.md.
+
+---
+
+## 2026-02-26 배치 Job 첫 실행 시 이전 시점 파일 큐 처리 수정
+
+**문제:** 새로 등록한 배치 Job(예: 오후 3:25 등록) 실행 시, 해당 시점 이전에 SFTP에 올라온 동일 패턴 파일이 2개 있어도 1개만 처리되고 두 번째 파일은 다음 주기(예: 6시간 후)까지 처리되지 않음.
+
+**원인:** `parser_file.get_pending_files`에서 `last_processed_ts`가 None(첫 실행)일 때 `candidates[:1]`로 **가장 오래된 1건만** 반환하도록 되어 있었음. 문서(09_ETL_SFTP_Connection.md)에도 "첫 실행 1건 → 다음 주기에서 나머지"로 기술되어 있었으나, 기대 동작은 "이전 시점 파일들을 큐로 쌓아 한 run에서 순차 처리".
+
+**수정:**
+- **parser_file.py:** `get_pending_files` 첫 실행 분기에서 `candidates[:1]` 제거. `last_processed_ts is None`일 때 `ts <= max_ts`인 매칭 파일 **전부** 반환하도록 변경. `batch_executor_file`은 이미 `pending`을 for 루프로 순회하며 파일별 `update_last_processed_ts` 호출하므로 추가 수정 없음.
+- **09_ETL_SFTP_Connection.md:** §4.2 증분 판단 설명을 "첫 실행 시에도 대기 파일 전부 처리(한 run에서 큐처럼 순차 적재)"로 정리.
+
+**효과:** 배치 등록 후 즉시 실행(또는 첫 주기 실행) 시, 등록 시점 이전에 올라온 동일 패턴 파일이 여러 개 있으면 타임스탬프 오름차순으로 한 run에서 모두 처리됨.
+
+**변경 파일:** parser_file.py, 09_ETL_SFTP_Connection.md, log.md.
+
+---
+
+## 2026-02-26 ETL 목록·잡 이력 테이블 새로고침 버튼 추가
+
+**목표:** ETL 목록 테이블과 잡 이력 테이블에서 해당 테이블만 다시 불러오는 [새로고침] 버튼 제공.
+
+**구현:**
+- **ETLTableList.jsx:** 상단에 툴바(`etl-table-list__toolbar`)와 [새로고침] 버튼 추가. 클릭 시 `load()` 호출로 `etl2ListTables`·`batchListJobs`만 재호출. 로딩/에러/빈 목록/테이블 표시 모든 상태에서 버튼 노출, 로딩 중에는 비활성화.
+- **BatchHistoryPanelFile.jsx:** 이력 테이블 위에 `etl-db-form__table-actions` 영역과 [새로고침] 버튼 추가. 클릭 시 `loadHistory(false)` 호출로 해당 배치 Job의 `batchListJobHistory`만 재호출.
+- **JobHistoryPanel.jsx:** 상태 필터와 같은 줄에 `etl-history__bar`로 [새로고침] 버튼 배치. 클릭 시 `load()` 호출로 `etl2ListJobs`만 재호출(현재 선택된 상태 필터 유지).
+- **etl.css:** `etl-table-list__toolbar`, `etl-table-list__refresh`, `etl-db-form__table-actions`, `etl-history__bar`, `etl-history__refresh` 스타일 추가.
+
+**변경 파일:** ETLTableList.jsx, BatchHistoryPanelFile.jsx, JobHistoryPanel.jsx, etl.css, log.md.
+
+---
+
+## 2026-02-25 Cursor commands 추가 (add-feature, pr, verify)
+
+**목표:** 반복 워크플로우를 `/명령어`로 실행할 수 있도록 .cursor/commands에 커맨드 3종 추가.
+
+**추가 파일:**
+- **add-feature.md**: 새 기능 백엔드→프론트 전체 체인. 플랜 테이블 출력 → be-data → be-router → fe-state → fe-markup → fe-style → cross-check → 결과 요약.
+- **pr.md**: 현재 변경사항으로 PR 생성. git diff 확인 → 커밋 메시지(한국어) → 커밋+푸시 → gh pr create → PR URL 출력.
+- **verify.md**: 전체 연결 정합성 검증. client.js↔라우터, Pydantic↔프론트, SELECT↔row 접근, className↔CSS, npm run build → ✅/❌ 결과 테이블.
+
+**변경 파일:** .cursor/commands/add-feature.md(신규), .cursor/commands/pr.md(신규), .cursor/commands/verify.md(신규), log.md.
+
+---
+
+## 2026-02-25 Cursor 멀티에이전트 오케스트레이션·스킬 보강
+
+**목표:** 병렬 위임이 동작하도록 오케스트레이션 룰 강제화, 신규 스킬 추가, cross-check 자동 실행 조건 명시.
+
+**구현 요약:**
+- **tech-lead-orchestration.mdc**: MUST 키워드·플랜 테이블 선출력 강제. 자동 위임 조건(백엔드+프론트 동시 수정 / 수정 3개 이상 / router+service+client 체인) 1개라도 해당 시 반드시 서브에이전트 위임. Phase 순서(1: be-data+fe-style 병렬 → 2: be-router → 3: fe-state+fe-markup → 4: be-worker → 5: verifier/linker). 예외: 단일 파일·CSS만·주석/문서만. `alwaysApply: true` 유지.
+- **error-resolver 스킬**: `.cursor/skills/error-resolver/SKILL.md` 신규. 빌드/런타임/타입 에러 시 파일:라인 추출 → 관련 코드 확인 → 수정안(diff) 제시. 프론트(Module not found, JSX), 백엔드(ImportError, ValidationError, psycopg2) 분류.
+- **migration-helper 스킬**: `.cursor/skills/migration-helper/SKILL.md` 신규. DB 스키마 변경 시 ALTER TABLE → service.py → Pydantic → client.js → UI → cross-check 체크리스트.
+- **cross-check SKILL.md**: "자동 실행 조건 (MUST)" 섹션 추가. 엔드포인트 추가/수정, client.js 함수 추가/수정, service.py 반환값 변경, DB 스키마 변경 후 반드시 cross-check 실행.
+
+**변경·신규 파일:** .cursor/rules/tech-lead-orchestration.mdc, .cursor/skills/error-resolver/SKILL.md(신규), .cursor/skills/migration-helper/SKILL.md(신규), .cursor/skills/cross-check/SKILL.md, log.md.
+
+---
+
+## 2026-02-26 ETL 변환 룰 — 매핑 모달 내 통합
+
+**목표:** 타겟 테이블 매핑 모달(TargetTableSelectModal)에서 컬럼 매핑과 변환 설정을 한 화면에서 처리하고, 미리보기로 결과를 즉시 확인.
+
+**구현 요약:**
+- **Phase 1 (Backend):** `POST /api/etl2/transform/preview` 추가. Body: `etl_table_id?`, `rules?`, `sample_data?`, `max_rows`(기본 10). `sample_data` 있으면 DataFrame으로 사용, 없고 `etl_table_id` 있으면 `preview_service.get_raw_sample()`로 파일/DB 원본 샘플 조회. `transform_engine.apply_rules(df, rules)` 호출 후 `before`/`after`/`column_changes`/`new_columns`/`rows_before`/`rows_after` 반환. `preview_service`에 `get_raw_sample`, `_raw_sample_db` 추가.
+- **Phase 4 (client.js):** `etl2TransformPreview(body)`, `etl2CreateTransformRule(body)`, `etl2UpdateTransformRule(ruleId, body)`, `etl2DeleteTransformRule(ruleId)` 추가.
+- **Phase 2 (TargetTableSelectModal):** 매핑 테이블에 **변환** 열 추가. 드롭다운: 없음 | 정리 | 타입 변환 | 정리+타입 변환 | 값 매핑. 값 매핑 선택 시 `CodeMapInlineEditor` 인라인 편집(원본값→변환값, 매핑 안 된 값: NULL/유지/기본값). 적용 시 `etlTableId`가 있으면 기존 룰(해당 source_column) 삭제 후 `getAssembledRules()`로 새 룰 POST. `apply_order` = 컬럼 인덱스×10 + 서브인덱스.
+- **Phase 3 (TransformPreviewPanel):** 신규 `TransformPreviewPanel.jsx`. 매핑 모달 하단 미리보기 토글, "미리보기 새로고침" 버튼으로 `etl2TransformPreview({ etl_table_id, rules })` 호출. before/after 테이블 나란히 표시, 변경 셀 하이라이트, 컬럼별 요약 뱃지. `etlTableId` 없으면 "ETL 등록 후 미리보기를 사용할 수 있습니다." 안내.
+
+**제약:** `transform_engine.py`, `transform_rules_service.py` 수정 없음. derived, masking 타입 UI 미포함. 폴더 배치 Job에는 변환 룰 미적용.
+
+**변경·신규 파일:** router.py, preview_service.py, client.js, TargetTableSelectModal.jsx, TransformPreviewPanel.jsx(신규), etl.css, log.md. 제작 플랜: docs/report/ETL_Transform_Rules_Implementation_Plan.md.
+
+---
+
 ## 2026-02-26 ETL2 실행 이력·상세 실시간 갱신 (폴링 + 진행 중 file_list 반영)
 
 **문제:** 실행 이력 모달에서 진행 중(running)인 run이 있어도 목록·상세가 한 번만 로드되어 실시간으로 갱신되지 않음. 상세 창에서 파일별 진행이 보이지 않음.

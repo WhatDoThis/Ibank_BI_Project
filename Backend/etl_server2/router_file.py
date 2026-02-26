@@ -28,6 +28,8 @@ Backend.etl_server2.router_file (배치·폴더 연결 API 라우터)
 - POST /jobs/{id}/reset-ts — last_processed_ts 수동 리셋 (§3-1)
 - POST /jobs/{id}/clone — 배치 Job 복제 (§3-2)
 - GET /target-tables — 저장 DB 테이블 목록 (배치 폼 타겟 셀렉트용)
+- GET /target-registry — ETL 목록용 배치 타겟 등록 목록 (batch_job_id NULL 포함)
+- DELETE /target-registry/{id} — 레지스트리 행 삭제 + 타겟 테이블 DROP
 - POST /jobs/validate-target — 기존 테이블 적재 가능 여부 검증 (컬럼 호환만, 매핑 제외)
 - POST /jobs/{id}/history/{run_id}/cancel — 실행 취소 요청 (진행 중 롤백)
 - POST /jobs/{id}/rollback-file — 특정 파일 적재 데이터만 타겟에서 DELETE (PK 기반, Body: run_id, filename)
@@ -410,6 +412,35 @@ def list_target_tables(
         return {"tables": tables}
     except Exception as e:
         logger.exception("저장 DB 테이블 목록 조회 실패")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/target-registry")
+def list_batch_target_registry():
+    """ETL 목록에 표시할 배치 타겟 등록 목록. batch_job_id가 NULL이어도 행 반환(테이블 관리용)."""
+    try:
+        rows = batch_service.list_batch_target_registry()
+        for r in rows:
+            for k in ("created_at", "updated_at", "last_run_at"):
+                v = r.get(k)
+                if v is not None and hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+        return {"targets": rows}
+    except Exception as e:
+        logger.exception("배치 타겟 레지스트리 조회 실패")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/target-registry/{registry_id}")
+def delete_batch_target_registry(registry_id: int):
+    """ETL 목록에서 배치 유래 행 삭제. 타겟 테이블 DROP 후 레지스트리 행 삭제."""
+    try:
+        batch_service.delete_batch_target_registry_and_drop_table(registry_id)
+        return {"message": "삭제되었습니다."}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("배치 타겟 레지스트리 삭제 실패")
         raise HTTPException(status_code=500, detail=str(e))
 
 

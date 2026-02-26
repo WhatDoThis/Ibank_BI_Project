@@ -11,6 +11,7 @@ get_target_connection, table_exists, create_table_from_dataframe, load_dataframe
 - table_exists: information_schema.tables로 테이블 존재 여부
 - create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
 - load_dataframe: 테이블 없으면 CREATE 후 INSERT, 있으면 PK 있으면 upsert/없으면 INSERT. 파라미터 한도 기반 배치(_calc_batch_size).
+  PK upsert 시 삽입/갱신 건수 구분을 위해 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES 2단계 실행. 반환 inserted/updated 실제 건수.
   PK·출처 정보가 있으면 batch_loaded_keys에 적재된 행의 PK 기록(파일 단위 롤백용).
 
 [Dependencies]
@@ -337,14 +338,22 @@ def _batch_upsert(
     pk_columns: List[str],
     df: pd.DataFrame,
 ) -> Tuple[int, int]:
-    """INSERT ... ON CONFLICT (pk) DO UPDATE SET. 반환: (inserted, updated). non_pk 비면 DO NOTHING (§2.2)."""
+    """
+    INSERT ... ON CONFLICT (pk) DO UPDATE SET.
+    삽입/갱신 건수를 구분하기 위해 2단계 실행: (1) INSERT ON CONFLICT DO NOTHING → inserted,
+    (2) UPDATE ... FROM (VALUES ...) WHERE pk 일치 → updated.
+    non_pk 비면 DO NOTHING만 사용하며, 이 경우 inserted+skipped만 있고 updated=0.
+    반환: (inserted, updated).
+    """
     cur = conn.cursor()
     non_pk = [c for c in columns if c not in pk_columns]
     cols_quoted = ", ".join(f'"{c}"' for c in columns)
     pk_quoted = ", ".join(f'"{p}"' for p in pk_columns)
     ph = "(" + ", ".join(["%s"] * len(columns)) + ")"
     effective_batch = min(BATCH_SIZE, _calc_batch_size(len(columns)))
-    total = 0
+    total_inserted = 0
+    total_updated = 0
+
     for start in range(0, len(df), effective_batch):
         batch = df.iloc[start : start + effective_batch]
         rows = [tuple(row) for row in batch[columns].itertuples(index=False, name=None)]
@@ -352,18 +361,38 @@ def _batch_upsert(
             continue
         placeholders = ", ".join([ph] * len(rows))
         flat = [v for r in rows for v in r]
+
         if not non_pk:
             sql = (
                 f'INSERT INTO {full_name} ({cols_quoted}) VALUES {placeholders}'
                 f' ON CONFLICT ({pk_quoted}) DO NOTHING'
             )
-        else:
-            set_clause = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in non_pk)
-            sql = (
-                f'INSERT INTO {full_name} ({cols_quoted}) VALUES {placeholders}'
-                f' ON CONFLICT ({pk_quoted}) DO UPDATE SET {set_clause}'
-            )
-        cur.execute(sql, flat)
-        total += len(rows)
+            cur.execute(sql, flat)
+            total_inserted += cur.rowcount
+            continue
+
+        # 1) INSERT ... ON CONFLICT DO NOTHING → 새 행만 삽입, rowcount = 삽입 건수
+        sql_ins = (
+            f'INSERT INTO {full_name} ({cols_quoted}) VALUES {placeholders}'
+            f' ON CONFLICT ({pk_quoted}) DO NOTHING'
+        )
+        cur.execute(sql_ins, flat)
+        total_inserted += cur.rowcount
+
+        # 2) 충돌한 행은 UPDATE ... FROM (VALUES ...) 로 갱신, rowcount = 갱신 건수
+        # VALUES 컬럼 순서: pk_columns + non_pk (SET에 non_pk 사용, WHERE에 pk 사용)
+        set_clause = ", ".join(f'"{c}" = v."{c}"' for c in non_pk)
+        pk_where = " AND ".join(f't."{p}" = v."{p}"' for p in pk_columns)
+        n_cols = len(columns)
+        v_cols = ", ".join(f'"{c}"' for c in columns)
+        v_ph = "(" + ", ".join(["%s"] * n_cols) + ")"
+        v_placeholders = ", ".join([v_ph] * len(rows))
+        sql_upd = (
+            f'UPDATE {full_name} AS t SET {set_clause} FROM '
+            f'(VALUES {v_placeholders}) AS v({v_cols}) WHERE {pk_where}'
+        )
+        cur.execute(sql_upd, flat)
+        total_updated += cur.rowcount
+
     cur.close()
-    return 0, total
+    return total_inserted, total_updated

@@ -27,6 +27,7 @@ import {
   etl2DeleteConnection,
   etl2ListStorageConnections
 } from '@/shared/api/client';
+import { normalizeStorageConnectionId } from '../utils/storageDb.js';
 
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ(Cannot access 'ie' before initialization) 방지 */
 const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
@@ -313,7 +314,7 @@ function DbConnectionForm({ onSuccess }) {
         incremental_column: syncMode === 'incremental' && finalIncremental ? finalIncremental : null,
         batch_size: batchSize.trim() ? parseInt(batchSize, 10) || null : null,
         batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
-        storage_connection_id: storageConnectionId === '' || storageConnectionId == null ? null : Number(storageConnectionId),
+        storage_connection_id: normalizeStorageConnectionId(storageConnectionId),
         column_mapping: columnMapping && columnMapping.length > 0 ? columnMapping : null,
         on_row_error: (onRowError || 'fail').toLowerCase() === 'skip' ? 'skip' : 'fail',
         created_by: 'user'

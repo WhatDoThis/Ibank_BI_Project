@@ -15,6 +15,8 @@ Backend.etl_server.preview_service (ETL 미리보기)
 [Main]
 ===========
 get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. column_mapping 있으면 해당 매핑만 반영(제외 컬럼 미표시, 타겟명·순서로 표시).
+get_raw_sample: 변환 미리보기용. ETL 원본을 max_rows만큼 샘플링해 DataFrame 반환. 파일은 _read_file, DB는 _raw_sample_db.
+_raw_sample_db: DB 소스 원본 컬럼 그대로 max_rows 행 조회(column_mapping 미적용). list of dict 반환.
 
 [Dependencies]
 =========
@@ -279,3 +281,100 @@ def get_preview(etl_table_id: int) -> dict:
     if source_type in ("postgresql", "mysql", "oracle") or (row.get("connection_id") and row.get("source_table")):
         return _preview_db(row)
     raise ValueError("미리보기 지원 소스가 아닙니다. 파일(path/type) 또는 DB(connection_id/source_table)가 필요합니다.")
+
+
+def get_raw_sample(etl_table_id: int, max_rows: int = 10):
+    """
+    변환 미리보기용: ETL 원본 데이터를 max_rows만큼 샘플링해 DataFrame으로 반환.
+    파일: _read_file. DB: SELECT * LIMIT max_rows.
+    """
+    import pandas as pd
+    row = etl_service.get_etl_table(etl_table_id)
+    if not row:
+        raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
+    source_type = (row.get("source_type") or "").strip().lower()
+    if source_type == "file" or (row.get("file_path") and row.get("file_type")):
+        df = _read_file_preview(row["file_path"], row["file_type"], max_rows=max_rows)
+        return df
+    if source_type in ("postgresql", "mysql", "oracle") or (row.get("connection_id") and row.get("source_table")):
+        rows = _raw_sample_db(row, max_rows)
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
+    raise ValueError("원본 샘플 지원 소스가 아닙니다. 파일 또는 DB가 필요합니다.")
+
+
+def _raw_sample_db(row: dict, max_rows: int) -> list:
+    """DB 소스에서 원본 컬럼 그대로 max_rows만큼 조회. column_mapping 미적용. 반환: list of dict."""
+    from Backend.etl_server2.db_load_service import (
+        _get_source_connection,
+        _fetch_source_columns,
+        _fetch_source_columns_mysql,
+        _fetch_source_columns_oracle,
+    )
+    connection_id = row.get("connection_id")
+    source_table = (row.get("source_table") or "").strip()
+    if not connection_id or not source_table:
+        raise ValueError("connection_id, source_table이 필요합니다.")
+    etl_service._validate_source_table(source_table)
+    c = etl_service.get_connection_for_etl(connection_id)
+    stype = (c.get("source_type") or "postgresql").strip().lower()
+
+    conn_schema_pg = (c.get("schema_name") or "public").strip()
+    conn_schema_oracle = (c.get("schema_name") or c.get("username") or "").strip()
+    src_schema, source_table_name = etl_service.parse_source_table_parts(
+        source_table,
+        stype,
+        conn_schema=conn_schema_oracle if stype == "oracle" else conn_schema_pg,
+        conn_db=(c.get("database_name") or "").strip(),
+    )
+    if not source_table_name:
+        raise ValueError("source_table이 비어 있습니다.")
+
+    if stype == "mysql":
+        conn = etl_service._connect_mysql(
+            c["host"],
+            c.get("port") or 3306,
+            c["database_name"],
+            c["username"],
+            c.get("encrypted_password") or "",
+        )
+        col_names = [c[0] for c in _fetch_source_columns_mysql(conn, src_schema, source_table_name)]
+        quoted_src = f"`{src_schema}`.`{source_table_name}`"
+        _quote = lambda x: f"`{x}`"
+    elif stype == "oracle":
+        conn = etl_service._connect_oracle(
+            c["host"],
+            c.get("port") or 1521,
+            c["database_name"],
+            c["username"],
+            c.get("encrypted_password") or "",
+        )
+        owner = (src_schema or "").strip().upper() or (c.get("username") or "").strip().upper()
+        tbl = source_table_name.strip().upper()
+        col_names = [c[0] for c in _fetch_source_columns_oracle(conn, owner, tbl)]
+        quoted_src = f'"{owner}"."{tbl}"'
+        _quote = lambda x: f'"{x}"'
+    else:
+        conn = _get_source_connection(connection_id)
+        col_names = [c[0] for c in _fetch_source_columns(conn, src_schema, source_table_name)]
+        quoted_src = f'"{src_schema}"."{source_table_name}"'
+        _quote = lambda x: f'"{x}"'
+
+    if not col_names:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return []
+
+    select_list = ", ".join(_quote(c) for c in col_names)
+    cur = conn.cursor()
+    if stype == "oracle":
+        cur.execute(f"SELECT {select_list} FROM {quoted_src} FETCH FIRST {max_rows} ROWS ONLY")
+    else:
+        cur.execute(f"SELECT {select_list} FROM {quoted_src} LIMIT {max_rows}")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(zip(col_names, r)) for r in rows]

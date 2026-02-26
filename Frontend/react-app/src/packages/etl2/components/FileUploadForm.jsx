@@ -16,6 +16,7 @@
 
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/shared/api/client';
+import { getStorageConnectionIdForFormData } from '../utils/storageDb.js';
 
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ 방지 */
 const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
@@ -108,7 +109,8 @@ function FileUploadForm({ onSuccess }) {
       if (targetTable.trim()) form.append('target_table', targetTable.trim());
       if (labelName.trim()) form.append('label_name', labelName.trim());
       if (description.trim()) form.append('description', description.trim());
-      if (storageConnectionId !== '' && storageConnectionId != null) form.append('storage_connection_id', String(storageConnectionId));
+      const { append: appendStorageId, value: sid } = getStorageConnectionIdForFormData(storageConnectionId);
+      if (appendStorageId && sid != null) form.append('storage_connection_id', String(sid));
       if (columnMapping && Array.isArray(columnMapping) && columnMapping.length > 0) form.append('column_mapping', JSON.stringify(columnMapping));
       if ((pkColumns || '').trim()) form.append('pk_columns', (pkColumns || '').trim());
       form.append('created_by', 'user');

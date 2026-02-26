@@ -7,7 +7,7 @@ Backend.etl_server2.parser_file (파일명 파싱·패턴 추출·파일 읽기)
 [Main Functions]
 ===========
 - parse_filename: 단일 파일명에서 file_pattern 일치 시 timestamp, extension 반환 (미일치/무효날짜 시 None)
-- get_pending_files: 전체 목록에서 패턴 매칭 파일만 타임스탬프 오름차순, last_processed_ts 기준 증분/최초 1건. max_ts 미지정 시 현재 시각(미래 파일 제외).
+- get_pending_files: 전체 목록에서 패턴 매칭 파일만 타임스탬프 오름차순. 첫 실행(last_processed_ts 없음) 시 max_ts 이전 전부 반환(한 run에서 큐 처리). 이후는 last_processed_ts 기준 증분.
 - extract_patterns_from_files: _ib_14자리 매칭 파일만 접두사별 그룹화 → pattern, file_count, latest_ts, oldest_ts, extensions
 - read_file: 로컬 파일을 pandas DataFrame으로 읽기 (csv, xlsx, xls, parquet). max_rows 지원.
 
@@ -61,7 +61,7 @@ def get_pending_files(
 ) -> List[Tuple[str, str]]:
     """
     all_files 중 file_pattern + _ib_ + 14자리 형식만 수집해 타임스탬프 오름차순 정렬.
-    - last_processed_ts가 None이면 첫 실행: 가장 오래된 파일 1건만 반환.
+    - last_processed_ts가 None이면 첫 실행: max_ts 이전의 매칭 파일 전부 반환(한 run에서 큐처럼 순차 처리).
     - 아니면 ts > last_processed_ts 이고 ts <= max_ts 인 파일만 반환.
     - max_ts 미지정 시 현재 시각(미래 파일 제외).
     """
@@ -75,8 +75,7 @@ def get_pending_files(
         matched.append((f, parsed["timestamp"]))
     matched.sort(key=lambda x: x[1])
     if last_processed_ts is None:
-        candidates = [m for m in matched if m[1] <= max_ts]
-        return candidates[:1]
+        return [(f, ts) for f, ts in matched if ts <= max_ts]
     return [(f, ts) for f, ts in matched if ts > last_processed_ts and ts <= max_ts]
 
 

@@ -2,6 +2,7 @@
  * packages/etl/components/JobHistoryPanel.jsx (ETL Job 이력)
  * ==========================================================
  * 체크박스로 상태별 필터(완료/실패/취소/실행 중/대기 중) 후 테이블로 표시. 행별 삭제(DB 반영).
+ * [새로고침] 버튼으로 해당 이력 테이블만 다시 불러오기.
  *
  * [Main Functions]
  * ===========
@@ -68,13 +69,24 @@ function JobHistoryPanel() {
 
   return (
     <div className="etl-history">
-      <div className="etl-history__filters">
-        {STATUS_OPTIONS.map((o) => (
-          <label key={o.value} className="etl-history__check">
-            <input type="checkbox" checked={!!checks[o.value]} onChange={() => toggleCheck(o.value)} />
-            <span>{o.label}</span>
-          </label>
-        ))}
+      <div className="etl-history__bar">
+        <div className="etl-history__filters">
+          {STATUS_OPTIONS.map((o) => (
+            <label key={o.value} className="etl-history__check">
+              <input type="checkbox" checked={!!checks[o.value]} onChange={() => toggleCheck(o.value)} />
+              <span>{o.label}</span>
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="etl-history__refresh"
+          onClick={() => load()}
+          disabled={loading}
+          aria-label="이력 새로고침"
+        >
+          {loading ? '새로고침 중…' : '새로고침'}
+        </button>
       </div>
       {loading && <p className="etl-history__loading">조회 중…</p>}
       {!loading && jobs.length === 0 && <p className="etl-history__empty">선택한 상태의 이력이 없습니다.</p>}

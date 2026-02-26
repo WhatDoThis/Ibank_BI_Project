@@ -2,6 +2,7 @@
  * BatchHistoryPanelFile.jsx (배치 Job 실행 이력 목록)
  * ==================================================
  * 09_ETL_SFTP_Connection Phase 5. 배치 Job별 실행 이력 목록 테이블. [상세] 클릭 시 onSelectRun(run_id)로 상세 뷰 전환.
+ * 상단 [새로고침] 버튼으로 해당 이력 목록만 다시 불러오기.
  *
  * [Main Functions]
  * ===========
@@ -17,7 +18,7 @@
  * [Dependencies]
  * =========
  * - React, @/shared/api/client (batchListJobHistory)
- * - etl.css (etl-db-form__table, etl-db-form__table-wrap)
+ * - etl.css (etl-db-form__table, etl-db-form__table-wrap, etl-db-form__table-actions)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -63,6 +64,17 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
 
   return (
     <div className="etl-db-form__section">
+      <div className="etl-db-form__table-actions">
+        <button
+          type="button"
+          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
+          onClick={() => loadHistory(false)}
+          disabled={loading}
+          aria-label="이력 새로고침"
+        >
+          {loading ? '새로고침 중…' : '새로고침'}
+        </button>
+      </div>
       {loading ? (
         <p className="etl-db-form__muted">실행 이력 로딩 중…</p>
       ) : error ? (

@@ -178,7 +178,9 @@ datetime = strptime("20250225140000", "%Y%m%d%H%M%S") → 유효성 검증
 ### 4.2 증분 판단
 
 ```python
-def get_pending_files(all_files, file_pattern, extensions, last_processed_ts):
+def get_pending_files(all_files, file_pattern, extensions, last_processed_ts, max_ts=None):
+    if max_ts is None:
+        max_ts = datetime.now().strftime("%Y%m%d%H%M%S")
     matched = []
     for f in all_files:
         parsed = parse_filename(f, file_pattern, extensions)
@@ -189,16 +191,22 @@ def get_pending_files(all_files, file_pattern, extensions, last_processed_ts):
     matched.sort(key=lambda x: x[1])  # 타임스탬프 오름차순
 
     if last_processed_ts is None:
-        # 첫 실행: 가장 오래된 파일 1건만 (스키마 기준점 확보)
-        return matched[:1]
+        # 첫 실행: max_ts 이전 매칭 파일 전부 반환 → 한 run에서 큐처럼 순차 처리
+        return [(f, ts) for f, ts in matched if ts <= max_ts]
     else:
         # 증분: last_processed_ts 이후만
-        return [(f, ts) for f, ts in matched if ts > last_processed_ts]
-첫 실행 시 1건만 처리하는 이유:
+        return [(f, ts) for f, ts in matched if ts > last_processed_ts and ts <= max_ts]
+```
 
-스키마(컬럼·타입)의 기준점 확보
-대량 파일 일괄 처리 시 중간 오류 롤백 범위 최소화
-첫 실행 성공 후 다음 주기에서 나머지 순차 증분
+첫 실행 시에도 대기 파일 전부 처리:
+- 등록 시점 이전에 올라온 파일들까지 한 run에서 타임스탬프 오름차순으로 순차 적재
+- 파일별 last_processed_ts 갱신으로 중간 실패 시 이미 처리된 파일은 유지
+
+**주의·잠재 이슈 (로직 점검):**
+- **스킵(크기 초과/중복 체크섬) 시** last_processed_ts는 갱신하지 않음. 스킵된 파일이 pending 중간에 있으면 뒤쪽 파일 처리 후 last가 진행되므로, 다음 run에서는 스킵된 파일이 포함되지 않음(영구 스킵). 스킵된 파일이 맨 마지막이면 다음 run마다 다시 시도 후 스킵 반복(limit 상향 또는 파일 수정 시 재처리 가능).
+- **대량 대기 파일**이 있으면 한 run이 길어질 수 있음. run 중에는 `last_run_status=running`으로 다음 주기 실행이 스킵되며, DB/어댑터 연결을 run 전체 동안 유지함. 필요 시 run당 최대 처리 건수 상한을 두는 확장을 고려할 수 있음.
+- **에러/취소** 시 이미 처리된 파일은 커밋 유지, 실패한 파일부터 다음 run에서 재시도. 동작 정합성 유지.
+- **list_folder_columns / validate-target** API는 get_pending_files(..., None) 호출 후 `pending[0]`만 사용하므로, 반환 목록이 길어져도 동작 변경 없음.
 4.3 적재 로직
 파일 N건을 타임스탬프 오름차순으로 순회:
 
