@@ -15,3 +15,10 @@ pyarrow>=14.0.0
 # ETL DB 연결 테스트 (PostgreSQL·MySQL·Oracle)
 PyMySQL>=1.1.0
 oracledb>=2.0.0
+
+# ETL2 배치 파일 스케줄러 (09_ETL_SFTP_Connection)
+apscheduler>=3.10.0
+
+# ETL2 원격 폴더 연결 (SFTP·S3, folder_adapter_file)
+paramiko>=3.0.0
+boto3>=1.28.0

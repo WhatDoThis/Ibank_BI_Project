@@ -1,6 +1,7 @@
 /**
  * packages/etl/etl.css
  * ETL 페이지 스타일. Phase 5: 소스 선택·폼·목록·Job 로그.
+ * Phase 6: etl-db-form__message--warning(PK 미설정 경고), etl-db-form__status-badge/--success|--error|--running|--idle(배치 상태 뱃지).
  * 파일 폼: 드래그 오버(--over)·파일 선택됨(--has) 시 가시적 드롭존 스타일.
  */
 .etl-page {
@@ -69,6 +70,35 @@
 }
 .etl-page__how-list li:last-child {
   margin-bottom: 0;
+}
+.etl-page__considerations {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(6, 182, 212, 0.25);
+}
+.etl-page__considerations-title {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.etl-page__considerations .etl-page__how-list {
+  margin: 0;
+}
+.etl-page__considerations code {
+  background: rgba(255,255,255,0.6);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.88em;
+}
+.etl-page__folder-placeholder {
+  padding: 16px;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+.etl-page__folder-placeholder code {
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 /* 소스 유형 탭 */
@@ -456,9 +486,37 @@
   grid-template-columns: 1fr 1fr;
   margin-bottom: 18px;
 }
+/* 호스트·포트 한 줄 정렬: 호스트는 가변, 포트는 고정 폭 */
+.etl-db-form__row--host-port {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.etl-db-form__row--host-port .etl-db-form__field--host {
+  flex: 1;
+  min-width: 0;
+}
+.etl-db-form__row--host-port .etl-db-form__field--port {
+  flex: 0 0 90px;
+}
+.etl-db-form__row--host-port .etl-db-form__field--port .etl-db-form__input {
+  width: 100%;
+}
+.etl-db-form__row--host-port .etl-db-form__field {
+  margin-bottom: 0;
+}
 @media (max-width: 720px) {
   .etl-db-form__grid--2 {
     grid-template-columns: 1fr;
+  }
+  .etl-db-form__row--host-port {
+    flex-direction: column;
+  }
+  .etl-db-form__row--host-port .etl-db-form__field--port {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 120px;
   }
 }
 .etl-db-form__field {
@@ -498,6 +556,12 @@
 }
 .etl-db-form__connect-form {
   margin-bottom: 8px;
+}
+.etl-db-form__connect-form .etl-db-form__field {
+  margin-bottom: 14px;
+}
+.etl-db-form__connect-form .etl-db-form__field:last-of-type {
+  margin-bottom: 0;
 }
 .etl-db-form__row--inline {
   display: flex;
@@ -692,6 +756,39 @@
 .etl-db-form__message--error {
   color: #b91c1c;
 }
+.etl-db-form__message--warning {
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-top: 6px;
+  font-size: 0.875rem;
+}
+/* 배치 Job 목록: last_run_status 뱃지 (스캔 가능) */
+.etl-db-form__status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.etl-db-form__status--success {
+  color: #166534;
+  background: #dcfce7;
+}
+.etl-db-form__status--error {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.etl-db-form__status--running {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+.etl-db-form__status--idle {
+  color: #64748b;
+  background: #f1f5f9;
+}
 .etl-db-form__test-result {
   margin-top: 8px;
 }
@@ -712,6 +809,55 @@
 }
 .etl-db-form__error {
   color: #b91c1c;
+}
+.etl-db-form__radio-group {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+.etl-db-form__radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.etl-db-form__table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+.etl-db-form__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.etl-db-form__table th,
+.etl-db-form__table td {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+}
+.etl-db-form__table th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+.etl-db-form__btn--sm {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+.etl-db-form__test-ok {
+  color: #059669;
+  margin: 8px 0;
+  font-size: 0.9rem;
+}
+.etl-db-form__test-fail {
+  color: #b91c1c;
+  margin: 8px 0;
+  font-size: 0.9rem;
+}
+.etl-db-form__muted {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin: 8px 0;
 }
 .etl-db-form__hint-inline {
   margin: 6px 0 0 0;

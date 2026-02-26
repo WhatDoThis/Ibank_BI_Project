@@ -5,7 +5,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 
 [Functions]
 ===========
-startup_etl_worker: ETL Job 큐 워커 기동 (pending→running, 동시 2건 제한)
+startup_etl_worker: ETL Job 큐 워커 기동 (pending→running, 동시 2건 제한); 배치 파일 스케줄러(etl_server2.scheduler_file) 기동
 not_found_handler: 404 예외 시 JSON 응답
 internal_error_handler: 500 예외 시 JSON 응답
 
@@ -50,9 +50,10 @@ app = FastAPI(
     description="노코드 쿼리 빌더 및 대시보드 API",
 )
 
+# 프론트(127.0.0.1:8080 등)에서 API 호출 시 CORS 허용. 500 응답에도 헤더가 붙도록 명시 origin 포함.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*", "http://127.0.0.1:8080", "http://localhost:8080"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -68,10 +69,16 @@ app.include_router(etl2_router)
 
 @app.on_event("startup")
 def startup_etl_worker():
-    """Phase 6: ETL Job 큐 워커 기동 (pending → running, 동시 2건 제한)."""
+    """Phase 6: ETL Job 큐 워커 기동 (pending → running, 동시 2건 제한). Phase 3: 배치 파일 스케줄러 기동."""
     try:
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
+    except Exception:
+        pass
+    try:
+        from Backend.etl_server2 import scheduler_file
+        scheduler_file.start_scheduler()
+        scheduler_file.load_active_batch_jobs()
     except Exception:
         pass
 

@@ -9,6 +9,7 @@
  * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats (리포트)
  * - getDashboardTables, getDashboardFilterOptions, getDashboardData, getDashboardRequiredColumns, getChartData (대시보드1)
  * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2)
+ * - batchListJobs, batchCreateJob, batchUpdateJob, batchDeleteJob, batchRunJobNow, batchToggleJob, batchListJobHistory, batchGetJobHistoryDetail (ETL2 배치 Job)
  *
  * [Endpoints/Classes/Functions]
  * =======================
@@ -562,4 +563,125 @@ export async function etl2ListTargetColumns(storageConnectionId, tableName) {
   const params = new URLSearchParams({ table_name: tableName });
   if (storageConnectionId != null && storageConnectionId !== '') params.set('storage_connection_id', String(storageConnectionId));
   return request('GET', `/api/etl2/target-columns?${params.toString()}`);
+}
+
+// ---------- ETL2 Batch (09_ETL_SFTP_Connection, /api/etl2/batch) ----------
+
+/** GET /api/etl2/batch/folder-connections - 폴더 연결 목록 */
+export async function batchListFolderConnections() {
+  return request('GET', '/api/etl2/batch/folder-connections');
+}
+
+/** POST /api/etl2/batch/folder-connections - 폴더 연결 등록 */
+export async function batchCreateFolderConnection(body) {
+  return request('POST', '/api/etl2/batch/folder-connections', body);
+}
+
+/** PATCH /api/etl2/batch/folder-connections/:id */
+export async function batchUpdateFolderConnection(id, body) {
+  return request('PATCH', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}`, body);
+}
+
+/** DELETE /api/etl2/batch/folder-connections/:id */
+export async function batchDeleteFolderConnection(id) {
+  return request('DELETE', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}`);
+}
+
+/** POST /api/etl2/batch/folder-connections/test - 연결 테스트 */
+export async function batchTestFolderConnection(body) {
+  return request('POST', '/api/etl2/batch/folder-connections/test', body);
+}
+
+/** GET /api/etl2/batch/folder-connections/:id/files - 폴더 내 파일 목록 */
+export async function batchListFolderFiles(id) {
+  return request('GET', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}/files`);
+}
+
+/** GET /api/etl2/batch/folder-connections/:id/patterns - 폴더 내 파일 패턴 목록. 반환: { patterns: [{ pattern, file_count, latest_ts, oldest_ts, extensions }] } */
+export async function batchListFolderPatterns(id) {
+  return request('GET', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}/patterns`);
+}
+
+/** GET /api/etl2/batch/folder-connections/:id/columns?file_pattern=xxx - 패턴 일치 파일 중 가장 오래된 1건의 컬럼명 목록. 반환: { columns: string[] } */
+export async function batchGetFolderColumns(id, filePattern) {
+  const params = new URLSearchParams();
+  params.set('file_pattern', filePattern || '');
+  return request('GET', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}/columns?${params.toString()}`);
+}
+
+/** GET /api/etl2/batch/target-tables?storage_connection_id= - 저장 DB 테이블 목록. 반환: { tables: [{ table_name }] } */
+export async function batchListTargetTables(storageConnectionId = null) {
+  const params = new URLSearchParams();
+  if (storageConnectionId != null) params.set('storage_connection_id', String(storageConnectionId));
+  const qs = params.toString();
+  return request('GET', `/api/etl2/batch/target-tables${qs ? '?' + qs : ''}`);
+}
+
+/** POST /api/etl2/batch/jobs/validate-target - 기존 테이블 적재 가능 여부 검증. 반환: { valid: boolean, message: string } */
+export async function batchValidateTarget(body) {
+  return request('POST', '/api/etl2/batch/jobs/validate-target', body);
+}
+
+/** GET /api/etl2/batch/jobs - 배치 Job 목록. folderConnectionId, isActive 쿼리 선택 */
+export async function batchListJobs(folderConnectionId = null, isActive = null) {
+  const params = new URLSearchParams();
+  if (folderConnectionId != null) params.set('folder_connection_id', String(folderConnectionId));
+  if (isActive != null) params.set('is_active', isActive === true ? 'true' : 'false');
+  const qs = params.toString();
+  return request('GET', `/api/etl2/batch/jobs${qs ? '?' + qs : ''}`);
+}
+
+/** POST /api/etl2/batch/jobs - 배치 Job 등록 */
+export async function batchCreateJob(body) {
+  return request('POST', '/api/etl2/batch/jobs', body);
+}
+
+/** PATCH /api/etl2/batch/jobs/:id - 배치 Job 수정 */
+export async function batchUpdateJob(id, body) {
+  return request('PATCH', `/api/etl2/batch/jobs/${encodeURIComponent(id)}`, body);
+}
+
+/** DELETE /api/etl2/batch/jobs/:id - 배치 Job 삭제 */
+export async function batchDeleteJob(id) {
+  return request('DELETE', `/api/etl2/batch/jobs/${encodeURIComponent(id)}`);
+}
+
+/** POST /api/etl2/batch/jobs/:id/run-now - 배치 Job 즉시 실행 */
+export async function batchRunJobNow(id) {
+  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/run-now`);
+}
+
+/** POST /api/etl2/batch/jobs/:id/toggle - 배치 Job 활성/비활성 토글 */
+export async function batchToggleJob(id) {
+  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/toggle`);
+}
+
+/** GET /api/etl2/batch/jobs/:id/history - 배치 Job 실행 이력 목록 */
+export async function batchListJobHistory(id) {
+  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/history`);
+}
+
+/** GET /api/etl2/batch/jobs/:id/history/:runId - 배치 Job 실행 이력 상세 */
+export async function batchGetJobHistoryDetail(id, runId) {
+  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/history/${encodeURIComponent(runId)}`);
+}
+
+/** POST /api/etl2/batch/jobs/:id/history/:runId/cancel - 실행 취소 요청(진행 중 롤백) */
+export async function batchCancelRun(batchJobId, runId) {
+  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/history/${encodeURIComponent(runId)}/cancel`);
+}
+
+/** GET /api/etl2/batch/jobs/:id/skipped-files - 스킵/에러 파일 목록 */
+export async function batchListSkippedFiles(batchJobId) {
+  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files`);
+}
+
+/** POST /api/etl2/batch/jobs/:id/skipped-files/delete - 원격 문제 파일 삭제 */
+export async function batchDeleteSkippedFiles(batchJobId, filenames) {
+  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files/delete`, { filenames });
+}
+
+/** POST /api/etl2/batch/jobs/:id/rollback-file - 해당 파일 적재 데이터만 타겟 테이블에서 DELETE (PK 기반) */
+export async function batchRollbackFile(batchJobId, body) {
+  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/rollback-file`, body);
 }

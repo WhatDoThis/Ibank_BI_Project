@@ -1,7 +1,7 @@
 """
 Backend.etl_server2.router (ETL2 API 라우터)
 ============================================
-FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결·실행·Job API. 09_ETL_Upgrade_Plan 확장 예정.
+FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결·실행·Job API. 09_ETL_Upgrade_Plan 확장. batch 라우터(router_file) include → /api/etl2/batch/*.
 
 [Pydantic Models]
 ===========
@@ -80,8 +80,10 @@ from Backend.etl_server2 import preview_service
 from Backend.etl_server2 import schema_infer
 from Backend.etl_server2 import service as etl_service
 from Backend.etl_server2 import transform_rules_service as transform_rules_svc
+from Backend.etl_server2.router_file import router as batch_router
 
 router = APIRouter(prefix="/api/etl2", tags=["etl2"])
+router.include_router(batch_router)
 
 
 class CreateConnectionBody(BaseModel):
@@ -1202,3 +1204,5 @@ def cancel_job(job_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# 09_ETL_SFTP_Connection: 배치(폴더 연결·Job·이력) API는 router_file에서 prefix /batch 로 노출
