@@ -193,6 +193,8 @@ function TargetTableSelectModal({
   const [codeMapConfig, setCodeMapConfig] = useState({});
   /** 값 매핑 인라인 편집 열림: sourceName → true */
   const [codeMapEditorOpen, setCodeMapEditorOpen] = useState({});
+  /** 변환 열 안내 모달 표시 여부 */
+  const [showTransformHelpModal, setShowTransformHelpModal] = useState(false);
 
   const prevSelectedTableRef = useRef(selectedTable);
 
@@ -665,7 +667,10 @@ function TargetTableSelectModal({
                           <th>→</th>
                           <th>타겟 컬럼명</th>
                           <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
-                          <th className="etl-target-select-modal__th--transform">변환</th>
+                          <th className="etl-target-select-modal__th--transform">
+                            변환
+                            <button type="button" className="etl-target-select-modal__th-help" onClick={() => setShowTransformHelpModal(true)} title="변환 옵션 안내" aria-label="변환 옵션 안내">?</button>
+                          </th>
                           <th className="etl-target-select-modal__th--exclude">제외</th>
                         </tr>
                       </thead>
@@ -776,7 +781,10 @@ function TargetTableSelectModal({
                         <th>→</th>
                         <th>타겟 컬럼</th>
                         <th className="etl-target-select-modal__th--on-error" title="형변환 실패 시 동작">변환 실패 시</th>
-                        <th className="etl-target-select-modal__th--transform">변환</th>
+                        <th className="etl-target-select-modal__th--transform">
+                          변환
+                          <button type="button" className="etl-target-select-modal__th-help" onClick={() => setShowTransformHelpModal(true)} title="변환 옵션 안내" aria-label="변환 옵션 안내">?</button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -974,6 +982,31 @@ function TargetTableSelectModal({
           </button>
         </div>
       </div>
+      {showTransformHelpModal && (
+        <div className="etl-target-select-modal__transform-help-wrap" role="dialog" aria-modal="true" aria-labelledby="transform-help-title">
+          <div className="etl-target-select-modal__transform-help-backdrop" onClick={() => setShowTransformHelpModal(false)} />
+          <div className="etl-target-select-modal__transform-help-box">
+            <div className="etl-target-select-modal__transform-help-head">
+              <h4 id="transform-help-title">변환 옵션 안내</h4>
+              <button type="button" className="etl-target-select-modal__close" onClick={() => setShowTransformHelpModal(false)} aria-label="닫기">&times;</button>
+            </div>
+            <div className="etl-target-select-modal__transform-help-body">
+              <dl className="etl-target-select-modal__transform-help-dl">
+                <dt>없음</dt>
+                <dd>해당 컬럼에 변환을 적용하지 않습니다. 원본 값 그대로 적재됩니다.</dd>
+                <dt>정리</dt>
+                <dd>앞뒤 공백 제거(TRIM) 후, 빈 문자열을 NULL로 바꾸거나 기본값을 채울 수 있습니다. 문자열 정제용입니다.</dd>
+                <dt>타입 변환</dt>
+                <dd>날짜·숫자·문자 등으로 형 변환합니다. 변환 실패 시 NULL·0·원본 유지 등은 &quot;변환 실패 시&quot; 열에서 선택합니다.</dd>
+                <dt>정리 + 타입 변환</dt>
+                <dd>먼저 정리(공백·빈값 처리)를 적용한 뒤, 타입 변환을 적용합니다. 두 단계가 순서대로 실행됩니다.</dd>
+                <dt>값 매핑</dt>
+                <dd>원본값 → 변환값으로 치환합니다. 예: active→1, inactive→0. 매핑에 없는 값은 NULL·유지·사용자 지정 기본값 중 하나로 처리합니다.</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
