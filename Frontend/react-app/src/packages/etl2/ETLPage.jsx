@@ -366,7 +366,7 @@ function ETLPage() {
             <>
               <FolderConnectionFormFile onSuccess={handleRefresh} refreshKey={refreshKey} />
               <FolderConnectionListFile onSuccess={handleRefresh} refreshKey={refreshKey} />
-              <section className="etl-db-form__section" style={{ marginTop: '24px' }}>
+              <section className="etl-db-form__section etl-db-form__section--batch-job" style={{ marginTop: '40px' }}>
                 <h3 className="etl-db-form__heading">배치 Job</h3>
                 <BatchJobFormFile onSuccess={handleRefresh} refreshKey={refreshKey} />
                 <BatchJobListFile

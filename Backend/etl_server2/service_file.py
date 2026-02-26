@@ -9,7 +9,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 - list_folder_connections, get_folder_connection, create_folder_connection,
   update_folder_connection, delete_folder_connection, set_folder_connection_verified
 - get_folder_adapter: folder_connection_id → FolderAdapter
-- list_batch_jobs, get_batch_job (folder_connection_id, protocol 포함), create_batch_job, update_batch_job, delete_batch_job
+- list_batch_jobs, get_batch_job (folder_connection_id, protocol 포함), create_batch_job (동일 폴더·파일패턴·타겟·저장DB 중복 시 ValueError), update_batch_job, delete_batch_job
 - etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry, upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table
 - create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
@@ -391,7 +391,8 @@ def create_batch_job(
     is_active: bool = True,
     column_mapping: Optional[List[dict]] = None,
 ) -> int:
-    """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환."""
+    """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환.
+    동일 폴더·파일패턴·타겟테이블·저장DB 조합이 이미 있으면 ValueError."""
     if not (10 <= interval_minutes <= 1440):
         raise ValueError("interval_minutes는 10~1440 사이여야 합니다.")
     api_db = _get_db()
@@ -399,6 +400,23 @@ def create_batch_job(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        target_table_trimmed = (target_table or "").strip()
+        file_pattern_trimmed = (file_pattern or "").strip()
+        if target_table_trimmed and file_pattern_trimmed:
+            cur.execute(
+                f"""
+                SELECT 1 FROM {_q(schema, "batch_jobs")}
+                WHERE folder_connection_id = %s AND file_pattern = %s AND target_table = %s
+                  AND (storage_connection_id IS NOT DISTINCT FROM %s)
+                LIMIT 1
+                """,
+                (folder_connection_id, file_pattern_trimmed, target_table_trimmed, storage_connection_id),
+            )
+            if cur.fetchone():
+                raise ValueError(
+                    "이미 동일한 폴더·파일 패턴·타겟 테이블·저장 DB로 등록된 배치 Job이 있습니다. "
+                    "기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
+                )
         # storage_connection_id=None 이면 기본 DB(config ibank_db) 사용. DB에는 NULL로 저장.
         cur.execute(
             f"""

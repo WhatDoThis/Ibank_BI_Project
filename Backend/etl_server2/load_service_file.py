@@ -340,8 +340,10 @@ def _batch_upsert(
 ) -> Tuple[int, int]:
     """
     INSERT ... ON CONFLICT (pk) DO UPDATE SET.
-    삽입/갱신 건수를 구분하기 위해 2단계 실행: (1) INSERT ON CONFLICT DO NOTHING → inserted,
-    (2) UPDATE ... FROM (VALUES ...) WHERE pk 일치 → updated.
+    삽입/갱신 건수를 구분하기 위해 2단계 실행:
+    (1) INSERT ON CONFLICT DO NOTHING → inserted = rowcount.
+    (2) UPDATE ... FROM (VALUES ...) WHERE pk 일치 → 매칭되는 행에 기삽입 행 포함되므로
+        실제 갱신 건수 = rowcount - inserted_this_batch.
     non_pk 비면 DO NOTHING만 사용하며, 이 경우 inserted+skipped만 있고 updated=0.
     반환: (inserted, updated).
     """
@@ -377,10 +379,12 @@ def _batch_upsert(
             f' ON CONFLICT ({pk_quoted}) DO NOTHING'
         )
         cur.execute(sql_ins, flat)
-        total_inserted += cur.rowcount
+        inserted_this_batch = cur.rowcount
+        total_inserted += inserted_this_batch
 
-        # 2) 충돌한 행은 UPDATE ... FROM (VALUES ...) 로 갱신, rowcount = 갱신 건수
-        # VALUES 컬럼 순서: pk_columns + non_pk (SET에 non_pk 사용, WHERE에 pk 사용)
+        # 2) 충돌한 행만 UPDATE ... FROM (VALUES ...) 로 갱신.
+        # UPDATE는 배치 전체에 대해 t.pk = v.pk 로 매칭되므로, 방금 INSERT한 행까지 갱신됨.
+        # 실제 갱신 건수 = (UPDATE로 매칭된 행 수) - (이번 배치에서 삽입된 행 수)
         set_clause = ", ".join(f'"{c}" = v."{c}"' for c in non_pk)
         pk_where = " AND ".join(f't."{p}" = v."{p}"' for p in pk_columns)
         n_cols = len(columns)
@@ -392,7 +396,7 @@ def _batch_upsert(
             f'(VALUES {v_placeholders}) AS v({v_cols}) WHERE {pk_where}'
         )
         cur.execute(sql_upd, flat)
-        total_updated += cur.rowcount
+        total_updated += max(0, cur.rowcount - inserted_this_batch)
 
     cur.close()
     return total_inserted, total_updated

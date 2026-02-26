@@ -8,6 +8,7 @@
  * ===========
  * - batchListJobs() 로 목록 조회 (mount, refreshKey 변경 시)
  * - 테이블: job_name, folder, file_pattern, storage, 주기, 상태, 마지막 상태(뱃지), 마지막 실행, 다음 예상, 동작
+ * - 툴바: 새로고침 버튼(loadList) — 목록만 재조회
  * - 동작: 활성/비활성(batchToggleJob), 주기 수정(batchUpdateJob), 즉시 실행(batchRunJobNow), 이력(onOpenHistory?), 삭제(batchDeleteJob + 확인)
  *
  * [Props]
@@ -172,13 +173,31 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     }
   }
 
+  const refreshBtn = (
+    <button
+      type="button"
+      className="etl-batch-job-list__refresh"
+      onClick={() => loadList()}
+      disabled={loading}
+      aria-label="목록 새로고침"
+    >
+      {loading ? '새로고침 중…' : '새로고침'}
+    </button>
+  );
+
   if (loading && list.length === 0 && !error) {
-    return <p className="etl-db-form__muted">배치 Job 목록 로딩 중…</p>;
+    return (
+      <div className="etl-batch-job-list__section">
+        <div className="etl-batch-job-list__toolbar">{refreshBtn}</div>
+        <p className="etl-db-form__muted">배치 Job 목록 로딩 중…</p>
+      </div>
+    );
   }
 
   if (list.length === 0) {
     return (
-      <div className="etl-db-form__section">
+      <div className="etl-batch-job-list__section">
+        <div className="etl-batch-job-list__toolbar">{refreshBtn}</div>
         {error ? (
           <p className="etl-db-form__error" role="alert">{error}</p>
         ) : (
@@ -189,8 +208,9 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
   }
 
   return (
-    <section className="etl-db-form__section">
+    <section className="etl-db-form__section etl-batch-job-list__section">
       <h3 className="etl-db-form__heading">배치 Job 목록</h3>
+      <div className="etl-batch-job-list__toolbar">{refreshBtn}</div>
       {error && <p className="etl-db-form__error" role="alert">{error}</p>}
       <div className="etl-db-form__table-wrap">
         <table className="etl-db-form__table etl-db-form__table--compact etl-batch-job-list__table">

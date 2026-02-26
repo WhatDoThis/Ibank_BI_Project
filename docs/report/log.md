@@ -1,3 +1,45 @@
+## 2026-02-26 배치 Job 중복 등록 방지 (동일 폴더·패턴·타겟·저장DB)
+
+**목표:** 동일한 폴더 연결·파일 패턴·타겟 테이블·저장 DB 조합으로 배치 Job을 두 개 이상 등록하지 않도록 하고, 이미 있으면 새 행을 추가하지 않고 안내만 하기.
+
+**구현:**
+- **service_file.create_batch_job:** INSERT 전에 (folder_connection_id, file_pattern, target_table, storage_connection_id) 조합으로 기존 행 존재 여부 조회. storage_connection_id는 NULL·값 동일 비교를 위해 `IS NOT DISTINCT FROM` 사용. 타겟 테이블·파일 패턴이 비어 있으면 검사 생략.
+- 중복이 있으면 `ValueError("이미 동일한 폴더·파일 패턴·타겟 테이블·저장 DB로 등록된 배치 Job이 있습니다. 기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요.")` 발생.
+- **router_file:** 기존대로 ValueError → HTTP 400, detail=str(e). 프론트는 err.message로 안내 문구 표시.
+
+**효과:** 동일 조합으로 등록 시 로우가 추가되지 않고, 에러 메시지로 기존 Job 수정/삭제 후 등록하라고 안내됨.
+
+**변경 파일:** service_file.py, log.md.
+
+---
+
+## 2026-02-26 배치 upsert 갱신 건수 중복 집계 수정
+
+**문제:** 파일별 상세에서 두 번째 파일이 전부 새 행(삽입)인데도 "삽입 180001, 갱신 200001"처럼 갱신 건수가 과다하게 나옴. 행 수 200001인데 삽입+갱신이 380002로 맞지 않음.
+
+**원인:** `load_service_file._batch_upsert` 2단계에서 UPDATE ... FROM (VALUES ...) WHERE t.pk = v.pk 를 배치 전체에 대해 실행하면, 방금 1단계에서 INSERT한 행까지 매칭되어 함께 갱신됨. 그래서 UPDATE의 rowcount에 "실제 기존 행 갱신"과 "이번에 삽입한 행"이 모두 포함되어 갱신 건수가 부풀어 오름.
+
+**수정:** 2단계 후 `total_updated`에 `cur.rowcount`를 그대로 더하지 않고, `max(0, cur.rowcount - inserted_this_batch)`를 더하도록 변경. 이번 배치에서 삽입된 건수만큼 빼서 실제로 기존에 있던 행만 갱신 건수로 집계.
+
+**효과:** 파일별·run별 삽입/갱신 건수가 실제 INSERT/UPDATE 건수와 일치하고, 행 수 = 삽입 + 갱신으로 맞게 표시됨.
+
+**변경 파일:** load_service_file.py, log.md.
+
+---
+
+## 2026-02-26 배치 Job 목록 섹션 패딩 및 새로고침 버튼
+
+**목표:** 폴더 탭에서 배치 Job 목록을 위 섹션(폴더 연결 목록)과 시각적으로 구분하고, 목록 테이블만 재조회할 수 있는 새로고침 버튼 추가.
+
+**구현:**
+- **ETLPage.jsx:** 배치 Job 섹션(`etl-db-form__section--batch-job`) 상단 여백을 24px → 40px로 증가.
+- **BatchJobListFile.jsx:** 목록 상단에 툴바(`etl-batch-job-list__toolbar`)와 [새로고침] 버튼 추가. 로딩/빈 목록/테이블 표시 모든 상태에서 버튼 노출, 로딩 중에는 비활성화. 클릭 시 `loadList()`로 `batchListJobs()`만 재호출.
+- **etl.css:** `.etl-batch-job-list__section`(margin-top: 24px), `.etl-batch-job-list__toolbar`, `.etl-batch-job-list__refresh` 스타일 추가.
+
+**변경 파일:** ETLPage.jsx, BatchJobListFile.jsx, etl.css, log.md.
+
+---
+
 ## 2026-02-26 ETL 목록 배치 행 삭제 시 배치 Job cascade 삭제
 
 **문제:** ETL 목록에서 배치 유래 행을 먼저 삭제하면 삭제가 되지 않음. 배치 잡을 먼저 지우고 ETL 목록에서 지우는 흐름이 아님.

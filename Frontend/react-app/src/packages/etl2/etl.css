@@ -896,6 +896,30 @@
   background: #f9fafb;
   font-weight: 600;
 }
+/* 배치 Job 목록: 상단 여백, 툴바·새로고침 */
+.etl-batch-job-list__section {
+  margin-top: 24px;
+}
+.etl-batch-job-list__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+.etl-batch-job-list__refresh {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.etl-batch-job-list__refresh:hover:not(:disabled) {
+  background: #f8fafc;
+}
+.etl-batch-job-list__refresh:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
 /* 배치 Job 목록: ETL 목록과 동일하게 셀·동작 버튼 줄바꿈 방지 */
 .etl-db-form__table.etl-batch-job-list__table {
   min-width: 900px;
