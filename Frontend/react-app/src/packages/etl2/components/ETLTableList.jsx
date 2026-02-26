@@ -159,7 +159,9 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
           {mergedRows.map((t) => {
             if (t.type === 'batch') {
               const runLoadingBatch = batchRunLoadingId === t.batch_job_id;
-              const batchStatusText = t.last_run_status === 'success' ? '성공' : t.last_run_status === 'error' ? '에러' : t.last_run_status === 'running' ? '실행중' : (t.is_active ? '활성' : '비활성');
+              const s = (t.last_run_status || '').toLowerCase();
+              const batchStatusText = s === 'success' ? '완료' : s === 'error' ? '오류' : s === 'running' ? '실행 중' : (t.is_active ? '활성' : '비활성');
+              const batchStatusClass = s === 'success' ? 'etl-table-list__status--done' : s === 'error' ? 'etl-table-list__status--error' : s === 'running' ? 'etl-table-list__status--running' : undefined;
               return (
                 <tr key={t._key}>
                   <td>{t.target_table}</td>
@@ -172,7 +174,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   <td className="etl-table-list__cell-sync">—</td>
                   <td className="etl-table-list__cell-row-error">—</td>
                   <td className="etl-table-list__cell-storage" title={t.storage_connection_name}>{t.storage_connection_name}</td>
-                  <td>{batchStatusText}</td>
+                  <td className={batchStatusClass}>{batchStatusText}</td>
                   <td className="etl-table-list__cell-actions">
                     <span className="etl-table-list__actions">
                       <button

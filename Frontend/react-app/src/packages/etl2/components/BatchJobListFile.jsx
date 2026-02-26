@@ -110,9 +110,9 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
 
   function getStatusLabel(status) {
     const s = (status || '').toLowerCase();
-    if (s === 'success') return '성공';
-    if (s === 'error') return '에러';
-    if (s === 'running') return '실행중';
+    if (s === 'success') return '완료';
+    if (s === 'error') return '오류';
+    if (s === 'running') return '실행 중';
     return '대기';
   }
 
