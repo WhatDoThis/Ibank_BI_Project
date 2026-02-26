@@ -1,3 +1,87 @@
+## 2026-02-26 ETL2 PK 컬럼 "컬럼 가져와서 선택" 로딩 최적화
+
+**원인:** 컬럼명만 필요한데도 원격(SFTP/S3)에서 **파일 전체**를 다운로드한 뒤 `read_file(..., max_rows=1)`로 1행만 읽고 있어, 대용량 CSV일수록 전송 시간이 길어짐.
+
+**수정:**  
+- **folder_adapter_file.py**: `FolderAdapter`에 `download_file_head(filename, local_path, max_bytes=65536)` 추가. SFTP는 `sftp.open(remote).read(max_bytes)`로 앞부분만 읽어 로컬에 저장. S3는 `get_object(..., Range='bytes=0-65535')`로 앞 64KB만 받음.  
+- **router_file.py** `list_folder_columns`: 확장자가 **csv**일 때는 `adapter.download_file_head(...)`만 호출하고, xlsx/xls/parquet는 기존대로 전체 다운로드.
+
+**효과:** CSV 기준으로 "컬럼 가져와서 선택" 시 수십~수백 MB 파일도 최대 64KB만 전송하므로 로딩 시간 단축.
+
+**변경 파일:** folder_adapter_file.py, router_file.py, log.md.
+
+---
+
+## 2026-02-26 ETL2 DB 연결·폴더·저장 DB 섹션 카드 접기/펼치기 통일
+
+**목적:** DB 연결에만 있던 섹션 넘버링(1, 2) 제거하고, DB 연결·폴더·저장 DB 등록 탭의 섹션을 공통 접기/펼치기 카드로 통일.
+
+**구현:**
+- **CollapsibleCardSection.jsx**: title, defaultOpen, subtitle, children. 헤더(▶/▼) 클릭으로 본문 토글. defaultOpen이 false로 바뀌면 한 번 닫힘.
+- **연결 추가 섹션** 디폴트: 등록된 항목이 있으면 닫힘(defaultOpen=false), 없으면 열림(defaultOpen=true). DB 연결·저장 DB는 동일 컴포넌트에서 목록 개수로 판단. 폴더는 목록이 별도 컴포넌트라 defaultOpen=true 유지.
+- DbConnectionForm: "연결 추가", "등록된 연결", "ETL 테이블 등록" 각각 CollapsibleCardSection 적용, step-num 제거.
+- StorageConnectionForm: "저장 DB 추가", "등록된 저장 DB" CollapsibleCardSection 적용.
+- FolderConnectionFormFile: "폴더 연결 추가" CollapsibleCardSection 적용.
+- FolderConnectionListFile: "등록된 폴더 연결" CollapsibleCardSection 적용.
+- etl.css: .etl-db-form__section--collapsible, .etl-db-form__card-toggle, .etl-db-form__card-body 등 추가.
+
+**변경 파일:** CollapsibleCardSection.jsx(신규), etl.css, DbConnectionForm.jsx, StorageConnectionForm.jsx, FolderConnectionFormFile.jsx, FolderConnectionListFile.jsx, log.md.
+
+---
+
+## 2026-02-26 ETL 목록 배치 Job 행 컬럼 정렬·저장 DB/상태 표시 수정
+
+**문제:** 등록된 ETL 목록에 배치 Job 행이 들어갈 때 컬럼이 어긋나고(저장 DB/상태가 잘못된 칸에 표시), 저장 DB·상태가 "—" 또는 raw 값(success)으로만 보임.
+
+**원인:** 배치 행에 `<td>`가 하나 더 있어 13개 칸이 됨(헤더 12개와 불일치). 저장 DB는 API에서 내려주지 않음.
+
+**수정:** (1) 배치 행에서 불필요한 `<td>—</td>` 제거해 12열로 맞춤. (2) 백엔드 `list_batch_jobs`에 `etl_storage_connections` LEFT JOIN 추가해 `storage_connection_name` 반환. (3) 프론트 mergedRows에 `storage_connection_name` 반영(storage_connection_id 없으면 '기본 DB'). (4) 배치 상태 셀에 한글 표기(성공/에러/실행중/활성/비활성) 적용.
+
+**변경 파일:** service_file.py, ETLTableList.jsx, log.md.
+
+---
+
+## 2026-02-26 ETL2 배치 Job 삭제 시 FK 위반 해결
+
+**문제:** 배치 Job 삭제 시 `batch_run_history_batch_job_id_fkey` 위반 — `batch_run_history`가 `batch_jobs.batch_job_id`를 참조하여 DELETE가 거부됨.
+
+**원인:** `delete_batch_job`이 `batch_jobs`만 DELETE하고, 자식 테이블(`batch_run_history`, `batch_loaded_keys`)을 먼저 지우지 않음.
+
+**수정:** `service_file.delete_batch_job`에서 삭제 순서를 ① `batch_loaded_keys` ② `batch_run_history` ③ `batch_jobs` 로 하고, 각각 해당 `batch_job_id` 행만 삭제한 뒤 `batch_jobs` 삭제하도록 변경.
+
+**변경 파일:** service_file.py, log.md.
+
+---
+
+## 2026-02-26 ETL2 배치 Job 주기 수정 UI
+
+**목적:** 등록된 배치 Job의 실행 주기(interval_minutes)를 목록에서 수정 가능하도록 함.
+
+**구현:** BatchJobListFile에 "주기 수정" 버튼 추가. 클릭 시 모달(etl-pk-modal 스타일 재사용)에서 주기(분) 10~1440 입력 후 저장 시 `batchUpdateJob(id, { interval_minutes })` 호출. 백엔드 PATCH `/api/etl2/batch/jobs/:id` 및 `reschedule_job`은 기존 구현 사용.
+
+**변경 파일:** BatchJobListFile.jsx, log.md.
+
+---
+
+## 2026-02-26 ETL2 폴더 배치 "기본 DB" = ibank_db 정합성 수정
+
+**문제:** "기본 DB"로 설정해도 폴더 배치의 테이블 생성·적재가 저장 DB 목록의 첫 번째(PostgreSQL) 연결로 들어감. 파일 업로드/DB 연결 탭에서는 `storage_connection_id` 없을 때 `get_target_db_connection(None)` → ibank_db를 사용함.
+
+**원인:**  
+- 프론트: "기본 DB"(value="") 선택 시 422 방지를 위해 `storage_connection_id`를 저장 DB 목록 첫 번째 ID로 대체해 전송.  
+- 백엔드: `create_batch_job(storage_connection_id: int)` 필수, 실행기/롤백은 `job["storage_connection_id"]`만 사용 → "기본 DB" 경로 없음.
+
+**수정 요약:**  
+- **기본 DB 정의:** `etl_server2.service.get_target_db_connection(None)` = config 기반 ibank_db (파일/DB 탭과 동일).  
+- **백엔드:** `storage_connection_id` Optional 처리. `CreateBatchJobBody`/`ValidateTargetBody`에서 `Optional[int] = None`. `service_file.create_batch_job`·`rollback_file_from_target` 인자 `Optional[int]`. `load_service_file.get_target_connection(None)` → `get_target_db_connection(None)` 호출. 배치 실행기·롤백·clone 시 `job["storage_connection_id"]`가 None이면 그대로 전달.  
+- **프론트:** "기본 DB" 선택 시 `storage_connection_id`를 null로 두고 전송(sid 계산 시 첫 번째 연결 사용 제거). 타겟 테이블 목록은 `sidForTarget === null`일 때도 `batchListTargetTables(null)` 호출해 기본 DB 테이블 로드.  
+- **DB:** `batch_jobs.storage_connection_id`에 NULL 허용 필요. 기존 컬럼이 NOT NULL이면 마이그레이션:  
+  `ALTER TABLE <system_schema>.batch_jobs ALTER COLUMN storage_connection_id DROP NOT NULL;`
+
+**변경 파일:** router_file.py, service_file.py, load_service_file.py, BatchJobFormFile.jsx, log.md.
+
+---
+
 ## 2026-02-26 ETL2 파일 단위 적재 롤백 (batch_loaded_keys)
 
 **목적:** 특정 파일로 적재된 데이터만 타겟 테이블에서 DELETE. 고객 테이블·적재 로직 변경 없이 시스템 DB `batch_loaded_keys`로 PK 추적.

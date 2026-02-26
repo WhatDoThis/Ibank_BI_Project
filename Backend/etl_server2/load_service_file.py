@@ -7,7 +7,7 @@ get_target_connection, table_exists, create_table_from_dataframe, load_dataframe
 
 [Main Functions]
 ===========
-- get_target_connection: storage_connection_id → (conn, schema). etl_server2.service 재사용.
+- get_target_connection: storage_connection_id(Optional) → (conn, schema). None이면 기본 DB(ibank_db). etl_server2.service 재사용.
 - table_exists: information_schema.tables로 테이블 존재 여부
 - create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
 - load_dataframe: 테이블 없으면 CREATE 후 INSERT, 있으면 PK 있으면 upsert/없으면 INSERT. 파라미터 한도 기반 배치(_calc_batch_size).
@@ -39,9 +39,10 @@ def _calc_batch_size(num_columns: int) -> int:
     return max(1, MAX_PARAMS // num_columns)
 
 
-def get_target_connection(storage_connection_id: int) -> Tuple[Any, str]:
+def get_target_connection(storage_connection_id: Optional[int] = None) -> Tuple[Any, str]:
     """
     저장 DB 연결 획득. etl_server2.service.get_target_db_connection 재사용.
+    storage_connection_id가 None이면 기본 DB(ibank_db) 사용.
     반환: (conn, schema). conn 사용 후 close/commit 책임은 호출부.
     """
     from Backend.etl_server2 import service as etl_service

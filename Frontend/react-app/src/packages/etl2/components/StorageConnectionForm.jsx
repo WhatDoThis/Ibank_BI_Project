@@ -21,6 +21,7 @@ import {
   etl2TestStorageConnection,
   etl2DeleteStorageConnection
 } from '@/shared/api/client';
+import CollapsibleCardSection from './CollapsibleCardSection';
 
 function StorageConnectionForm({ onSuccess }) {
   const [list, setList] = useState([]);
@@ -152,9 +153,11 @@ function StorageConnectionForm({ onSuccess }) {
   return (
     <div className="etl-db-form">
       <p className="etl-db-form__intro">파일 업로드나 DB 연동 시 &quot;저장할 DB&quot;로 선택할 수 있는 적재 대상 DB를 여기서 등록합니다. PostgreSQL만 지원합니다.</p>
-      <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading">저장 DB(적재 대상) 추가</h3>
-        <p className="etl-db-form__subtitle">연결 테스트로 접속과 CREATE/INSERT/DROP 권한을 확인한 뒤 등록하세요.</p>
+      <CollapsibleCardSection
+        title="저장 DB(적재 대상) 추가"
+        defaultOpen={list.length === 0}
+        subtitle="연결 테스트로 접속과 CREATE/INSERT/DROP 권한을 확인한 뒤 등록하세요."
+      >
         <form onSubmit={handleRegister} className="etl-db-form__connect-form">
           <div className="etl-db-form__grid etl-db-form__grid--2">
             <div className="etl-db-form__field">
@@ -246,10 +249,9 @@ function StorageConnectionForm({ onSuccess }) {
           </div>
         </form>
         {error && <p className="etl-db-form__error">{error}</p>}
-      </section>
+      </CollapsibleCardSection>
 
-      <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading">등록된 저장 DB</h3>
+      <CollapsibleCardSection title="등록된 저장 DB" defaultOpen={true}>
         {loadingList ? (
           <p className="etl-db-form__hint-inline">목록 조회 중…</p>
         ) : (
@@ -275,7 +277,7 @@ function StorageConnectionForm({ onSuccess }) {
             )}
           </ul>
         )}
-      </section>
+      </CollapsibleCardSection>
     </div>
   );
 }

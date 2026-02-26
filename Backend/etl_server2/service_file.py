@@ -314,9 +314,11 @@ def list_batch_jobs(
                    j.file_pattern, j.file_extensions, j.target_table, j.pk_columns, j.timestamp_format,
                    j.interval_minutes, j.is_active, j.last_processed_ts, j.last_run_at, j.last_run_status,
                    j.last_error_message, j.column_mapping, j.created_at, j.updated_at,
-                   c.connection_name, c.protocol
+                   c.connection_name, c.protocol,
+                   sc.connection_name AS storage_connection_name
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
+            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON j.storage_connection_id = sc.storage_connection_id AND sc.is_active = TRUE
             WHERE 1=1
             """
         params: List[Any] = []
@@ -377,7 +379,7 @@ def get_batch_job(batch_job_id: int) -> Optional[dict]:
 
 def create_batch_job(
     folder_connection_id: int,
-    storage_connection_id: int,
+    storage_connection_id: Optional[int],
     job_name: str,
     file_pattern: str,
     *,
@@ -471,12 +473,25 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
 
 
 def delete_batch_job(batch_job_id: int) -> None:
-    """배치 Job 삭제."""
+    """
+    배치 Job 삭제. FK 제약을 위해 자식 테이블(batch_loaded_keys, batch_run_history)을 먼저 삭제한 뒤 batch_jobs 삭제.
+    """
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        # 1) batch_loaded_keys (job별 PK 기록) 삭제
+        cur.execute(
+            f"DELETE FROM {_q(schema, 'batch_loaded_keys')} WHERE batch_job_id = %s",
+            (batch_job_id,),
+        )
+        # 2) batch_run_history (실행 이력) 삭제
+        cur.execute(
+            f"DELETE FROM {_q(schema, 'batch_run_history')} WHERE batch_job_id = %s",
+            (batch_job_id,),
+        )
+        # 3) batch_jobs 삭제
         cur.execute(
             f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE batch_job_id = %s",
             (batch_job_id,),
@@ -902,7 +917,7 @@ def rollback_file_from_target(
     batch_job_id: int,
     run_id: int,
     filename: str,
-    storage_connection_id: int,
+    storage_connection_id: Optional[int],
     target_table: str,
     pk_columns_str: str,
 ) -> int:

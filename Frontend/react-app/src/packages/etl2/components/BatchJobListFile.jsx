@@ -8,7 +8,7 @@
  * ===========
  * - batchListJobs() 로 목록 조회 (mount, refreshKey 변경 시)
  * - 테이블: job_name, folder, file_pattern, storage, 주기, 상태, 마지막 상태(뱃지), 마지막 실행, 다음 예상, 동작
- * - 동작: 활성/비활성(batchToggleJob), 즉시 실행(batchRunJobNow), 이력(onOpenHistory?), 삭제(batchDeleteJob + 확인)
+ * - 동작: 활성/비활성(batchToggleJob), 주기 수정(batchUpdateJob), 즉시 실행(batchRunJobNow), 이력(onOpenHistory?), 삭제(batchDeleteJob + 확인)
  *
  * [Props]
  * =====
@@ -27,7 +27,8 @@ import {
   batchListJobs,
   batchToggleJob,
   batchRunJobNow,
-  batchDeleteJob
+  batchDeleteJob,
+  batchUpdateJob
 } from '@/shared/api/client';
 import SkippedFilesPanelFile from './SkippedFilesPanelFile';
 import '../etl.css';
@@ -38,6 +39,10 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
   const [error, setError] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [skippedJobId, setSkippedJobId] = useState(null);
+  const [editIntervalJob, setEditIntervalJob] = useState(null);
+
+  const INTERVAL_MIN = 10;
+  const INTERVAL_MAX = 1440;
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -58,8 +63,15 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     loadList();
   }, [loadList, refreshKey]);
 
-  async function handleToggle(id) {
+  async function handleToggle(row) {
     if (actionLoadingId != null) return;
+    const id = row.batch_job_id;
+    const goingInactive = row.is_active;
+    if (goingInactive) {
+      if (!window.confirm('비활성하면 설정한 주기가 와도 자동 실행되지 않습니다. 비활성화할까요?')) return;
+    } else {
+      if (!window.confirm('활성화하면 주기 실행이 재개됩니다. 쌓인 파일은 다음 실행 시 처리됩니다(주기 지났으면 곧, 안 지났으면 다음 주기 시각). 활성화할까요?')) return;
+    }
     setActionLoadingId(id);
     setError('');
     try {
@@ -128,6 +140,38 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     }
   }
 
+  const [intervalEditValue, setIntervalEditValue] = useState('');
+  const [intervalEditError, setIntervalEditError] = useState('');
+  const [intervalSaving, setIntervalSaving] = useState(false);
+
+  function openIntervalEdit(row) {
+    setEditIntervalJob({ batch_job_id: row.batch_job_id, job_name: row.job_name, interval_minutes: row.interval_minutes });
+    setIntervalEditValue(String(row.interval_minutes ?? INTERVAL_MIN));
+    setIntervalEditError('');
+  }
+
+  async function handleIntervalSave(e) {
+    e.preventDefault();
+    if (!editIntervalJob) return;
+    const v = Number(intervalEditValue);
+    if (Number.isNaN(v) || v < INTERVAL_MIN || v > INTERVAL_MAX) {
+      setIntervalEditError(`${INTERVAL_MIN}~${INTERVAL_MAX}분 사이로 입력하세요.`);
+      return;
+    }
+    setIntervalSaving(true);
+    setIntervalEditError('');
+    try {
+      await batchUpdateJob(editIntervalJob.batch_job_id, { interval_minutes: v });
+      setEditIntervalJob(null);
+      await loadList();
+      if (onSuccess) onSuccess();
+    } catch (err) {
+      setIntervalEditError(err?.message || '주기 수정 실패');
+    } finally {
+      setIntervalSaving(false);
+    }
+  }
+
   if (loading && list.length === 0 && !error) {
     return <p className="etl-db-form__muted">배치 Job 목록 로딩 중…</p>;
   }
@@ -149,7 +193,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
       <h3 className="etl-db-form__heading">배치 Job 목록</h3>
       {error && <p className="etl-db-form__error" role="alert">{error}</p>}
       <div className="etl-db-form__table-wrap">
-        <table className="etl-db-form__table">
+        <table className="etl-db-form__table etl-batch-job-list__table">
           <thead>
             <tr>
               <th>Job 이름</th>
@@ -178,8 +222,10 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
               return (
                 <tr key={id}>
                   <td>
-                    {row.job_name ?? '-'}
-                    {noPk && <span className="etl-db-form__message etl-db-form__message--warning" style={{ display: 'block', marginTop: '4px', fontSize: '0.8rem' }}>PK 미설정: 중복 행 발생 가능</span>}
+                    <span>
+                      {row.job_name ?? '-'}
+                      {noPk && <span className="etl-db-form__message etl-db-form__message--warning" style={{ marginLeft: '6px', fontSize: '0.8rem' }} title="중복 행 발생 가능">PK 미설정</span>}
+                    </span>
                   </td>
                   <td>{folderName}</td>
                   <td>{row.file_pattern ?? '-'}</td>
@@ -190,15 +236,24 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
                   <td>{displayLastRunAt}</td>
                   <td title={nextRun !== '-' ? `다음 예상: ${nextRun}` : undefined}>{nextRun}</td>
                   <td>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    <div className="etl-batch-job-list__actions">
                       <button
                         type="button"
                         className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
-                        onClick={() => handleToggle(id)}
+                        onClick={() => handleToggle(row)}
                         disabled={busy}
-                        title={row.is_active ? '비활성으로 전환' : '활성으로 전환'}
+                        title={row.is_active ? '비활성: 주기 실행 중단' : '활성: 마지막 실행 이후 파일 다음 주기에 처리'}
                       >
                         {row.is_active ? '비활성' : '활성'}
+                      </button>
+                      <button
+                        type="button"
+                        className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
+                        onClick={() => openIntervalEdit(row)}
+                        disabled={busy}
+                        title="실행 주기(분) 변경. 10~1440"
+                      >
+                        주기 수정
                       </button>
                       <button
                         type="button"
@@ -246,6 +301,40 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
           batchJobId={skippedJobId}
           onClose={() => setSkippedJobId(null)}
         />
+      )}
+      {editIntervalJob != null && (
+        <div className="etl-pk-modal" role="dialog" aria-modal="true" aria-labelledby="etl-interval-modal-title">
+          <div className="etl-pk-modal__backdrop" onClick={() => !intervalSaving && setEditIntervalJob(null)} />
+          <div className="etl-pk-modal__box" style={{ maxWidth: '400px' }}>
+            <div className="etl-pk-modal__head">
+              <h3 id="etl-interval-modal-title">주기 수정</h3>
+              <button type="button" className="etl-pk-modal__close" onClick={() => !intervalSaving && setEditIntervalJob(null)} aria-label="닫기">×</button>
+            </div>
+            <p className="etl-pk-modal__hint">
+              Job: {editIntervalJob.job_name ?? `#${editIntervalJob.batch_job_id}`}. 실행 주기는 10~1440분(24시간) 사이로 설정할 수 있습니다.
+            </p>
+            <form onSubmit={handleIntervalSave} className="etl-pk-modal__form">
+              {intervalEditError && <p className="etl-pk-modal__error">{intervalEditError}</p>}
+              <div className="etl-pk-modal__checkbox-wrap" style={{ marginBottom: 12 }}>
+                <span className="etl-pk-modal__label">주기(분)</span>
+                <input
+                  type="number"
+                  min={INTERVAL_MIN}
+                  max={INTERVAL_MAX}
+                  value={intervalEditValue}
+                  onChange={(e) => setIntervalEditValue(e.target.value)}
+                  className="etl-pk-modal__input"
+                  style={{ width: '100%', maxWidth: 120 }}
+                  disabled={intervalSaving}
+                />
+              </div>
+              <div className="etl-pk-modal__actions">
+                <button type="button" className="etl-pk-modal__cancel" onClick={() => !intervalSaving && setEditIntervalJob(null)} disabled={intervalSaving}>취소</button>
+                <button type="submit" className="etl-pk-modal__submit" disabled={intervalSaving}>{intervalSaving ? '저장 중…' : '저장'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </section>
   );

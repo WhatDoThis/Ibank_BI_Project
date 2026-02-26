@@ -69,12 +69,31 @@ def load_active_batch_jobs() -> None:
 
 
 def add_job(job: dict) -> None:
-    """배치 1건 스케줄러에 등록. job은 get_batch_job/list_batch_jobs 항목."""
+    """배치 1건 스케줄러에 등록. job은 get_batch_job/list_batch_jobs 항목.
+    서버 재시작 시 last_run_at이 있으면 next_run_time = last_run_at + interval로 두어 주기 유지."""
     from Backend.etl_server2 import batch_executor_file
 
     batch_job_id = job["batch_job_id"]
-    interval_minutes = job.get("interval_minutes") or 10
+    interval_minutes = int(job.get("interval_minutes") or 10)
     job_id = f"batch_{batch_job_id}"
+
+    # 서버 재시작 시: 마지막 실행 시각 + 주기가 아직 안 됐으면 그 시각에 실행, 이미 지났으면 10초 후
+    next_run_time = datetime.now() + timedelta(seconds=10)
+    last_run_at = job.get("last_run_at")
+    if last_run_at and interval_minutes > 0:
+        try:
+            if isinstance(last_run_at, str):
+                last_run = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
+            else:
+                last_run = last_run_at
+            if getattr(last_run, "tzinfo", None):
+                last_run = last_run.replace(tzinfo=None)
+            next_run = last_run + timedelta(minutes=interval_minutes)
+            if next_run > datetime.now():
+                next_run_time = next_run
+        except (TypeError, ValueError):
+            pass
+
     get_scheduler().add_job(
         batch_executor_file.run_batch_job,
         trigger="interval",
@@ -82,9 +101,9 @@ def add_job(job: dict) -> None:
         id=job_id,
         args=[batch_job_id],
         replace_existing=True,
-        next_run_time=datetime.now() + timedelta(seconds=10),
+        next_run_time=next_run_time,
     )
-    logger.debug("scheduler add_job batch_%s interval=%s min", batch_job_id, interval_minutes)
+    logger.debug("scheduler add_job batch_%s interval=%s min next_run=%s", batch_job_id, interval_minutes, next_run_time)
 
 
 def remove_job(batch_job_id: int) -> None:
@@ -119,7 +138,7 @@ def run_now(batch_job_id: int) -> None:
     get_scheduler().add_job(
         batch_executor_file.run_batch_job,
         trigger="interval",
-        minutes=job.get("interval_minutes") or 10,
+        minutes=int(job.get("interval_minutes") or 10),
         id=job_id,
         args=[batch_job_id],
         replace_existing=True,

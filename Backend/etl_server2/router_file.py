@@ -93,7 +93,7 @@ class UpdateFolderConnectionBody(BaseModel):
 class CreateBatchJobBody(BaseModel):
     """POST /jobs. 배치 Job 등록."""
     folder_connection_id: int = Field(..., description="폴더 연결 ID")
-    storage_connection_id: int = Field(..., description="저장 DB 연결 ID")
+    storage_connection_id: Optional[int] = Field(None, description="저장 DB 연결 ID. None=기본 DB(ibank_db)")
     job_name: str = Field(..., description="배치명")
     file_pattern: str = Field(..., description="파일 접두사(예: sales_data)")
     file_extensions: Optional[str] = Field("csv,xlsx,xls,parquet", description="허용 확장자")
@@ -120,7 +120,7 @@ class UpdateBatchJobBody(BaseModel):
 class ValidateTargetBody(BaseModel):
     """POST /jobs/validate-target. 기존 테이블 적재 가능 여부 검증(컬럼 호환만)."""
     folder_connection_id: int = Field(..., description="폴더 연결 ID")
-    storage_connection_id: int = Field(..., description="저장 DB 연결 ID")
+    storage_connection_id: Optional[int] = Field(None, description="저장 DB 연결 ID. None=기본 DB")
     file_pattern: str = Field(..., description="파일 접두사 패턴")
     target_table: str = Field(..., description="타겟 테이블명")
 
@@ -376,7 +376,10 @@ def list_folder_columns(
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
             local_path = tmp.name
-        adapter.download_file(filename, local_path)
+        if ext == "csv":
+            adapter.download_file_head(filename, local_path, max_bytes=65536)
+        else:
+            adapter.download_file(filename, local_path)
         df = batch_parser.read_file(local_path, ext, max_rows=1)
         return {"columns": df.columns.tolist()}
     except ValueError as e:

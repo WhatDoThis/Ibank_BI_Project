@@ -364,7 +364,7 @@ function ETLPage() {
           {sourceType === 'db' && <DbConnectionForm onSuccess={handleRefresh} />}
           {sourceType === 'folder' && (
             <>
-              <FolderConnectionFormFile onSuccess={handleRefresh} />
+              <FolderConnectionFormFile onSuccess={handleRefresh} refreshKey={refreshKey} />
               <FolderConnectionListFile onSuccess={handleRefresh} refreshKey={refreshKey} />
               <section className="etl-db-form__section" style={{ marginTop: '24px' }}>
                 <h3 className="etl-db-form__heading">배치 Job</h3>
@@ -380,14 +380,18 @@ function ETLPage() {
               </section>
             </>
           )}
+
           {sourceType === 'storage' && <StorageConnectionForm onSuccess={handleRefresh} />}
           {sourceType === 'history' && <JobHistoryPanel />}
         </div>
 
-        {sourceType !== 'folder' && (
         <section className="etl-page__section">
           <h2 className="etl-page__section-title">등록된 ETL 목록</h2>
-          <p className="etl-page__section-desc">여기에서 실행을 누르면 데이터가 실제로 DB에 적재됩니다. 업로드·등록만으로는 적재되지 않습니다.</p>
+          <p className="etl-page__section-desc">
+            {sourceType === 'folder'
+              ? '파일·DB ETL과 폴더 배치 Job을 한 목록에서 볼 수 있습니다. 배치 Job은 즉시 실행·이력·삭제가 가능합니다.'
+              : '여기에서 실행을 누르면 데이터가 실제로 DB에 적재됩니다. 업로드·등록만으로는 적재되지 않습니다.'}
+          </p>
           <ETLTableList
             onRun={handleRun}
             onPreview={handlePreview}
@@ -395,12 +399,15 @@ function ETLPage() {
               setAddFileModal({ open: true, etlTableId: row.etl_table_id, targetTable: row.target_table || '', description: row.description || '' });
             }}
             onDelete={handleRefresh}
+            onOpenBatchHistory={(batchJobId) => {
+              setBatchHistoryJobId(batchJobId);
+              setBatchHistoryRunId(null);
+            }}
             refreshing={refreshKey}
             runLoading={runLoading}
             queueStatusTrigger={Object.values(jobResults).map((r) => `${r?.job_id}:${r?.status}`).join(',')}
           />
         </section>
-        )}
 
         <PreviewModal open={previewOpen} onClose={() => setPreviewOpen(false)} data={previewData} loading={previewLoading} />
 

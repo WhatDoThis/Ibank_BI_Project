@@ -2,7 +2,7 @@
 Backend.etl_server2.folder_adapter_file (원격 폴더 어댑터)
 ==========================================================
 09_ETL_SFTP_Connection §6. FolderAdapter ABC, SFTPAdapter(paramiko), S3Adapter(boto3).
-test_connection, list_files, download_file, delete_file, close.
+test_connection, list_files, download_file, download_file_head, delete_file, close.
 
 [Classes]
 ===========
@@ -48,6 +48,10 @@ class FolderAdapter(ABC):
     @abstractmethod
     def download_file(self, filename: str, local_path: str) -> str:
         """원격 → 로컬 임시 경로에 다운로드."""
+
+    def download_file_head(self, filename: str, local_path: str, max_bytes: int = 65536) -> str:
+        """원격 파일의 앞부분만 다운로드(헤더 등). 기본 64KB. 미구현 시 전체 다운로드로 대체."""
+        return self.download_file(filename, local_path)
 
     @abstractmethod
     def delete_file(self, filename: str) -> None:
@@ -96,6 +100,14 @@ class SFTPAdapter(FolderAdapter):
     def download_file(self, filename: str, local_path: str) -> str:
         remote = f"{self.remote_path.rstrip('/')}/{filename}" if self.remote_path.rstrip("/") else f"/{filename}"
         self.sftp.get(remote, local_path)
+        return local_path
+
+    def download_file_head(self, filename: str, local_path: str, max_bytes: int = 65536) -> str:
+        remote = f"{self.remote_path.rstrip('/')}/{filename}" if self.remote_path.rstrip("/") else f"/{filename}"
+        with self.sftp.open(remote, "rb") as r:
+            head = r.read(max_bytes)
+        with open(local_path, "wb") as f:
+            f.write(head)
         return local_path
 
     def delete_file(self, filename: str) -> None:
@@ -157,6 +169,13 @@ class S3Adapter(FolderAdapter):
     def download_file(self, filename: str, local_path: str) -> str:
         key = f"{self.prefix}{filename}"
         self.s3.download_file(self.bucket, key, local_path)
+        return local_path
+
+    def download_file_head(self, filename: str, local_path: str, max_bytes: int = 65536) -> str:
+        key = f"{self.prefix}{filename}"
+        resp = self.s3.get_object(Bucket=self.bucket, Key=key, Range=f"bytes=0-{max_bytes - 1}")
+        with open(local_path, "wb") as f:
+            f.write(resp["Body"].read())
         return local_path
 
     def delete_file(self, filename: str) -> None:

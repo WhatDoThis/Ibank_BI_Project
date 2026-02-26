@@ -15,6 +15,7 @@
 
 import { useState, useEffect } from 'react';
 import { batchListFolderConnections, batchDeleteFolderConnection } from '@/shared/api/client';
+import CollapsibleCardSection from './CollapsibleCardSection';
 
 function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
   const [list, setList] = useState([]);
@@ -72,8 +73,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
   }
 
   return (
-    <section className="etl-db-form__section">
-      <h3 className="etl-db-form__heading">등록된 폴더 연결</h3>
+    <CollapsibleCardSection title="등록된 폴더 연결" defaultOpen={true}>
       {error && <p className="etl-db-form__error" role="alert">{error}</p>}
       <div className="etl-db-form__table-wrap">
         <table className="etl-db-form__table">
@@ -106,7 +106,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
           </tbody>
         </table>
       </div>
-    </section>
+    </CollapsibleCardSection>
   );
 }
 

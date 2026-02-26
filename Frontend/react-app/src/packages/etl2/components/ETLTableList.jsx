@@ -1,32 +1,32 @@
 /**
  * packages/etl/components/ETLTableList.jsx (ETL 테이블 목록)
  * ========================================================
- * 등록된 ETL 목록, 행별 실행/대기 중/실행 중·삭제. 큐 상태 2초 폴링으로 행별 표시.
+ * 등록된 ETL 목록(파일·DB ETL + 폴더 배치 Job 통합), 행별 실행/즉시실행·삭제. 큐 상태 2초 폴링.
  *
  * [Main Functions]
  * ===========
- * - GET /api/etl/tables 목록(batch_size, batch_interval_seconds 포함). GET /api/etl/jobs로 실행 중·대기 중 Job 조회 후 행별 버튼 문구(실행|대기 중|실행 중)
- * - DB 소스(postgresql/mysql/oracle)인 경우 배치 열에 배치 크기·대기 시간, 연결 열에 connection_name(서버 구분), 동기화 열에 full/전체·incremental/증분 표시. 저장 DB 열에 storage_connection_name 또는 기본 DB 표시.
- * - 실행 버튼: PK 미설정 시 confirm("PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?") 후 진행 여부 선택
- * - 동작 안내(?) 모달: 권장 순서 및 상태별 버튼 설명. PK는 테이블선택·컬럼매핑에서 설정.
- * - ×(행만 삭제): 기본 비활성화, 동일 타겟 테이블명이 2건 이상일 때만 활성화
+ * - etl2ListTables + batchListJobs 통합 로드. type 'table' | 'batch' 로 구분.
+ * - 테이블 행: 실행/미리보기/데이터 추가/설정/삭제/×. 배치 행: 즉시 실행/이력/삭제.
+ * - 삭제: 테이블 → etl2DeleteTable(타겟 DROP). 배치 → batchDeleteJob(스케줄러 제거).
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListTables, etl2ListJobs, etl2DeleteTable, etl2DeleteTableRow)
+ * - React, @/shared/api/client (etl2ListTables, etl2ListJobs, batchListJobs, etl2DeleteTable, etl2DeleteTableRow, batchDeleteJob, batchRunJobNow)
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { etl2ListTables, etl2ListJobs, etl2DeleteTable, etl2DeleteTableRow } from '@/shared/api/client';
+import { etl2ListTables, etl2ListJobs, etl2DeleteTable, etl2DeleteTableRow, batchListJobs, batchDeleteJob, batchRunJobNow } from '@/shared/api/client';
 import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
 
-function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onDelete, queueStatusTrigger }) {
+function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistory, refreshing, runLoading, queueStatusTrigger }) {
   const [tables, setTables] = useState([]);
+  const [batchJobs, setBatchJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [queueStatus, setQueueStatus] = useState({});
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsModalTable, setSettingsModalTable] = useState(null);
+  const [batchRunLoadingId, setBatchRunLoadingId] = useState(null);
   const pollRef = useRef(null);
 
   async function loadQueueStatus() {
@@ -51,11 +51,16 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
     setLoading(true);
     setError('');
     try {
-      const res = await etl2ListTables();
-      setTables(res.tables || []);
+      const [tablesRes, jobsRes] = await Promise.all([
+        etl2ListTables(),
+        batchListJobs(),
+      ]);
+      setTables(tablesRes.tables || []);
+      setBatchJobs(jobsRes.jobs || []);
     } catch (err) {
       setError(err.message || '목록 조회 실패');
       setTables([]);
+      setBatchJobs([]);
     } finally {
       setLoading(false);
     }
@@ -66,18 +71,37 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
   }, [refreshing]);
 
   useEffect(() => {
-    if (tables.length === 0) return;
+    if (tables.length === 0 && batchJobs.length === 0) return;
     loadQueueStatus();
     pollRef.current = setInterval(loadQueueStatus, 2000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [tables.length, refreshing]);
+  }, [tables.length, batchJobs.length, refreshing]);
 
   useEffect(() => {
-    if (queueStatusTrigger == null || tables.length === 0) return;
+    if (queueStatusTrigger == null || (tables.length === 0 && batchJobs.length === 0)) return;
     loadQueueStatus();
   }, [queueStatusTrigger]);
+
+  const mergedRows = useMemo(() => {
+    const tableRows = (tables || []).map((t) => ({ ...t, type: 'table', _key: `table_${t.etl_table_id}` }));
+    const batchRows = (batchJobs || []).map((j) => ({
+      type: 'batch',
+      _key: `batch_${j.batch_job_id}`,
+      batch_job_id: j.batch_job_id,
+      target_table: j.target_table || '—',
+      description: j.job_name || '—',
+      source_type: 'folder',
+      connection_name: j.connection_name || '—',
+      file_pattern: j.file_pattern || '—',
+      interval_minutes: j.interval_minutes,
+      last_run_status: j.last_run_status,
+      is_active: j.is_active,
+      storage_connection_name: (j.storage_connection_id == null || j.storage_connection_id === undefined) ? '기본 DB' : (j.storage_connection_name || '—'),
+    }));
+    return [...tableRows, ...batchRows];
+  }, [tables, batchJobs]);
 
   const targetTableCounts = useMemo(() => {
     const m = {};
@@ -90,12 +114,12 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
 
   if (loading) return <p className="etl-table-list__loading">목록 로딩 중…</p>;
   if (error) return <p className="etl-table-list__error">{error}</p>;
-  if (tables.length === 0) {
+  if (mergedRows.length === 0) {
     return (
       <div className="etl-table-list__empty-wrap">
         <p className="etl-table-list__empty">등록된 ETL이 없습니다.</p>
         <p className="etl-table-list__empty-hint">
-          <strong>파일 업로드</strong> 탭에서 파일을 올리거나, <strong>DB 연결</strong> 탭에서 외부 DB 테이블을 등록해 주세요. 등록 후 이 목록에 나타나면 <strong>실행</strong> 버튼으로 DB에 적재할 수 있습니다.
+          <strong>파일 업로드</strong> 탭에서 파일을 올리거나, <strong>DB 연결</strong> 탭에서 외부 DB 테이블을 등록하거나, <strong>폴더</strong> 탭에서 배치 Job을 등록해 주세요. 등록 후 이 목록에 나타나면 <strong>실행</strong> 버튼으로 DB에 적재할 수 있습니다.
         </p>
       </div>
     );
@@ -132,7 +156,70 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
           </tr>
         </thead>
         <tbody>
-          {tables.map((t) => {
+          {mergedRows.map((t) => {
+            if (t.type === 'batch') {
+              const runLoadingBatch = batchRunLoadingId === t.batch_job_id;
+              const batchStatusText = t.last_run_status === 'success' ? '성공' : t.last_run_status === 'error' ? '에러' : t.last_run_status === 'running' ? '실행중' : (t.is_active ? '활성' : '비활성');
+              return (
+                <tr key={t._key}>
+                  <td>{t.target_table}</td>
+                  <td className="etl-table-list__cell-description" title={t.description}>{t.description}</td>
+                  <td className="etl-table-list__pk-cell">—</td>
+                  <td>{t.source_type}</td>
+                  <td className="etl-table-list__cell-connection">{t.connection_name}</td>
+                  <td>{t.file_pattern}</td>
+                  <td className="etl-table-list__cell-batch">{t.interval_minutes != null ? `${t.interval_minutes}분` : '—'}</td>
+                  <td className="etl-table-list__cell-sync">—</td>
+                  <td className="etl-table-list__cell-row-error">—</td>
+                  <td className="etl-table-list__cell-storage" title={t.storage_connection_name}>{t.storage_connection_name}</td>
+                  <td>{batchStatusText}</td>
+                  <td className="etl-table-list__cell-actions">
+                    <span className="etl-table-list__actions">
+                      <button
+                        type="button"
+                        className="etl-table-list__run"
+                        onClick={async () => {
+                          setBatchRunLoadingId(t.batch_job_id);
+                          try {
+                            await batchRunJobNow(t.batch_job_id);
+                            if (onDelete) onDelete();
+                          } catch (err) {
+                            setError(err?.message || '즉시 실행 실패');
+                          } finally {
+                            setBatchRunLoadingId(null);
+                          }
+                        }}
+                        disabled={runLoadingBatch}
+                      >
+                        {runLoadingBatch ? '실행 중…' : '즉시 실행'}
+                      </button>
+                      {onOpenBatchHistory && (
+                        <button
+                          type="button"
+                          className="etl-table-list__preview"
+                          onClick={() => onOpenBatchHistory(t.batch_job_id)}
+                        >
+                          이력
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="etl-table-list__delete"
+                        onClick={() => {
+                          if (!window.confirm(`배치 Job "${t.description}"(타겟: ${t.target_table})을(를) 삭제합니다.\n스케줄러에서 제거되며, 타겟 테이블 데이터는 유지됩니다. 계속할까요?`)) return;
+                          batchDeleteJob(t.batch_job_id)
+                            .then(() => { if (onDelete) onDelete(); load(); })
+                            .catch((err) => { setError(err.message || '삭제 실패'); load(); });
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              );
+            }
+
             const q = queueStatus[t.etl_table_id];
             const runLabel = q?.status === 'running' ? '실행 중' : q?.status === 'pending' ? '대기 중' : '실행';
             const runDisabled = q?.status === 'running' || q?.status === 'pending';
@@ -161,7 +248,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             const onRowErrorVal = (t.on_row_error || 'fail').toLowerCase();
             const onRowErrorText = !isDbSource ? '—' : onRowErrorVal === 'skip' ? '제외 적재' : '전체 실패';
             return (
-            <tr key={t.etl_table_id} className={rowClass || undefined}>
+            <tr key={t._key || t.etl_table_id} className={rowClass || undefined}>
               <td>{t.target_table}</td>
               <td className="etl-table-list__cell-description" title={t.description ? String(t.description) : undefined}>{t.description || '—'}</td>
               <td className="etl-table-list__pk-cell">{(t.pk_columns || '').trim() ? <span className="etl-table-list__pk-check" aria-label="PK 설정됨">✓</span> : '—'}</td>

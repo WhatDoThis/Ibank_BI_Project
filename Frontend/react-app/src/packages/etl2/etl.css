@@ -442,6 +442,41 @@
 .etl-db-form__section--card:last-child {
   margin-bottom: 0;
 }
+/* 접기/펼치기 카드 섹션 */
+.etl-db-form__section--collapsible .etl-db-form__card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0 0 8px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.etl-db-form__section--collapsible .etl-db-form__card-toggle:hover {
+  color: #0f172a;
+}
+.etl-db-form__card-toggle-icon {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+.etl-db-form__heading--card {
+  margin: 0;
+  flex: 1;
+}
+.etl-db-form__section--collapsible .etl-db-form__card-body {
+  padding-top: 4px;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 8px;
+}
+.etl-db-form__section--collapsible .etl-db-form__card-body .etl-db-form__subtitle {
+  margin: 0 0 12px 0;
+}
 .etl-db-form__intro {
   margin: 0 0 18px 0;
   font-size: 0.95rem;
@@ -839,6 +874,22 @@
 .etl-db-form__table th {
   background: #f9fafb;
   font-weight: 600;
+}
+/* 배치 Job 목록: ETL 목록과 동일하게 셀·동작 버튼 줄바꿈 방지 */
+.etl-db-form__table.etl-batch-job-list__table {
+  min-width: 900px;
+}
+.etl-db-form__table.etl-batch-job-list__table th,
+.etl-db-form__table.etl-batch-job-list__table td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.etl-batch-job-list__actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
 }
 .etl-db-form__btn--sm {
   padding: 4px 10px;

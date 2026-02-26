@@ -30,6 +30,7 @@ import {
 
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ(Cannot access 'ie' before initialization) 방지 */
 const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
+import CollapsibleCardSection from './CollapsibleCardSection';
 
 function DbConnectionForm({ onSuccess }) {
   const [connections, setConnections] = useState([]);
@@ -345,9 +346,11 @@ function DbConnectionForm({ onSuccess }) {
   return (
     <div className="etl-db-form">
       <p className="etl-db-form__intro">외부 DB 연결을 등록한 뒤, 가져올 테이블과 저장할 테이블명을 정해 등록하면 아래 목록에 뜹니다. 목록에서 <strong>실행</strong>을 눌러 적재하세요.</p>
-      <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading"><span className="etl-db-form__step-num" aria-hidden="true">1</span> 연결 추가</h3>
-        <p className="etl-db-form__subtitle">DB 정보 입력 후 &quot;연결 테스트&quot;를 누르고, 성공하면 &quot;연결 등록&quot;을 누르세요.</p>
+      <CollapsibleCardSection
+        title="연결 추가"
+        defaultOpen={dbConnections.length === 0}
+        subtitle="DB 정보 입력 후 &quot;연결 테스트&quot;를 누르고, 성공하면 &quot;연결 등록&quot;을 누르세요."
+      >
         <form onSubmit={handleAddConnection} className="etl-db-form__connect-form">
           <div className="etl-db-form__grid etl-db-form__grid--2">
             <div className="etl-db-form__field">
@@ -487,12 +490,14 @@ function DbConnectionForm({ onSuccess }) {
           </div>
         )}
         {connError && <p className="etl-db-form__error">{connError}</p>}
-      </section>
+      </CollapsibleCardSection>
 
       {dbConnections.length > 0 && (
-        <section className="etl-db-form__section etl-db-form__section--card">
-          <h3 className="etl-db-form__heading">등록된 연결</h3>
-          <p className="etl-db-form__subtitle">아래에서 연결을 선택한 뒤 &quot;ETL 테이블 등록&quot;에서 소스 테이블을 고르세요. 연결 해제 시 해당 연결로 만든 타겟 테이블이 DROP됩니다.</p>
+        <CollapsibleCardSection
+          title="등록된 연결"
+          defaultOpen={true}
+          subtitle="아래에서 연결을 선택한 뒤 &quot;ETL 테이블 등록&quot;에서 소스 테이블을 고르세요. 연결 해제 시 해당 연결로 만든 타겟 테이블이 DROP됩니다."
+        >
           <ul className="etl-db-form__conn-list">
             {dbConnections.map((c) => (
               <li key={c.connection_id} className="etl-db-form__conn-item">
@@ -508,12 +513,14 @@ function DbConnectionForm({ onSuccess }) {
               </li>
             ))}
           </ul>
-        </section>
+        </CollapsibleCardSection>
       )}
 
-      <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading"><span className="etl-db-form__step-num" aria-hidden="true">2</span> ETL 테이블 등록</h3>
-        <p className="etl-db-form__subtitle">연결 선택 → 소스 테이블 선택 → 타겟 테이블명 입력(필요 시 테이블선택 및 컬럼매핑) 후 &quot;ETL 테이블 등록&quot;을 누르세요.</p>
+      <CollapsibleCardSection
+        title="ETL 테이블 등록"
+        defaultOpen={true}
+        subtitle="연결 선택 → 소스 테이블 선택 → 타겟 테이블명 입력(필요 시 테이블선택 및 컬럼매핑) 후 &quot;ETL 테이블 등록&quot;을 누르세요."
+      >
         <div className="etl-db-form__grid etl-db-form__grid--2">
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">연결 선택</label>
@@ -757,7 +764,7 @@ function DbConnectionForm({ onSuccess }) {
             {createLoading ? '등록 중…' : 'ETL 테이블 등록'}
           </button>
         </div>
-      </section>
+      </CollapsibleCardSection>
     </div>
   );
 }

@@ -13,11 +13,13 @@
  * - React, @/shared/api/client (batchListFolderConnections, batchCreateFolderConnection, batchTestFolderConnection)
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
+  batchListFolderConnections,
   batchCreateFolderConnection,
   batchTestFolderConnection
 } from '@/shared/api/client';
+import CollapsibleCardSection from './CollapsibleCardSection';
 
 const DEFAULT_SFTP = {
   connection_name: '',
@@ -41,9 +43,10 @@ const DEFAULT_S3 = {
   endpoint_url: ''
 };
 
-function FolderConnectionFormFile({ onSuccess }) {
+function FolderConnectionFormFile({ onSuccess, refreshKey = 0 }) {
   const [protocol, setProtocol] = useState('sftp');
   const [form, setForm] = useState({ ...DEFAULT_SFTP });
+  const [folderCount, setFolderCount] = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testPassed, setTestPassed] = useState(false);
@@ -159,6 +162,9 @@ function FolderConnectionFormFile({ onSuccess }) {
         }
       }
       resetForm();
+      const listRes = await batchListFolderConnections();
+      const list = Array.isArray(listRes) ? listRes : (listRes?.folder_connections ?? listRes ?? []);
+      setFolderCount(Array.isArray(list) ? list.length : 0);
       if (onSuccess) onSuccess();
     } catch (err) {
       setError(err.message || '폴더 연결 등록 실패');
@@ -167,13 +173,23 @@ function FolderConnectionFormFile({ onSuccess }) {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    batchListFolderConnections()
+      .then((res) => {
+        const list = Array.isArray(res) ? res : (res?.folder_connections ?? res ?? []);
+        if (!cancelled) setFolderCount(Array.isArray(list) ? list.length : 0);
+      })
+      .catch(() => { if (!cancelled) setFolderCount(0); });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
   return (
     <div className="etl-db-form">
       <p className="etl-db-form__intro">
         원격 폴더(SFTP 또는 S3)를 등록하면, 배치 Job에서 <em>파일명_ib_yyyyMMddHHmmss</em> 형식 파일을 주기적으로 감지해 DB에 적재할 수 있습니다.
       </p>
-      <section className="etl-db-form__section etl-db-form__section--card">
-        <h3 className="etl-db-form__heading">폴더 연결 추가</h3>
+      <CollapsibleCardSection title="폴더 연결 추가" defaultOpen={folderCount === null || folderCount === 0}>
         <form onSubmit={handleRegister} className="etl-db-form__connect-form">
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">프로토콜</label>
@@ -354,7 +370,7 @@ function FolderConnectionFormFile({ onSuccess }) {
             </button>
           </div>
         </form>
-      </section>
+      </CollapsibleCardSection>
     </div>
   );
 }

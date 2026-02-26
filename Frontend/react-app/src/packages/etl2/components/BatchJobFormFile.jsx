@@ -1,8 +1,8 @@
 /**
  * BatchJobFormFile.jsx (배치 Job 등록 폼)
  * =========================================
- * 09_ETL_SFTP_Connection. 폴더 연결 선택 시 해당 폴더의 _ib_ 파일 패턴 목록을 셀렉트로 표시.
- * 타겟 테이블 위에 파일 패턴 셀렉트, PK는 직접 입력 또는 "컬럼 가져와서 선택"으로 체크박스 선택.
+ * 09_ETL_SFTP_Connection. 흐름: 폴더 연결 → 저장 DB → 파일 패턴(폴더 내 _ib_ 정의) → 타겟 테이블·PK → Job 이름·주기.
+ * 폴더 선택 시 해당 폴더의 파일 패턴 목록 셀렉트, 타겟 테이블은 저장 DB 기준 목록 또는 직접 입력, PK는 컬럼 가져와서 선택 또는 직접 입력.
  *
  * [Main Functions]
  * ===========
@@ -76,9 +76,9 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
     loadLists();
   }, [loadLists, refreshKey]);
 
-  const sidForTarget = storage_connection_id === '' ? (storageConnections.length > 0 ? storageConnections[0].storage_connection_id : null) : Number(storage_connection_id);
+  const sidForTarget = (storage_connection_id === '' || storage_connection_id == null) ? null : Number(storage_connection_id);
   useEffect(() => {
-    if (sidForTarget == null || Number.isNaN(sidForTarget)) {
+    if (sidForTarget !== null && Number.isNaN(sidForTarget)) {
       setTargetTables([]);
       return;
     }
@@ -170,12 +170,9 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       setError('타겟 테이블을 선택하거나 새 테이블명을 입력하세요.');
       return;
     }
-    const sidRaw = storage_connection_id === '' ? null : Number(storage_connection_id);
-    const sid = (sidRaw != null && !Number.isNaN(sidRaw))
-      ? sidRaw
-      : (storageConnections.length > 0 ? storageConnections[0].storage_connection_id : null);
-    if (sid == null || Number.isNaN(sid)) {
-      setError('저장 DB 목록이 비어 있습니다. 저장 DB를 먼저 등록하세요.');
+    const sid = (storage_connection_id === '' || storage_connection_id == null) ? null : Number(storage_connection_id);
+    if (sid !== null && Number.isNaN(sid)) {
+      setError('저장 DB를 선택하세요.');
       return;
     }
     const interval = Number(interval_minutes);
@@ -188,7 +185,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       try {
         const validation = await batchValidateTarget({
           folder_connection_id: fid,
-          storage_connection_id: sid,
+          storage_connection_id: sid ?? undefined,
           file_pattern: file_pattern.trim(),
           target_table: targetTableFinal
         });
@@ -207,7 +204,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       folder_connection_id: fid,
       job_name: job_name.trim(),
       file_pattern: file_pattern.trim(),
-      storage_connection_id: sid,
+      ...(sid != null && { storage_connection_id: sid }),
       target_table: targetTableFinal,
       pk_columns: pk_columns?.trim() || null,
       interval_minutes: interval,
@@ -257,6 +254,22 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
             </select>
           </div>
 
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">저장 DB</label>
+            <select
+              className="etl-db-form__input"
+              value={storage_connection_id}
+              onChange={(e) => setStorage_connection_id(e.target.value)}
+            >
+              <option value="">기본 DB</option>
+              {storageConnections.map((sc) => (
+                <option key={sc.storage_connection_id} value={sc.storage_connection_id}>
+                  {sc.connection_name || `저장 #${sc.storage_connection_id}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {selectedFolderId != null && (
             <div className="etl-db-form__field">
               <label className="etl-db-form__label">파일 패턴 (폴더 내 _ib_ 파일 접두사)</label>
@@ -301,22 +314,6 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
                 placeholder="예: sales_daily (저장 DB에 생성될 테이블명)"
               />
             )}
-          </div>
-
-          <div className="etl-db-form__field">
-            <label className="etl-db-form__label">저장 DB</label>
-            <select
-              className="etl-db-form__input"
-              value={storage_connection_id}
-              onChange={(e) => setStorage_connection_id(e.target.value)}
-            >
-              <option value="">기본 DB</option>
-              {storageConnections.map((sc) => (
-                <option key={sc.storage_connection_id} value={sc.storage_connection_id}>
-                  {sc.connection_name || `저장 #${sc.storage_connection_id}`}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div className="etl-db-form__field">
