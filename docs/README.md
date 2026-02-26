@@ -1,272 +1,86 @@
-# 🔍 스타벅스 CRM 노코드 쿼리 빌더 - 완전체
+# IBANK BI 프로젝트
 
-SQL을 모르는 사람도 쓸 수 있는 **완벽한 노코드 쿼리 빌더**입니다.
-
-## ✨ 주요 기능
-
-### 1️⃣ SELECT (데이터 선택)
-- ✅ 컬럼 단위 드래그 앤 드롭
-- ✅ 집계함수 지원 (SUM, AVG, COUNT, MAX, MIN, COUNT DISTINCT)
-- ✅ 별칭 지정
-- ✅ 무제한 컬럼 선택
-
-### 2️⃣ FROM/JOIN (테이블 연결)
-- ✅ **무제한 테이블 JOIN** (5개 이상 가능!)
-- ✅ LEFT/INNER/RIGHT JOIN 선택
-- ✅ 시각적 JOIN 표현
-- ✅ 테이블 별칭 자동 생성
-
-### 3️⃣ WHERE (필터링)
-- ✅ 조건 그룹 (AND/OR)
-- ✅ 조건 중첩 지원
-- ✅ 다양한 연산자 (=, !=, >, <, LIKE, IN 등)
-- ✅ 무제한 조건 추가
-
-### 4️⃣ GROUP BY (집계)
-- ✅ 드래그로 GROUP BY 컬럼 추가
-- ✅ HAVING 절 지원
-- ✅ 자동 GROUP BY 추론
-
-### 5️⃣ ORDER BY (정렬)
-- ✅ 다중 정렬 기준
-- ✅ ASC/DESC 선택
-- ✅ LIMIT 설정
-
-### 6️⃣ 결과 시각화
-- ✅ 테이블 뷰
-- ✅ 차트 (막대/선/파이/도넛)
-- ✅ SQL 뷰
-- ✅ CSV 내보내기
-
-### 7️⃣ 쿼리 관리
-- ✅ 쿼리 저장/불러오기 (JSON)
-- ✅ SQL 내보내기
-- ✅ 쿼리 미리보기
+CRM 데이터 조회·집계·적재를 위한 **노코드 쿼리 빌더**, **대시보드**, **ETL** 통합 플랫폼입니다.
 
 ---
 
-## 🚀 시작하기
+## 주요 기능
 
-### 1. API 서버 실행
+| 기능 | 경로 | 설명 |
+|------|------|------|
+| **리포트** | `/ibank-bi/report` | 드래그 앤 드롭 쿼리 빌더. 테이블/컬럼 선택, WHERE·ORDER BY·GROUP BY·집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석 |
+| **대시보드** | `/ibank-bi/dashboard` | 테이블·기간·필터 선택, 비교 모드(일/주/월/연), 디멘션별 비교/요약 보기, KPI·채널 도넛·기준별 막대 차트, 차트/위젯 생성 |
+| **대시보드2** | `/ibank-bi/dashboard2` | 성과리포트. 보기 모드(일간·주간·월간·연간 비교), KPI·집계 테이블·위젯, rate형 소수점·info 버튼 |
+| **위젯보드** | `/ibank-bi/widgetboard` | 드래그 앤 드롭 위젯 그리드 대시보드. 레이아웃·위젯 설정 localStorage 저장 |
+| **ETL** | `/ibank-bi/etl` | 파일 업로드·외부 DB(PostgreSQL·MySQL·Oracle) 연동 → 우리 PostgreSQL 적재. 동기화 모드(전체/증분), 배치·수동 실행 |
+| **ETL2** | `/ibank-bi/etl2` | 저장 DB 등록·선택, 테이블선택·컬럼매핑·변환 룰, 설정 모달(동기화·증분·행 실패 시 동작). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job·이력. ETL 목록에 배치 타겟 통합(삭제 시 cascade·테이블 DROP). 동일 폴더·패턴·타겟·저장DB 중복 Job 등록 방지 |
+
+- **설정**: `Env/config/config.json` 만 사용 (.env 미사용).
+- **상세 명세**: `docs/main/00_PRD.md`, `01_FRONTEND_GUIDE.md`, `02_BACKEND_GUIDE.md` 참고.
+
+---
+
+## 실행 방법
+
+### 1. 설정
+
+- `Env/config/config.json` (또는 `config.json.example` 복사 후 수정)에 `backend`, `frontend` 블록 설정.
+- `backend`: api_host, api_port(기본 5001), db_* (비즈니스 DB), system_db(ETL 메타), etl_limits 등.
+- `frontend`: static_port(기본 8080), api_base_url(백엔드 API 주소).
+
+### 2. 백엔드 실행
 
 ```bash
-# 의존성 설치
-pip install flask flask-cors psycopg2-binary python-dotenv
-
-# 서버 실행
-python run.py
+pip install -r requirements.txt
+python run.py back
 ```
 
-서버가 http://localhost:5000 에서 실행됩니다.
+- FastAPI + uvicorn. 기본 `http://localhost:5001`.
 
-### 2. 프론트엔드 열기
+### 3. 프론트엔드 실행
 
 ```bash
-# 브라우저에서 index.html 열기
-open index.html
-
-# 또는 간단한 HTTP 서버
-python -m http.server 8000
-# 그 다음 http://localhost:8000 접속
+cd Frontend/react-app
+npm install
+npm run build
+cd ../..
+python run.py front
 ```
+
+- 빌드 결과(dist)를 정적 서버가 서빙. 기본 `http://localhost:8080/ibank-bi/`.
+- `python run.py serve`: 빌드 없이 정적 서버만 기동(배포 시 502 방지용).
+
+### 4. 접속
+
+- **로컬**: `http://localhost:8080/ibank-bi/` → 리포트·대시보드·대시보드2·위젯보드·ETL·ETL2 링크로 이동.
+- **배포**: base URL은 config 및 Nginx 프록시에 따라 상이. `docs/report/DEPLOY_SERVER.md` 참고.
 
 ---
 
-## 📁 파일 구조
+## 디렉터리 구조 요약
 
-```
-query-builder-complete/
-├── index.html          # 메인 HTML (UI 구조)
-├── styles.css          # 스타일시트
-├── app.js              # JavaScript 로직
-├── run.py              # API 서버 루트 진입점 (Backend 실행)
-└── README.md           # 이 파일
-```
-
----
-
-## 🎯 사용 방법
-
-### 기본 플로우
-```
-1. 왼쪽에서 테이블 펼치기
-   ↓
-2. 컬럼을 SELECT 영역에 드래그
-   ↓
-3. FROM/JOIN 탭에서 테이블 추가
-   ↓
-4. (선택) WHERE 조건 추가
-   ↓
-5. (선택) GROUP BY 설정
-   ↓
-6. (선택) ORDER BY 설정
-   ↓
-7. ▶️ 실행 버튼 클릭
-   ↓
-8. 결과 확인 (테이블/차트/SQL)
-```
-
-### 예시: 캠페인별 발송 성공 건수 조회
-
-1. **SELECT 탭**
-   - `cmpn_target_dlv_log` 테이블 펼치기
-   - `campaign_name` 드래그
-   - `send_success_target_count` 드래그 → 집계함수 "합계" 선택
-
-2. **FROM/JOIN 탭**
-   - "테이블 추가" → `cmpn_target_dlv_log` 선택
-
-3. **GROUP BY 탭**
-   - `campaign_name` 을 GROUP BY 영역에 드래그
-
-4. **ORDER BY 탭**
-   - 정렬 기준 추가 → `send_success_target_count` → "많은순"
-
-5. **실행!** ▶️
+| 경로 | 역할 |
+|------|------|
+| `run.py` | 진입점. `back`(API 서버), `front`(빌드+정적 서버), `serve`(정적 서버만) |
+| `Frontend/react-app` | React(Vite) 단일 앱. base `/ibank-bi/`. packages: report, dashboard, dashboard2, widgetboard, etl, etl2, shared |
+| `Frontend/static_server` | dist 서빙, SPA fallback, api-config.js 주입 |
+| `Backend/api_server` | FastAPI. routers: health, report, dashboard, dashboard2. ETL 워커 startup |
+| `Backend/etl_server` | ETL API·메타·업로드·DB 적재·Job 큐 (`/api/etl`) |
+| `Backend/etl_server2` | ETL2·폴더 배치 API (`/api/etl2`, `/api/etl2/batch`). 저장 DB·컬럼매핑·COPY 적재·etl_batch_target_registry |
+| `Env/config` | config.json 로드. config.backend, config.frontend |
+| `docs/main` | 개발 문서. 00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md |
+| `docs/report` | 배포·실행 로그·리포트. log.md, 08_ETL_Phase_Implement_Guide.md, 09_ETL_SFTP_Connection.md 등 |
 
 ---
 
-## 💡 고급 기능
+## 문서
 
-### JOIN 5개 이상
-```
-테이블1 → JOIN → 테이블2 → JOIN → 테이블3 → JOIN → 테이블4 → JOIN → 테이블5 → ...
-```
-**제한 없음!** 원하는 만큼 JOIN 가능
-
-### 복잡한 WHERE 조건
-```
-조건 그룹 1 (AND)
-  ├ marketing_agree_yn = 'Y'
-  └ send_date >= '2024-01-01'
-
-조건 그룹 2 (OR)
-  ├ customer_grade = 'VIP'
-  └ order_amount > 100000
-```
-
-### 집계 함수
-- **SUM**: 합계
-- **AVG**: 평균
-- **COUNT**: 개수
-- **MAX**: 최댓값
-- **MIN**: 최솟값
-- **COUNT DISTINCT**: 중복 제거 개수
+- **요구사항·아키텍처·기능 요약**: `docs/main/00_PRD.md`
+- **프론트엔드 상세**: `docs/main/01_FRONTEND_GUIDE.md`
+- **백엔드 상세**: `docs/main/02_BACKEND_GUIDE.md`
+- **문서 목록**: `docs/report/00_ReportIndex.md`
+- **변경 로그**: `docs/report/log.md`
 
 ---
 
-## 🔧 설정
-
-### API 서버 설정 (config.json)
-
-`Env/config/config.json` (또는 `config.json.example` 복사) 의 `backend` 에 DB·API 키 등을 설정합니다.
-
-```json
-"backend": {
-  "db_host": "...",
-  "db_port": 5432,
-  "db_name": "...",
-  "db_user": "...",
-  "db_password": "...",
-  "claude_api_key": "..."
-}
-```
-
-### JavaScript 설정 (app.js)
-
-```javascript
-const API_BASE_URL = 'http://localhost:5000';
-```
-
----
-
-## 🎨 UI/UX 특징
-
-### 직관적인 인터페이스
-- ✅ 드래그 앤 드롭
-- ✅ 실시간 미리보기
-- ✅ 배지로 현황 표시
-- ✅ 토스트 알림
-
-### 시각적 피드백
-- ✅ 드래그 중 하이라이트
-- ✅ 로딩 스피너
-- ✅ 애니메이션 효과
-
-### 반응형 디자인
-- ✅ 데스크톱 최적화
-- ✅ 스크롤바 커스터마이징
-- ✅ 모달/토스트
-
----
-
-## 🐛 트러블슈팅
-
-### DB 연결 실패
-```
-1. run.py가 실행 중인지 확인
-2. Env/config/config.json 의 backend DB 정보 확인
-3. 네트워크 방화벽 확인
-```
-
-### CORS 에러
-```
-Flask-CORS가 설치되어 있는지 확인
-pip install flask-cors
-```
-
-### 쿼리 실행 실패
-```
-1. SQL 탭에서 생성된 SQL 확인
-2. 테이블/컬럼 이름 확인
-3. 조건 값의 타입 확인 (숫자 vs 문자열)
-```
-
----
-
-## 📊 성능 최적화
-
-### 쿼리 최적화
-- ✅ LIMIT 사용 권장 (기본 100건)
-- ✅ 인덱스가 있는 컬럼으로 JOIN
-- ✅ WHERE 조건 먼저 적용
-
-### 프론트엔드 최적화
-- ✅ 차트 데이터 최대 1000건
-- ✅ 테이블 가상 스크롤
-- ✅ 지연 로딩
-
----
-
-## 🔮 향후 계획
-
-- [ ] 서브쿼리 지원
-- [ ] UNION 지원
-- [ ] 쿼리 템플릿
-- [ ] AI 쿼리 추천
-- [ ] 실시간 협업
-- [ ] 권한 관리
-- [ ] 쿼리 히스토리
-- [ ] 성능 모니터링
-
----
-
-## 📝 라이선스
-
-MIT License
-
----
-
-## 👥 기여
-
-이슈와 PR을 환영합니다!
-
----
-
-## 💬 문의
-
-문제가 있거나 제안사항이 있으면 이슈를 등록해주세요.
-
----
-
-**Made with ❤️ by Claude & 관홍**
+*최종 업데이트: 2026-02-26. docs/main 및 log.md 반영.*

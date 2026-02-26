@@ -18,7 +18,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **대시보드2**(성과리포트): 보기 모드(일반/일간·주간·월간·연간 비교), 기준·비교 주/월/일/연 선택(비어두면 전 주/전 월/전일/전년), **디멘션별 비교(B)/요약 보기(A)** 토글, 기준별 발송 현황·집계 테이블 복수 차원 시 **X축 단일 차원(일자 제외)**. KPI 순서 통일, 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리), 위젯 rate형 Y축 소수점 둘째자리·info 버튼. 상세는 §6.2.1.
 - **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드 대시보드. 기존 대시보드 API·데이터 유틸 활용.
 - **ETL**(/etl): 파일 업로드·외부 DB 연동으로 우리 PostgreSQL에 적재. 소스: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle 목록·미리보기·PK·적재 모두 지원). Oracle 연결은 **Service Name**만 지원(SID 미지원). 동기화 모드: 전체(삭제 후 적재)/증분(last_synced_at 이후 Upsert). 등록된 연결 목록에 호스트:포트/DB명 표시. 배치 크기·배치 간 대기는 한 번 실행 시 적용. 실행은 수동(실행 버튼)만, 스케줄 미지원. 상세는 **01_FRONTEND_GUIDE.md §4.5**, **02_BACKEND_GUIDE.md §6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
-- **ETL2**(/etl2): 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. **목록에서 설정 버튼**으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental). API prefix **/api/etl2**, Backend **etl_server2**. 상세는 **01 §4.5.1**, **02 §6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- **ETL2**(/etl2): 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 설정 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행. **etl_batch_target_registry**: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 통합; 목록에서 삭제 시 배치 Job cascade 삭제·타겟 테이블 DROP. **동일 폴더·파일패턴·타겟·저장DB** 조합 중복 Job 등록 방지(안내만). 매핑 모달 내 **변환 룰**(정리/타입변환/값매핑)·**변환 미리보기 API**. 배치 첫 실행 시 대기 파일 전부 큐 처리; upsert 삽입/갱신 건수 구분 집계. API prefix **/api/etl2**, Backend **etl_server2**. 상세는 **01 §4.5.1**, **02 §6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -152,15 +152,16 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 6.3.1 ETL2 (/etl2)
 
-- **목적**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table**을 다른 연결(다른 DB)에서 추가 적재할 수 있도록 등록 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental, 증분 시 임시 테이블 COPY 후 INSERT...ON CONFLICT).
-- **탭 구성**: 파일 업로드 | DB 연결 | **저장 DB 등록** | ETL 이력. URL 쿼리 `?tab=file|db|storage|history` 로 탭 유지.
-- **저장 DB**: 적재 대상 PostgreSQL 연결을 "저장 DB 등록" 탭에서 등록·테스트(CREATE/INSERT/DROP 권한 검증). 파일·DB 폼에서 "저장할 DB"로 기본 DB 또는 등록한 저장 DB 선택 → `storage_connection_id` 저장·적재 시 해당 DB에 CREATE/INSERT.
-- **테이블선택 및 컬럼매핑**: 타겟 테이블명 옆 버튼으로 모달 오픈. 저장 DB 기준 테이블 목록·선택 테이블의 컬럼 조회. **소스 컬럼이 있으면**(파일: infer-schema API, DB: source-columns API): 소스→타겟 매핑 테이블(소스별 타겟 드롭다운·"제외"), 기본 제안(이름·순서·타입 호환), **타입 불일치 시 알럿**. 소스 없으면 타겟 컬럼 체크박스만. 적용 시 `column_mapping` [{source, target, type, on_error}] 전달.
-- **column_mapping**: etl_tables.column_mapping JSONB. 적재 직전 apply_mapping_type_cast로 타겟 타입 변환·변환 실패 시 on_error(null/zero/keep/skip_row/fail) 적용. add_allowed_table은 `storage_connection_id` 없을 때만 호출.
+- **목적**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table**을 다른 연결(다른 DB)에서 추가 적재할 수 있도록 등록 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental, 증분 시 임시 테이블 COPY 후 INSERT...ON CONFLICT). **폴더 배치**(SFTP/S3): 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행·문제 파일·적재 롤백. **ETL 목록 통합**: etl_batch_target_registry로 배치 생성 타겟을 목록에 행으로 표시; 배치 행은 삭제만 가능(즉시실행·이력 없음). 목록에서 해당 행 삭제 시 연결된 배치 Job cascade 삭제 후 타겟 테이블 DROP. **동일 폴더·파일패턴·타겟·저장DB** 조합으로 Job 중복 등록 시 새 행 추가 없이 안내만.
+- **탭 구성**: 파일 업로드 | DB 연결 | **폴더** | **저장 DB 등록** | ETL 이력. URL 쿼리 `?tab=file|db|folder|storage|history` 로 탭 유지. 폴더 탭: 폴더 연결·배치 Job 등록·배치 Job 목록(새로고침)·이력 모달.
+- **저장 DB**: 적재 대상 PostgreSQL 연결을 "저장 DB 등록" 탭에서 등록·테스트. 파일·DB·배치 폼에서 "저장할 DB"로 **기본 DB**(config ibank_db) 또는 등록한 저장 DB 선택 → `storage_connection_id`(NULL=기본) 저장. 기본 DB 정합성은 shared 규칙(storageDb.js)으로 통일.
+- **테이블선택 및 컬럼매핑**: 타겟 테이블명 옆 버튼으로 모달 오픈. 저장 DB 기준 테이블 목록·선택 테이블의 컬럼 조회. **소스 컬럼이 있으면**: 소스→타겟 매핑 테이블, **변환** 열(없음|정리|타입변환|정리+타입변환|값매핑)·값매핑 인라인 편집·**변환 미리보기** 패널(POST /api/etl2/transform/preview). 적용 시 column_mapping·변환 룰(transform_rules) 반영. 소스 없으면 타겟 컬럼 체크박스만.
+- **column_mapping**: etl_tables.column_mapping JSONB. 적재 직전 apply_mapping_type_cast·변환 룰(cleansing/type_cast/value_mapping) 적용. add_allowed_table은 `storage_connection_id` 없을 때만 호출.
 - **on_row_error**: etl_tables.on_row_error. `fail`(한 건이라도 적재 실패 시 Job 실패), `skip`(실패 행 제외 적재·실패 내역 Job notice). Incremental 모드에서만 적용.
 - **증분 컬럼**: DB 연동 시 증분 모드에서 셀렉트(날짜형 컬럼만 옵션)·직접 입력(커스텀) 가능. 비날짜 타입은 validate-incremental-column로 검증 후 실패 시 알럿.
-- **UI 사용성**: 탭별 "처음 사용하시나요?" 단계 안내, 파일 폼 1→2→3 단계 표시, DB 폼 1 연결 추가 / 2 ETL 테이블 등록, 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 안내, 빈 목록 시 안내 박스. 목록에 **설정** 버튼(DB 소스만)·**저장 DB** 열·**동기화** 드롭다운·**행 실패 시** 드롭다운.
-- **API·구현**: prefix **/api/etl2**. Backend **etl_server2**(router, service, load_service, db_load_service, preview_service, schema_infer, transform_engine 등). infer-schema, target-tables, target-columns, source-columns, validate-incremental-column, storage-connections. 상세는 **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- **배치 실행·이력**: 첫 실행 시 등록 시점 이전 매칭 파일 전부 큐로 한 run에서 순차 처리. run 진행 중 update_run_progress로 file_list·삽입/갱신 건수 실시간 반영; 이력·상세 화면 2초 폴링. upsert 시 삽입/갱신 건수 구분 집계(INSERT DO NOTHING + UPDATE FROM VALUES, 갱신 건수에서 기삽입 행 제외). CSV 컬럼 조회 시 원격 head만 다운로드(64KB)로 로딩 단축.
+- **UI 사용성**: 탭별 단계 안내, DB·폴더·저장 DB 섹션 **CollapsibleCardSection** 접기/펼치기. 등록된 ETL 목록·잡 이력·배치 Job 목록에 **새로고침** 버튼. 목록에 **설정**(DB 소스만)·**저장 DB** 열·**동기화**·**행 실패 시** 드롭다운. 배치 Job 목록 상단 여백·새로고침.
+- **API·구현**: prefix **/api/etl2**. **/api/etl2/batch/** (jobs, target-registry, validate-target, run/now, history, skipped-files, rollback 등). **POST /api/etl2/transform/preview**. Backend **etl_server2**(router, router_file, service_file, load_service_file, batch_executor_file, folder_adapter_file, parser_file, scheduler_file, preview_service, schema_infer, transform_engine 등). 상세는 **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 
 ### 6.4 공통
 - API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
@@ -202,3 +203,4 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (2026-02-13) | **ETL 현행 반영**: Oracle Service Name만 지원(SID 미지원), 등록된 연결에 호스트:포트/DB명 표시. 타겟 테이블명 중복 검사(etl_tables·메인 DB, 증분 시 기존 테이블 허용). Oracle 테이블 목록: 스키마 미지정 시 USER_TABLES(접속 사용자 소유만), 지정 시 ALL_TABLES 해당 OWNER. 소스 테이블 OWNER.TABLE_NAME 저장. |
 | (2026-02-23) | **ETL2 (테스트중) 반영**: §1.2·§2.1·§2.2에 ETL2·etl2 패키지·etl_server2·접속 경로 /etl2 추가. §5.2 API에 api/etl2 언급. **§6.3.1 ETL2 (테스트중)** 신설: 탭(파일·DB·저장 DB 등록·이력), 저장 DB·테이블선택 및 컬럼매핑·column_mapping·증분 컬럼 셀렉트·UI 사용성·API·01 §4.5.1·02 §6.7 참조. |
 | (2026-02-23) | **docs/main 최신화(08·log 기준)**: ETL Oracle 적재 지원 반영. ETL2 "테스트중" 제거·현행 반영: 설정 모달·on_row_error·동일 target_table 허용·COPY FROM STDIN·08 참조. §6.3·§6.3.1 정리. |
+| (2026-02-26) | **ETL2 폴더 배치·레지스트리·문서 동기화**: §1.2·§6.3.1에 폴더 탭·etl_batch_target_registry·ETL 목록 통합(배치 행 삭제=cascade+테이블 DROP)·중복 Job 등록 방지·변환 룰 매핑 모달·미리보기 API·배치 첫 실행 큐·upsert 삽입/갱신 건수 구분·새로고침 버튼·기본 DB 정합성(storageDb)·CollapsibleCardSection·실행 이력 폴링·CSV head 다운로드 반영. log.md 2026-02-26 적용분 기준. |

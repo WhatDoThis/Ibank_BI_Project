@@ -60,14 +60,20 @@ Backend/
 │   ├── transform_rules_service.py # etl_transform_rules CRUD
 │   └── etl_limits.py              # max_file_size_mb, max_rows_per_load, max_batch_size 적용
 │
-└── etl_server2/                   # ETL2 API — 저장 DB·컬럼 매핑·COPY 적재·on_row_error
-    ├── router.py                  # prefix /api/etl2 — tables, upload, infer-schema, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, run, jobs 등
-    ├── service.py                 # 메타 CRUD·get_target_db_connection·list_target_tables·list_target_columns·list_storage_connections·on_row_error
-    ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping·apply_mapping_type_cast
-    ├── db_load_service.py         # DB 적재·COPY FROM STDIN·임시 테이블 Upsert·_copy_upsert_batch_safe·on_row_error
-    ├── preview_service.py
-    ├── schema_infer.py            # infer_schema(파일→컬럼·타입)
-    └── (queue_worker·transform_engine 등 etl_server와 공유 또는 동일 구조)
+└── etl_server2/                   # ETL2 API — 저장 DB·컬럼 매핑·COPY 적재·on_row_error·폴더 배치
+    ├── router.py                  # prefix /api/etl2 — tables, upload, infer-schema, target-tables, target-columns, storage-connections, transform/preview, run, jobs 등
+    ├── router_file.py             # prefix /api/etl2/batch — jobs, target-registry, validate-target, run/now, history, skipped-files, rollback 등
+    ├── service.py                 # 메타 CRUD·get_target_db_connection·list_target_tables·list_storage_connections·on_row_error
+    ├── service_file.py            # batch_jobs·batch_run_history·etl_batch_target_registry·list_batch_target_registry·delete_batch_target_registry_and_drop_table·create_batch_job(중복 검사)·update_run_progress
+    ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping
+    ├── load_service_file.py       # 폴더 배치 적재·_batch_upsert(삽입/갱신 건수 구분·갱신 rowcount에서 기삽입 제외)
+    ├── db_load_service.py         # DB 적재·COPY FROM STDIN·임시 테이블 Upsert·on_row_error
+    ├── batch_executor_file.py     # run_batch_job·파일별 다운로드·load_dataframe·update_run_progress·finish_run
+    ├── folder_adapter_file.py     # SFTP/S3 어댑터·download_file_head(CSV head 64KB)
+    ├── parser_file.py             # get_pending_files(첫 실행 시 대기 파일 전부 반환)
+    ├── scheduler_file.py          # APScheduler·add_job·remove_job·reschedule_job
+    ├── preview_service.py         # get_raw_sample·transform/preview용
+    └── schema_infer.py            # infer_schema(파일→컬럼·타입)
 ```
 
 - **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **etl2_router**(Backend.etl_server2.router).
@@ -208,8 +214,12 @@ Backend/
 | POST | /api/etl2/tables/{id}/add-files-zip | ZIP 다중 파일 추가 적재 |
 | GET | /api/etl2/jobs | Job 목록 |
 | GET | /api/etl2/jobs/{job_id} | Job 1건 조회 |
+| **POST** | **/api/etl2/transform/preview** | 변환 룰 적용 미리보기(before/after·column_changes) |
+| GET | /api/etl2/batch/target-registry | 배치 타겟 레지스트리 목록(ETL 목록용) |
+| DELETE | /api/etl2/batch/target-registry/{id} | 레지스트리 삭제·배치 Job cascade·타겟 테이블 DROP |
+| (기타) | /api/etl2/batch/jobs, validate-target, run/now, history, skipped-files, rollback 등 | 배치 Job CRUD·즉시실행·이력·스킵 파일·롤백 |
 
-- etl_tables에 storage_connection_id·column_mapping(JSONB)·on_row_error 저장. 적재 시 get_target_db_connection(storage_connection_id)·column_mapping·apply_mapping_type_cast·COPY FROM STDIN 반영. 상세는 **§6.7**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- etl_tables에 storage_connection_id·column_mapping(JSONB)·on_row_error 저장. 적재 시 get_target_db_connection(storage_connection_id)·column_mapping·apply_mapping_type_cast·COPY FROM STDIN 반영. **etl_batch_target_registry**: 배치로 생성된 타겟 테이블 행; 목록에서 삭제 시 delete_batch_target_registry_and_drop_table로 Job cascade·테이블 DROP. **create_batch_job**: 동일 (folder_connection_id, file_pattern, target_table, storage_connection_id) 조합 존재 시 ValueError(중복 등록 방지). **update_run_progress**: running run의 files_processed·rows_inserted·rows_updated·file_list 실시간 갱신. **load_service_file._batch_upsert**: INSERT DO NOTHING 후 UPDATE FROM VALUES, 갱신 건수 = rowcount − inserted_this_batch. **parser_file.get_pending_files**: 첫 실행(last_processed_ts NULL) 시 ts≤max_ts 매칭 파일 전부 반환(큐 처리). 상세는 **§6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 
 ---
 
@@ -306,12 +316,14 @@ Backend/
 
 ### 6.7 etl_server2
 
-- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table**을 다른 연결(다른 DB)에서 추가 적재할 수 있도록 등록 허용. 삭제 시 같은 target_table을 쓰는 다른 ETL이 있으면 해당 테이블 DROP하지 않음.
-- **주요 기능**: (1) **저장 DB**: etl_storage_connections 등록·테스트, etl_tables.storage_connection_id 저장, 적재 시 get_target_db_connection(storage_connection_id)로 해당 PostgreSQL에 CREATE/INSERT. (2) **테이블·컬럼 조회**: list_target_tables(storage_connection_id), list_target_columns(storage_connection_id, table_name). (3) **infer-schema**: POST /api/etl2/infer-schema — 파일만 업로드받아 스키마(컬럼명·inferred_type) 반환, 메타 등록 없음. (4) **column_mapping**: etl_tables.column_mapping JSONB, 적재 직전 apply_mapping_type_cast로 타겟 타입 변환·on_error(null/zero/keep/skip_row/fail) 적용. (5) **on_row_error**: etl_tables.on_row_error. fail(한 건 실패 시 Job 실패), skip(실패 행 제외 적재·notice 기록). Incremental 모드에서만 적용. (6) **COPY 적재**: Full → _copy_insert_batch, Incremental → _copy_upsert_batch(임시 테이블 TEXT + COPY + INSERT...ON CONFLICT). 실패 시 _copy_upsert_batch_safe(행 단위 fallback). (7) **소스 컬럼·증분 검증**: get_source_columns(connection_id, source_table), validate_incremental_column(connection_id, source_table, column_name).
-- **router.py**: upload, infer_schema_from_file, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, tables, **PATCH tables/{id}**(sync_mode, on_row_error, incremental_column, batch_size 등), jobs, preview, run, add-files-zip 등. CreateTableBody·UpdateTableBody에 storage_connection_id·column_mapping·on_row_error 포함.
-- **service.py**: get_target_db_connection(storage_connection_id), list_target_tables, list_target_columns, list_storage_connections, create_etl_table(storage_connection_id·column_mapping·on_row_error), update_etl_table(on_row_error 등). **동일 target_table 허용**(create_etl_table에서 유일성 검사 제거). delete_etl_table에서 동일 target_table 사용 중인 다른 ETL 있으면 DROP 생략.
-- **load_service.py / db_load_service.py**: storage_connection_id·column_mapping·apply_mapping_type_cast·on_row_error 읽어 저장 DB 분기·매핑·형변환·COPY·fallback 적용. add_allowed_table은 storage_connection_id 없을 때만 호출.
-- **메타**: etl_tables에 storage_connection_id, column_mapping(JSONB), on_row_error 컬럼. etl_storage_connections 테이블(시스템 DB). 상세·COPY 적재 이해·운영은 **docs/report/08_ETL_Phase_Implement_Guide.md** 참조.
+- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**, **/api/etl2/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table**을 다른 연결에서 추가 적재 허용. **폴더 배치**: batch_jobs·batch_run_history·**etl_batch_target_registry**. 배치로 생성된 타겟을 ETL 목록에 행으로 노출; 목록에서 삭제 시 **delete_batch_target_registry_and_drop_table**로 스케줄러 제거·delete_batch_job·타겟 테이블 DROP. **create_batch_job** 시 (folder_connection_id, file_pattern, target_table, storage_connection_id) 중복이면 ValueError(중복 등록 방지). **update_run_progress**(run_id, files_processed, rows_inserted, rows_updated, file_list): running run 실시간 갱신. **load_service_file**: 폴더 배치 적재·**_batch_upsert**에서 삽입/갱신 건수 구분(INSERT DO NOTHING → inserted, UPDATE FROM VALUES → updated = rowcount − inserted_this_batch). **parser_file.get_pending_files**: 첫 실행(last_processed_ts NULL) 시 매칭 파일 **전부** 반환(한 run에서 큐 처리). **folder_adapter_file.download_file_head**: CSV 컬럼 조회 시 64KB만 다운로드. **transform/preview**: POST /api/etl2/transform/preview, get_raw_sample·apply_rules·before/after 반환.
+- **주요 기능**: (1) **저장 DB**: etl_storage_connections, get_target_db_connection(storage_connection_id). NULL=기본 DB(config ibank_db). (2) **테이블·컬럼 조회**: list_target_tables, list_target_columns. (3) **infer-schema**: 파일 업로드 → 스키마 반환, 메타 없음. (4) **column_mapping·변환 룰**: apply_mapping_type_cast·transform_rules(cleansing/type_cast/value_mapping). (5) **on_row_error**: fail/skip, Incremental에서만. (6) **COPY 적재**: Full/Incremental, _copy_upsert_batch_safe fallback. (7) **etl_batch_target_registry**: list_batch_target_registry(backfill 포함), upsert_batch_target_registry(create_batch_job 후), clear_batch_job_from_registry(delete_batch_job 전), delete_batch_target_registry_and_drop_table(목록 삭제 시). (8) **배치 실행**: batch_executor_file.run_batch_job, 파일별 다운로드·load_dataframe·update_run_progress·finish_run.
+- **router.py**: tables, upload, infer-schema, target-tables, target-columns, storage-connections, source-columns, validate-incremental-column, **POST transform/preview**, tables PATCH, jobs, preview, run, add-files-zip.
+- **router_file.py**: GET/POST /batch/jobs, GET /batch/target-registry, DELETE /batch/target-registry/{id}, validate-target, run/now, history, get-run-detail, skipped-files, rollback 등. list_folder_columns 시 CSV는 download_file_head만 사용.
+- **service.py**: get_target_db_connection, list_target_tables, list_target_columns, list_storage_connections, create_etl_table, update_etl_table, delete_etl_table(동일 target_table 다른 ETL 있으면 DROP 생략).
+- **service_file.py**: batch_jobs·batch_folder_connections·batch_run_history·etl_batch_target_registry CRUD. list_batch_jobs, create_batch_job(중복 검사), delete_batch_job(FK 순서: batch_loaded_keys → batch_run_history → batch_jobs, delete 전 clear_batch_job_from_registry), list_batch_target_registry, upsert_batch_target_registry, delete_batch_target_registry_and_drop_table. update_run_progress, finish_run, create_batch_run.
+- **load_service_file.py**: load_dataframe(파일/배치)·_batch_upsert(삽입·갱신 건수 구분). add_allowed_table은 storage_connection_id 없을 때만.
+- **메타**: etl_tables, etl_storage_connections, **batch_jobs**, **batch_folder_connections**, **batch_run_history**, **etl_batch_target_registry**(시스템 DB). 상세·COPY·폴더 배치는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md** 참조.
 
 ---
 
@@ -328,6 +340,7 @@ Backend/
 **변경 이력 (본 문서)**  
 - (2026-02-23) **ETL2** §2 아키텍처에 etl_server2 추가. §4.6 ETL2 API 표(PATCH tables/{id}, add-files-zip). §5.1 라우터에 etl2_router. **§6.7 etl_server2** 신설: 저장 DB·테이블/컬럼 조회·infer-schema·column_mapping·on_row_error·COPY 적재·동일 target_table 허용·08 참조.
 - (2026-02-23) **docs/main 최신화(08·log 기준)**: §3.2 메타에 etl_storage_connections·on_row_error 추가. §6.2 Oracle 적재 지원. §6.1 etl_server create_etl_table 설명 유지(동일 타겟 허용은 etl_server2). §6.7 COPY·on_row_error·설정(PATCH)·08 참조 반영.
+- (2026-02-26) **ETL2 폴더 배치·레지스트리·API·적재 로직 반영**: §2 etl_server2에 router_file, service_file, load_service_file, batch_executor_file, folder_adapter_file, parser_file, scheduler_file 명시. §4.6 transform/preview·batch/target-registry·DELETE target-registry/{id} 추가. §6.7 전면 갱신: etl_batch_target_registry·list/upsert/clear/delete_batch_target_registry·create_batch_job 중복 검사·update_run_progress·_batch_upsert 삽입/갱신 구분·get_pending_files 첫 실행 전부·download_file_head·09 참조. log.md 2026-02-26 적용분 기준.
 
 ---
 
