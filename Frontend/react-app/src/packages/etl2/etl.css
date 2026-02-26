@@ -877,6 +877,10 @@
   vertical-align: middle;
   padding: 10px 12px;
 }
+.etl-db-form__table--compact .etl-db-form__btn,
+.etl-db-form__table--compact .etl-db-form__btn--sm {
+  font-size: 0.8rem;
+}
 .etl-db-form__table th,
 .etl-db-form__table td {
   padding: 8px 12px;

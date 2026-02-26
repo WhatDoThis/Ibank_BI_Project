@@ -414,7 +414,7 @@ function ETLPage() {
         {batchHistoryJobId != null && (
           <div className="etl-add-file-modal" role="dialog" aria-modal="true" aria-labelledby="etl-history-modal-title">
             <div className="etl-add-file-modal__backdrop" onClick={() => { setBatchHistoryJobId(null); setBatchHistoryRunId(null); }} />
-            <div className="etl-add-file-modal__box" style={{ maxWidth: '900px' }}>
+            <div className="etl-add-file-modal__box" style={{ maxWidth: '1100px' }}>
               <div className="etl-add-file-modal__head">
                 <h3 id="etl-history-modal-title">실행 이력</h3>
                 <button type="button" className="etl-add-file-modal__close" onClick={() => { setBatchHistoryJobId(null); setBatchHistoryRunId(null); }} aria-label="닫기">×</button>
