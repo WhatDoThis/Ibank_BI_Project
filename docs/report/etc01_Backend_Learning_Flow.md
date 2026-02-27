@@ -13,7 +13,7 @@
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  Extract    │ ──▶ │  Transform  │ ──▶ │    Load     │
-│  추출       │     │  변환       │     │    적재     │
+│  추출        │     │  변환       │     │    적재     │
 └─────────────┘     └─────────────┘     └─────────────┘
       │                    │                    │
  CSV/Excel/          클렌징·타입변환·      PostgreSQL
@@ -84,7 +84,7 @@
 | | `batch_executor_file.py` | `run_batch_job`: `service_file.get_batch_job` → `create_batch_run` → `_connect_with_retry`(폴더) → `parser_file.get_pending_files` → 파일별 `read_file` → `load_service_file.load_dataframe` → `update_last_processed_ts` → `finish_run` |
 | **Layer 4: 핵심 적재** | `load_service.py` | `run_file_load`: `get_etl_limits` → `_read_file`(pandas: CSV/Excel/Parquet) → `transform_engine.apply_rules` → `get_target_db_connection` → DROP/CREATE/INSERT(2000건 배치). `run_file_upsert`: 추가 파일 UPSERT |
 | | `db_load_service.py` | `run_db_load`: `get_etl_limits`, `get_connection_for_etl`, `_fetch_source_columns_*`, `effective_batch_size`(MySQL/Oracle 0→10000) → 스트리밍 시 `cur_src.fetchmany(effective_batch_size)` → `_copy_insert_batch`/`_copy_upsert_batch`(COPY 프로토콜). `_row_fallback`(on_row_error=skip 시 행 단위 재시도) |
-| | `load_service_file.py` | `get_target_connection`, `load_dataframe`: `table_exists` → 없으면 `create_table_from_dataframe`, 있으면 `_batch_upsert`(ON CONFLICT DO UPDATE). `_record_loaded_keys`(batch_loaded_keys), `_batch_insert`/`_batch_upsert` |
+| | `load_service_file.py` | `get_target_connection`, `load_dataframe`: `table_exists` → 없으면 `create_table_from_dataframe`, 있으면 `_batch_upsert`(ON CONFLICT DO UPDATE, **반환 (inserted, updated)**). `_record_loaded_keys`(batch_loaded_keys), `_batch_insert`/`_batch_upsert` |
 | **Layer 3: 변환** | `transform_engine.py` | `apply_rules(df, rules)` — cleansing, type_cast, code_map, derived, masking. `apply_mapping_type_cast`(column_mapping). pandas |
 | | `transform_rules_service.py` | 룰 메타 CRUD (시스템 DB `etl_transform_rules`) |
 | **Layer 2: 연결·메타** | `service.py` | 메타 CRUD: `get_etl_table`, `insert_job`, `claim_next_pending_job`, `get_connection_for_etl`, `get_sync_mode_for_load`, `get_target_db_connection`. 외부 DB: `_connect_postgres`(psycopg2), `_connect_mysql`(PyMySQL), `_connect_oracle`(oracledb) |
@@ -110,7 +110,7 @@
 | 3. 실행 요청 | `POST /api/etl2/tables/{id}/run` → `router.run_table_load` | `etl_service.insert_job(..., status="running")` → `threading.Thread(target=_run_file_load_in_process, args=(etl_table_id, job_id))` |
 | 4. 적재 스레드 | `_run_file_load_in_process` → `load_service.run_file_load` | `get_etl_limits` → `_read_file`(pandas) → `transform_rules_svc.list_transform_rules` → `transform_engine.apply_rules` → `get_target_db_connection` → 커서로 DROP/CREATE/INSERT(2000건씩) → `etl_service.update_job("completed", rows_processed=...)` |
 
-**포인트:** 파일 적재는 **업로드와 동일 프로세스**에서 스레드로 실행된다. 워커 프로세스가 따로 있으면 업로드 경로를 못 찾을 수 있어서, DB 적재만 `pending` → `queue_worker`로 보낸다.
+**포인트:** 파일 적재는 **업로드와 동일 프로세스**에서 스레드로 실행된다. 워커 프로세스가 따로 있으면 업로드 경로를 못 찾을 수 있어서, DB 적재만 `pending` → `queue_worker`로 보낸다. **ZIP 일괄 추가**(`add_files_zip_to_table`)도 파일별로 Job을 따로 등록하고 스킵된 파일은 `skipped_files`로 반환하는 **파일별 격리** 패턴을 사용한다(4-3 배치와 동일 철학).
 
 ### 4-2. 외부 DB → 적재 (Full / Incremental)
 
@@ -213,6 +213,8 @@ FolderAdapter (ABC, folder_adapter_file.py)
 
 ---
 
+## 8. DB 연결 구조
+
 | DB | 용도 | 접근 함수/설정 |
 |----|------|----------------|
 | **시스템 DB** (ibank_system_data) | 메타·이력 | `api_db.get_db_connection_system()`, `service._get_db()`, `service_file` |
@@ -260,7 +262,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
 
 | 9 | `etl_server2/load_service.py` | `run_file_load`, `_read_file`, DROP/CREATE/INSERT |
 | 10 | `etl_server2/db_load_service.py` | `run_db_load`, `_copy_insert_batch`, `_copy_upsert_batch`, `_row_fallback` |
-| 11 | `etl_server2/load_service_file.py` | `load_dataframe`, `_batch_insert`, `_batch_upsert`, `create_table_from_dataframe` |
+| 11 | `etl_server2/load_service_file.py` | `load_dataframe`, `_batch_insert`, `_batch_upsert`(반환 (inserted, updated)), `create_table_from_dataframe` |
 | 12 | `etl_server2/preview_service.py` | 10행 미리보기 |
 
 **Phase 4: 오케스트레이션**
@@ -295,7 +297,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
 | Lazy Import | `service._get_db()` | 순환 import 방지 |
 | Claim & Lock | `claim_next_pending_job` | `SELECT FOR UPDATE SKIP LOCKED` 로 중복 실행 방지 |
 | Exponential Backoff | `_connect_with_retry` | 일시적 네트워크 오류 대응 |
-| 파일별 격리 | `run_batch_job` 내 for 루프 | 파일 단위 try/except로 한 파일 실패가 전체를 중단하지 않음 |
+| 파일별 격리 | `run_batch_job` 내 for 루프, `add_files_zip_to_table`(ZIP 내 파일별 Job 등록) | 파일 단위 try/except 또는 파일별 Job으로 한 파일 실패가 전체를 중단하지 않음 |
 | Streaming Batch | `db_load_service` fetchmany | 대용량을 메모리에 올리지 않고 청크 단위 처리 |
 
 ---
@@ -386,7 +388,7 @@ cur.copy_expert(
 | max_rows_per_load | 파일 읽기·DB SELECT | nrows/LIMIT 로 상한 |
 | max_batch_size | DB 적재 배치 | min(사용자 batch_size, max_batch_size). 사용자 0이면 MySQL/Oracle 10000 적용 |
 
-**기본값 (config 없을 때):** `etl_limits.py` 의 DEFAULT_MAX_FILE_SIZE_MB(100), DEFAULT_MAX_ROWS_PER_LOAD(500_000), DEFAULT_MAX_BATCH_SIZE(10_000). config에 0을 넣으면 해당 한도 미적용.
+**기본값 (config 없을 때):** `etl_limits.py` 의 DEFAULT_MAX_FILE_SIZE_MB(50), DEFAULT_MAX_ROWS_PER_LOAD(100_000), DEFAULT_MAX_BATCH_SIZE(50_000). config에 0을 넣으면 해당 한도 미적용.
 
 ---
 
