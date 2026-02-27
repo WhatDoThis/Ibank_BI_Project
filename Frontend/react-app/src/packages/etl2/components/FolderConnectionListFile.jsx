@@ -1,7 +1,7 @@
 /**
  * packages/etl2/components/FolderConnectionListFile.jsx (폴더 연결 목록)
  * =======================================================================
- * - 등록된 폴더 연결 목록, 삭제. SFTP는 IP(host), S3는 버킷(및 리전)을 연결 구분용으로 표시.
+ * - 등록된 폴더 연결 목록, 삭제. 연결 정보(SFTP=host, S3=bucket+리전), 원격 경로(SFTP=remote_path, S3=prefix) 표시.
  *
  * [Main Functions]
  * ===========
@@ -53,6 +53,14 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
     return '-';
   }
 
+  /** 프로토콜별 원격 경로: SFTP=remote_path, S3=prefix(버킷 내 경로). 동일 IP/버킷이라도 경로가 다르면 구분용. */
+  function getRemotePath(row) {
+    const p = (row.protocol || '').toLowerCase();
+    if (p === 'sftp') return (row.sftp_remote_path != null && row.sftp_remote_path !== '') ? row.sftp_remote_path : '/';
+    if (p === 's3') return (row.s3_prefix != null && row.s3_prefix !== '') ? row.s3_prefix : '-';
+    return '-';
+  }
+
   async function handleDelete(folderConnectionId, connectionName) {
     if (!window.confirm(`"${connectionName || folderConnectionId}" 폴더 연결을 삭제하시겠습니까?`)) return;
     setDeleteLoadingId(folderConnectionId);
@@ -94,6 +102,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
               <th>연결 이름</th>
               <th>프로토콜</th>
               <th>연결 정보</th>
+              <th>원격 경로</th>
               <th>상태</th>
               <th>동작</th>
             </tr>
@@ -104,6 +113,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
                 <td>{row.connection_name || '-'}</td>
                 <td>{(row.protocol || '').toUpperCase()}</td>
                 <td>{getConnectionInfo(row)}</td>
+                <td>{getRemotePath(row)}</td>
                 <td>{row.is_verified ? '연결됨' : '미검증'}</td>
                 <td>
                   <button
