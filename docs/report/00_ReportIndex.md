@@ -21,7 +21,7 @@
 | 07_newDashboard_Develop_Plan.md | NewDashboard 범용 대시보드: 요구사항 정리, 현행 대비 검토, 가능성 검토, Phase 0~5 개발 계획(백엔드 범용 API → 프론트 테이블/헤더 → KPI·목표·집계 테이블 → 위젯 beta → 비교·정리) |
 | 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조: 목적·범위·시스템 개요, config·메타 테이블·모듈 의존, Job 확인(운영), 재실행·파일/DB 동작, DB 연결 실패 시 점검, Phase·구현 요약, ZIP 추가 적재, ETL 목록 버튼·설정 모달, **COPY 적재 이해하기**(비유·단계·Upsert·on_row_error), DB 적재 상세(COPY·Upsert·fallback), 매핑 형변환·행 실패 정책. |
 | 09_ETL_SFTP_Connection.md | Batch Sync 설계서: 원격 폴더(SFTP/S3) 기반 자동 증분 적재. DB(batch_*) 반영 완료. 아키텍처: Backend/etl_server2 통합(*_file.py), packages/etl2/components(*File.jsx), ETL2 페이지 "폴더 등록" 탭. |
-| etc01_Backend_Learning_Flow.md | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
+| etc01_Backend_Learning_Flow.md | **ETL2 학습 가이드**: Backend/etl_server2 + packages/etl2 기준. 시스템 목적·아키텍처·레이어별 파일 역할·데이터 흐름(함수·라이브러리 단위)·학습 순서(의존도)·API·패턴·한도·ERD. 처음 접하는 개발자용. | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |

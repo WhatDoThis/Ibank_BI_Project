@@ -5,7 +5,8 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 
 [Helpers]
 ===========
-41 - _get_source_connection: connection_id로 소스 PostgreSQL 연결
+41 - _safe_is_job_cancelled: 취소 여부 조회(시스템 DB 실패 시 False 반환해 적재 계속)
+45 - _get_source_connection: connection_id로 소스 PostgreSQL 연결
 55 - _fetch_source_columns_mysql: MySQL information_schema.COLUMNS (column_name, data_type)
 72 - _pg_type_from_mysql: MySQL DATA_TYPE → PostgreSQL 타입 문자열
 88 - _fetch_source_columns: PostgreSQL information_schema.columns
@@ -24,6 +25,10 @@ run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 
 - Backend.api_server.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
 - Env.config.loader.add_allowed_table
 - psycopg2, pandas
+
+[Constants]
+===========
+DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH: 배치 크기 미입력 시 전체-fetch 경로에서 적용하는 기본 행 상한(10000). config max_rows_per_load가 있으면 그값 사용.
 """
 
 import logging
@@ -40,6 +45,18 @@ from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_engine
 from Backend.etl_server import transform_rules_service as transform_rules_svc
 from Backend.etl_server.etl_limits import get_etl_limits
+
+# 배치 크기 미입력 시 전체 fetch 경로에서 적용할 기본 행 상한(메모리·부하 방지). MySQL/PostgreSQL/Oracle 공통.
+DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH = 10000
+
+
+def _safe_is_job_cancelled(job_id: int) -> bool:
+    """취소 여부 조회. 시스템 DB 연결 실패 시 경고 로그 후 False(취소 아님) 반환하여 적재 계속."""
+    try:
+        return etl_service.is_job_cancelled(job_id)
+    except Exception as e:
+        logger.warning("ETL db load job_id=%s: cancel check failed (system DB), continuing: %s", job_id, e)
+        return False
 
 
 def _get_source_connection(connection_id: int):
@@ -346,10 +363,16 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 "소스 테이블의 시간/순서 컬럼(예: updated_at)을 증분 컬럼으로 지정하면 이후 행만 조회합니다.",
                 etl_table_id,
             )
+        # etl_server2와 동일: MySQL/Oracle은 배치 크기 0이면 스트리밍 1만 건 적용(전체 fetch 대신)
+        if stype in ("mysql", "oracle") and effective_batch_size == 0:
+            effective_batch_size = DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH
+            logger.info("ETL db load etl_table_id=%s: MySQL/Oracle batch_size=0 → 스트리밍 배치 10000 적용", etl_table_id)
+        # 배치 크기 미입력(effective_batch_size==0)일 때: config 한도가 있으면 그만큼, 없으면 기본 10000건으로 제한
+        fetch_limit_when_no_batch = max_rows_per_load if max_rows_per_load > 0 else DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH
         if stype == "oracle":
-            limit_sql = f" FETCH FIRST {max_rows_per_load} ROWS ONLY" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
+            limit_sql = f" FETCH FIRST {fetch_limit_when_no_batch} ROWS ONLY" if effective_batch_size == 0 else ""
         else:
-            limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
+            limit_sql = f" LIMIT {fetch_limit_when_no_batch}" if effective_batch_size == 0 else ""
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
@@ -432,7 +455,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     placeholders = ", ".join(["%s"] * len(cols))
                     cancel_check_interval = 100
                     for i, r in enumerate(rows_batch):
-                        if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                        if i > 0 and i % cancel_check_interval == 0 and _safe_is_job_cancelled(job_id):
                             conn_main.rollback()
                             cur_main.close()
                             conn_main.close()
@@ -539,7 +562,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 cancel_check_interval = 100
                 rows_processed = 0
                 for i, r in enumerate(rows_data):
-                    if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                    if i > 0 and i % cancel_check_interval == 0 and _safe_is_job_cancelled(job_id):
                         conn_main.rollback()
                         try:
                             cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
@@ -581,7 +604,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 cancel_check_interval = 100
                 rows_processed = 0
                 for i, r in enumerate(rows_data):
-                    if i > 0 and i % cancel_check_interval == 0 and etl_service.is_job_cancelled(job_id):
+                    if i > 0 and i % cancel_check_interval == 0 and _safe_is_job_cancelled(job_id):
                         conn_main.rollback()
                         etl_service.update_job(job_id, "cancelled", rows_processed=rows_processed, error_message="사용자 취소")
                         etl_service.update_etl_table_status(etl_table_id, "error")

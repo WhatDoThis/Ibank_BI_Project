@@ -705,12 +705,7 @@ function DbConnectionForm({ onSuccess }) {
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">배치 크기</label>
             <span className="etl-db-form__label-desc">
-              {(() => {
-                const st = (dbConnections.find((c) => String(c.connection_id) === String(selectedConnId))?.source_type || '').toString().toLowerCase();
-                if (st === 'mysql') return '0이면 1만 행 단위 배치. MySQL은 최대 1만 행으로 적용됩니다.';
-                if (st === 'oracle') return '0이면 1만 행 단위 배치. Oracle은 설정값(또는 config 상한) 적용.';
-                return '0이면 전체 한 번에. 0보다 크면 해당 행 수 단위 배치로 가져옵니다.';
-              })()}
+              0 또는 비우면 1만 행 단위. 양수 입력 시 해당 크기로 스트리밍 배치.
             </span>
             <input
               type="number"

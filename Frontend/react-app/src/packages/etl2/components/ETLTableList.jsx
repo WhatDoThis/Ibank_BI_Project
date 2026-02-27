@@ -244,8 +244,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               : batchSize > 0
                 ? `${batchSize.toLocaleString()}행`
                 : batchInterval > 0
-                  ? `전체 / ${batchInterval}초`
-                  : '전체';
+                  ? `1만 행(기본) / ${batchInterval}초`
+                  : '1만 행(기본)';
             const connectionText = isDbSource ? (t.connection_name || '—') : '—';
             const syncMode = (t.sync_mode || '').toLowerCase();
             const syncText = !isDbSource ? '—' : syncMode === 'incremental' ? '증분' : '전체';
@@ -259,7 +259,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               <td>{t.source_type || '—'}</td>
               <td className="etl-table-list__cell-connection" title={isDbSource && t.connection_name ? `연결: ${t.connection_name}` : undefined}>{connectionText}</td>
               <td>{t.source_table || t.file_path || '—'}</td>
-              <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '전체 fetch'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
+              <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '1만 행(기본)'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
               <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
               <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
               <td className="etl-table-list__cell-storage" title={t.storage_connection_name ? `저장 DB: ${t.storage_connection_name}` : '기본 DB (ibank_db)'}>{t.storage_connection_name ? t.storage_connection_name : '기본 DB'}</td>
@@ -407,8 +407,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                 <h4 className="etl-help-modal__section-title">배치·실행 시점 안내</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>배치 크기 / 대기 시간</strong> — 한 번 실행할 때만 적용됩니다. (몇 행씩 가져올지, 배치 간 몇 초 쉴지)</li>
-                  <li><strong>MySQL</strong> — 배치 크기 0이면 1만 행 단위 배치. 1만 초과 입력 시 최대 1만 행으로 적용(연결 유지).</li>
-                  <li><strong>Oracle</strong> — 배치 크기 0이면 1만 행 단위 배치. 설정값(또는 config 상한) 그대로 적용.</li>
+                  <li><strong>배치 크기 0</strong> — 1만 행 단위로 조회·적재(PostgreSQL/MySQL/Oracle 공통). 양수 입력 시 해당 크기로 스트리밍.</li>
                   <li><strong>예상 행 수</strong> — PostgreSQL 소스만 표시. MySQL·Oracle은 진행률만 표시됩니다.</li>
                   <li><strong>매일 몇 시 자동 실행</strong> — 현재 없습니다. 스케줄(예: 매일 02시) 기능은 미지원입니다.</li>
                   <li><strong>실행</strong> — “실행” 버튼을 눌렀을 때만 대기열에 들어가고 워커가 처리합니다.</li>

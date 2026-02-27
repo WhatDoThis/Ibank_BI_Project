@@ -1,22 +1,29 @@
 """
-Backend.etl_server.etl_limits (ETL 한도 설정)
+Backend.etl_server2.etl_limits (ETL 한도 설정)
 =============================================
 config.backend.etl_limits 에서 최대 파일 크기·행 수·배치 크기 한도 조회. 없으면 기본값 사용.
 램 오버 방지용: 파일 업로드/DB 적재 시 해당 한도로 잘라서 처리.
 
+[기본값 권장 근거 (일반적 서버 4~8GB 메모리 가정)]
+- max_file_size_mb: 웹/ETL 파일 업로드 상한. PHP 128MB, Apache 50~100MB 등 사례 참고. 100MB면 CSV/Excel 대부분 수용.
+- max_rows_per_load: 1회 적재 Job 전체 행 상한. SSIS 1만 행/버퍼, Oracle 2~3만/배치 권장. 50만 건이면 스트리밍으로 나눠 처리 시 메모리 안전.
+- max_batch_size: DB fetch/적재 배치당 상한. PostgreSQL 500~1000, Oracle JDBC 100~500, SSIS 1만 행. 1만 건이면 MySQL net_write_timeout·Oracle 메모리와 양립.
+
+config에 etl_limits를 넣으면 이 기본값 대신 config 값 사용. 0이면 "한도 없음"으로 동작.
+
 [Functions]
 ===========
-22 - get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0이면 해당 한도 미적용.
+get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0이면 해당 한도 미적용.
 
 [Dependencies]
 =========
 - Env.config (backend.etl_limits)
 """
 
-# 기본값: 한도 미설정 시 사용. 0이면 "한도 없음"으로 동작하도록 함.
-DEFAULT_MAX_FILE_SIZE_MB = 0
-DEFAULT_MAX_ROWS_PER_LOAD = 0
-DEFAULT_MAX_BATCH_SIZE = 0
+# 기본값: config에 etl_limits가 없을 때 적용. 일반적 서버 사양 기준 권장치.
+DEFAULT_MAX_FILE_SIZE_MB = 50
+DEFAULT_MAX_ROWS_PER_LOAD = 100000
+DEFAULT_MAX_BATCH_SIZE = 50000
 
 
 def get_etl_limits():

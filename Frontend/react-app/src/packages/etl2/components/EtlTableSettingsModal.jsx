@@ -193,7 +193,7 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
 
           <div className="etl-settings-modal__field">
             <label className="etl-settings-modal__label">배치 크기 (행 수)</label>
-            <span className="etl-settings-modal__desc">0 또는 비우면 전체 한 번에(또는 DB별 기본 배치). MySQL/Oracle은 0이면 1만 행 단위.</span>
+            <span className="etl-settings-modal__desc">0 또는 비우면 1만 행 단위로 조회·적재(공통). 양수 입력 시 해당 크기로 스트리밍 배치.</span>
             <input
               type="number"
               min="0"
