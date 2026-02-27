@@ -79,7 +79,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ```
 
 - `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
-- **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(1회 적재 행 수·파일 크기·배치 상한) 선택. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
+- **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(1회 적재 행 수·파일 크기·배치 상한) 선택. **etl_limits 미지정 시** etl_server2 기본값 적용(파일 50MB·행 10만·배치 5만 등). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
 - **Linux 배포 시**: Nginx에서 프론트는 `/ibank-bi/`, API는 `/report_api/` 등으로 프록시할 경우 `frontend.api_base_url` 은 **API 쪽 URL** (예: `https://도메인/report_api`) 로 설정.
 
 ### 3.3 규칙
@@ -148,7 +148,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **목록 표시**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(크기/대기)·**동기화**(전체/증분)·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). 도움말(?)에 상태별 버튼 설명·배치·실행 시점 안내.
 - **파일 ETL**: 미리보기(10행)·PK 설정(체크박스)·실행(전체 교체)·데이터 추가(단일 파일 또는 ZIP 다중 파일, 건너뛴 파일 목록 표시). 파일 업로드용 연결은 삭제 불가(보호).
 - **Job 큐**: pending → running(동시 2건 제한), completed/failed/cancelled. Job 목록·실행 이력 패널.
-- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size). 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size). 미지정 시 etl_server2 기본값. 배치 미입력 시 1만 건 기본 상한. 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 
 ### 6.3.1 ETL2 (/etl2)
 
@@ -204,3 +204,4 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (2026-02-23) | **ETL2 (테스트중) 반영**: §1.2·§2.1·§2.2에 ETL2·etl2 패키지·etl_server2·접속 경로 /etl2 추가. §5.2 API에 api/etl2 언급. **§6.3.1 ETL2 (테스트중)** 신설: 탭(파일·DB·저장 DB 등록·이력), 저장 DB·테이블선택 및 컬럼매핑·column_mapping·증분 컬럼 셀렉트·UI 사용성·API·01 §4.5.1·02 §6.7 참조. |
 | (2026-02-23) | **docs/main 최신화(08·log 기준)**: ETL Oracle 적재 지원 반영. ETL2 "테스트중" 제거·현행 반영: 설정 모달·on_row_error·동일 target_table 허용·COPY FROM STDIN·08 참조. §6.3·§6.3.1 정리. |
 | (2026-02-26) | **ETL2 폴더 배치·레지스트리·문서 동기화**: §1.2·§6.3.1에 폴더 탭·etl_batch_target_registry·ETL 목록 통합(배치 행 삭제=cascade+테이블 DROP)·중복 Job 등록 방지·변환 룰 매핑 모달·미리보기 API·배치 첫 실행 큐·upsert 삽입/갱신 건수 구분·새로고침 버튼·기본 DB 정합성(storageDb)·CollapsibleCardSection·실행 이력 폴링·CSV head 다운로드 반영. log.md 2026-02-26 적용분 기준. |
+| (2026-02-27) | **docs/main 동기화(2026-02-27 log 기준)**: ETL 한도 config 미지정 시 etl_server2 기본값(§3.2). DB 적재 배치 미입력 시 기본 1만 건 상한(02 §3.3). etl_server db_load_service 취소 체크 견고화(_safe_is_job_cancelled) 반영. README 요약·최종 업데이트 일자 갱신. |

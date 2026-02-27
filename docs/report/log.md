@@ -1,3 +1,80 @@
+## 2026-02-27 docs/main·README 동기화 (log 적용분 반영)
+
+**목적:** log.md에 기록된 2026-02-27 적용 시스템·기능이 docs/main 및 README에 반영되었는지 확인 후, 미반영 분을 문서에 반영.
+
+**반영 내용:**
+- **02_BACKEND_GUIDE.md**: §2 etl_server2에 etl_limits.py 추가. §3.3 ETL 한도: config 없을 때 etl_server2 기본값(50/100_000/50_000), 배치 크기 미입력 시 기본 10_000건 상한(etl_server·etl_server2), etl_server db_load_service _safe_is_job_cancelled(시스템 DB 연결 실패 시에도 적재 계속) 명시.
+- **00_PRD.md**: §3.2·§6.3 설정에 etl_limits 미지정 시 기본값·배치 미입력 시 1만 건 상한 반영. 변경 이력에 2026-02-27 동기화 항목 추가.
+- **README.md**: 설정 요약에 ETL 한도 기본값·배치 기본 1만 건 문구 추가, 최종 업데이트 2026-02-27로 갱신.
+
+**변경 파일:** docs/main/00_PRD.md, docs/main/02_BACKEND_GUIDE.md, docs/README.md, log.md.
+
+---
+
+## 2026-02-27 ETL2 학습 가이드 전면 재구성 (etc01_Backend_Learning_Flow.md)
+
+**목적:** ETL 시스템을 처음 접하는 개발자가 코드 전에 "시스템이 뭘 하는지, 데이터가 어떻게 흘러가는지"를 잡을 수 있도록, ETL2(Backend/etl_server2, Frontend/packages/etl2) 기준으로 학습 문서 전면 재구성.
+
+**구성:** (1) 시스템 한 문장 정의·E/T/L 다이어그램 (2) 전체 아키텍처(즉시 실행 vs 배치 경로) (3) 6개 레이어별 파일 역할 맵—실제 함수명·라이브러리 명시 (4) 기능별 데이터 흐름 3가지—파일 업로드→적재, 외부 DB→적재, SFTP/S3 배치—단계별 **호출 경로·함수·라이브러리** 표 (5) 변환 파이프라인·Job 생명주기·어댑터 패턴·DB 연결 구조·에러 처리 (6) 의존도 기준 학습 순서(Phase 1~6, 프론트 포함) (7) 설계 패턴·API 엔드포인트·자주 나오는 코드 패턴·한도·ERD.
+
+**변경 파일:** docs/report/etc01_Backend_Learning_Flow.md, 00_ReportIndex.md, log.md.
+
+---
+
+## 2026-02-27 ETL2 etl_limits 기본값 설정 (일반적 서버 사양 기준)
+
+**목적:** config에 etl_limits가 없을 때 0(한도 없음) 대신, 일반적 서버(4~8GB 메모리)에서 무난한 기본 한도 적용.
+
+**적용 값 (Backend/etl_server2/etl_limits.py):**
+| 한도 | 이전 | 제안 기본값 | 근거 |
+|------|------|-------------|------|
+| DEFAULT_MAX_FILE_SIZE_MB | 0 | 100 | PHP 128MB, Apache 50~100MB 등 사례; CSV/Excel 대부분 수용 |
+| DEFAULT_MAX_ROWS_PER_LOAD | 0 | 500_000 | SSIS 1만 행/버퍼, Oracle 2~3만/배치; 50만 건이면 스트리밍으로 나눠 처리 시 메모리 안전 |
+| DEFAULT_MAX_BATCH_SIZE | 0 | 10_000 | PostgreSQL 500~1k, Oracle JDBC 100~500, SSIS 1만 행; MySQL net_write_timeout·Oracle 메모리와 양립 |
+
+**동작:** config.backend.etl_limits에 값을 넣으면 해당 값 사용; 키가 없을 때만 위 기본값 사용. config에서 0을 넣으면 여전히 "한도 없음"으로 동작.
+
+**변경 파일:** Backend/etl_server2/etl_limits.py, log.md.
+
+---
+
+## 2026-02-27 DB 적재 배치 크기 미입력 시 기본 10000건 limit 적용
+
+**목적:** 배치 크기를 넣지 않으면 전체 fetch 경로로 가서 메모리·부하 위험이 있으므로, 적절한 기본 limit을 적용.
+
+**동작:** `effective_batch_size == 0`(배치 크기 미입력)일 때:
+- config `max_rows_per_load`가 있으면 그 값을 사용,
+- 없으면 **10000건**을 기본 상한으로 적용 (PostgreSQL·MySQL·Oracle 공통).
+
+**구현:** `db_load_service.py`에 `DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH = 10000` 상수 추가. limit_sql 계산 시 `effective_batch_size == 0`이면 `fetch_limit_when_no_batch = max_rows_per_load if max_rows_per_load > 0 else DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH`로 두고, Oracle은 `FETCH FIRST {n} ROWS ONLY`, MySQL/PostgreSQL은 `LIMIT {n}` 적용.
+
+**참고:** MySQL에만 10000 limit이 있던 것은 아님. 기존에는 배치 미입력 시 config 한도가 없으면 limit 없이 전체 fetch였음. 이번에 세 DB 공통으로 기본 10000 적용.
+
+**백엔드 정정:** ETL2 실행 시 etl_server2 라우터가 etl_server2.queue_worker를 기동하며, 해당 워커는 **etl_server2/db_load_service.py**의 run_db_load를 사용함. etl_server2에는 이미 **MySQL/Oracle batch_size=0 → effective_batch_size=10000** 스트리밍 로직(773–779라인)이 있어, 배치 크기 없이 MySQL 적재 시 1만 건씩 적재되는 것이 맞음. 제가 처음에 etl_server만 보고 "백엔드 미구현"이라고 한 것은 잘못이었음. etl_server에도 동일 로직(MySQL/Oracle 0 → 10000 스트리밍)을 추가해 두 경로를 맞춤.
+
+**UI 문구 정합성:** ETL 설정 모달·등록 폼·목록 도움말을 실제 동작에 맞게 수정(0 = 1만 행 공통, 목록 표시 "전체" → "1만 행(기본)").
+
+**변경 파일:** db_load_service.py(etl_server), EtlTableSettingsModal.jsx, DbConnectionForm.jsx, ETLTableList.jsx, log.md.
+
+---
+
+## 2026-02-27 ETL DB 적재 0건 진행 원인 분석 및 취소 체크 견고화
+
+**현상:** Job 107 (sample_newdb_oracle) 18:00 시작 → 14시간 후 08:28 실패, 처리 건수 0/900000, 에러 "connection to server 49.247.47.206:5432 failed: server closed the connection unexpectedly".
+
+**원인 요약:**
+1. **에러 발생 위치:** `run_db_load` 스트리밍 경로에서 **100건마다** 호출하는 `is_job_cancelled(job_id)`가 **시스템 DB**(49.247.47.206:5432)에 새 연결을 만들 때 실패한 것임. 적재 루프 자체는 타겟(메인) DB에 INSERT 중이었음.
+2. **왜 0건으로 보였는지:** 진행률(`rows_processed`)은 **배치 단위**로만 갱신됨(각 배치 처리 후 `update_job_progress` 호출). 첫 배치 안에서 100건 처리 후 첫 취소 체크 시 시스템 DB 연결 실패 → 예외 발생 → 해당 배치의 `commit`/`update_job_progress` 미실행 → 롤백되어 타겟에도 0건, UI에도 0건으로 표시됨.
+3. **14시간이 걸린 이유:** 첫 100건 INSERT가 **타겟(메인) DB 또는 네트워크 지연**으로 매우 느렸을 가능성이 큼(건당 수 분 수준). 그 후 첫 취소 체크에서 시스템 DB가 이미 끊어진 상태였을 수 있음.
+
+**대응:**  
+- **db_load_service:** `_safe_is_job_cancelled(job_id)` 헬퍼 추가. `is_job_cancelled` 호출을 try/except로 감싸, 시스템 DB 연결 실패 등 예외 시 경고 로그만 남기고 **False(취소 아님)** 반환하여 적재를 계속 진행하도록 함. 스트리밍·비스트리밍(full/incremental) 세 곳 모두 `_safe_is_job_cancelled` 사용하도록 변경.  
+- **운영 권장:** 타겟 DB(메인 DB) INSERT 지연 원인 점검(인덱스, 네트워크, 동시 부하). 시스템 DB(49.247.47.206) 안정성·타임아웃 점검.
+
+**변경 파일:** db_load_service.py, log.md.
+
+---
+
 ## 2026-02-26 배치 Job 중복 등록 방지 (동일 폴더·패턴·타겟·저장DB)
 
 **목표:** 동일한 폴더 연결·파일 패턴·타겟 테이블·저장 DB 조합으로 배치 Job을 두 개 이상 등록하지 않도록 하고, 이미 있으면 새 행을 추가하지 않고 안내만 하기.

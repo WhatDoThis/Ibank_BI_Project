@@ -16,7 +16,7 @@ CRM 데이터 조회·집계·적재를 위한 **노코드 쿼리 빌더**, **�
 | **ETL2** | `/ibank-bi/etl2` | 저장 DB 등록·선택, 테이블선택·컬럼매핑·변환 룰, 설정 모달(동기화·증분·행 실패 시 동작). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job·이력. ETL 목록에 배치 타겟 통합(삭제 시 cascade·테이블 DROP). 동일 폴더·패턴·타겟·저장DB 중복 Job 등록 방지 |
 
 - **설정**: `Env/config/config.json` 만 사용 (.env 미사용).
-- **상세 명세**: `docs/main/00_PRD.md`, `01_FRONTEND_GUIDE.md`, `02_BACKEND_GUIDE.md` 참고.
+- **상세 명세**: `docs/main/00_PRD.md`, `01_FRONTEND_GUIDE.md`, `02_BACKEND_GUIDE.md` 참고. ETL 한도(etl_limits) 미지정 시 etl_server2 기본값 적용, DB 적재 배치 미입력 시 1만 건 기본 상한.
 
 ---
 
@@ -83,4 +83,4 @@ python run.py front
 
 ---
 
-*최종 업데이트: 2026-02-26. docs/main 및 log.md 반영.*
+*최종 업데이트: 2026-02-27. docs/main 및 log.md 반영(ETL 한도 기본값·배치 기본 1만 건·취소 체크 견고화).*

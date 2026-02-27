@@ -73,10 +73,12 @@ Backend/
     ├── parser_file.py             # get_pending_files(첫 실행 시 대기 파일 전부 반환)
     ├── scheduler_file.py          # APScheduler·add_job·remove_job·reschedule_job
     ├── preview_service.py         # get_raw_sample·transform/preview용
-    └── schema_infer.py            # infer_schema(파일→컬럼·타입)
+    ├── schema_infer.py            # infer_schema(파일→컬럼·타입)
+    └── etl_limits.py              # config 없을 때 ETL 한도 기본값(get_etl_limits)
 ```
 
 - **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **etl2_router**(Backend.etl_server2.router).
+- **etl_limits**: etl_server2에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size) 반환. config에 0을 넣으면 해당 항목 한도 없음.
 
 ---
 
@@ -105,16 +107,17 @@ Backend/
 
 ### 3.3 ETL 한도 (etl_limits)
 
-- **backend.etl_limits**: 없으면 한도 미적용(0). config.json의 backend 안에 추가.
+- **backend.etl_limits**: config.json의 backend 안에 선택적으로 지정. **없으면** etl_server2의 **etl_limits 모듈 기본값** 사용(일반적 서버 4~8GB 메모리 기준 권장).
 
-| 키 | 의미 | 기본(0) |
-|----|------|---------|
-| **max_file_size_mb** | 파일 적재 시 파일 크기 상한(MB). 초과 시 거부. | 검사 안 함 |
-| **max_rows_per_load** | 1회 적재당 최대 행 수. 파일은 해당 행까지만 읽고, DB는 이 행 수까지만 가져와 적재. | 무제한 |
-| **max_batch_size** | DB 적재 시 배치당 최대 행 수(사용자 batch_size 상한). 스트리밍 시 메모리 상한. | 사용자값 그대로 |
+| 키 | 의미 | config 없을 때 기본값(etl_server2) | config 0일 때 |
+|----|------|-----------------------------------|----------------|
+| **max_file_size_mb** | 파일 적재 시 파일 크기 상한(MB). 초과 시 거부. | 50 | 검사 안 함 |
+| **max_rows_per_load** | 1회 적재당 최대 행 수. 파일은 해당 행까지만 읽고, DB는 이 행 수까지만 가져와 적재. | 100_000 | 무제한 |
+| **max_batch_size** | DB 적재 시 배치당 최대 행 수(사용자 batch_size 상한). 스트리밍 시 메모리 상한. | 50_000 | 사용자값 그대로 |
 
 - **파일**: 크기 > max_file_size_mb 이면 실패. CSV는 max_rows_per_load만큼만 읽고, Excel/Parquet는 읽은 뒤 해당 행 수로 자름.
-- **DB**: 사용자 batch_size가 있으면 min(사용자값, max_batch_size)로 배치. batch_size가 0이면 SELECT에 LIMIT max_rows_per_load 적용.
+- **DB**: 사용자 batch_size가 있으면 min(사용자값, max_batch_size)로 배치. **배치 크기 미입력(batch_size=0)** 시: config의 max_rows_per_load가 있으면 그 값을 상한으로 사용하고, 없으면 **기본 10_000건** 상한 적용(PostgreSQL·MySQL·Oracle 공통). etl_server: `DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH=10000`. etl_server2: MySQL/Oracle은 effective_batch_size=0일 때 10_000 스트리밍 배치 적용.
+- **취소 체크 견고화(etl_server)**: DB 적재 중 `is_job_cancelled` 조회 시 시스템 DB 연결 실패 등 예외가 나면 `_safe_is_job_cancelled`가 False(취소 아님)를 반환해 적재를 계속 진행. 스트리밍·비스트리밍 경로 모두 적용.
 
 ### 3.4 ETL 배치·실행 시점
 
@@ -341,6 +344,7 @@ Backend/
 - (2026-02-23) **ETL2** §2 아키텍처에 etl_server2 추가. §4.6 ETL2 API 표(PATCH tables/{id}, add-files-zip). §5.1 라우터에 etl2_router. **§6.7 etl_server2** 신설: 저장 DB·테이블/컬럼 조회·infer-schema·column_mapping·on_row_error·COPY 적재·동일 target_table 허용·08 참조.
 - (2026-02-23) **docs/main 최신화(08·log 기준)**: §3.2 메타에 etl_storage_connections·on_row_error 추가. §6.2 Oracle 적재 지원. §6.1 etl_server create_etl_table 설명 유지(동일 타겟 허용은 etl_server2). §6.7 COPY·on_row_error·설정(PATCH)·08 참조 반영.
 - (2026-02-26) **ETL2 폴더 배치·레지스트리·API·적재 로직 반영**: §2 etl_server2에 router_file, service_file, load_service_file, batch_executor_file, folder_adapter_file, parser_file, scheduler_file 명시. §4.6 transform/preview·batch/target-registry·DELETE target-registry/{id} 추가. §6.7 전면 갱신: etl_batch_target_registry·list/upsert/clear/delete_batch_target_registry·create_batch_job 중복 검사·update_run_progress·_batch_upsert 삽입/갱신 구분·get_pending_files 첫 실행 전부·download_file_head·09 참조. log.md 2026-02-26 적용분 기준.
+- (2026-02-27) **ETL 한도·배치 기본값·취소 체크**: §2 etl_server2에 etl_limits.py 추가. §3.3 etl_limits: config 없을 때 etl_server2 기본값(50/100_000/50_000), 배치 미입력 시 기본 10_000건 상한(etl_server·etl_server2), etl_server db_load_service _safe_is_job_cancelled(시스템 DB 실패 시 적재 계속) 반영.
 
 ---
 
