@@ -199,9 +199,19 @@ FolderAdapter (ABC, folder_adapter_file.py)
 
 - 새 프로토콜 추가 시: `FolderAdapter` 상속 후 위 메서드 구현. `service_file.get_folder_adapter`에서 `protocol`에 따라 인스턴스 반환.
 
----
+**7-1. 폴더 연결 목록 UI (구분용 표시)**
 
-## 8. DB 연결 구조
+등록된 폴더 연결 테이블(`FolderConnectionListFile.jsx`)에서는 프로토콜별로 **연결 구분용** 정보를 "연결 정보" 열에 표시한다.
+
+| 프로토콜 | 표시 내용 | 백엔드 필드 |
+|----------|-----------|--------------|
+| SFTP | IP(호스트) | `sftp_host` (list_folder_connections 응답) |
+| S3 | 버킷, 있으면 리전 함께 표시 (예: `my-bucket (ap-northeast-2)`) | `s3_bucket`, `s3_region` |
+
+- **목적:** 같은 이름의 연결이 여러 개일 때 호스트/버킷으로 구분하기 위함.
+- **API:** `GET /api/etl2/batch/folder-connections` → `service_file.list_folder_connections()`가 마스터 + sftp/s3 상세 JOIN으로 `sftp_host`, `sftp_port`, `sftp_remote_path`, `s3_bucket`, `s3_prefix`, `s3_region` 반환 (비밀번호·키·시크릿 제외).
+
+---
 
 | DB | 용도 | 접근 함수/설정 |
 |----|------|----------------|
@@ -271,7 +281,8 @@ FolderAdapter (ABC, folder_adapter_file.py)
 | 20 | `etl2/components/ETLTableList.jsx` | 목록, 설정 모달, 실행/취소 버튼 |
 | 21 | `etl2/components/DbConnectionForm.jsx` | DB 연결 등록·테이블 선택·배치 크기 |
 | 22 | `etl2/components/FileUploadForm.jsx` | 업로드·스키마 추론·타겟 테이블 선택 |
-| 23 | `etl2/components/BatchJobFormFile.jsx`, `BatchHistoryPanelFile.jsx` | 배치 등록·이력·상세 |
+| 23 | `etl2/components/FolderConnectionListFile.jsx` | 등록된 폴더 연결 목록·삭제. 연결 정보 열: SFTP=host(IP), S3=bucket(리전) |
+| 24 | `etl2/components/BatchJobFormFile.jsx`, `BatchHistoryPanelFile.jsx` | 배치 등록·이력·상세 |
 
 ---
 
@@ -313,6 +324,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
 
 | Method | Path | 라우터 함수 | 하는 일 |
 |--------|------|-------------|--------|
+| GET | /folder-connections | `list_folder_connections` | 폴더 연결 목록 (sftp_host, s3_bucket, s3_region 등, UI "연결 정보" 열용) |
 | POST | /folder-connections | `create_folder_connection` | SFTP/S3 연결 등록 |
 | POST | /folder-connections/test | `test_folder_connection` | 연결 테스트 |
 | GET | /folder-connections/{id}/patterns | `list_folder_patterns` | 패턴 자동 감지 |

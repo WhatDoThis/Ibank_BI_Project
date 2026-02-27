@@ -1,3 +1,15 @@
+## 2026-02-23 등록된 폴더 연결 테이블: 연결 정보 열 (SFTP IP, S3 버킷/리전) + 학습 가이드 반영
+
+**목적:** 등록된 폴더 연결 목록에서 SFTP는 IP(host), S3는 버킷(및 리전)을 구분용으로 표시. 동일 내용을 학습 가이드에 반영.
+
+**적용 내용:**
+- **FolderConnectionListFile.jsx:** 테이블에 "연결 정보" 열 추가. SFTP → `sftp_host`, S3 → `s3_bucket`(있으면 `s3_region` 함께 표시). 백엔드 `list_folder_connections` 응답 필드 그대로 사용.
+- **etc01_Backend_Learning_Flow.md:** §7-1 "폴더 연결 목록 UI (구분용 표시)" 추가(프로토콜별 표시 내용·백엔드 필드 표). §10 Phase 6에 `FolderConnectionListFile.jsx` 항목 추가. §12 배치 API에 `GET /folder-connections` 목록 조회 행 추가.
+
+**변경 파일:** Frontend/react-app/src/packages/etl2/components/FolderConnectionListFile.jsx, docs/report/etc01_Backend_Learning_Flow.md, log.md.
+
+---
+
 ## 2026-02-27 docs/main·README 동기화 (log 적용분 반영)
 
 **목적:** log.md에 기록된 2026-02-27 적용 시스템·기능이 docs/main 및 README에 반영되었는지 확인 후, 미반영 분을 문서에 반영.
@@ -201,6 +213,26 @@ non_pk가 없으면 기존처럼 DO NOTHING만 사용하며 updated=0.
 - **etl.css:** `etl-table-list__toolbar`, `etl-table-list__refresh`, `etl-db-form__table-actions`, `etl-history__bar`, `etl-history__refresh` 스타일 추가.
 
 **변경 파일:** ETLTableList.jsx, BatchHistoryPanelFile.jsx, JobHistoryPanel.jsx, etl.css, log.md.
+
+---
+
+## 2026-02-25 서브에이전트 동작 보강 (be-impl/fe-impl, @태그, 모델 안내)
+
+**목표:** 메인 혼자만 일하는 문제 해결 — 서브에이전트 실제 호출을 위해 에이전트 추가·오케스트레이터·커맨드·안내 문서 반영.
+
+**원인 대응:**
+- Auto/Composer 1 모델은 서브에이전트(Task 도구) 미지원 → 오케스트레이터·README에 지원 모델(Claude Opus 4.6, Gemini 2.5 Flash 등) 명시.
+- 위임 시 룰만 참고하고 메인이 직접 처리 → **@에이전트명** 호출 강제 및 add-feature에서 "위임과 조율만, 직접 코드 작성 금지" 명시.
+
+**구현 요약:**
+- **.cursor/agents/be-impl.md** (신규): 백엔드 service + router 통합 전담. description 짧고 구체적.
+- **.cursor/agents/fe-impl.md** (신규): 프론트 client.js + 컴포넌트 + CSS 통합 전담.
+- **.cursor/agents/verifier.md**: "파일을 수정하지 않습니다" 명시, 검증 항목·출력 형식 간결화.
+- **.cursor/rules/tech-lead-orchestration.mdc**: 필수 확인(서브에이전트 지원 모델), MUST @태그 사용, 위임 조건에 @be-impl @fe-impl @verifier 예시 추가.
+- **.cursor/commands/add-feature.md**: @be-impl @fe-impl @verifier 위임 순서로 재작성, "당신은 위임과 조율만 합니다" 명시, 모델 안내 문구 추가.
+- **.cursor/README.md** (신규): 서브에이전트 동작 조건(모델 선택·@호출·회색 박스 확인), 디렉터리 역할, 에이전트·커맨드 요약.
+
+**변경·신규 파일:** .cursor/agents/be-impl.md(신규), .cursor/agents/fe-impl.md(신규), .cursor/agents/verifier.md, .cursor/rules/tech-lead-orchestration.mdc, .cursor/commands/add-feature.md, .cursor/README.md(신규), log.md.
 
 ---
 

@@ -1,7 +1,7 @@
 /**
  * packages/etl2/components/FolderConnectionListFile.jsx (폴더 연결 목록)
  * =======================================================================
- * 09_ETL_SFTP_Connection. 등록된 폴더 연결 목록, 삭제.
+ * - 등록된 폴더 연결 목록, 삭제. SFTP는 IP(host), S3는 버킷(및 리전)을 연결 구분용으로 표시.
  *
  * [Main Functions]
  * ===========
@@ -40,6 +40,18 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
   useEffect(() => {
     loadList();
   }, [refreshKey]);
+
+  /** 프로토콜별 연결 구분용 표시: SFTP=host(IP), S3=bucket(region) */
+  function getConnectionInfo(row) {
+    const p = (row.protocol || '').toLowerCase();
+    if (p === 'sftp') return row.sftp_host || '-';
+    if (p === 's3') {
+      const bucket = row.s3_bucket || '';
+      const region = row.s3_region ? ` (${row.s3_region})` : '';
+      return bucket ? `${bucket}${region}` : '-';
+    }
+    return '-';
+  }
 
   async function handleDelete(folderConnectionId, connectionName) {
     if (!window.confirm(`"${connectionName || folderConnectionId}" 폴더 연결을 삭제하시겠습니까?`)) return;
@@ -81,6 +93,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
             <tr>
               <th>연결 이름</th>
               <th>프로토콜</th>
+              <th>연결 정보</th>
               <th>상태</th>
               <th>동작</th>
             </tr>
@@ -90,6 +103,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
               <tr key={row.folder_connection_id}>
                 <td>{row.connection_name || '-'}</td>
                 <td>{(row.protocol || '').toUpperCase()}</td>
+                <td>{getConnectionInfo(row)}</td>
                 <td>{row.is_verified ? '연결됨' : '미검증'}</td>
                 <td>
                   <button
