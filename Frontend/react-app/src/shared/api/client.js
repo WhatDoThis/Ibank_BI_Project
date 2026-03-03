@@ -512,6 +512,12 @@ export async function etl2GetSourceColumns(connectionId, sourceTable) {
   return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/source-columns?${params.toString()}`);
 }
 
+/** GET /api/etl2/connections/:id/source-indexes - 소스 테이블 인덱스 목록(PK 포함, is_primary 구분) */
+export async function etl2GetSourceIndexes(connectionId, sourceTable) {
+  const params = new URLSearchParams({ source_table: sourceTable });
+  return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/source-indexes?${params.toString()}`);
+}
+
 /** POST /api/etl2/connections/:id/validate-incremental-column - 증분 컬럼 날짜 검증(커스텀 입력 시) */
 export async function etl2ValidateIncrementalColumn(connectionId, sourceTable, columnName) {
   return request('POST', `/api/etl2/connections/${encodeURIComponent(connectionId)}/validate-incremental-column`, {
@@ -538,11 +544,6 @@ export async function etl2UpdateTransformRule(ruleId, body) {
 /** DELETE /api/etl2/transform-rules/:id - 변환 룰 삭제 */
 export async function etl2DeleteTransformRule(ruleId) {
   return request('DELETE', `/api/etl2/transform-rules/${encodeURIComponent(ruleId)}`);
-}
-
-/** POST /api/etl2/transform/preview - 변환 룰 미리보기. body: { etl_table_id?, rules?, sample_data?, max_rows? } */
-export async function etl2TransformPreview(body) {
-  return request('POST', '/api/etl2/transform/preview', body);
 }
 
 /** GET /api/etl2/storage-connections - 저장 DB(적재 대상) 목록 */

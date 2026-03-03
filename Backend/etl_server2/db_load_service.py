@@ -8,6 +8,9 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 41 - _get_source_connection: connection_id로 소스 PostgreSQL 연결
 59 - _is_date_type: data_type이 날짜/시간 타입인지 여부(증분 컬럼 추천용)
 71 - get_source_columns: connection_id·source_table으로 소스 테이블 컬럼 목록(column_name, data_type) 반환
+132 - get_source_indexes: connection_id·source_table으로 소스 테이블 인덱스 목록(PK 포함, is_primary 구분)
+133 - _fetch_source_indexes_pg / _fetch_source_indexes_mysql / _fetch_source_indexes_oracle: DB별 인덱스 조회
+134 - _create_indexes_on_target: 타겟 테이블에 index_definitions 기준으로 CREATE INDEX IF NOT EXISTS (PK 제외)
 125 - validate_incremental_column: 증분 컬럼 날짜 검증(date 타입 또는 샘플 isdate)
 55 - _fetch_source_columns_mysql: MySQL information_schema.COLUMNS (column_name, data_type)
 72 - _pg_type_from_mysql: MySQL DATA_TYPE → PostgreSQL 타입 문자열
@@ -123,6 +126,202 @@ def get_source_columns(connection_id: int, source_table: str) -> List[dict]:
             src_conn = _get_source_connection(connection_id)
             cols = _fetch_source_columns(src_conn, src_schema, source_table_name)
         return [{"column_name": col[0], "data_type": col[1]} for col in cols]
+    finally:
+        if src_conn:
+            try:
+                src_conn.close()
+            except Exception:
+                pass
+
+
+def _fetch_source_indexes_pg(conn, schema: str, table: str) -> List[dict]:
+    """PostgreSQL pg_catalog에서 인덱스 목록. 반환: [{index_name, columns: [str], is_unique, is_primary}]."""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT i.relname AS index_name,
+                   array_agg(a.attname ORDER BY x.ordinality) AS columns,
+                   ix.indisunique AS is_unique,
+                   ix.indisprimary AS is_primary
+            FROM pg_class t
+            JOIN pg_index ix ON t.oid = ix.indrelid
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality)
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+                AND a.attnum > 0 AND NOT a.attisdropped
+            WHERE n.nspname = %s AND t.relname = %s
+            GROUP BY i.relname, ix.indisunique, ix.indisprimary
+            ORDER BY i.relname
+            """,
+            (schema, table),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        out = []
+        for r in rows:
+            cols = r["columns"]
+            if isinstance(cols, (list, tuple)):
+                col_list = list(cols)
+            else:
+                col_list = [c.strip() for c in (str(cols).strip("{}") or "").split(",") if c.strip()]
+            out.append({
+                "index_name": (r["index_name"] or "").strip(),
+                "columns": col_list,
+                "is_unique": bool(r.get("is_unique")),
+                "is_primary": bool(r.get("is_primary")),
+            })
+        return out
+    except Exception as e:
+        logger.warning("_fetch_source_indexes_pg %s.%s: %s", schema, table, e)
+        return []
+
+
+def _fetch_source_indexes_mysql(conn, table_schema: str, table_name: str) -> List[dict]:
+    """MySQL information_schema.STATISTICS에서 인덱스 목록. 반환: [{index_name, columns, is_unique, is_primary}]."""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT INDEX_NAME AS index_name,
+                   GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS columns,
+                   NOT NON_UNIQUE AS is_unique,
+                   (INDEX_NAME = 'PRIMARY') AS is_primary
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+            GROUP BY INDEX_NAME, NON_UNIQUE
+            ORDER BY INDEX_NAME
+            """,
+            (table_schema, table_name),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        out = []
+        for r in rows:
+            if isinstance(r, dict):
+                idx_name = (r.get("index_name") or r.get("INDEX_NAME") or "").strip()
+                cols_str = r.get("columns") or r.get("COLUMN_NAME") or ""
+                is_unique = r.get("is_unique", False)
+                is_primary = r.get("is_primary", False) or (idx_name == "PRIMARY")
+            else:
+                idx_name = (r[0] or "").strip() if len(r) > 0 else ""
+                cols_str = (r[1] or "") if len(r) > 1 else ""
+                is_unique = bool(r[2]) if len(r) > 2 else False
+                is_primary = bool(r[3]) if len(r) > 3 else (idx_name == "PRIMARY")
+            col_list = [c.strip() for c in (cols_str or "").split(",") if c.strip()]
+            out.append({
+                "index_name": idx_name,
+                "columns": col_list,
+                "is_unique": bool(is_unique),
+                "is_primary": bool(is_primary),
+            })
+        return out
+    except Exception as e:
+        logger.warning("_fetch_source_indexes_mysql %s.%s: %s", table_schema, table_name, e)
+        return []
+
+
+def _fetch_source_indexes_oracle(conn, owner: str, table_name: str) -> List[dict]:
+    """Oracle ALL_INDEXES + ALL_IND_COLUMNS에서 인덱스 목록. is_primary는 ALL_CONSTRAINTS로 판별."""
+    try:
+        cur = conn.cursor()
+        o = (owner or "").strip().upper()
+        t = (table_name or "").strip().upper()
+        if not t:
+            return []
+        cur.execute(
+            """
+            SELECT i.INDEX_NAME,
+                   LISTAGG(c.COLUMN_NAME, ',') WITHIN GROUP (ORDER BY c.COLUMN_POSITION) AS columns,
+                   CASE WHEN i.UNIQUENESS = 'UNIQUE' THEN 1 ELSE 0 END AS is_unique
+            FROM ALL_INDEXES i
+            JOIN ALL_IND_COLUMNS c ON i.INDEX_NAME = c.INDEX_NAME AND i.TABLE_OWNER = c.INDEX_OWNER
+            WHERE i.TABLE_OWNER = :1 AND i.TABLE_NAME = :2
+            GROUP BY i.INDEX_NAME, i.UNIQUENESS
+            ORDER BY i.INDEX_NAME
+            """,
+            (o, t),
+        )
+        rows = cur.fetchall()
+        pk_index_names = set()
+        try:
+            cur.execute(
+                """
+                SELECT CONSTRAINT_NAME FROM ALL_CONSTRAINTS
+                WHERE TABLE_OWNER = :1 AND TABLE_NAME = :2 AND CONSTRAINT_TYPE = 'P'
+                """,
+                (o, t),
+            )
+            for pk_row in cur.fetchall():
+                name = pk_row[0] if isinstance(pk_row, (tuple, list)) else pk_row.get("CONSTRAINT_NAME")
+                if name:
+                    pk_index_names.add((name or "").strip().upper())
+        except Exception:
+            pass
+        cur.close()
+        out = []
+        for r in rows:
+            idx_name = (r[0] if isinstance(r, (tuple, list)) else r.get("INDEX_NAME") or "").strip()
+            cols_str = r[1] if isinstance(r, (tuple, list)) and len(r) > 1 else (r.get("columns") or r.get("COLUMN_NAME") or "")
+            is_unique = bool(r[2] if isinstance(r, (tuple, list)) and len(r) > 2 else r.get("is_unique"))
+            is_primary = (idx_name or "").upper() in pk_index_names
+            col_list = [c.strip() for c in (cols_str or "").split(",") if c.strip()]
+            out.append({
+                "index_name": idx_name,
+                "columns": col_list,
+                "is_unique": bool(is_unique),
+                "is_primary": bool(is_primary),
+            })
+        return out
+    except Exception as e:
+        logger.warning("_fetch_source_indexes_oracle %s.%s: %s", owner, table_name, e)
+        return []
+
+
+def get_source_indexes(connection_id: int, source_table: str) -> List[dict]:
+    """
+    소스 DB의 지정 테이블 인덱스 목록 반환. PK 포함(is_primary로 구분).
+    반환: [{"index_name", "columns": [str], "is_unique": bool, "is_primary": bool}]
+    """
+    c = etl_service.get_connection_for_etl(connection_id)
+    if not c:
+        raise ValueError("연결을 찾을 수 없습니다.")
+    stype = (c.get("source_type") or "postgresql").strip().lower()
+    if stype not in ("postgresql", "mysql", "oracle"):
+        raise ValueError("postgresql, mysql, oracle만 지원합니다.")
+    source_table = etl_service._validate_source_table(source_table)
+    conn_schema_pg = (c.get("schema_name") or "public").strip()
+    conn_db_mysql = (c.get("database_name") or "").strip()
+    conn_schema_oracle = (c.get("schema_name") or c.get("username") or "").strip()
+    src_schema, source_table_name = etl_service.parse_source_table_parts(
+        source_table, stype,
+        conn_schema=conn_schema_oracle if stype == "oracle" else conn_schema_pg,
+        conn_db=conn_db_mysql,
+    )
+    if not source_table_name:
+        raise ValueError("source_table이 비어 있습니다.")
+    src_conn = None
+    try:
+        if stype == "mysql":
+            src_conn = etl_service._connect_mysql(
+                c["host"], c.get("port") or 3306, c["database_name"],
+                c["username"], c.get("encrypted_password") or "",
+            )
+            return _fetch_source_indexes_mysql(src_conn, src_schema, source_table_name)
+        if stype == "oracle":
+            src_conn = etl_service._connect_oracle(
+                c["host"], c.get("port") or 1521, c["database_name"],
+                c["username"], c.get("encrypted_password") or "",
+            )
+            owner = (src_schema or "").strip().upper() or (c.get("username") or "").strip().upper()
+            tbl = source_table_name.strip().upper()
+            return _fetch_source_indexes_oracle(src_conn, owner, tbl)
+        src_conn = _get_source_connection(connection_id)
+        return _fetch_source_indexes_pg(src_conn, src_schema, source_table_name)
+    except Exception as e:
+        logger.warning("get_source_indexes connection_id=%s source_table=%s: %s", connection_id, source_table, e)
+        return []
     finally:
         if src_conn:
             try:
@@ -360,6 +559,47 @@ def _get_target_column_list(cur, schema: str, table_name: str) -> List[str]:
         return [r["column_name"] for r in cur.fetchall()]
     except Exception:
         return []
+
+
+def _create_indexes_on_target(cur, conn, main_schema: str, target_table: str, index_definitions: Optional[List[dict]]) -> None:
+    """타겟 테이블에 인덱스 생성. 이미 존재하면 건너뜀. PK 인덱스는 제외(테이블 생성 시 반영)."""
+    if not index_definitions:
+        return
+    full_table = f'"{main_schema}"."{target_table}"'
+    for idx_def in index_definitions:
+        if not isinstance(idx_def, dict):
+            continue
+        idx_name = (idx_def.get("index_name") or "").strip()
+        columns = idx_def.get("columns") or []
+        is_unique = idx_def.get("is_unique", False)
+        if idx_def.get("is_primary"):
+            continue
+        if not columns:
+            continue
+        # 인덱스명 미입력 시 컬럼명 기반 자동 생성 (예: idx_col1_col2)
+        if not idx_name:
+            safe_cols = [re.sub(r"[^a-zA-Z0-9_]", "", str(c).strip().replace(" ", "_")) for c in columns if isinstance(c, str) and c.strip()]
+            idx_name = "idx_" + "_".join(safe_cols) if safe_cols else ""
+        if not idx_name:
+            continue
+        # 컬럼명은 CSV/테이블 실제 컬럼명(공백·한글 등 가능)이므로 _validate_identifier 사용하지 않음.
+        # PostgreSQL 식별자로 사용할 때 큰따옴표만 이스케이프(" → "")하여 SQL 삽입 방지.
+        def _quote_ident(s: str) -> str:
+            s = (s or "").strip()
+            if not s:
+                return ""
+            return f'"{s.replace(chr(34), chr(34) + chr(34))}"'
+        col_quoted = [_quote_ident(str(c)) for c in columns if isinstance(c, str) and str(c).strip()]
+        cols_str = ", ".join(c for c in col_quoted if c)
+        if not cols_str:
+            continue
+        unique_str = "UNIQUE " if is_unique else ""
+        try:
+            cur.execute(f'CREATE {unique_str}INDEX IF NOT EXISTS "{idx_name}" ON {full_table} ({cols_str})')
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.warning("인덱스 생성 실패 %s: %s", idx_name, e)
 
 
 def _fetch_source_columns_oracle(conn, owner: str, table_name: str) -> List[Tuple[str, str]]:
@@ -602,6 +842,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     - job_id가 있으면(Phase 6 큐) 해당 Job 사용; 없으면 새 Job 삽입 후 실행.
     - sync_mode=full: 소스 전체 SELECT → 메인 DB DROP+CREATE+INSERT.
     - sync_mode=incremental: incremental_column > last_synced_at 조건 SELECT → Upsert.
+    - src_conn/conn_main/cur_src/cur_main 상단 None 초기화, 예외 시(첫 try except) src_conn 반드시 close.
     반환: { job_id, status, rows_processed, error_message? }
     """
     row = etl_service.get_etl_table(etl_table_id)
@@ -631,6 +872,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     on_row_error = (row.get("on_row_error") or "fail").strip().lower()
     if on_row_error not in ("fail", "skip"):
         on_row_error = "fail"
+
+    src_conn = None
+    conn_main = None
+    cur_src = None
+    cur_main = None
 
     if not connection_id or not source_table or not target_table:
         raise ValueError("connection_id, source_table, target_table가 필요합니다.")
@@ -782,6 +1028,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         else:
             limit_sql = f" LIMIT {max_rows_per_load}" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
     except Exception as e:
+        if src_conn is not None:
+            try:
+                src_conn.close()
+            except Exception:
+                pass
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": str(e)}
@@ -995,6 +1246,15 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     src_conn.close()
                 except Exception:
                     pass
+            idx_def = row.get("index_definitions")
+            if idx_def:
+                _conn_idx, _schema_idx = etl_service.get_target_db_connection(row.get("storage_connection_id"))
+                _cur_idx = _conn_idx.cursor()
+                try:
+                    _create_indexes_on_target(_cur_idx, _conn_idx, _schema_idx, target_table, idx_def)
+                finally:
+                    _cur_idx.close()
+                    _conn_idx.close()
             if last_synced_candidate is not None:
                 etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
             if not row.get("storage_connection_id"):
@@ -1021,8 +1281,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             if row_type == "tuple":
                 rows_data = [dict(zip(col_names, r)) for r in rows_data]
             etl_service.set_job_total_rows(job_id, len(rows_data))
+            rows_processed = len(rows_data)
 
-        if rows_processed == 0:
+        if len(rows_data) == 0:
             etl_service.update_job(job_id, "completed", rows_processed=0)
             etl_service.update_etl_table_status(etl_table_id, "done")
             logger.info("ETL db load completed job_id=%s rows_processed=0 (no rows)", job_id)
@@ -1062,144 +1323,155 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         col_defs = ", ".join(f'"{c[0]}" {c[1]}' for c in columns_final)
         col_types = [t for _, t in columns_final]
 
-        conn_main, main_schema = etl_service.get_target_db_connection(row.get("storage_connection_id"))
-        cur_main = conn_main.cursor()
-        full_name = f'"{main_schema}"."{target_table}"'
-
-        # DROP 직전 항상 DB에서 sync_mode 재조회. full일 때만 DROP(증분인데 전체 삭제 방지).
-        effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
-        if sync_mode == "full" and effective_sync != "full":
-            logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
-            sync_mode = "incremental"
-        full_fetch_notice = None
+        conn_main = None
         try:
-            if effective_sync == "full":
-                cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-                pk_part = (", PRIMARY KEY (" + ", ".join(f'"{p}"' for p in pk_list_full) + ")") if pk_list_full else ""
-                cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{pk_part})")
-                conn_main.commit()
-                if etl_service.is_job_cancelled(job_id):
-                    conn_main.rollback()
-                    try:
-                        cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-                        conn_main.commit()
-                    except Exception:
-                        conn_main.rollback()
-                    etl_service.update_job(job_id, "cancelled", rows_processed=0, error_message="사용자 취소")
-                    etl_service.update_etl_table_status(etl_table_id, "error")
-                    return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
-                rows_tuples = [
-                    tuple(r.get(m["source"]) for m in mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
-                    for r in rows_data
-                ]
-                _copy_insert_batch(cur_main, full_name, cols, rows_tuples)
-                conn_main.commit()
-                if incremental_column and incremental_column in col_names:
-                    inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
-                    max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
-                    if max_vals:
-                        from datetime import datetime as dt
-                        latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
-                        etl_service.update_last_synced_at(etl_table_id, latest)
-            else:
-                # incremental: Upsert. PK 필요.
-                if not pk_columns:
-                    etl_service.update_job(job_id, "failed", error_message="incremental 모드는 pk_columns가 필요합니다.")
-                    etl_service.update_etl_table_status(etl_table_id, "error")
-                    return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "pk_columns 필요"}
-                pk_list = [x.strip() for x in pk_columns.split(",") if x.strip()]
-                if mapping_used:
-                    pk_list = [m["target"] for m in mapping_used if m["source"] in pk_list] or pk_list
-                for pk in pk_list:
-                    etl_service._validate_identifier(pk, "pk_columns")
-                try:
-                    cur_main.execute(f"SELECT 1 FROM {full_name} LIMIT 1")
-                    cur_main.fetchone()
-                except Exception:
-                    uniq_part = f", UNIQUE ({', '.join(chr(34) + p + chr(34) for p in pk_list)})" if pk_list else ""
-                    cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{uniq_part})")
+            conn_main, main_schema = etl_service.get_target_db_connection(row.get("storage_connection_id"))
+            cur_main = conn_main.cursor()
+            full_name = f'"{main_schema}"."{target_table}"'
+
+            # DROP 직전 항상 DB에서 sync_mode 재조회. full일 때만 DROP(증분인데 전체 삭제 방지).
+            effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
+            if sync_mode == "full" and effective_sync != "full":
+                logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
+                sync_mode = "incremental"
+            full_fetch_notice = None
+            try:
+                if effective_sync == "full":
+                    cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                    pk_part = (", PRIMARY KEY (" + ", ".join(f'"{p}"' for p in pk_list_full) + ")") if pk_list_full else ""
+                    cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{pk_part})")
                     conn_main.commit()
-                else:
-                    err_msg = _ensure_unique_constraint(cur_main, conn_main, main_schema, target_table, pk_list)
-                    if err_msg:
-                        etl_service.update_job(job_id, "failed", error_message=f"타겟 테이블에 UNIQUE 제약을 추가할 수 없습니다. {err_msg}")
+                    if etl_service.is_job_cancelled(job_id):
+                        conn_main.rollback()
+                        try:
+                            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+                            conn_main.commit()
+                        except Exception:
+                            conn_main.rollback()
+                        etl_service.update_job(job_id, "cancelled", rows_processed=0, error_message="사용자 취소")
                         etl_service.update_etl_table_status(etl_table_id, "error")
-                        cur_main.close()
-                        conn_main.close()
-                        return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": err_msg}
-                    # 타겟 테이블에 실제 존재하는 컬럼만으로 INSERT 제한
-                    target_columns = _get_target_column_list(cur_main, main_schema, target_table)
-                    if target_columns:
-                        target_set = set(target_columns)
-                        missing_pk = [p for p in pk_list if p not in target_set]
-                        if missing_pk:
-                            etl_service.update_job(
-                                job_id, "failed",
-                                error_message=f"타겟 테이블에 PK 컬럼({', '.join(missing_pk)})이 없습니다. 증분 적재를 위해 타겟 테이블에 PK를 추가하거나 동기화 모드를 전체로 변경하세요.",
-                            )
+                        return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
+                    rows_tuples = [
+                        tuple(r.get(m["source"]) for m in mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
+                        for r in rows_data
+                    ]
+                    _copy_insert_batch(cur_main, full_name, cols, rows_tuples)
+                    conn_main.commit()
+                    if incremental_column and incremental_column in col_names:
+                        inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
+                        max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
+                        if max_vals:
+                            from datetime import datetime as dt
+                            latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
+                            etl_service.update_last_synced_at(etl_table_id, latest)
+                else:
+                    # incremental: Upsert. PK 필요.
+                    if not pk_columns:
+                        etl_service.update_job(job_id, "failed", error_message="incremental 모드는 pk_columns가 필요합니다.")
+                        etl_service.update_etl_table_status(etl_table_id, "error")
+                        return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "pk_columns 필요"}
+                    pk_list = [x.strip() for x in pk_columns.split(",") if x.strip()]
+                    if mapping_used:
+                        pk_list = [m["target"] for m in mapping_used if m["source"] in pk_list] or pk_list
+                    for pk in pk_list:
+                        etl_service._validate_identifier(pk, "pk_columns")
+                    try:
+                        cur_main.execute(f"SELECT 1 FROM {full_name} LIMIT 1")
+                        cur_main.fetchone()
+                    except Exception:
+                        uniq_part = f", UNIQUE ({', '.join(chr(34) + p + chr(34) for p in pk_list)})" if pk_list else ""
+                        cur_main.execute(f"CREATE TABLE {full_name} ({col_defs}{uniq_part})")
+                        conn_main.commit()
+                    else:
+                        err_msg = _ensure_unique_constraint(cur_main, conn_main, main_schema, target_table, pk_list)
+                        if err_msg:
+                            etl_service.update_job(job_id, "failed", error_message=f"타겟 테이블에 UNIQUE 제약을 추가할 수 없습니다. {err_msg}")
                             etl_service.update_etl_table_status(etl_table_id, "error")
                             cur_main.close()
                             conn_main.close()
-                            return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "PK 컬럼 없음"}
-                        _cols_before = list(cols)
-                        cols_filtered = [c for c in cols if c in target_set]
-                        if len(cols_filtered) < len(cols):
-                            logger.info(
-                                "ETL db load etl_table_id=%s: 타겟 테이블에 없는 컬럼 %s 건 제외 후 증분 적재",
-                                etl_table_id, len(cols) - len(cols_filtered),
-                            )
-                        col_types = [col_types[_cols_before.index(c)] for c in cols_filtered]
-                        cols = cols_filtered
-                        pk_list = [p for p in pk_list if p in cols]
-                if etl_service.is_job_cancelled(job_id):
-                    conn_main.rollback()
-                    etl_service.update_job(job_id, "cancelled", rows_processed=0, error_message="사용자 취소")
-                    etl_service.update_etl_table_status(etl_table_id, "error")
-                    return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
-                rows_tuples_inc = [
-                    tuple(r.get(c) for c in cols)
-                    for r in rows_data
-                ]
-                if on_row_error == "skip":
-                    rows_processed, full_fetch_failed = _copy_upsert_batch_safe(
-                        cur_main, conn_main, full_name, cols, col_types, pk_list,
-                        rows_tuples_inc, job_id=job_id, batch_offset=0,
-                    )
-                    conn_main.commit()
-                    full_fetch_notice = None
-                    if full_fetch_failed:
-                        full_fetch_notice = f"적재 실패 {len(full_fetch_failed)}건 (총 {rows_processed + len(full_fetch_failed)}건 중). "
-                        full_fetch_notice += "; ".join(f"row#{f['row_index']}: {f['error'][:80]}" for f in full_fetch_failed[:10])
-                else:
-                    _copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list, rows_tuples_inc)
-                    conn_main.commit()
-                    full_fetch_notice = None
-                # last_synced_at: 이번에 가져온 행들 중 incremental_column 최대값
-                if incremental_column and incremental_column in col_names:
-                    inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
-                    max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
-                    if max_vals:
-                        from datetime import datetime as dt
-                        if isinstance(max_vals[0], dt):
-                            latest = max(max_vals)
-                        else:
-                            latest = max(max_vals)
-                        etl_service.update_last_synced_at(etl_table_id, latest)
+                            return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": err_msg}
+                        # 타겟 테이블에 실제 존재하는 컬럼만으로 INSERT 제한
+                        target_columns = _get_target_column_list(cur_main, main_schema, target_table)
+                        if target_columns:
+                            target_set = set(target_columns)
+                            missing_pk = [p for p in pk_list if p not in target_set]
+                            if missing_pk:
+                                etl_service.update_job(
+                                    job_id, "failed",
+                                    error_message=f"타겟 테이블에 PK 컬럼({', '.join(missing_pk)})이 없습니다. 증분 적재를 위해 타겟 테이블에 PK를 추가하거나 동기화 모드를 전체로 변경하세요.",
+                                )
+                                etl_service.update_etl_table_status(etl_table_id, "error")
+                                cur_main.close()
+                                conn_main.close()
+                                return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "PK 컬럼 없음"}
+                            _cols_before = list(cols)
+                            cols_filtered = [c for c in cols if c in target_set]
+                            if len(cols_filtered) < len(cols):
+                                logger.info(
+                                    "ETL db load etl_table_id=%s: 타겟 테이블에 없는 컬럼 %s 건 제외 후 증분 적재",
+                                    etl_table_id, len(cols) - len(cols_filtered),
+                                )
+                            col_types = [col_types[_cols_before.index(c)] for c in cols_filtered]
+                            cols = cols_filtered
+                            pk_list = [p for p in pk_list if p in cols]
+                    if etl_service.is_job_cancelled(job_id):
+                        conn_main.rollback()
+                        etl_service.update_job(job_id, "cancelled", rows_processed=0, error_message="사용자 취소")
+                        etl_service.update_etl_table_status(etl_table_id, "error")
+                        return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
+                    rows_tuples_inc = [
+                        tuple(r.get(c) for c in cols)
+                        for r in rows_data
+                    ]
+                    if on_row_error == "skip":
+                        rows_processed, full_fetch_failed = _copy_upsert_batch_safe(
+                            cur_main, conn_main, full_name, cols, col_types, pk_list,
+                            rows_tuples_inc, job_id=job_id, batch_offset=0,
+                        )
+                        conn_main.commit()
+                        full_fetch_notice = None
+                        if full_fetch_failed:
+                            full_fetch_notice = f"적재 실패 {len(full_fetch_failed)}건 (총 {rows_processed + len(full_fetch_failed)}건 중). "
+                            full_fetch_notice += "; ".join(f"row#{f['row_index']}: {f['error'][:80]}" for f in full_fetch_failed[:10])
+                    else:
+                        _copy_upsert_batch(cur_main, full_name, cols, col_types, pk_list, rows_tuples_inc)
+                        conn_main.commit()
+                        full_fetch_notice = None
+                    # last_synced_at: 이번에 가져온 행들 중 incremental_column 최대값
+                    if incremental_column and incremental_column in col_names:
+                        inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
+                        max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
+                        if max_vals:
+                            from datetime import datetime as dt
+                            if isinstance(max_vals[0], dt):
+                                latest = max(max_vals)
+                            else:
+                                latest = max(max_vals)
+                            etl_service.update_last_synced_at(etl_table_id, latest)
+                idx_def = row.get("index_definitions")
+                if idx_def:
+                    _create_indexes_on_target(cur_main, conn_main, main_schema, target_table, idx_def)
+            finally:
+                cur_main.close()
+                conn_main.close()
+
+            if not row.get("storage_connection_id"):
+                from Env.config.loader import add_allowed_table
+                add_allowed_table(target_table)
+
+            if full_fetch_notice:
+                etl_service.update_job(job_id, "completed", rows_processed=rows_processed, notice=full_fetch_notice)
+            else:
+                etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
+            etl_service.update_etl_table_status(etl_table_id, "done")
+            logger.info("ETL db load completed job_id=%s rows_processed=%s", job_id, rows_processed)
+            return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}
         finally:
-            cur_main.close()
-            conn_main.close()
-
-        if not row.get("storage_connection_id"):
-            from Env.config.loader import add_allowed_table
-            add_allowed_table(target_table)
-
-        if full_fetch_notice:
-            etl_service.update_job(job_id, "completed", rows_processed=rows_processed, notice=full_fetch_notice)
-        else:
-            etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
-        etl_service.update_etl_table_status(etl_table_id, "done")
-        logger.info("ETL db load completed job_id=%s rows_processed=%s", job_id, rows_processed)
-        return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}
+            if conn_main:
+                try:
+                    conn_main.close()
+                except Exception:
+                    pass
 
     except Exception as e:
         logger.exception("ETL db load failed job_id=%s: %s", job_id, e)

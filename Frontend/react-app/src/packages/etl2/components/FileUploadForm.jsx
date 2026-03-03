@@ -35,6 +35,7 @@ function FileUploadForm({ onSuccess }) {
   const [targetTableSelectOpen, setTargetTableSelectOpen] = useState(false);
   const [columnMapping, setColumnMapping] = useState(null);
   const [pkColumns, setPkColumns] = useState('');
+  const [indexDefinitions, setIndexDefinitions] = useState(null);
   const [sourceColumnsForModal, setSourceColumnsForModal] = useState([]);
   const [inferSchemaLoading, setInferSchemaLoading] = useState(false);
   const fileInputRef = useRef(null);
@@ -113,6 +114,7 @@ function FileUploadForm({ onSuccess }) {
       if (appendStorageId && sid != null) form.append('storage_connection_id', String(sid));
       if (columnMapping && Array.isArray(columnMapping) && columnMapping.length > 0) form.append('column_mapping', JSON.stringify(columnMapping));
       if ((pkColumns || '').trim()) form.append('pk_columns', (pkColumns || '').trim());
+      if (indexDefinitions && Array.isArray(indexDefinitions) && indexDefinitions.length > 0) form.append('index_definitions', JSON.stringify(indexDefinitions));
       form.append('created_by', 'user');
       const data = await etl2UploadFile(form);
       setResult(data);
@@ -124,6 +126,7 @@ function FileUploadForm({ onSuccess }) {
         setFile(null);
         setColumnMapping(null);
         setPkColumns('');
+        setIndexDefinitions(null);
       }
     } catch (err) {
       setError(err.message || '업로드 실패');
@@ -203,17 +206,19 @@ function FileUploadForm({ onSuccess }) {
                 currentTargetTable={targetTable}
                 currentColumnMapping={columnMapping || []}
                 currentPkColumns={pkColumns}
+                currentIndexDefinitions={indexDefinitions || []}
                 sourceColumns={sourceColumnsForModal}
-                onSelect={(tableName, mapping, pkCols) => {
+                onSelect={(tableName, mapping, pkCols, idxDefs) => {
                   setTargetTable(tableName);
                   setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
                   setPkColumns(pkCols ?? '');
+                  setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
                   setTargetTableSelectOpen(false);
                 }}
               />
             </Suspense>
           )}
-          {(targetTable.trim() || (columnMapping && columnMapping.length > 0)) && (
+          {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || (indexDefinitions && indexDefinitions.length > 0)) && (
             <div className="etl-file-form__row etl-file-form__summary">
               <label className="etl-file-form__label">설정 요약</label>
               <div className="etl-file-form__summary-box">
@@ -240,6 +245,11 @@ function FileUploadForm({ onSuccess }) {
                 {pkColumns.trim() && (
                   <p className="etl-file-form__summary-line">
                     <strong>PK:</strong> {pkColumns.trim()}
+                  </p>
+                )}
+                {indexDefinitions && indexDefinitions.length > 0 && (
+                  <p className="etl-file-form__summary-line">
+                    <strong>인덱스:</strong> {indexDefinitions.length}개
                   </p>
                 )}
                 <button

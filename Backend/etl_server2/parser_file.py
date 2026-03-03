@@ -13,7 +13,7 @@ Backend.etl_server2.parser_file (파일명 파싱·패턴 추출·파일 읽기)
 
 [Dependencies]
 =========
-- re, datetime, pandas, openpyxl, xlrd, pyarrow
+- re, datetime, pandas, openpyxl, xlrd, pyarrow, Backend.etl_server2.csv_reader (CSV 읽기)
 """
 
 import re
@@ -135,7 +135,7 @@ def read_file(
     로컬 파일을 pandas DataFrame으로 읽기.
     - extension: csv, xlsx, xls, parquet 중 하나. 미지원 시 ValueError.
     - max_rows: 지정 시 해당 행 수까지만 읽기 (csv/excel은 nrows, parquet는 head).
-    - CSV: encoding utf-8, 실패 시 cp949; engine='python', on_bad_lines='skip'.
+    - CSV: csv_reader.read_csv_robust 사용(인코딩 자동 감지 또는 UTF-8/CP949 등 순차 시도).
     """
     import os
 
@@ -148,10 +148,8 @@ def read_file(
     nrows = int(max_rows) if max_rows is not None and max_rows > 0 else None
 
     if ext == "csv":
-        try:
-            df = _read_csv_robust(local_path, "utf-8", nrows)
-        except UnicodeDecodeError:
-            df = _read_csv_robust(local_path, "cp949", nrows)
+        from Backend.etl_server2 import csv_reader
+        df, _encoding_used, _ = csv_reader.read_csv_robust(local_path, nrows=nrows)
         return df
 
     if ext in ("xlsx", "xls"):
@@ -164,14 +162,3 @@ def read_file(
         return df
 
     raise ValueError(f"지원하지 않는 확장자: {extension}")
-
-
-def _read_csv_robust(path: str, encoding: str, nrows: Optional[int]) -> pd.DataFrame:
-    """CSV 읽기. engine=python, on_bad_lines='skip'. encoding 실패 시 호출부에서 cp949 재시도. pandas 2.x 기준."""
-    return pd.read_csv(
-        path,
-        encoding=encoding,
-        nrows=nrows,
-        engine="python",
-        on_bad_lines="skip",
-    )

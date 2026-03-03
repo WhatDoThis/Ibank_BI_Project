@@ -104,6 +104,8 @@ class CreateBatchJobBody(BaseModel):
     interval_minutes: int = Field(10, ge=10, le=1440, description="실행 주기(분)")
     is_active: bool = Field(True, description="스케줄러 활성 여부")
     column_mapping: Optional[List[dict]] = Field(None, description="[{source, target, type}]")
+    index_definitions: Optional[List[dict]] = Field(None, description="타겟 테이블 인덱스 [{index_name, columns, is_unique}]")
+    on_file_error: Optional[str] = Field("stop", description="파일 1건 실패 시: stop=전체 중단, continue=해당 파일만 error 기록 후 계속")
 
 
 class UpdateBatchJobBody(BaseModel):
@@ -117,6 +119,8 @@ class UpdateBatchJobBody(BaseModel):
     is_active: Optional[bool] = None
     storage_connection_id: Optional[int] = None
     column_mapping: Optional[List[dict]] = None
+    index_definitions: Optional[List[dict]] = None
+    on_file_error: Optional[str] = None
 
 
 class ValidateTargetBody(BaseModel):
@@ -495,6 +499,8 @@ def create_batch_job(body: CreateBatchJobBody):
             interval_minutes=body.interval_minutes,
             is_active=body.is_active,
             column_mapping=body.column_mapping,
+            index_definitions=body.index_definitions,
+            on_file_error=body.on_file_error or "stop",
         )
         if body.is_active:
             job = batch_service.get_batch_job(batch_job_id)
@@ -596,6 +602,10 @@ def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
             kwargs["storage_connection_id"] = body.storage_connection_id
         if body.column_mapping is not None:
             kwargs["column_mapping"] = body.column_mapping
+        if body.index_definitions is not None:
+            kwargs["index_definitions"] = body.index_definitions
+        if body.on_file_error is not None:
+            kwargs["on_file_error"] = body.on_file_error
         if not kwargs:
             return {"message": "변경 사항 없음."}
         batch_service.update_batch_job(batch_job_id, **kwargs)
@@ -848,6 +858,8 @@ def clone_batch_job(batch_job_id: int):
             interval_minutes=job.get("interval_minutes") or 10,
             is_active=False,
             column_mapping=job.get("column_mapping"),
+            index_definitions=job.get("index_definitions"),
+            on_file_error=(job.get("on_file_error") or "stop").strip().lower(),
         )
         return {"batch_job_id": new_id, "message": "복제되었습니다. 비활성 상태입니다."}
     except HTTPException:

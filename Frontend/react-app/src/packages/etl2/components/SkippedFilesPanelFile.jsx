@@ -144,6 +144,9 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
       {files.length === 0 ? (
         <div className="etl-db-form__muted" style={{ padding: '12px 0' }}>
           스킵/에러 파일이 없습니다.
+          <p style={{ margin: '8px 0 0 0', fontSize: '0.85em', color: '#64748b' }}>
+            이 목록은 <strong>실행 중에 파일 단위로 스킵·에러된 파일</strong>만 표시합니다. 실행 자체가 &quot;처리할 대기 파일 0건&quot;으로 스킵된 경우에는 여기에 나오지 않습니다.
+          </p>
         </div>
       ) : (
         <div className="etl-db-form__table-wrap">

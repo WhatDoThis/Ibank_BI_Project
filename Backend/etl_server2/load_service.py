@@ -6,9 +6,8 @@ Backend.etl_server.load_service (파일 기반 추출·적재)
 [Helpers]
 ===========
 42 - _pg_type: inferred_type → PostgreSQL 타입 문자열
-55 - _read_csv_robust: CSV 읽기(EOF 문자 등 폴백 처리), (DataFrame, data_verification_needed)
-   - _resolve_upload_path: DB 경로가 현재 프로세스에서 없을 때 uploads/파일명으로 폴백 해석
-81 - _read_file: file_path, file_type으로 CSV/Excel/Parquet 읽기, (DataFrame, data_verification_needed)
+55 - _resolve_upload_path: DB 경로가 현재 프로세스에서 없을 때 uploads/파일명으로 폴백 해석
+56 - _read_file: file_path, file_type으로 CSV/Excel/Parquet 읽기. CSV는 csv_reader.read_csv_robust 사용. (DataFrame, data_verification_needed)
 
 [Main]
 ===========
@@ -18,11 +17,11 @@ Backend.etl_server.load_service (파일 기반 추출·적재)
 [Dependencies]
 =========
 - Backend.api_server.db, Backend.etl_server.service, schema_infer, transform_engine, transform_rules_service, etl_limits
+- Backend.etl_server2.csv_reader (CSV 인코딩 감지·읽기)
 - Env.config.loader.add_allowed_table
-- pandas, io
+- pandas
 """
 
-import io
 import logging
 import os
 import re
@@ -80,32 +79,6 @@ def _pg_type(inferred_type: str) -> str:
     return "TEXT"
 
 
-def _read_csv_robust(file_path: str, encoding: str, nrows: Optional[int] = None) -> Tuple[pd.DataFrame, bool]:
-    """CSV 읽기. engine=python으로 따옴표/줄바꿈 오류 완화, 잘못된 행은 스킵. 'unexpected end of data' 시 EOF 문자 제거 후 재시도.
-    반환: (DataFrame, data_verification_needed). 폴백으로 읽었으면 data_verification_needed=True."""
-    def _read(source, use_skip: bool = True):
-        if use_skip:
-            try:
-                return pd.read_csv(source, encoding=encoding if isinstance(source, str) else None, nrows=nrows, engine="python", on_bad_lines="skip")
-            except TypeError:
-                return pd.read_csv(source, encoding=encoding if isinstance(source, str) else None, nrows=nrows, engine="python", error_bad_lines=False)
-        return pd.read_csv(source, encoding=encoding if isinstance(source, str) else None, nrows=nrows, engine="python", error_bad_lines=False)
-
-    try:
-        return (_read(file_path), False)
-    except Exception as e:
-        if "unexpected end of data" not in str(e).lower():
-            raise
-        # ParserError: 파일 내 EOF 문자(\x1a) 등으로 파싱 실패 시, 해당 문자 제거 후 재시도
-        try:
-            with open(file_path, "rb") as f:
-                raw = f.read()
-            cleaned = raw.replace(b"\x1a", b" ").decode(encoding, errors="replace")
-            return (_read(io.StringIO(cleaned)), True)
-        except Exception:
-            raise e
-
-
 def _read_file(file_path: str, file_type: str, max_rows: Optional[int] = None) -> Tuple[pd.DataFrame, bool]:
     """파일 읽기. max_rows가 있으면 해당 행 수까지만 읽어 한도 적용.
     반환: (DataFrame, data_verification_needed). CSV 폴백(EOF 제거) 사용 시 True."""
@@ -114,10 +87,8 @@ def _read_file(file_path: str, file_type: str, max_rows: Optional[int] = None) -
     ft = (file_type or "").strip().lower()
     nrows = int(max_rows) if max_rows and max_rows > 0 else None
     if ft == "csv":
-        try:
-            df, need_verify = _read_csv_robust(file_path, "utf-8", nrows)
-        except UnicodeDecodeError:
-            df, need_verify = _read_csv_robust(file_path, "cp949", nrows)
+        from Backend.etl_server2 import csv_reader
+        df, _encoding_used, need_verify = csv_reader.read_csv_robust(file_path, nrows=nrows)
         return (df, need_verify)
     if ft in ("excel", "xlsx", "xls"):
         # nrows를 넘기면 시트 전체가 아닌 처음 N행만 읽어 미리보기/스키마 추론 시 속도 개선(CSV와 유사)
@@ -138,12 +109,12 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     - etl_tables에서 file_path, file_type, target_table 조회 → 파싱 → 메인 DB DROP/CREATE/INSERT
     반환: { job_id, status, rows_processed, error_message? }
     """
-    row = etl_service.get_etl_table(etl_table_id)
-    if not row:
+    etl_row = etl_service.get_etl_table(etl_table_id)
+    if not etl_row:
         raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
-    file_path = row.get("file_path")
-    file_type = row.get("file_type")
-    target_table = row.get("target_table")
+    file_path = etl_row.get("file_path")
+    file_type = etl_row.get("file_type")
+    target_table = etl_row.get("target_table")
     if not file_path or not file_type or not target_table:
         raise ValueError("file_path, file_type, target_table가 필요합니다.")
 
@@ -185,10 +156,11 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     total_rows = len(df)
     etl_service.set_job_total_rows(job_id, total_rows)
 
-    # 컬럼명 정규화 후 변환 룰 적용(Phase 4)
+    # 컬럼명 정규화 후 변환 룰 적용(Phase 4). 원본명→정규화명 매핑 보관(column_mapping 시 INSERT에서 값 조회용).
     used: set = set()
     normalized_names: List[str] = []
-    for col in df.columns:
+    orig_columns = list(df.columns)
+    for col in orig_columns:
         base = str(col).strip() or "unnamed"
         base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
         name = base
@@ -199,6 +171,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         used.add(name)
         etl_service._validate_identifier(name, "컬럼명")
         normalized_names.append(name)
+    source_to_normalized = dict(zip(orig_columns, normalized_names))
     df.columns = normalized_names
     try:
         rules = transform_rules_svc.list_transform_rules(etl_table_id)
@@ -207,7 +180,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         pass
 
     # Phase 4: column_mapping 있으면 타겟 컬럼/타입·INSERT 순서를 매핑 기준으로 사용 + 매핑 기반 형변환
-    column_mapping = row.get("column_mapping")
+    column_mapping = etl_row.get("column_mapping")
     mapping_used: List[dict] = []
     if isinstance(column_mapping, list) and len(column_mapping) > 0:
         for m in column_mapping:
@@ -240,11 +213,11 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             dtype = schema_infer._dtype_to_inferred(df[col].dtype)
             columns.append((str(col), _pg_type(dtype)))
 
-    conn_main, main_schema = etl_service.get_target_db_connection(row.get("storage_connection_id"))
+    conn_main, main_schema = etl_service.get_target_db_connection(etl_row.get("storage_connection_id"))
     cur = conn_main.cursor()
     cols = [c[0] for c in columns]
     pk_part = ""
-    pk_columns_raw = (row.get("pk_columns") or "").strip()
+    pk_columns_raw = (etl_row.get("pk_columns") or "").strip()
     if pk_columns_raw:
         pk_list = [x.strip() for x in pk_columns_raw.split(",") if x.strip()]
         for pk in pk_list:
@@ -267,12 +240,15 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         cur.execute(f"CREATE TABLE {full_name} ({col_defs})")
         conn_main.commit()
 
-        # INSERT: column_mapping 있으면 소스→타겟 매핑으로 값 추출, 없으면 df 컬럼 그대로
+        # INSERT: column_mapping 있으면 소스→타겟 매핑으로 값 추출. rec는 정규화된 컬럼명 키이므로 source→정규화명으로 조회.
         if mapping_used:
             df_records = df.replace({pd.NA: None}).to_dict("records")
             rows = []
             for rec in df_records:
-                row_vals = [rec.get(m.get("source")) for m in mapping_used]
+                row_vals = [
+                    rec.get(source_to_normalized.get(m.get("source"), m.get("source")))
+                    for m in mapping_used
+                ]
                 rows.append(dict(zip(cols, row_vals)))
         else:
             cols = [c[0] for c in columns]
@@ -306,7 +282,12 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             i += insert_batch_size
         conn_main.commit()
 
-        if not row.get("storage_connection_id"):
+        idx_def = etl_row.get("index_definitions")
+        if idx_def:
+            from Backend.etl_server2 import db_load_service as db_load
+            db_load._create_indexes_on_target(cur, conn_main, main_schema, target_table, idx_def)
+
+        if not etl_row.get("storage_connection_id"):
             from Env.config.loader import add_allowed_table
             add_allowed_table(target_table)
 
@@ -346,18 +327,18 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
         etl_service.update_job(job_id, "failed", error_message="추가 적재용 파일 경로/유형이 없습니다.")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "add_file_path/add_file_type 없음"}
 
-    row = etl_service.get_etl_table(etl_table_id)
-    if not row:
+    etl_row = etl_service.get_etl_table(etl_table_id)
+    if not etl_row:
         etl_service.update_job(job_id, "failed", error_message="ETL 테이블을 찾을 수 없습니다.")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "ETL 테이블 없음"}
-    target_table = (row.get("target_table") or "").strip()
+    target_table = (etl_row.get("target_table") or "").strip()
     if not target_table:
         etl_service.update_job(job_id, "failed", error_message="target_table가 없습니다.")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "target_table 없음"}
     target_table = etl_service._validate_identifier(target_table, "target_table")
 
-    sid = row.get("storage_connection_id")
-    pk_columns_raw = (row.get("pk_columns") or "").strip()
+    sid = etl_row.get("storage_connection_id")
+    pk_columns_raw = (etl_row.get("pk_columns") or "").strip()
     if pk_columns_raw:
         pk_list = [x.strip() for x in pk_columns_raw.split(",") if x.strip()]
     else:
@@ -448,7 +429,7 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "공통 컬럼 없음"}
 
     etl_service.set_job_total_rows(job_id, len(df))
-    conn_main, main_schema = etl_service.get_target_db_connection(row.get("storage_connection_id"))
+    conn_main, main_schema = etl_service.get_target_db_connection(etl_row.get("storage_connection_id"))
     cur = conn_main.cursor()
     quoted_schema = f'"{main_schema}"'
     quoted_table = f'"{target_table}"'

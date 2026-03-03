@@ -314,7 +314,7 @@ def list_batch_jobs(
             SELECT j.batch_job_id, j.folder_connection_id, j.storage_connection_id, j.job_name,
                    j.file_pattern, j.file_extensions, j.target_table, j.pk_columns, j.timestamp_format,
                    j.interval_minutes, j.is_active, j.last_processed_ts, j.last_run_at, j.last_run_status,
-                   j.last_error_message, j.column_mapping, j.created_at, j.updated_at,
+                   j.last_error_message, j.column_mapping, j.index_definitions, j.created_at, j.updated_at,
                    c.connection_name, c.protocol,
                    sc.connection_name AS storage_connection_name
             FROM {_q(schema, "batch_jobs")} j
@@ -390,6 +390,8 @@ def create_batch_job(
     interval_minutes: int = 10,
     is_active: bool = True,
     column_mapping: Optional[List[dict]] = None,
+    index_definitions: Optional[List[dict]] = None,
+    on_file_error: str = "stop",
 ) -> int:
     """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환.
     동일 폴더·파일패턴·타겟테이블·저장DB 조합이 이미 있으면 ValueError."""
@@ -418,12 +420,15 @@ def create_batch_job(
                     "기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
                 )
         # storage_connection_id=None 이면 기본 DB(config ibank_db) 사용. DB에는 NULL로 저장.
+        on_file_error_val = (on_file_error or "stop").strip().lower()
+        if on_file_error_val not in ("stop", "continue"):
+            on_file_error_val = "stop"
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "batch_jobs")}
             (folder_connection_id, storage_connection_id, job_name, file_pattern, file_extensions,
-             target_table, pk_columns, timestamp_format, interval_minutes, is_active, column_mapping, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, NOW(), NOW())
+             target_table, pk_columns, timestamp_format, interval_minutes, is_active, column_mapping, index_definitions, on_file_error, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, %s::jsonb, %s, NOW(), NOW())
             RETURNING batch_job_id
             """,
             (
@@ -437,6 +442,8 @@ def create_batch_job(
                 interval_minutes,
                 is_active,
                 json.dumps(column_mapping) if column_mapping is not None else None,
+                json.dumps(index_definitions) if index_definitions is not None else None,
+                on_file_error_val,
             ),
         )
         row = cur.fetchone()
@@ -459,16 +466,21 @@ def create_batch_job(
 
 def update_batch_job(batch_job_id: int, **kwargs) -> None:
     """배치 Job 수정. updatable: job_name, file_pattern, file_extensions, target_table, pk_columns,
-    interval_minutes, is_active, storage_connection_id, column_mapping."""
+    interval_minutes, is_active, storage_connection_id, column_mapping, index_definitions, on_file_error."""
     allowed = {
         "job_name", "file_pattern", "file_extensions", "target_table", "pk_columns",
-        "interval_minutes", "is_active", "storage_connection_id", "column_mapping",
+        "interval_minutes", "is_active", "storage_connection_id", "column_mapping", "index_definitions", "on_file_error",
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return
     if "interval_minutes" in updates and updates["interval_minutes"] is not None and not (10 <= updates["interval_minutes"] <= 1440):
         raise ValueError("interval_minutes는 10~1440 사이여야 합니다.")
+    if "on_file_error" in updates and updates["on_file_error"] is not None:
+        ofe = (updates["on_file_error"] or "").strip().lower()
+        if ofe not in ("stop", "continue"):
+            raise ValueError("on_file_error는 'stop' 또는 'continue'여야 합니다.")
+        updates["on_file_error"] = ofe
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -479,6 +491,9 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
         for k, v in updates.items():
             if k == "column_mapping":
                 set_parts.append("column_mapping = %s")
+                params.append(json.dumps(v) if v is not None else None)
+            elif k == "index_definitions":
+                set_parts.append("index_definitions = %s::jsonb")
                 params.append(json.dumps(v) if v is not None else None)
             else:
                 set_parts.append(f"{k} = %s")

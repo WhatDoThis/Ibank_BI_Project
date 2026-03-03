@@ -8,6 +8,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank
 66 - _get_db: api_server.db 지연 로드(순환 import 방지)
 72 - _schema: get_system_table_schema() 반환
 76 - _q: 스키마.테이블명 따옴표 감싼 문자열
+84 - _sys_cursor: 시스템 DB 커서·커넥션 context manager (yield cur, conn). 새 함수 작성 시 사용 권장
 79 - get_target_db_connection: 적재 대상 DB 연결 획득 (Phase 0: None=ibank_db. Phase 2b에서 storage_connection_id 분기)
 81 - _validate_identifier: 식별자 영문·숫자·언더스코어 검증
    - _normalize_source_table_dots: 점 유사 문자를 ASCII 점으로 통일. _validate_source_table, parse_source_table_parts, Oracle PK 조회에서 사용
@@ -77,6 +78,7 @@ import logging
 import os
 import re
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -138,6 +140,19 @@ def _schema():
 def _q(schema_name: str, table_name: str) -> str:
     """스키마.테이블명 따옴표 감싸기."""
     return f'"{schema_name}"."{table_name}"'
+
+
+@contextmanager
+def _sys_cursor():
+    """시스템 DB 커서·커넥션 컨텍스트. yield (cur, conn). 새 함수 작성 시 이 패턴 사용 권장."""
+    api_db = _get_db()
+    conn = api_db.get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        yield cur, conn
+    finally:
+        cur.close()
+        conn.close()
 
 
 def get_target_db_connection(storage_connection_id: Optional[int] = None):
@@ -1135,7 +1150,7 @@ def list_etl_tables() -> list:
             SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
                    t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
-                   t.column_mapping, t.on_row_error,
+                   t.column_mapping, t.on_row_error, t.index_definitions,
                    c.connection_name, c.source_type,
                    sc.connection_name AS storage_connection_name
             FROM {_q(schema, "etl_tables")} t
@@ -1167,6 +1182,7 @@ def create_etl_table(
     storage_connection_id: Optional[int] = None,
     column_mapping: Optional[List[dict]] = None,
     on_row_error: Optional[str] = None,
+    index_definitions: Optional[List[dict]] = None,
 ) -> int:
     """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id.
     - 동일 target_table은 다른 연결(DB)에서 같은 테이블로 추가 적재할 수 있으므로 중복 허용.
@@ -1264,11 +1280,12 @@ def create_etl_table(
         batch_val = batch_size if batch_size is not None and batch_size > 0 else None
         interval_val = batch_interval_seconds if batch_interval_seconds is not None and batch_interval_seconds >= 0 else 0
         column_mapping_json = json.dumps(column_mapping) if column_mapping is not None else None
+        index_definitions_json = json.dumps(index_definitions) if index_definitions is not None else None
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_tables")}
-            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, on_row_error, status, created_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, 'draft', %s, NOW())
+            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, on_row_error, index_definitions, status, created_by, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, 'draft', %s, NOW())
             RETURNING etl_table_id
             """,
             (
@@ -1286,6 +1303,7 @@ def create_etl_table(
                 storage_connection_id,
                 column_mapping_json,
                 on_row_error_val,
+                index_definitions_json,
                 created_by,
             ),
         )
@@ -1310,7 +1328,7 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
                    t.file_type, t.file_path, t.status, t.created_at,
                    t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.storage_connection_id, t.column_mapping,
-                   t.on_row_error,
+                   t.on_row_error, t.index_definitions,
                    c.connection_name, c.source_type
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
@@ -1851,8 +1869,9 @@ def update_etl_table(
     on_row_error: Optional[str] = None,
     batch_size: Optional[int] = None,
     batch_interval_seconds: Optional[int] = None,
+    index_definitions: Optional[List[dict]] = None,
 ) -> None:
-    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
+    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds, index_definitions 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -1905,6 +1924,11 @@ def update_etl_table(
             cur.execute(
                 f"UPDATE {_q(schema, 'etl_tables')} SET batch_interval_seconds = %s, updated_at = NOW() WHERE etl_table_id = %s",
                 (val, etl_table_id),
+            )
+        if index_definitions is not None:
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET index_definitions = %s::jsonb, updated_at = NOW() WHERE etl_table_id = %s",
+                (json.dumps(index_definitions), etl_table_id),
             )
         conn.commit()
     finally:

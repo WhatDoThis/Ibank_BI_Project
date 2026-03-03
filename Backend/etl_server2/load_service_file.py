@@ -149,6 +149,7 @@ def load_dataframe(
     run_id: Optional[int] = None,
     source_filename: Optional[str] = None,
     sys_conn: Any = None,
+    index_definitions: Optional[List[dict]] = None,
 ) -> dict:
     """
     DataFrame을 지정 스키마·테이블에 적재.
@@ -158,6 +159,7 @@ def load_dataframe(
     - 테이블 있음 + pk 없음: INSERT만.
     - 테이블 있음 시 information_schema로 컬럼 목록 조회 후 df를 해당 컬럼만 남기고 부족분 None.
     반환: { "inserted": N, "updated": M }
+    - inserted: 새로 추가된 행 수(테이블 총 행 수 증가분). updated: 기존 행(PK 동일) 갱신 수(행 수 불변).
     """
     schema = (schema or "public").strip() or "public"
     table_name = (table_name or "").strip()
@@ -215,6 +217,22 @@ def load_dataframe(
 
     if not exists:
         create_table_from_dataframe(conn, schema, table_name, df_work, pk_list)
+        conn.commit()
+        if index_definitions:
+            norm_index_defs = [
+                {
+                    **d,
+                    "columns": [_normalize_column_name(str(c)) for c in (d.get("columns") or []) if str(c).strip()],
+                }
+                for d in index_definitions
+                if isinstance(d, dict)
+            ]
+            cur_idx = conn.cursor()
+            try:
+                from Backend.etl_server2.db_load_service import _create_indexes_on_target
+                _create_indexes_on_target(cur_idx, conn, schema, table_name, norm_index_defs)
+            finally:
+                cur_idx.close()
         # INSERT only
         cols = list(df_work.columns)
         inserted = _batch_insert(conn, full_name, cols, df_work)
@@ -341,11 +359,14 @@ def _batch_upsert(
     """
     INSERT ... ON CONFLICT (pk) DO UPDATE SET.
     삽입/갱신 건수를 구분하기 위해 2단계 실행:
-    (1) INSERT ON CONFLICT DO NOTHING → inserted = rowcount.
-    (2) UPDATE ... FROM (VALUES ...) WHERE pk 일치 → 매칭되는 행에 기삽입 행 포함되므로
-        실제 갱신 건수 = rowcount - inserted_this_batch.
-    non_pk 비면 DO NOTHING만 사용하며, 이 경우 inserted+skipped만 있고 updated=0.
+    (1) INSERT ON CONFLICT DO NOTHING → inserted = rowcount (실제로 새로 들어간 행 수).
+    (2) UPDATE ... FROM (VALUES ...) WHERE pk 일치 AND (non_pk 컬럼 중 하나라도 IS DISTINCT FROM)
+        → 값이 실제로 변경된 행만 갱신. WAL/디스크 I/O 절감, updated = 실제 변경 건수.
     반환: (inserted, updated).
+    - inserted: 이번 호출에서 새로 추가된 행 수. 테이블 총 행 수 증가분과 일치.
+    - updated: 이미 존재하던 행(PK 동일) 중 비PK 값이 바뀐 행 수. 행 수 증가 없음.
+    따라서 "테이블 총 행 수 = 기존 + sum(inserted)". 갱신은 행 수에 기여하지 않음.
+    non_pk 비면 DO NOTHING만 사용하며, 이 경우 inserted+skipped만 있고 updated=0.
     """
     cur = conn.cursor()
     non_pk = [c for c in columns if c not in pk_columns]
@@ -381,22 +402,24 @@ def _batch_upsert(
         cur.execute(sql_ins, flat)
         inserted_this_batch = cur.rowcount
         total_inserted += inserted_this_batch
+        if inserted_this_batch == len(rows):
+            continue
 
         # 2) 충돌한 행만 UPDATE ... FROM (VALUES ...) 로 갱신.
-        # UPDATE는 배치 전체에 대해 t.pk = v.pk 로 매칭되므로, 방금 INSERT한 행까지 갱신됨.
-        # 실제 갱신 건수 = (UPDATE로 매칭된 행 수) - (이번 배치에서 삽입된 행 수)
+        # WHERE에 (t.col IS DISTINCT FROM v.col OR ...) 추가로 값이 실제로 변경된 행만 UPDATE → WAL/디스크 I/O 절감.
         set_clause = ", ".join(f'"{c}" = v."{c}"' for c in non_pk)
         pk_where = " AND ".join(f't."{p}" = v."{p}"' for p in pk_columns)
+        distinct_where = " OR ".join(f't."{c}" IS DISTINCT FROM v."{c}"' for c in non_pk)
         n_cols = len(columns)
         v_cols = ", ".join(f'"{c}"' for c in columns)
         v_ph = "(" + ", ".join(["%s"] * n_cols) + ")"
         v_placeholders = ", ".join([v_ph] * len(rows))
         sql_upd = (
             f'UPDATE {full_name} AS t SET {set_clause} FROM '
-            f'(VALUES {v_placeholders}) AS v({v_cols}) WHERE {pk_where}'
+            f'(VALUES {v_placeholders}) AS v({v_cols}) WHERE {pk_where} AND ({distinct_where})'
         )
         cur.execute(sql_upd, flat)
-        total_updated += max(0, cur.rowcount - inserted_this_batch)
+        total_updated += cur.rowcount
 
     cur.close()
     return total_inserted, total_updated

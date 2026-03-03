@@ -22,6 +22,7 @@ import {
   etl2TestConnection,
   etl2ListConnectionTables,
   etl2GetSourceColumns,
+  etl2GetSourceIndexes,
   etl2ValidateIncrementalColumn,
   etl2CreateTable,
   etl2DeleteConnection,
@@ -99,6 +100,8 @@ function DbConnectionForm({ onSuccess }) {
   const [targetTableSelectOpen, setTargetTableSelectOpen] = useState(false);
   const [columnMapping, setColumnMapping] = useState(null);
   const [pkColumns, setPkColumns] = useState('');
+  const [indexDefinitions, setIndexDefinitions] = useState(null);
+  const [sourceIndexes, setSourceIndexes] = useState([]);
   const [refetchingSourceForModal, setRefetchingSourceForModal] = useState(false);
 
   function isDateType(dataType) {
@@ -152,21 +155,33 @@ function DbConnectionForm({ onSuccess }) {
     return () => { cancelled = true; };
   }, [syncMode, selectedConnId, selectedSourceTable]);
 
-  /** 테이블선택 모달을 연다. 연결·소스 테이블이 있으면 소스 컬럼을 먼저 최신으로 다시 불러온 뒤 모달을 연다. */
+  /** 테이블선택 모달을 연다. 연결·소스 테이블이 있으면 소스 컬럼·소스 인덱스를 먼저 불러온 뒤 모달을 연다. */
   async function openTargetTableSelectModal() {
     if (selectedConnId && selectedSourceTable) {
       setRefetchingSourceForModal(true);
       try {
-        const res = await etl2GetSourceColumns(Number(selectedConnId), selectedSourceTable);
-        setSourceColumns(res.columns || []);
+        const connId = Number(selectedConnId);
+        const [colsRes, idxRes] = await Promise.all([
+          etl2GetSourceColumns(connId, selectedSourceTable),
+          etl2GetSourceIndexes(connId, selectedSourceTable).catch(() => ({ indexes: [] }))
+        ]);
+        setSourceColumns(colsRes.columns || []);
+        const indexes = Array.isArray(idxRes.indexes) ? idxRes.indexes : [];
+        setSourceIndexes(indexes);
+        const primary = indexes.find((i) => i && i.is_primary);
+        if (primary && Array.isArray(primary.columns) && primary.columns.length > 0) {
+          setPkColumns(primary.columns.join(', '));
+        }
         setTargetTableSelectOpen(true);
       } catch {
         setSourceColumns([]);
+        setSourceIndexes([]);
         setTargetTableSelectOpen(true);
       } finally {
         setRefetchingSourceForModal(false);
       }
     } else {
+      setSourceIndexes([]);
       setTargetTableSelectOpen(true);
     }
   }
@@ -316,6 +331,7 @@ function DbConnectionForm({ onSuccess }) {
         batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
         storage_connection_id: normalizeStorageConnectionId(storageConnectionId),
         column_mapping: columnMapping && columnMapping.length > 0 ? columnMapping : null,
+        index_definitions: indexDefinitions && indexDefinitions.length > 0 ? indexDefinitions : null,
         on_row_error: (onRowError || 'fail').toLowerCase() === 'skip' ? 'skip' : 'fail',
         created_by: 'user'
       });
@@ -332,6 +348,7 @@ function DbConnectionForm({ onSuccess }) {
       setSelectedSourceTable('');
       setColumnMapping(null);
       setPkColumns('');
+      setIndexDefinitions(null);
     } catch (err) {
       setCreateError(err.message || 'ETL 테이블 등록 실패');
     } finally {
@@ -591,17 +608,21 @@ function DbConnectionForm({ onSuccess }) {
                 currentTargetTable={targetTable}
                 currentColumnMapping={columnMapping || []}
                 currentPkColumns={pkColumns}
+                currentIndexDefinitions={indexDefinitions || []}
                 sourceColumns={sourceColumns}
-                onSelect={(tableName, mapping, pkCols) => {
+                sourceIndexes={sourceIndexes}
+                pkReadOnlyFromSource={sourceIndexes.length > 0 && sourceIndexes.some((i) => i && i.is_primary)}
+                onSelect={(tableName, mapping, pkCols, idxDefs) => {
                   setTargetTable(tableName);
                   setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
                   setPkColumns(pkCols ?? '');
+                  setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
                   setTargetTableSelectOpen(false);
                 }}
               />
             </Suspense>
           )}
-          {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || pkColumns.trim()) && (
+          {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || pkColumns.trim() || (indexDefinitions && indexDefinitions.length > 0)) && (
             <div className="etl-db-form__field etl-db-form__summary">
               <label className="etl-db-form__label">설정 요약</label>
               <div className="etl-db-form__summary-box">
@@ -628,6 +649,11 @@ function DbConnectionForm({ onSuccess }) {
                 {pkColumns.trim() && (
                   <p className="etl-db-form__summary-line">
                     <strong>PK:</strong> {pkColumns.trim()}
+                  </p>
+                )}
+                {indexDefinitions && indexDefinitions.length > 0 && (
+                  <p className="etl-db-form__summary-line">
+                    <strong>인덱스:</strong> {indexDefinitions.length}개
                   </p>
                 )}
                 <button

@@ -7,7 +7,7 @@
  * [Main Functions]
  * ===========
  * - batchListJobHistory(batchJobId) 마운트 시 호출, runs 테이블 표시
- * - 테이블: run_id, started_at, finished_at, status, files_processed, rows_inserted, rows_updated, error_message, [상세]
+ * - 테이블: run_id, started_at, finished_at, status(일부만 실패 시 "일부 실패 (N/M 성공)"), files_processed, rows_inserted, rows_updated, error_message, [상세]
  *
  * [Props]
  * =====
@@ -62,6 +62,25 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
     return String(v);
   }
 
+  /** run 상태 + file_list 기반 표시: 일부만 실패한 경우 "일부 실패 (N/M 성공)"으로 구분. partial_error(on_file_error=continue)도 동일 표시 */
+  function getStatusDisplay(row) {
+    const status = (row.status || '').toString().toLowerCase();
+    const rawList = row.file_list;
+    const fileList = Array.isArray(rawList)
+      ? rawList
+      : typeof rawList === 'string'
+        ? (() => { try { const a = JSON.parse(rawList); return Array.isArray(a) ? a : []; } catch { return []; } })()
+        : [];
+    const total = fileList.length;
+    const okCount = fileList.filter((f) => (String(f.status || '').toLowerCase()) === 'ok').length;
+    const errCount = fileList.filter((f) => (String(f.status || '').toLowerCase()) === 'error').length;
+    if (status === 'partial_error' || (status === 'error' && okCount > 0 && errCount > 0)) {
+      return total > 0 ? `일부 실패 (${okCount}/${total} 성공)` : (status === 'partial_error' ? '일부 실패' : row.status ?? '-');
+    }
+    if (total === 0 || status !== 'error') return row.status ?? '-';
+    return row.status ?? '-';
+  }
+
   return (
     <div className="etl-db-form__section">
       <div className="etl-db-form__table-actions">
@@ -103,7 +122,17 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
                   <td>{row.run_id ?? '-'}</td>
                   <td>{formatDt(row.started_at)}</td>
                   <td>{formatDt(row.finished_at)}</td>
-                  <td>{row.status ?? '-'}</td>
+                  <td>
+                    {(() => {
+                      const text = getStatusDisplay(row);
+                      const isPartial = text.startsWith('일부 실패');
+                      return isPartial ? (
+                        <span className="etl-db-form__status-badge etl-db-form__status--partial" title={`상태: error (${text})`}>{text}</span>
+                      ) : (
+                        text
+                      );
+                    })()}
+                  </td>
                   <td>{row.files_processed ?? '-'}</td>
                   <td>{row.rows_inserted ?? '-'}</td>
                   <td>{row.rows_updated ?? '-'}</td>

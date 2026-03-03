@@ -7,7 +7,7 @@ DataFrame에 etl_transform_rules를 apply_order 순으로 적용. cleansing/type
 ===========
 26 - _apply_cleansing: TRIM, empty_to_null, default_value
 36 - _apply_type_cast: target_type(date/timestamp/integer/bigint/numeric/text), on_error(null|zero|keep), date_format
-69 - _apply_type_cast_with_mask: 변환 + 실패 행 마스크 반환. on_error fail 시 ValueError
+69 - _apply_type_cast_with_mask: 2-pass 벡터 변환(coerce) 후 실패 행만 on_error 적용. fail 시 ValueError
 76 - _apply_code_map: mappings, default
 77 - _apply_derived: formula(concat, year_minus), columns/separator, source_column
 98 - _apply_masking: type(right_n/left_n/email_domain), n, char
@@ -81,35 +81,58 @@ def _apply_type_cast_with_mask(series: pd.Series, config: Dict[str, Any]):
     """
     target_type + on_error 적용. 반환: (변환된 Series, 실패한 행 마스크).
     on_error가 'fail'이면 변환 실패 시 ValueError 발생.
+    2-pass: 1차 벡터 변환(errors='coerce') 후, 실패 행만 on_error 로직 적용.
     """
     target = (config.get("target_type") or "text").strip().lower()
     on_error = (config.get("on_error") or "null").strip().lower()
     date_fmt = config.get("date_format") or "%Y-%m-%d"
     failed_mask = pd.Series(False, index=series.index)
 
-    def try_convert(val, idx):
-        if pd.isna(val) or val == "":
-            return None
-        try:
-            if target == "integer" or target == "bigint":
-                return int(float(val))
-            if target == "numeric":
-                return float(val)
-            if target == "date":
-                if isinstance(val, datetime):
-                    return val.date() if hasattr(val, "date") else val
-                return datetime.strptime(str(val).strip()[:10], date_fmt).date()
-            if target == "timestamp":
-                if isinstance(val, datetime):
-                    return val
-                return pd.to_datetime(val)
-            if target == "text":
-                return str(val).strip()
-        except Exception as e:
-            if on_error == "fail":
-                raise ValueError(f"행 변환 실패 (인덱스 {idx}, 값: {val!r}): {e}") from e
+    # 원본이 비어있으면 None (변환 시도하지 않음)
+    empty = series.isna() | (series.astype(str).str.strip() == "") | (series.astype(str).str.lower() == "nan")
+
+    if target == "text":
+        out = series.astype(str).str.strip()
+        out = out.where(~empty, None)
+        return out, failed_mask
+
+    # 1차: 벡터 변환 (errors='coerce')
+    if target in ("integer", "bigint"):
+        converted = pd.to_numeric(series, errors="coerce")
+    elif target == "numeric":
+        converted = pd.to_numeric(series, errors="coerce")
+    elif target == "timestamp":
+        converted = pd.to_datetime(series, errors="coerce")
+    elif target == "date":
+        _dt = pd.to_datetime(series, format=date_fmt, errors="coerce")
+        converted = _dt.dt.date if _dt is not None and hasattr(_dt, "dt") else _dt
+        if converted is None:
+            converted = pd.Series([pd.NA] * len(series), index=series.index)
+    else:
+        converted = series.copy()
+
+    # 실패 행: 변환 결과가 NA인데 원본은 비어있지 않음
+    if hasattr(converted, "isna"):
+        failed = (~empty & converted.isna()).reindex(series.index, fill_value=False)
+    else:
+        failed = pd.Series(False, index=series.index)
+
+    if failed.any():
+        if on_error == "fail":
+            first_fail_idx = failed.idxmax()
+            raise ValueError(
+                f"행 변환 실패 (인덱스 {first_fail_idx}, 값: {series.at[first_fail_idx]!r})"
+            ) from None
+        for idx in series.index[failed]:
             if on_error == "skip_row":
                 failed_mask.at[idx] = True
+
+    # 결과 조립: 비어있으면 None, 실패면 on_error에 따라, 성공이면 converted
+    def _fallback_val(idx):
+        if empty.at[idx]:
+            return None
+        if failed.at[idx]:
+            if on_error == "skip_row":
                 return None
             if on_error == "null":
                 return None
@@ -118,16 +141,22 @@ def _apply_type_cast_with_mask(series: pd.Series, config: Dict[str, Any]):
                     return 0
                 if target in ("date", "timestamp"):
                     return None
-                return "" if target == "text" else val
-            return val  # keep
-        return None
+                return "" if target == "text" else series.at[idx]
+            return series.at[idx]  # keep
+        return converted.at[idx] if hasattr(converted, "at") else converted
 
-    out = series.copy()
-    for idx in series.index:
-        try:
-            out.at[idx] = try_convert(series.at[idx], idx)
-        except ValueError:
-            raise
+    if failed.any() and on_error != "fail":
+        # 실패 행만 스칼라로 채우고 나머지는 벡터 결과 사용
+        out = converted.copy()
+        if hasattr(out, "astype") and target in ("integer", "bigint"):
+            out = out.astype(object)
+        for idx in series.index[failed]:
+            out.at[idx] = _fallback_val(idx)
+    else:
+        out = converted.copy()
+
+    # empty 위치는 None
+    out = out.where(~empty, None)
     return out, failed_mask
 
 

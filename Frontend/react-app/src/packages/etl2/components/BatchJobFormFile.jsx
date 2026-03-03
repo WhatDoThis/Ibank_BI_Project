@@ -51,9 +51,9 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
   const [targetTables, setTargetTables] = useState([]);
   const [targetTableSelect, setTargetTableSelect] = useState('');
   const [target_table, setTarget_table] = useState('');
-  const [pk_columns, setPk_columns] = useState('');
   const [availableColumns, setAvailableColumns] = useState([]);
   const [pkSelected, setPkSelected] = useState({});
+  const [index_definitions, setIndex_definitions] = useState([]);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [interval_minutes, setInterval_minutes] = useState(INTERVAL_DEFAULT);
   const [is_active, setIs_active] = useState(true);
@@ -108,6 +108,16 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
     setPkSelected({});
   }, [file_pattern, selectedFolderId]);
 
+  /** 파일 패턴 선택 시 컬럼 자동 로드 → PK/INDEX 컬럼 체크박스에 사용 */
+  useEffect(() => {
+    if (!selectedFolderId || !file_pattern?.trim()) return;
+    setColumnsLoading(true);
+    batchGetFolderColumns(selectedFolderId, file_pattern.trim())
+      .then((res) => setAvailableColumns(res?.columns ?? []))
+      .catch(() => setAvailableColumns([]))
+      .finally(() => setColumnsLoading(false));
+  }, [selectedFolderId, file_pattern]);
+
   function handlePatternChange(e) {
     const v = e.target.value;
     setFile_pattern(v);
@@ -116,34 +126,8 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
 
   const effectiveTargetTable = (targetTableSelect || target_table || '').trim();
 
-  async function handleLoadColumns() {
-    if (!selectedFolderId || !file_pattern?.trim()) return;
-    setColumnsLoading(true);
-    setAvailableColumns([]);
-    try {
-      const res = await batchGetFolderColumns(selectedFolderId, file_pattern.trim());
-      const cols = res?.columns ?? [];
-      setAvailableColumns(cols);
-      const next = {};
-      (pk_columns || '').split(',').forEach((c) => {
-        const k = c.trim();
-        if (k) next[k] = true;
-      });
-      setPkSelected(next);
-    } catch {
-      setAvailableColumns([]);
-    } finally {
-      setColumnsLoading(false);
-    }
-  }
-
   function togglePkColumn(col) {
-    setPkSelected((prev) => {
-      const next = { ...prev, [col]: !prev[col] };
-      const list = Object.entries(next).filter(([, on]) => on).map(([k]) => k);
-      setPk_columns(list.join(', '));
-      return next;
-    });
+    setPkSelected((prev) => ({ ...prev, [col]: !prev[col] }));
   }
 
   async function handleSubmit(e) {
@@ -197,13 +181,26 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
         return;
       }
     }
+    const normalizedIndexDefs = (index_definitions && index_definitions.length > 0)
+      ? index_definitions
+        .filter((d) => Array.isArray(d.columns) && d.columns.length > 0)
+        .map((d) => {
+          const cols = (d.columns || []).map((c) => String(c).trim()).filter(Boolean);
+          const name = (d.index_name || '').trim();
+          const safe = cols.map((c) => c.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, ''));
+          const autoName = safe.length ? `idx_${safe.join('_')}` : '';
+          return { index_name: name || autoName, columns: cols, is_unique: !!d.is_unique };
+        })
+        .filter((d) => d.index_name)
+      : null;
     const body = {
       folder_connection_id: fid,
       job_name: job_name.trim(),
       file_pattern: file_pattern.trim(),
       storage_connection_id: sid, // null = 기본 DB(config). utils/storageDb.js
       target_table: targetTableFinal,
-      pk_columns: pk_columns?.trim() || null,
+      pk_columns: Object.keys(pkSelected).filter((k) => pkSelected[k]).join(', ').trim() || null,
+      index_definitions: normalizedIndexDefs,
       interval_minutes: interval,
       is_active
     };
@@ -215,7 +212,8 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
         setStorage_connection_id('');
         setTargetTableSelect('');
         setTarget_table('');
-        setPk_columns('');
+        setPkSelected({});
+        setIndex_definitions([]);
         setAvailableColumns([]);
         setPkSelected({});
         setInterval_minutes(INTERVAL_DEFAULT);
@@ -325,30 +323,13 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
           </div>
 
           <div className="etl-db-form__field">
-            <label className="etl-db-form__label">PK 컬럼 (upsert 시 기준, 선택 또는 직접 입력)</label>
-            <div className="etl-db-form__row--inline" style={{ gap: '8px', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                className="etl-db-form__input"
-                value={pk_columns}
-                onChange={(e) => setPk_columns(e.target.value)}
-                placeholder="예: id 또는 date,region"
-                style={{ flex: '1 1 200px', minWidth: '120px' }}
-              />
-              {selectedFolderId != null && file_pattern?.trim() && (
-                <button
-                  type="button"
-                  className="etl-db-form__btn etl-db-form__btn--secondary"
-                  onClick={handleLoadColumns}
-                  disabled={columnsLoading}
-                >
-                  {columnsLoading ? '로딩…' : '컬럼 가져와서 선택'}
-                </button>
-              )}
-            </div>
-            {availableColumns.length > 0 && (
-              <div className="etl-db-form__field" style={{ marginTop: '8px' }}>
-                <span className="etl-db-form__muted">선택한 컬럼을 PK로 사용:</span>
+            <label className="etl-db-form__label">PK 컬럼(선택, upsert 시 기준)</label>
+            {!selectedFolderId || !file_pattern?.trim() ? (
+              <p className="etl-db-form__muted">폴더 연결과 파일 패턴을 선택하면 컬럼이 표시됩니다.</p>
+            ) : columnsLoading ? (
+              <p className="etl-db-form__muted">컬럼 로딩 중…</p>
+            ) : availableColumns.length > 0 ? (
+              <>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
                   {availableColumns.map((col) => (
                     <label key={col} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -361,10 +342,97 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
                     </label>
                   ))}
                 </div>
-              </div>
+                {Object.keys(pkSelected).filter((k) => pkSelected[k]).length === 0 && (
+                  <p className="etl-db-form__message etl-db-form__message--warning" style={{ marginTop: '8px' }} role="status">PK 미설정: 중복 행 발생 가능</p>
+                )}
+              </>
+            ) : (
+              <p className="etl-db-form__muted">해당 패턴의 컬럼을 불러올 수 없습니다.</p>
             )}
-            {!pk_columns?.trim() && (
-              <p className="etl-db-form__message etl-db-form__message--warning" role="status">PK 미설정: 중복 행 발생 가능</p>
+          </div>
+
+          <div className="etl-db-form__field">
+            <label className="etl-db-form__label">INDEX 컬럼(선택) — 다중 인덱스</label>
+            <p className="etl-db-form__muted" style={{ marginBottom: '8px' }}>인덱스를 여러 개 만들 수 있습니다. &quot;인덱스 추가&quot;로 행을 추가한 뒤, 각 행에서 컬럼·인덱스 명·UNIQUE를 설정하세요. UNIQUE 체크 시 해당 인덱스가 UNIQUE로 생성됩니다(선택한 컬럼 조합 값이 테이블 내에서 중복 불가).</p>
+            {!selectedFolderId || !file_pattern?.trim() ? (
+              <p className="etl-db-form__muted">폴더 연결과 파일 패턴을 선택하면 컬럼이 표시됩니다.</p>
+            ) : columnsLoading ? (
+              <p className="etl-db-form__muted">컬럼 로딩 중…</p>
+            ) : availableColumns.length > 0 ? (
+              <>
+                {(index_definitions || []).map((def, idx) => (
+                  <div key={idx} className="etl-db-form__index-row" style={{ marginBottom: '12px', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                    <div style={{ marginBottom: '8px' }}>
+                      <span className="etl-db-form__muted" style={{ marginRight: '8px' }}>컬럼 선택:</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                        {availableColumns.map((colName) => {
+                          const selected = (def.columns || []).includes(colName);
+                          return (
+                            <label key={colName} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <input
+                                type="checkbox"
+                                checked={!!selected}
+                                onChange={() => {
+                                  setIndex_definitions((prev) => {
+                                    const list = [...(prev || [])];
+                                    const row = { ...(list[idx] || { index_name: '', columns: [], is_unique: false }) };
+                                    const cols = Array.isArray(row.columns) ? [...row.columns] : [];
+                                    const next = cols.includes(colName) ? cols.filter((c) => c !== colName) : [...cols, colName];
+                                    list[idx] = { ...row, columns: next };
+                                    return list;
+                                  });
+                                }}
+                              />
+                              <span>{colName}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {(def.columns || []).length > 0 && (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <label className="etl-db-form__muted" style={{ minWidth: '100px' }}>인덱스 명</label>
+                          <input
+                            type="text"
+                            className="etl-db-form__input"
+                            placeholder="예: idx_campaign_id (비우면 자동 생성)"
+                            value={def.index_name || ''}
+                            onChange={(e) => {
+                              setIndex_definitions((prev) => {
+                                const list = [...(prev || [])];
+                                list[idx] = { ...(list[idx] || {}), index_name: e.target.value };
+                                return list;
+                              });
+                            }}
+                            style={{ flex: '1', maxWidth: '200px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="해당 인덱스를 UNIQUE로 생성(컬럼 조합 값 중복 불가)">
+                            <input
+                              type="checkbox"
+                              checked={!!def.is_unique}
+                              onChange={(e) => {
+                                setIndex_definitions((prev) => {
+                                  const list = [...(prev || [])];
+                                  list[idx] = { ...(list[idx] || {}), is_unique: e.target.checked };
+                                  return list;
+                                });
+                              }}
+                            />
+                            UNIQUE
+                          </label>
+                          <button type="button" className="etl-db-form__btn etl-db-form__btn--secondary" onClick={() => setIndex_definitions((prev) => prev.filter((_, i) => i !== idx))}>삭제</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="etl-db-form__btn etl-db-form__btn--secondary" onClick={() => setIndex_definitions((prev) => [...(prev || []), { index_name: '', columns: [], is_unique: false }])}>+ 인덱스 추가</button>
+              </>
+            ) : (
+              <p className="etl-db-form__muted">해당 패턴의 컬럼을 불러올 수 없습니다.</p>
             )}
           </div>
 

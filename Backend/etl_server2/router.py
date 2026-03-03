@@ -41,8 +41,7 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 521 - create_transform_rule: POST /transform-rules — 룰 등록
 541 - update_transform_rule: PUT /transform-rules/{id} — 룰 수정
 561 - delete_transform_rule: DELETE /transform-rules/{id} — 룰 삭제
-562 - transform_preview: POST /transform/preview — 변환 룰 미리보기(before/after, column_changes, new_columns)
-563 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
+562 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
 582 - list_source_columns: GET /connections/{id}/source-columns — 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용)
 591 - validate_incremental_column: POST /connections/{id}/validate-incremental-column — 증분 컬럼 날짜 검증
 602 - delete_connection: DELETE /connections/{id} — 연결 삭제
@@ -170,14 +169,6 @@ class UpdateTransformRuleBody(BaseModel):
     rule_config: Optional[dict] = None
     apply_order: Optional[int] = None
     is_active: Optional[bool] = None
-
-
-class TransformPreviewBody(BaseModel):
-    """POST /api/etl2/transform/preview 요청 body. sample_data 또는 etl_table_id로 원본 확보."""
-    etl_table_id: Optional[int] = Field(None, description="ETL 테이블 ID. sample_data 없을 때 원본 샘플·저장 룰 사용")
-    rules: Optional[list] = Field(None, description="임시 적용할 룰 목록. 없으면 etl_table_id 기준 저장 룰 사용")
-    sample_data: Optional[list] = Field(None, description="임시 원본 데이터(행 dict 목록). 있으면 이걸 DataFrame으로 사용")
-    max_rows: int = Field(10, description="원본 샘플 행 수(sample_data 없고 etl_table_id 있을 때)")
 
 
 # 업로드 파일 저장 디렉터리 (etl_server 기준 상대)
@@ -312,6 +303,7 @@ class CreateTableBody(BaseModel):
     storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB(ibank_db). Phase 2b에서 실제 적재 분기.")
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...]. 적재 시 컬럼 매핑 반영.")
     on_row_error: Optional[str] = Field("fail", description="행 적재 실패 시: fail=전체 실패, skip=실패 행 제외하고 적재·notice 기록.")
+    index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns: [str], is_unique: bool}]")
 
 
 class UpdateTableBody(BaseModel):
@@ -324,6 +316,7 @@ class UpdateTableBody(BaseModel):
     on_row_error: Optional[str] = Field(None, description="행 적재 실패 시: fail | skip. null이면 변경 안 함.")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). null이면 변경 안 함.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). null이면 변경 안 함.")
+    index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns, is_unique}]. null이면 변경 안 함.")
 
 
 @router.patch("/tables/{etl_table_id}", status_code=204)
@@ -340,6 +333,7 @@ def update_table(etl_table_id: int, body: UpdateTableBody):
             on_row_error=body.on_row_error,
             batch_size=body.batch_size,
             batch_interval_seconds=body.batch_interval_seconds,
+            index_definitions=body.index_definitions,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -367,6 +361,7 @@ def create_table(body: CreateTableBody):
             storage_connection_id=body.storage_connection_id,
             column_mapping=body.column_mapping,
             on_row_error=body.on_row_error,
+            index_definitions=body.index_definitions,
         )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
@@ -408,6 +403,7 @@ async def upload_file(
     storage_connection_id: Optional[int] = Form(None),
     column_mapping: Optional[str] = Form(None),
     pk_columns: Optional[str] = Form(None),
+    index_definitions: Optional[str] = Form(None),
 ):
     """
     파일 업로드 → 저장 후 스키마 추론.
@@ -440,6 +436,14 @@ async def upload_file(
                         cm = None
                 except (ValueError, TypeError):
                     cm = None
+            idx_def = None
+            if index_definitions and str(index_definitions).strip():
+                try:
+                    idx_def = _json.loads(index_definitions)
+                    if not isinstance(idx_def, list):
+                        idx_def = None
+                except (ValueError, TypeError):
+                    idx_def = None
             conn_id = etl_service.get_or_create_file_connection(created_by)
             pk_cols = (pk_columns or "").strip() or None
             etl_table_id = etl_service.create_etl_table(
@@ -453,6 +457,7 @@ async def upload_file(
                 storage_connection_id=storage_connection_id,
                 column_mapping=cm,
                 pk_columns=pk_cols,
+                index_definitions=idx_def,
             )
             result["etl_table_id"] = etl_table_id
         except ValueError as e:
@@ -880,106 +885,6 @@ def delete_transform_rule(rule_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/transform/preview")
-def transform_preview(body: TransformPreviewBody):
-    """
-    변환 룰 미리보기. sample_data 또는 etl_table_id로 원본 확보 후 rules 적용해 before/after 반환.
-    응답: before, after(행 dict 목록), column_changes, new_columns, rows_before, rows_after.
-    """
-    import pandas as pd
-    try:
-        if body.sample_data and len(body.sample_data) > 0:
-            df_before = pd.DataFrame(body.sample_data)
-        elif body.etl_table_id is not None:
-            df_before = preview_service.get_raw_sample(body.etl_table_id, max_rows=body.max_rows)
-            if df_before.empty:
-                return {
-                    "before": [],
-                    "after": [],
-                    "column_changes": [],
-                    "new_columns": [],
-                    "rows_before": 0,
-                    "rows_after": 0,
-                }
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="sample_data 또는 etl_table_id가 필요합니다.",
-            )
-
-        rules = body.rules
-        if rules is None and body.etl_table_id is not None:
-            rules = transform_rules_svc.list_transform_rules(body.etl_table_id)
-
-        if not rules:
-            rows_before = df_before.replace({pd.NA: None}).to_dict("records")
-            for r in rows_before:
-                for k, v in r.items():
-                    if hasattr(v, "isoformat"):
-                        r[k] = v.isoformat()
-            return {
-                "before": rows_before,
-                "after": rows_before,
-                "column_changes": [],
-                "new_columns": [],
-                "rows_before": len(rows_before),
-                "rows_after": len(rows_before),
-            }
-
-        df_after = transform_engine.apply_rules(df_before, rules)
-        rows_before = df_before.replace({pd.NA: None}).to_dict("records")
-        rows_after = df_after.replace({pd.NA: None}).to_dict("records")
-        for r in rows_before:
-            for k, v in list(r.items()):
-                if hasattr(v, "isoformat"):
-                    r[k] = v.isoformat()
-        for r in rows_after:
-            for k, v in list(r.items()):
-                if hasattr(v, "isoformat"):
-                    r[k] = v.isoformat()
-
-        new_columns = list(set(df_after.columns) - set(df_before.columns))
-        col_changes = []
-        for col in df_before.columns:
-            if col not in df_after.columns:
-                continue
-            b = df_before[col]
-            a = df_after[col]
-            null_before = int(b.isna().sum())
-            null_after = int(a.isna().sum())
-            changed = int(((b != a) | (b.isna() != a.isna())).sum()) if len(b) else 0
-            col_changes.append({
-                "column": col,
-                "changed_rows": changed,
-                "null_before": null_before,
-                "null_after": null_after,
-            })
-        for col in new_columns:
-            a = df_after[col]
-            col_changes.append({
-                "column": col,
-                "changed_rows": len(a),
-                "null_before": 0,
-                "null_after": int(a.isna().sum()),
-            })
-
-        return {
-            "before": rows_before,
-            "after": rows_after,
-            "column_changes": col_changes,
-            "new_columns": new_columns,
-            "rows_before": len(rows_before),
-            "rows_after": len(rows_after),
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception("POST /transform/preview failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/connections/{connection_id}/tables")
 def list_connection_tables(connection_id: int):
     """소스 DB의 테이블 목록. PostgreSQL/MySQL: information_schema, Oracle: ALL_TABLES/USER_TABLES."""
@@ -998,6 +903,21 @@ def list_source_columns(connection_id: int, source_table: str = Query(..., descr
     try:
         columns = db_load_service.get_source_columns(connection_id, source_table)
         return {"columns": columns}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/connections/{connection_id}/source-indexes")
+def list_source_indexes(
+    connection_id: int,
+    source_table: str = Query(..., description="소스 테이블(schema.table 또는 table)"),
+):
+    """소스 DB의 지정 테이블 인덱스 목록. PK 포함(is_primary로 구분). 프론트에서 PK·인덱스 한 번에 표시용."""
+    try:
+        indexes = db_load_service.get_source_indexes(connection_id, source_table)
+        return {"indexes": indexes}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

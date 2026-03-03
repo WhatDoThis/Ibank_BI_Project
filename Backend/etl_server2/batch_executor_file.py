@@ -2,13 +2,15 @@
 Backend.etl_server2.batch_executor_file (배치 실행기 — 다운로드·파싱·적재)
 ============================================================================
 09_ETL_SFTP_Connection §4.3, §7.5, §7.7, §10. 스케줄러에서 호출.
-실제 흐름: get_batch_job → create_batch_run → 폴더 어댑터 → list_files → get_pending_files
-→ 저장 DB 연결 → 파일별 다운로드(임시파일) → 크기 검사 → SHA-256 체크섬 → 중복 시 건너뜀
+실제 흐름: get_batch_job → 폴더 어댑터 → list_files → get_pending_files →
+대기 없으면 run 기록 없이 return. 있으면 create_batch_run → 저장 DB 연결 →
+파일별 다운로드(임시) → 크기 검사 → SHA-256 체크섬 → 중복 시 건너뜀
 → read_file → load_dataframe → last_processed_ts 갱신 → finish_run, update_job_status. finally adapter.close().
+on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록·롤백 후 다음 파일 계속; 종료 시 partial_error/success.
 
 [Main Functions]
 ===========
-- run_batch_job(batch_job_id): 배치 1건 실행 (다운로드 → 체크섬 중복 검사 → 파싱 → 적재, 파일별 격리)
+- run_batch_job(batch_job_id): 배치 1건 실행 (다운로드 → 체크섬 중복 검사 → 파싱 → 적재, 파일별 격리. on_file_error로 stop/continue)
 
 [Dependencies]
 =========
@@ -83,11 +85,11 @@ def _wait_for_stable_size(adapter, filename: str, checks: int = 3, interval: int
 def run_batch_job(batch_job_id: int) -> None:
     """
     배치 Job 1건 실행. 스케줄러에서 호출.
-    Job 조회 → 활성/실행중 검사 → create_batch_run → status=running →
-    폴더 어댑터 연결 → list_files → get_pending_files →
-    없으면 finish_run(skipped) → success. 있으면 저장 DB 연결 후
-    파일별: 다운로드(임시) → 크기 검사 → read_file → load_dataframe → last_processed_ts 갱신 →
-    finish_run(success), update_job_status(success). 예외 시 finish_run(error). finally adapter.close().
+    Job 조회 → 활성/실행중 검사 → 폴더 어댑터 연결 → list_files → get_pending_files →
+    대기 파일 없으면 run 기록 없이 return. 있으면 create_batch_run → status=running →
+    저장 DB 연결 후 파일별: 다운로드(임시) → 크기 검사 → read_file → load_dataframe →
+    last_processed_ts 갱신 → finish_run(success), update_job_status(success).
+    예외 시 finish_run(error). finally adapter.close().
     """
     from Backend.etl_server2 import service_file as batch_service
     from Backend.etl_server2 import parser_file
@@ -111,10 +113,6 @@ def run_batch_job(batch_job_id: int) -> None:
     sys_conn = None
 
     try:
-        from Backend.api_server import db as api_db
-        sys_conn = api_db.get_db_connection_system()
-        run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
-        batch_service.update_job_status(batch_job_id, "running", conn=sys_conn)
         adapter = _connect_with_retry(job["folder_connection_id"])
         all_files = adapter.list_files()
         pending = parser_file.get_pending_files(
@@ -125,9 +123,13 @@ def run_batch_job(batch_job_id: int) -> None:
         )
 
         if not pending:
-            batch_service.finish_run(run_id, "skipped", files_processed=0, conn=sys_conn)
-            batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
+            logger.debug("run_batch_job job_id=%s: no pending files, skip (run 기록 없음)", batch_job_id)
             return
+
+        from Backend.api_server import db as api_db
+        sys_conn = api_db.get_db_connection_system()
+        run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
+        batch_service.update_job_status(batch_job_id, "running", conn=sys_conn)
 
         target_conn, target_schema = load_service_file.get_target_connection(
             job["storage_connection_id"]
@@ -142,6 +144,9 @@ def run_batch_job(batch_job_id: int) -> None:
         target_table = (job.get("target_table") or "").strip()
         pk_columns_str = (job.get("pk_columns") or "").strip() or None
         column_mapping = job.get("column_mapping")
+        on_file_error = (job.get("on_file_error") or "stop").strip().lower()
+        if on_file_error not in ("stop", "continue"):
+            on_file_error = "stop"
 
         for filename, ts in pending:
             if batch_service.is_run_cancel_requested(run_id, conn=sys_conn):
@@ -219,8 +224,38 @@ def run_batch_job(batch_job_id: int) -> None:
                     run_id=run_id,
                     source_filename=filename,
                     sys_conn=sys_conn,
+                    index_definitions=job.get("index_definitions"),
                 )
-                target_conn.commit()
+                try:
+                    target_conn.commit()
+                except Exception as commit_err:
+                    logger.exception("run_batch_job commit failed for %s: %s", filename, commit_err)
+                    if target_conn:
+                        try:
+                            target_conn.rollback()
+                        except Exception:
+                            pass
+                    file_results.append({
+                        "filename": filename,
+                        "timestamp": ts,
+                        "status": "error",
+                        "error": str(commit_err),
+                    })
+                    if on_file_error == "continue":
+                        batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
+                        continue
+                    batch_service.finish_run(
+                        run_id,
+                        "error",
+                        files_processed=len(file_results),
+                        rows_inserted=total_ins,
+                        rows_updated=total_upd,
+                        error_message=str(commit_err),
+                        file_list=file_results,
+                        conn=sys_conn,
+                    )
+                    batch_service.update_job_status(batch_job_id, "error", last_error_message=str(commit_err), conn=sys_conn)
+                    return
 
                 ins = result.get("inserted", 0) or 0
                 upd = result.get("updated", 0) or 0
@@ -250,6 +285,9 @@ def run_batch_job(batch_job_id: int) -> None:
                     "status": "error",
                     "error": str(e),
                 })
+                if on_file_error == "continue":
+                    batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
+                    continue
                 batch_service.finish_run(
                     run_id,
                     "error",
@@ -277,12 +315,15 @@ def run_batch_job(batch_job_id: int) -> None:
                 conn=sys_conn,
             )
 
+        has_file_errors = any((r.get("status") or "").strip().lower() == "error" for r in file_results)
+        run_status = "partial_error" if has_file_errors else "success"
         batch_service.finish_run(
             run_id,
-            "success",
+            run_status,
             files_processed=len(file_results),
             rows_inserted=total_ins,
             rows_updated=total_upd,
+            error_message=None if not has_file_errors else f"파일 {sum(1 for r in file_results if (r.get('status') or '').strip().lower() == 'error')}건 실패",
             file_list=file_results,
             conn=sys_conn,
         )

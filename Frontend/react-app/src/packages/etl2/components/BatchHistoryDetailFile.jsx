@@ -240,7 +240,11 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
       )}
 
       {fileList.length === 0 && run.run_id != null && (
-        <p className="etl-db-form__muted">파일별 결과가 없습니다.</p>
+        <p className="etl-db-form__muted">
+          {(run.status || '').toLowerCase() === 'skipped' && (run.files_processed ?? 0) === 0
+            ? '이번 실행에서는 처리할 대기 파일이 없었습니다. (원격 폴더에 패턴에 맞는 새 파일이 없거나, 이미 이전 실행에서 모두 처리된 상태입니다.)'
+            : '파일별 결과가 없습니다.'}
+        </p>
       )}
 
       <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
