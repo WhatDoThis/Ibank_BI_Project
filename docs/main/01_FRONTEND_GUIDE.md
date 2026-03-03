@@ -133,15 +133,15 @@ Frontend/react-app/
 │   │           ├── FileUploadForm.jsx       # 단계 안내·etl2InferSchema·테이블선택 및 컬럼매핑
 │   │           ├── DbConnectionForm.jsx    # 저장 DB 선택·소스 컬럼·테이블선택 및 컬럼매핑·증분 컬럼·on_row_error
 │   │           ├── FolderConnectionFormFile.jsx   # 폴더(SFTP/S3) 연결 등록
-│   │           ├── FolderConnectionListFile.jsx   # 등록된 폴더 연결 목록
-│   │           ├── BatchJobFormFile.jsx     # 배치 Job 등록(패턴·타겟·저장 DB·주기)·중복 시 안내
+│   │           ├── FolderConnectionListFile.jsx   # 등록된 폴더 연결 목록·연결 정보 열(SFTP=host, S3=버킷/리전)
+│   │           ├── BatchJobFormFile.jsx     # 배치 Job 등록(패턴·타겟·저장 DB·주기·index_definitions)·중복 시 안내
 │   │           ├── BatchJobListFile.jsx     # 배치 Job 목록·새로고침·활성/비활성·즉시실행·이력·삭제
-│   │           ├── BatchHistoryPanelFile.jsx # 배치 이력 목록·새로고침·폴링(running 시)
+│   │           ├── BatchHistoryPanelFile.jsx # 배치 이력 목록·새로고침·폴링(running 시)·partial_error 시 "일부 실패 (N/M 성공)"
 │   │           ├── BatchHistoryDetailFile.jsx # 이력 1건 상세·파일별 결과·원격 삭제·적재 롤백
 │   │           ├── SkippedFilesPanelFile.jsx # 스킵/에러 파일 목록·원격 삭제
 │   │           ├── CollapsibleCardSection.jsx # DB·폴더·저장 DB 섹션 접기/펼치기
 │   │           ├── StorageConnectionForm.jsx # 저장 DB(적재 대상) 등록·테스트
-│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·변환 열·값매핑 인라인·미리보기
+│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·PK·INDEX 열(✓ 읽기 전용)·변환·값매핑·인덱스 추가(테이블 아래)·미리보기
 │   │           ├── TransformPreviewPanel.jsx # 변환 미리보기(before/after)·etl2TransformPreview
 │   │           ├── ETLTableList.jsx         # 목록(etl2ListTables+etl2ListBatchTargetRegistry)·배치 행 삭제=cascade·새로고침
 │   │           ├── EtlTableSettingsModal.jsx # 설정 모달: 동기화 모드·증분 컬럼·배치·on_row_error
@@ -258,18 +258,18 @@ Frontend/react-app/
 - **역할**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 목록에서 설정 모달로 동기화 모드·증분 컬럼·배치·행 실패 시 동작(fail/skip) 수정. **폴더 탭**: SFTP/S3 폴더 연결·배치 Job 등록·목록(새로고침)·이력 모달. **ETL 목록**: etl2ListTables + **etl2ListBatchTargetRegistry** 통합; 배치 유래 행(type batch_target)은 삭제만(즉시실행·이력 없음), 삭제 시 **etl2DeleteBatchTargetRegistry** → 배치 Job cascade·타겟 테이블 DROP. **새로고침 버튼**: ETL 목록·잡 이력·배치 Job 목록 각각 해당 테이블만 재조회. **변환 룰**: 매핑 모달에 변환 열(없음|정리|타입변환|값매핑)·값매핑 인라인 편집·**TransformPreviewPanel**(POST /api/etl2/transform/preview). **storage_connection_id**: utils/storageDb.js로 기본 DB null 통일(파일·DB·배치 폼). 라우트 `/etl2`, API prefix `/api/etl2`. 상세·COPY 적재·폴더 배치는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md** 참조.
 - **ETLPage.jsx**: 탭(파일 업로드·DB 연결·**폴더**·저장 DB 등록·ETL 이력). 폴더 탭: FolderConnectionFormFile, FolderConnectionListFile, 배치 Job 섹션(패딩)·BatchJobFormFile, BatchJobListFile, 이력 모달(BatchHistoryPanelFile, BatchHistoryDetailFile). 탭별 단계 안내. 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 설명.
 - **SourceTypeSelector.jsx**: 5탭 — 파일 업로드 | DB 연결 | **폴더** | 저장 DB 등록 | ETL 이력. URL `?tab=file|db|folder|storage|history` 유지.
-- **FileUploadForm.jsx**: 저장할 DB·타겟 테이블명·테이블선택 및 컬럼매핑. storageDb 정규화. etl2InferSchema 후 모달에 sourceColumns 전달.
-- **DbConnectionForm.jsx**: CollapsibleCardSection으로 "연결 추가"·"등록된 연결"·"ETL 테이블 등록" 접기/펼치기. 저장할 DB 선택(storageDb). on_row_error·증분 컬럼·source-columns·테이블선택 및 컬럼매핑 모달.
-- **FolderConnectionFormFile.jsx / FolderConnectionListFile.jsx**: 폴더(SFTP/S3) 연결 등록·목록. CollapsibleCardSection.
-- **BatchJobFormFile.jsx**: 폴더·저장 DB·파일 패턴·타겟 테이블·PK·주기·Job명. **동일 폴더·패턴·타겟·저장DB** 시 API가 400+안내 반환(중복 등록 방지). storageDb 정규화.
+- **FileUploadForm.jsx**: 저장할 DB·타겟 테이블명·테이블선택 및 컬럼매핑·**indexDefinitions**. storageDb 정규화. etl2InferSchema 후 모달에 sourceColumns 전달. 모달 onSelect에서 indexDefinitions 반영, 업로드 FormData에 index_definitions JSON append.
+- **DbConnectionForm.jsx**: CollapsibleCardSection "연결 추가"·"등록된 연결"·"ETL 테이블 등록". 저장할 DB 선택(storageDb). on_row_error·증분 컬럼·**etl2GetSourceColumns**·**etl2GetSourceIndexes** 병렬 호출 후 매핑 모달에 **sourceIndexes**·**pkReadOnlyFromSource**·**currentIndexDefinitions** 전달. 등록 시 etl2CreateTable body에 **index_definitions** 포함.
+- **FolderConnectionFormFile.jsx / FolderConnectionListFile.jsx**: 폴더(SFTP/S3) 연결 등록·목록. CollapsibleCardSection. **목록 테이블 "연결 정보" 열**: SFTP → sftp_host, S3 → s3_bucket(및 s3_region).
+- **BatchJobFormFile.jsx**: 폴더·저장 DB·파일 패턴·타겟 테이블·PK·주기·Job명·**on_file_error**(stop/continue)·**index_definitions**(인덱스 명·컬럼·UNIQUE, 체크박스 선택). **동일 폴더·패턴·타겟·저장DB** 시 API 400+안내. storageDb 정규화.
 - **BatchJobListFile.jsx**: batchListJobs 목록. **새로고침** 버튼·툴바. 활성/비활성·주기 수정·즉시 실행·이력·문제 파일·삭제. 상단 섹션 여백(etl-batch-job-list__section).
-- **BatchHistoryPanelFile.jsx**: batchListJobHistory. **새로고침** 버튼. status===running 시 2초 폴링. 상세 클릭 시 BatchHistoryDetailFile 모달.
+- **BatchHistoryPanelFile.jsx**: batchListJobHistory. **새로고침** 버튼. status===running 시 2초 폴링. **status===partial_error** 또는 (status==='error' && file_list에 ok·error 혼재) 시 상태 컬럼 **"일부 실패 (N/M 성공)"** 표기(etl-db-form__status--partial). 상세 클릭 시 BatchHistoryDetailFile 모달.
 - **BatchHistoryDetailFile.jsx**: 파일별 결과(filename, timestamp, status, rows, inserted, updated). 원격 삭제·적재 롤백. running 시 2초 폴링.
 - **StorageConnectionForm.jsx**: CollapsibleCardSection. 저장 DB 등록·테스트·목록·삭제.
-- **TargetTableSelectModal.jsx**: 소스→타겟 매핑 테이블에 **변환** 열(없음|정리|타입변환|정리+타입변환|값매핑). 값매핑 시 CodeMapInlineEditor. **TransformPreviewPanel** 하단(미리보기 새로고침 → etl2TransformPreview). 적용 시 column_mapping·변환 룰(transform_rules) 반영.
+- **TargetTableSelectModal.jsx**: 소스→타겟 매핑 테이블에 **PK**·**INDEX** 열(소스 PK/인덱스 반영 시 ✓ 읽기 전용). DB 연동 시 소스 PK/인덱스 인라인 블록·nonPrimarySourceIndexes(반영 체크). **인덱스 추가** 블록은 매핑 테이블 **아래**. **변환** 열(없음|정리|타입변환|정리+타입변환|값매핑)·값매핑 CodeMapInlineEditor·**TransformPreviewPanel**(etl2TransformPreview). onSelect 4번째 인자 **indexDefinitions**. 적용 시 column_mapping·transform_rules·index_definitions 반영.
 - **ETLTableList.jsx**: 목록 소스 **etl2ListTables** + **etl2ListBatchTargetRegistry**. 배치 행(batch_target)은 삭제 버튼만; 삭제 시 etl2DeleteBatchTargetRegistry(id)·확인 문구(테이블 DROP·배치 Job cascade). **새로고침** 툴바(etl-table-list__refresh). 저장 DB·동기화·행 실패 시 열.
 - **EtlTableSettingsModal.jsx**: DB 소스 ETL용 설정 모달. 동기화 모드·증분 컬럼·배치·행 실패 시 동작 수정 후 PATCH.
-- **API**(shared/api/client.js): etl2ListTables, **etl2ListBatchTargetRegistry**, **etl2DeleteBatchTargetRegistry**, etl2CreateTable, etl2UploadFile, etl2InferSchema, etl2ListTargetTables, etl2ListTargetColumns, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2GetSourceColumns, etl2ValidateIncrementalColumn, **etl2TransformPreview**, etl2CreateTransformRule, etl2UpdateTransformRule, etl2DeleteTransformRule, etl2ListJobs, etl2RunTable, etl2UpdateTable, etl2AddFilesZip, **batchListJobs**, **batchCreateJob**, **batchUpdateJob**, **batchDeleteJob**, **batchRunJobNow**, **batchToggleJob**, **batchListJobHistory**, **batchGetJobHistoryDetail** 등. `/api/etl2/*`, `/api/etl2/batch/*` 호출.
+- **API**(shared/api/client.js): etl2ListTables, **etl2ListBatchTargetRegistry**, **etl2DeleteBatchTargetRegistry**, etl2CreateTable, etl2UploadFile, etl2InferSchema, etl2ListTargetTables, etl2ListTargetColumns, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2GetSourceColumns, **etl2GetSourceIndexes**(GET /connections/:id/source-indexes), etl2ValidateIncrementalColumn, **etl2TransformPreview**, etl2CreateTransformRule, etl2UpdateTransformRule, etl2DeleteTransformRule, etl2ListJobs, etl2RunTable, etl2UpdateTable, etl2AddFilesZip, **batchListJobs**, **batchCreateJob**, **batchUpdateJob**, **batchDeleteJob**, **batchRunJobNow**, **batchToggleJob**, **batchListJobHistory**, **batchGetJobHistoryDetail** 등. `/api/etl2/*`, `/api/etl2/batch/*` 호출.
 
 ### 4.6 shared
 
@@ -321,3 +321,4 @@ Frontend/react-app/
 **변경 이력 (본 문서)**  
 - (2026-02-23) **ETL2** §1.1·§1.2 접속 경로에 /etl2. §3 디렉터리 트리에 packages/etl2 및 컴포넌트(EtlTableSettingsModal, 동기화·행 실패 시 드롭다운). **§4.5.1 ETL2** 갱신: 설정 모달·on_row_error·저장 DB 열·08 참조.
 - (2026-02-26) **ETL2 폴더·레지스트리·변환·새로고침 반영**: §3 etl2에 폴더 탭 컴포넌트(FolderConnectionFormFile, FolderConnectionListFile, BatchJobFormFile, BatchJobListFile, BatchHistoryPanelFile, BatchHistoryDetailFile, SkippedFilesPanelFile), CollapsibleCardSection, TransformPreviewPanel, utils/storageDb.js 추가. **§4.5.1 ETL2** 전면 갱신: 5탭(폴더 추가), ETL 목록 etl2ListBatchTargetRegistry·배치 행 삭제=cascade·새로고침, 배치 Job 목록·이력 새로고침·폴링, 변환 열·미리보기 패널·중복 Job 등록 안내, storageDb 정규화. log.md 2026-02-26 적용분 기준.
+- (2026-03-03) **ETL2 인덱스·on_file_error·UI 반영**: §3 FolderConnectionListFile 연결 정보 열, BatchJobFormFile index_definitions·on_file_error, BatchHistoryPanelFile partial_error, TargetTableSelectModal PK·INDEX 열·인덱스 추가 테이블 아래. §4.5.1 FileUploadForm/DbConnectionForm/BatchJobFormFile indexDefinitions·etl2GetSourceIndexes·sourceIndexes·pkReadOnlyFromSource, BatchHistoryPanelFile "일부 실패 (N/M 성공)", TargetTableSelectModal 소스 PK/인덱스 인라인·indexDefinitions onSelect. client.js etl2GetSourceIndexes. log 2026-03-03·2026-02-23 반영.

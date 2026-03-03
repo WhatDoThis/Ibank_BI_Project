@@ -70,7 +70,8 @@ Backend/
     ├── db_load_service.py         # DB 적재·COPY FROM STDIN·임시 테이블 Upsert·on_row_error
     ├── batch_executor_file.py     # run_batch_job·파일별 다운로드·load_dataframe·update_run_progress·finish_run
     ├── folder_adapter_file.py     # SFTP/S3 어댑터·download_file_head(CSV head 64KB)
-    ├── parser_file.py             # get_pending_files(첫 실행 시 대기 파일 전부 반환)
+    ├── csv_reader.py              # read_csv_robust(인코딩 감지·순차 시도)·load_service/parser_file에서 CSV 파싱 통합
+    ├── parser_file.py             # get_pending_files(첫 실행 시 대기 파일 전부 반환)·CSV 시 csv_reader 호출
     ├── scheduler_file.py          # APScheduler·add_job·remove_job·reschedule_job
     ├── preview_service.py         # get_raw_sample·transform/preview용
     ├── schema_infer.py            # infer_schema(파일→컬럼·타입)
@@ -99,11 +100,12 @@ Backend/
 |--------|------|
 | **etl_connections** | 소스 연결 정보(연결명, source_type, host, port, database_name, schema_name, username, encrypted_password). |
 | **etl_storage_connections** | 저장 DB(적재 대상 PostgreSQL) 등록. connection_name, host, port, database_name, schema_name, username, encrypted_password, is_active. ETL2에서 사용. |
-| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error** 등). on_row_error: 'fail'\|'skip'(증분 모드에서 행 적재 실패 시 동작). |
+| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error**, **index_definitions** JSONB 등). on_row_error: 'fail'\|'skip'. index_definitions: 타겟 테이블 인덱스 정의(적재 후 자동 생성). |
 | **etl_transform_rules** | 변환 룰(etl_table_id, source_column, target_column, rule_type, rule_config, apply_order, is_active). |
 | **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message, notice). |
 
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
+- **batch_jobs**(폴더 배치): **on_file_error** 'stop'\|'continue'(파일 1건 실패 시 run 중단 vs 다음 파일 계속). **index_definitions** JSONB(타겟 인덱스 정의).
 
 ### 3.3 ETL 한도 (etl_limits)
 
@@ -210,6 +212,7 @@ Backend/
 | POST | /api/etl2/storage-connections | 저장 DB 1건 등록 |
 | POST | /api/etl2/storage-connections/test | 저장 DB 연결 테스트 |
 | GET | /api/etl2/connections/{id}/source-columns | 소스 테이블 컬럼 목록 (query: source_table) |
+| **GET** | **/api/etl2/connections/{id}/source-indexes** | 소스 테이블 PK·인덱스 목록 (query: source_table, is_primary 구분) |
 | POST | /api/etl2/connections/{id}/validate-incremental-column | 증분 컬럼 날짜 검증 |
 | GET | /api/etl2/tables/{id}/preview | 미리보기 |
 | PATCH | /api/etl2/tables/{id} | ETL 테이블 설정 일부 갱신(sync_mode, on_row_error, incremental_column, batch_size 등) |
@@ -222,7 +225,7 @@ Backend/
 | DELETE | /api/etl2/batch/target-registry/{id} | 레지스트리 삭제·배치 Job cascade·타겟 테이블 DROP |
 | (기타) | /api/etl2/batch/jobs, validate-target, run/now, history, skipped-files, rollback 등 | 배치 Job CRUD·즉시실행·이력·스킵 파일·롤백 |
 
-- etl_tables에 storage_connection_id·column_mapping(JSONB)·on_row_error 저장. 적재 시 get_target_db_connection(storage_connection_id)·column_mapping·apply_mapping_type_cast·COPY FROM STDIN 반영. **etl_batch_target_registry**: 배치로 생성된 타겟 테이블 행; 목록에서 삭제 시 delete_batch_target_registry_and_drop_table로 Job cascade·테이블 DROP. **create_batch_job**: 동일 (folder_connection_id, file_pattern, target_table, storage_connection_id) 조합 존재 시 ValueError(중복 등록 방지). **update_run_progress**: running run의 files_processed·rows_inserted·rows_updated·file_list 실시간 갱신. **load_service_file._batch_upsert**: INSERT DO NOTHING 후 UPDATE FROM VALUES, 갱신 건수 = rowcount − inserted_this_batch. **parser_file.get_pending_files**: 첫 실행(last_processed_ts NULL) 시 ts≤max_ts 매칭 파일 전부 반환(큐 처리). 상세는 **§6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
+- etl_tables에 storage_connection_id·column_mapping·on_row_error·**index_definitions** 저장. 적재 완료 후 index_definitions 있으면 **_create_indexes_on_target** 호출. **csv_reader.read_csv_robust**: CSV 인코딩 감지(chardet/charset_normalizer)·순차 시도(utf-8→cp949 등), load_service·parser_file에서 공용. **batch_jobs.on_file_error**: 'stop'(기본, 파일 실패 시 run 중단) / 'continue'(해당 파일만 error 기록·다음 파일 계속, run은 partial_error 가능). **load_service_file._batch_upsert**: INSERT DO NOTHING 후 **실제 값 변경 행만** UPDATE(AND t.col IS DISTINCT FROM v.col); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 run 기록 미생성(건너뜀); 파일별 commit 실패 시 명시 로그·finish_run(error); on_file_error=continue 시 해당 파일 rollback 후 계속. **run_db_load**: 커넥션 누수 방지(src_conn/conn_main 초기화·except/finally에서 close). **transform_engine._apply_type_cast_with_mask**: 벡터화(대량 행 시 성능). **claim_next_pending_job**: finally에서 close 전 rollback-safe. **etl_batch_target_registry**·**create_batch_job** 중복 검사·**update_run_progress**·**parser_file.get_pending_files** 첫 실행 전부 반환. 상세는 **§6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 
 ---
 
@@ -319,14 +322,16 @@ Backend/
 
 ### 6.7 etl_server2
 
-- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**, **/api/etl2/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table**을 다른 연결에서 추가 적재 허용. **폴더 배치**: batch_jobs·batch_run_history·**etl_batch_target_registry**. 배치로 생성된 타겟을 ETL 목록에 행으로 노출; 목록에서 삭제 시 **delete_batch_target_registry_and_drop_table**로 스케줄러 제거·delete_batch_job·타겟 테이블 DROP. **create_batch_job** 시 (folder_connection_id, file_pattern, target_table, storage_connection_id) 중복이면 ValueError(중복 등록 방지). **update_run_progress**(run_id, files_processed, rows_inserted, rows_updated, file_list): running run 실시간 갱신. **load_service_file**: 폴더 배치 적재·**_batch_upsert**에서 삽입/갱신 건수 구분(INSERT DO NOTHING → inserted, UPDATE FROM VALUES → updated = rowcount − inserted_this_batch). **parser_file.get_pending_files**: 첫 실행(last_processed_ts NULL) 시 매칭 파일 **전부** 반환(한 run에서 큐 처리). **folder_adapter_file.download_file_head**: CSV 컬럼 조회 시 64KB만 다운로드. **transform/preview**: POST /api/etl2/transform/preview, get_raw_sample·apply_rules·before/after 반환.
-- **주요 기능**: (1) **저장 DB**: etl_storage_connections, get_target_db_connection(storage_connection_id). NULL=기본 DB(config ibank_db). (2) **테이블·컬럼 조회**: list_target_tables, list_target_columns. (3) **infer-schema**: 파일 업로드 → 스키마 반환, 메타 없음. (4) **column_mapping·변환 룰**: apply_mapping_type_cast·transform_rules(cleansing/type_cast/value_mapping). (5) **on_row_error**: fail/skip, Incremental에서만. (6) **COPY 적재**: Full/Incremental, _copy_upsert_batch_safe fallback. (7) **etl_batch_target_registry**: list_batch_target_registry(backfill 포함), upsert_batch_target_registry(create_batch_job 후), clear_batch_job_from_registry(delete_batch_job 전), delete_batch_target_registry_and_drop_table(목록 삭제 시). (8) **배치 실행**: batch_executor_file.run_batch_job, 파일별 다운로드·load_dataframe·update_run_progress·finish_run.
-- **router.py**: tables, upload, infer-schema, target-tables, target-columns, storage-connections, source-columns, validate-incremental-column, **POST transform/preview**, tables PATCH, jobs, preview, run, add-files-zip.
-- **router_file.py**: GET/POST /batch/jobs, GET /batch/target-registry, DELETE /batch/target-registry/{id}, validate-target, run/now, history, get-run-detail, skipped-files, rollback 등. list_folder_columns 시 CSV는 download_file_head만 사용.
-- **service.py**: get_target_db_connection, list_target_tables, list_target_columns, list_storage_connections, create_etl_table, update_etl_table, delete_etl_table(동일 target_table 다른 ETL 있으면 DROP 생략).
-- **service_file.py**: batch_jobs·batch_folder_connections·batch_run_history·etl_batch_target_registry CRUD. list_batch_jobs, create_batch_job(중복 검사), delete_batch_job(FK 순서: batch_loaded_keys → batch_run_history → batch_jobs, delete 전 clear_batch_job_from_registry), list_batch_target_registry, upsert_batch_target_registry, delete_batch_target_registry_and_drop_table. update_run_progress, finish_run, create_batch_run.
-- **load_service_file.py**: load_dataframe(파일/배치)·_batch_upsert(삽입·갱신 건수 구분). add_allowed_table은 storage_connection_id 없을 때만.
-- **메타**: etl_tables, etl_storage_connections, **batch_jobs**, **batch_folder_connections**, **batch_run_history**, **etl_batch_target_registry**(시스템 DB). 상세·COPY·폴더 배치는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md** 참조.
+- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**, **/api/etl2/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table** 다른 연결에서 추가 적재 허용. **폴더 배치**: batch_jobs(**on_file_error** stop/continue, **index_definitions**)·batch_run_history·**etl_batch_target_registry**. 배치 타겟 목록 삭제 시 delete_batch_target_registry_and_drop_table. **create_batch_job** 중복 검사. **update_run_progress** 실시간 갱신. **load_service_file**: _batch_upsert에서 INSERT DO NOTHING 후 **실제 변경 행만** UPDATE(IS DISTINCT FROM); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 **run 기록 미생성**; on_file_error=continue 시 파일별 실패해도 다음 파일 계속·partial_error; commit 실패 시 명시 처리. **csv_reader.read_csv_robust**: CSV 인코딩 감지·순차 시도, load_service·parser_file 공용. **parser_file.get_pending_files** 첫 실행 전부 반환. **folder_adapter_file.download_file_head** 64KB. **transform/preview** get_raw_sample·apply_rules. **db_load_service**: run_db_load 커넥션 누수 방지; 적재 후 **index_definitions** 있으면 _create_indexes_on_target; **get_source_indexes**(PostgreSQL/MySQL/Oracle). **transform_engine._apply_type_cast_with_mask** 벡터화. **service.claim_next_pending_job** finally rollback-safe; **_sys_cursor** context manager. **load_service** run_file_load/run_file_upsert 변수 etl_row.
+- **주요 기능**: (1) **저장 DB**: etl_storage_connections, get_target_db_connection. (2) **테이블·컬럼·인덱스 조회**: list_target_tables, list_target_columns, **get_source_indexes**(connection_id, source_table) → PK·인덱스 목록(is_primary 구분). (3) **infer-schema**: 파일 업로드 → 스키마 반환. (4) **column_mapping·변환 룰**: apply_mapping_type_cast·transform_rules. (5) **on_row_error**: fail/skip, Incremental. (6) **COPY 적재** 후 **index_definitions** 있으면 **_create_indexes_on_target**. (7) **etl_batch_target_registry**: list/upsert/clear/delete_batch_target_registry. (8) **배치 실행**: run_batch_job, on_file_error·index_definitions 반영.
+- **router.py**: tables, upload, infer-schema, target-tables, target-columns, storage-connections, source-columns, **GET connections/:id/source-indexes**, validate-incremental-column, transform/preview, tables PATCH, jobs, preview, run, add-files-zip.
+- **router_file.py**: GET/POST /batch/jobs, target-registry, validate-target, run/now, history, get-run-detail, skipped-files, rollback. list_folder_columns 시 CSV는 download_file_head만.
+- **service.py**: get_target_db_connection, list_target_tables, list_target_columns, list_storage_connections, create_etl_table(**index_definitions**), update_etl_table, delete_etl_table. **claim_next_pending_job** finally에서 close 전 rollback-safe. **_sys_cursor** context manager(새 함수 권장).
+- **service_file.py**: batch_jobs(**on_file_error**, **index_definitions**)·batch_folder_connections·batch_run_history·etl_batch_target_registry. create_batch_job(중복 검사), delete_batch_job(FK 순서), update_run_progress, finish_run, create_batch_run.
+- **db_load_service.py**: get_source_indexes(_fetch_source_indexes_pg/mysql/oracle), **_create_indexes_on_target**. run_db_load 상단 conn 초기화·except/finally에서 close; non-streaming 경로 conn_main finally close; non-streaming rows_processed 조기 반환 버그 방지.
+- **load_service.py**: run_file_load·run_file_upsert 변수 **etl_row**(row shadowing 방지). CSV 시 **csv_reader.read_csv_robust**. commit 후 index_definitions 있으면 _create_indexes_on_target.
+- **load_service_file.py**: load_dataframe(**index_definitions**)·_batch_upsert(IS DISTINCT FROM·inserted_this_batch==len이면 UPDATE 스킵). add_allowed_table은 storage_connection_id 없을 때만.
+- **메타**: etl_tables(**index_definitions**), etl_storage_connections, **batch_jobs**(on_file_error, index_definitions), batch_folder_connections, batch_run_history, etl_batch_target_registry. 상세는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 
 ---
 
@@ -345,6 +350,7 @@ Backend/
 - (2026-02-23) **docs/main 최신화(08·log 기준)**: §3.2 메타에 etl_storage_connections·on_row_error 추가. §6.2 Oracle 적재 지원. §6.1 etl_server create_etl_table 설명 유지(동일 타겟 허용은 etl_server2). §6.7 COPY·on_row_error·설정(PATCH)·08 참조 반영.
 - (2026-02-26) **ETL2 폴더 배치·레지스트리·API·적재 로직 반영**: §2 etl_server2에 router_file, service_file, load_service_file, batch_executor_file, folder_adapter_file, parser_file, scheduler_file 명시. §4.6 transform/preview·batch/target-registry·DELETE target-registry/{id} 추가. §6.7 전면 갱신: etl_batch_target_registry·list/upsert/clear/delete_batch_target_registry·create_batch_job 중복 검사·update_run_progress·_batch_upsert 삽입/갱신 구분·get_pending_files 첫 실행 전부·download_file_head·09 참조. log.md 2026-02-26 적용분 기준.
 - (2026-02-27) **ETL 한도·배치 기본값·취소 체크**: §2 etl_server2에 etl_limits.py 추가. §3.3 etl_limits: config 없을 때 etl_server2 기본값(50/100_000/50_000), 배치 미입력 시 기본 10_000건 상한(etl_server·etl_server2), etl_server db_load_service _safe_is_job_cancelled(시스템 DB 실패 시 적재 계속) 반영.
+- (2026-03-03) **ETL2 인덱스·on_file_error·csv_reader·배치·안정성 반영**: §2 csv_reader.py 추가. §3.2 etl_tables index_definitions, batch_jobs on_file_error·index_definitions. §4.6 GET source-indexes, etl_tables/batch_jobs index_definitions·csv_reader·on_file_error·_batch_upsert IS DISTINCT FROM·배치 대기 파일 없으면 run 미기록·run_db_load/commit/transform_engine/claim_next_pending_job. §6.7 전면 보강: csv_reader, on_file_error, index_definitions, get_source_indexes, _create_indexes_on_target, _batch_upsert 최적화, batch_executor 대기 파일·commit 실패·partial_error, db_load_service·load_service·service_file·load_service_file 상세. log 2026-03-03·2026-02-23 반영.
 
 ---
 

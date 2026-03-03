@@ -1,3 +1,253 @@
+## 2026-03-03 docs/main·README 최신화 (log 2026-03-03·2026-02-23 반영)
+
+**목적:** log.md 기준 마지막 개발문서 수정(2026-02-27) 이후 반영된 기능을 백엔드·프론트엔드 코드 참조하여 docs/main 개발문서 및 README에 반영.
+
+**반영 요약:**
+- **00_PRD.md**: §1.2 ETL2에 on_file_error(stop/continue), index_definitions·source-indexes, csv_reader(CSV 인코딩 통합), 배치 대기 파일 없으면 run 미기록, 폴더 연결 목록 연결정보 열, 실행 이력 partial_error·삽입/갱신 의미, 매핑 모달 PK·INDEX 열·인덱스 추가 테이블 아래, _batch_upsert IS DISTINCT FROM. §6.3.1·§8 변경 이력 2026-03-03 항목 추가.
+- **01_FRONTEND_GUIDE.md**: §3 FolderConnectionListFile 연결 정보, BatchJobFormFile index_definitions·on_file_error, BatchHistoryPanelFile partial_error, TargetTableSelectModal PK·INDEX·인덱스 추가 테이블 아래. §4.5.1 FileUploadForm/DbConnectionForm/BatchJobFormFile indexDefinitions·etl2GetSourceIndexes·sourceIndexes·pkReadOnlyFromSource, BatchHistoryPanelFile "일부 실패 (N/M 성공)", TargetTableSelectModal 소스 PK/인덱스·indexDefinitions onSelect, client.js etl2GetSourceIndexes. 변경 이력 2026-03-03.
+- **02_BACKEND_GUIDE.md**: §2 csv_reader.py. §3.2 etl_tables index_definitions, batch_jobs on_file_error·index_definitions. §4.6 GET source-indexes, API 설명 보강(csv_reader·on_file_error·_batch_upsert·배치 run 미기록·commit 실패·run_db_load·transform_engine·claim_next_pending_job). §6.7 전면 보강: csv_reader, on_file_error, index_definitions, get_source_indexes, _create_indexes_on_target, _batch_upsert 최적화, batch_executor_file·db_load_service·load_service·service·service_file·load_service_file 상세. 변경 이력 2026-03-03.
+- **README.md**: ETL2 행에 인덱스 설정·on_file_error·partial_error·csv_reader. Backend/etl_server2 행에 인덱스·csv_reader·on_file_error. 최종 업데이트 2026-03-03.
+
+**변경 파일:** docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/README.md, log.md.
+
+---
+
+## 2026-03-03 CSV 인코딩 통합(csv_reader) + claim_next_pending_job finally rollback 제거
+
+**목적:** (1) CSV 읽기 로직 중복 제거 및 인코딩 감지 확장. (2) commit 후 불필요한 rollback 제거.
+
+**개선 포인트 5 — CSV 인코딩 통합:**
+- **Backend/etl_server2/csv_reader.py** 신규: `read_csv_robust(file_path, nrows=None)` → (DataFrame, encoding_used, data_verification_needed).
+- chardet 또는 charset_normalizer 있으면 앞부분 바이트로 인코딩 자동 감지 후 해당 인코딩 우선 시도. 없으면 기존처럼 순차 시도만 사용.
+- 시도 순서: 감지값 → utf-8 → utf-8-sig → cp949 → euc-kr → latin-1 → cp1252. 'unexpected end of data' 시 EOF(\\x1a) 제거 후 재시도.
+- **load_service.py**: `_read_csv_robust` 제거. `_read_file`에서 CSV일 때 `csv_reader.read_csv_robust` 호출 후 (df, data_verification_needed) 반환 유지.
+- **parser_file.py**: `_read_csv_robust` 제거. `read_file`에서 CSV일 때 `csv_reader.read_csv_robust` 호출 후 DataFrame만 반환.
+
+**개선 포인트 6 — claim_next_pending_job:**
+- **etl_server2/service.py**: `claim_next_pending_job`의 finally 블록에서 `conn.rollback()` 제거. commit 성공 후 rollback 호출은 불필요한 왕복·autocommit 아닐 때 부작용 가능. 예외 시에만 except 블록에서 rollback 유지.
+
+**변경 파일:** Backend/etl_server2/csv_reader.py(신규), load_service.py, parser_file.py, service.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 run_batch_job 파일별 에러 정책(on_file_error) + _batch_upsert UPDATE 최적화
+
+**목적:** (1) 파일 1건 실패 시 전체 중단 대신 "다음 파일 계속" 옵션 추가. (2) upsert 시 실제로 값이 변경된 행만 UPDATE.
+
+**on_file_error (개선 포인트 3):**
+- **batch_jobs.on_file_error** 컬럼 추가 (migration_on_file_error.sql). 값: `stop`(기본) | `continue`.
+- **stop**: 기존 동작. 파일 처리 중 예외 시 finish_run("error") 후 return → 나머지 파일 미처리.
+- **continue**: 해당 파일만 file_results에 status="error" 기록, target_conn.rollback() 후 다음 파일 계속. last_processed_ts는 성공한 파일의 마지막 ts만 갱신. 전체 처리 후 에러 파일이 1건이라도 있으면 finish_run("partial_error"), 없으면 "success". update_job_status는 항상 "success"로 호출해 다음 주기 정상 실행.
+- service_file: create_batch_job/update_batch_job에 on_file_error 파라미터·allowed 추가. router_file: CreateBatchJobBody/UpdateBatchJobBody, create_batch_job/clone/update_batch_job에 on_file_error 반영.
+- BatchHistoryPanelFile: status가 "partial_error"일 때도 "일부 실패 (N/M 성공)" 표시.
+
+**_batch_upsert (개선 포인트 4):**
+- UPDATE ... FROM (VALUES ...)에 `AND (t."col1" IS DISTINCT FROM v."col1" OR ...)` 조건 추가. 실제로 non_pk 컬럼 값이 변경된 행만 UPDATE되어 WAL/디스크 I/O 절감. 반환 updated 카운트도 실제 변경 건수만 반영.
+
+**변경 파일:** Backend/etl_server2/batch_executor_file.py, service_file.py, router_file.py, load_service_file.py, Frontend/.../BatchHistoryPanelFile.jsx, docs/report/migration_on_file_error.sql, docs/report/log.md.
+
+---
+
+## 2026-03-03 run_db_load 커넥션 누수 방지 + _apply_type_cast_with_mask 벡터화
+
+**목적:** (1) DB 커넥션 누수 위험 제거. (2) 형변환 실패 행 처리 성능 개선.
+
+**run_db_load (db_load_service.py):**
+- 함수 상단에서 `src_conn = conn_main = cur_src = cur_main = None` 초기화.
+- 첫 번째 try(소스 연결·컬럼 조회 등)에서 예외 발생 시 `except` 블록에서 `src_conn`이 열려 있으면 `close()` 호출 후 재예외/반환. effective_batch_size 분기 진입 전 예외 시에도 src_conn이 닫히도록 보장.
+
+**_apply_type_cast_with_mask (transform_engine.py):**
+- 기존: `for idx in series.index` 파이썬 루프로 행 단위 `series.at[idx]` 접근 → 수십만 행에서 지연.
+- 변경: 2-pass 방식. (1) 1차로 `pd.to_numeric`/`pd.to_datetime`(errors='coerce') 등 벡터 변환. (2) 실패 행만 식별(결과 NA이고 원본 비어있지 않음). (3) on_error='fail'이면 첫 실패 행에서 ValueError. (4) on_error='skip_row'면 해당 위치만 failed_mask=True. (5) null/zero/keep은 실패 행만 스칼라로 후처리. 대부분 행은 벡터 연산으로 처리되어 성능 개선.
+
+**변경 파일:** Backend/etl_server2/db_load_service.py, Backend/etl_server2/transform_engine.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 파일 업로드 모달: 인덱스 추가를 테이블 아래로, INDEX 열에 ✓ 연동
+
+**목적:** 동일 모달을 쓰는 파일 업로드에서 PK·INDEX 열 유지, 인덱스 추가 UI를 매핑 테이블 아래로 배치하고, 추가한 인덱스 컬럼은 위 테이블 INDEX 열에 ✓로 표시.
+
+**변경 내용:**
+- **TargetTableSelectModal**: (1) sourceIndexes 없을 때도 매핑 테이블에 INDEX 열 항상 표시. (2) targetColumnsInCustomIndexes useMemo 추가 — customIndexDefinitions에 포함된 타겟 컬럼명 집합, INDEX 셀에 ✓ 표시용. (3) "인덱스 추가" 블록을 "저장 DB 테이블" 위에서 제거 후, 매핑 테이블 섹션 바로 아래로 이동(라벨: "인덱스 추가 (테이블 아래)"). (4) 새 테이블/기존 테이블 매핑 모두에서 INDEX 열: sourceIndexes 있으면 targetColumnsInReflectedIndexes, 없으면 targetColumnsInCustomIndexes로 ✓ 표시.
+
+**변경 파일:** Frontend/react-app/src/packages/etl2/components/TargetTableSelectModal.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-03 DB 연결 컬럼 매핑: PK·INDEX 열 통합 및 읽기 전용 ✓ 표기
+
+**목적:** DB 연결 시 컬럼 매핑 창에서 소스 PK/인덱스를 별도 블록이 아닌 매핑 테이블 내 PK·INDEX 열로 통합하고, 소스 기준 컬럼은 체크 이모티콘(✓)으로만 표시.
+
+**변경 내용:**
+- **TargetTableSelectModal**: DB 연동(sourceIndexes.length > 0) 시 (1) "소스 PK" 단독 라인 및 "소스 인덱스" 별도 테이블 제거. (2) "소스 PK/인덱스" 인라인 블록 추가 — 안내 문구 + 인덱스 반영 체크(칩 형태). (3) 매핑 테이블에 **INDEX** 열 추가(PK 오른쪽). (4) PK 열: 제외 행은 "—", 소스 PK 컬럼은 ✓(읽기 전용), 그 외는 "—"(다른 컬럼에 PK 추가 불가). (5) INDEX 열: 제외 행은 "—", 반영된 소스 인덱스에 포함된 컬럼은 ✓, 그 외 "—". (6) targetColumnsInReflectedIndexes useMemo로 반영 인덱스에 포함된 타겟 컬럼명 집합 계산.
+- **etl.css**: `.etl-target-select-modal__th--index`, `__cell--index`, `__constraint-check`, `__row--source-indexes-inline`, `__index-reflect-inline`, `__index-reflect-label`, `__index-reflect-chip`, `__index-reflect-cols` 추가.
+- 제외된 행은 PK·INDEX 모두 "—"이며, 테이블 생성·데이터 이관 시 해당 컬럼은 constraint 미적용(기존 동작 유지).
+
+**변경 파일:** Frontend/react-app/src/packages/etl2/components/TargetTableSelectModal.jsx, etl.css, docs/report/log.md.
+
+---
+
+## 2026-03-03 실행 이력: 삽입 집계 설명 + 일부 실패 표기 (ETL2 배치)
+
+**목적:** (1) run 단위 "삽입 행" 500,000 vs 파일별 합 480,000 이해 정리. (2) 실행 이력 목록에서 "일부만 실패"한 run을 "전체 실패"와 구분해 표시.
+
+**삽입/갱신 의미 (DB 행 수와의 관계):**
+- **삽입(inserted)**: 이번 파일에서 **새로 추가된 행 수**. 테이블 총 행 수에 그대로 더해짐.
+- **갱신(updated)**: 이번 파일에서 **이미 테이블에 있던 행(PK 동일)**의 비PK 컬럼만 갱신된 수. **행 수 증가 없음**.
+- 따라서 **테이블 총 행 수 = sum(파일별 삽입)**. 갱신은 행 수에 기여하지 않음.
+- 예: 파일1 220,000 삽입 + 파일2 180,001 삽입 + 20,000 갱신 + 파일3 99,999 삽입 → 삽입 합 500,000, 갱신 합 20,000. DB에는 500,000행만 있음(파일2의 20,000건은 기존 행 업데이트).
+
+**갱신이 나오는 이유:** PK가 같은 행이 이미 테이블에 있을 때(예: 파일1에서 넣은 PK를 파일2에서 다시 넣는 경우) INSERT는 건너뛰고(ON CONFLICT DO NOTHING), UPDATE 단계에서 해당 행의 비PK 컬럼만 갱신하기 때문. 그 20,000건이 "갱신"으로 집계됨.
+
+**검증 방법:** load_service_file._batch_upsert 주석 보강. 아래 절차로 확인 가능.
+- (1) 테이블에 PK 설정 후 파일 A만 적재 → 삽입 N, 갱신 0. `SELECT COUNT(*)` = N.
+- (2) 동일 PK를 가진 파일 B를 같은 타겟에 업서트(비PK 컬럼만 다름) → 삽입 0, 갱신 N. `SELECT COUNT(*)` = N 유지.
+- (3) 파일 C(신규 PK M건) 적재 → 삽입 M, 갱신 0. `SELECT COUNT(*)` = N + M.
+
+**UI 변경:**
+- **BatchHistoryPanelFile**: run의 status가 "error"이고 file_list에 ok와 error가 둘 다 있을 때, 상태 컬럼에 **"일부 실패 (N/M 성공)"**으로 표기. 뱃지 클래스 `etl-db-form__status--partial`(노란 계열) 적용.
+- **etl.css**: `.etl-db-form__status--partial` 추가 (color #b45309, background #fef3c7).
+
+**변경 파일:** Frontend/react-app/src/packages/etl2/components/BatchHistoryPanelFile.jsx, etl.css, docs/report/log.md.
+
+---
+
+## 2026-03-03 인덱스 설정 기능 — 프론트엔드 UI 연동 (Part 2 프론트)
+
+**목적:** 백엔드 인덱스 API·메타 반영에 맞춰 ETL2 패키지에서 파일 업로드/파일 배치의 인덱스 설정 UI, DB 연동 시 소스 PK·인덱스 라인 UI를 구현.
+
+**변경·추가 내용:**
+
+- **client.js**: `etl2GetSourceIndexes(connectionId, sourceTable)` 추가. GET `/api/etl2/connections/:id/source-indexes?source_table=...` 호출.
+- **TargetTableSelectModal**:  
+  - props: `sourceIndexes`, `currentIndexDefinitions`, `pkReadOnlyFromSource` 추가.  
+  - 소스 PK 라인: `sourcePkFromSource` 있으면 "소스 PK" 읽기 전용 표시.  
+  - 소스 인덱스: `nonPrimarySourceIndexes` 테이블(반영 체크, 인덱스명, 컬럼, UNIQUE). `sourceIndexReflect` 상태로 타겟 반영 여부 선택.  
+  - 인덱스(선택): `sourceIndexes` 없을 때 `customIndexDefinitions` 수동 목록(인덱스명, 컬럼, UNIQUE, + 인덱스 추가/삭제).  
+  - PK 체크박스: `pkReadOnlyFromSource && sourcePkColumnNames` 포함 컬럼은 disabled.  
+  - `onSelect(tableName, columnMapping, pkColumns, indexDefinitions)` 4번째 인자로 indexDefinitions 전달.
+- **FileUploadForm**: `indexDefinitions` 상태 추가. 모달에 `currentIndexDefinitions` 전달, onSelect에서 `setIndexDefinitions(idxDefs)`. 업로드 FormData에 `index_definitions` JSON append. 요약에 "인덱스: N개" 표시.
+- **DbConnectionForm**: `sourceIndexes`, `indexDefinitions` 상태. `openTargetTableSelectModal`에서 `etl2GetSourceColumns`와 `etl2GetSourceIndexes` 병렬 호출 후 소스 PK가 있으면 `setPkColumns(primary.columns.join(', '))`. 모달에 `sourceIndexes`, `pkReadOnlyFromSource`, `currentIndexDefinitions` 전달. 등록 시 `etl2CreateTable` body에 `index_definitions` 포함. 요약에 인덱스 개수 표시.
+- **BatchJobFormFile**: `index_definitions` 상태. "인덱스 (선택)" 섹션(인덱스명, 컬럼(쉼표), UNIQUE 체크, 삭제, + 인덱스 추가). `batchCreateJob` body에 `index_definitions` 포함. 등록 성공 시 초기화.
+- **etl.css**: 모달용 `.etl-target-select-modal__row--source-pk`, `__source-pk-value`, `__row--source-indexes`, `__index-table-wrap`, `__th--reflect`, `__row--custom-indexes`, `__custom-index-list/row`, `__input--index-name`, `__index-cols-select/__index-cols-label/__index-cols-checkboxes/__index-col-check`, `__custom-index-unique`, `__btn-remove`, `__btn-add` 스타일 추가.
+- **인덱스 컬럼 선택 방식 (PK와 동일)**: 인덱스 컬럼을 직접 입력이 아닌 **선택(체크박스)**으로 변경. TargetTableSelectModal에서는 타겟 컬럼 후보(`targetColumnNamesForPk`)를 체크박스로 표시, BatchJobFormFile에서는 `availableColumns`(컬럼 가져와서 선택 결과)를 체크박스로 표시. 컬럼 미로드 시 안내 문구 표시.
+
+**변경 파일:** Frontend/react-app/src/shared/api/client.js, Frontend/react-app/src/packages/etl2/components/TargetTableSelectModal.jsx, FileUploadForm.jsx, DbConnectionForm.jsx, BatchJobFormFile.jsx, etl.css, docs/report/log.md.
+
+---
+
+## 2026-03-03 인덱스 설정 기능 추가 (Part 2 — 백엔드)
+
+**목적:** 파일 업로드/배치·DB 연동 시 PK 외에 타겟 테이블 인덱스를 설정·자동 생성. DB 소스는 소스 테이블 PK·인덱스 조회 API 제공.
+
+**스키마:** etl_tables, batch_jobs에 `index_definitions JSONB` 추가. migration: docs/report/migration_index_definitions.sql (시스템 DB에서 실행).
+
+**백엔드 요약:**
+- **db_load_service**: _fetch_source_indexes_pg/mysql/oracle, get_source_indexes(connection_id, source_table), _create_indexes_on_target(cur, conn, schema, table, index_definitions). run_db_load(streaming·non-streaming) 적재 완료 후 index_definitions 있으면 인덱스 생성.
+- **router**: GET /connections/{connection_id}/source-indexes?source_table= — 소스 테이블 인덱스 목록(PK 포함, is_primary 구분).
+- **service**: create_etl_table/update_etl_table/get_etl_table/list_etl_tables에 index_definitions 반영.
+- **router**: CreateTableBody/UpdateTableBody·create_table/update_table·upload_file에 index_definitions.
+- **load_service.run_file_load**: commit 후 index_definitions 있으면 _create_indexes_on_target 호출.
+- **load_service_file.load_dataframe**: index_definitions 파라미터 추가, 테이블 신규 생성 시 인덱스 생성. batch_executor_file에서 job.get("index_definitions") 전달.
+- **service_file/router_file**: batch_jobs에 index_definitions 저장·조회, CreateBatchJobBody/UpdateBatchJobBody·create_batch_job/update_batch_job 반영.
+
+**프론트:** GET /source-indexes와 기존 source-columns 조합으로 소스 PK·인덱스 표시 후, PK는 고정·비활성, 인덱스는 체크박스로 타겟 반영 여부 선택 가능. PATCH /tables/{id} body에 index_definitions 포함해 저장.
+
+**변경·추가 파일:** Backend/etl_server2/db_load_service.py, service.py, router.py, load_service.py, load_service_file.py, service_file.py, router_file.py, batch_executor_file.py, docs/report/migration_index_definitions.sql, docs/report/log.md.
+
+---
+
+## 2026-03-03 load_service_file·parser_file·service.py 개선 3건 (etl_server2)
+
+**6. load_service_file.py _batch_upsert — 불필요한 UPDATE 스킵**
+- INSERT ON CONFLICT DO NOTHING 후 `inserted_this_batch == len(rows)`이면 충돌 없음이므로 UPDATE FROM VALUES 불필요. 해당 시 `continue`로 UPDATE 쿼리 건너뜀.
+
+**7. parser_file.py _read_csv_robust — 반환 타입 차이 주석**
+- `_read_csv_robust` 위에 주석 추가: "배치 파일 파싱용. load_service._read_csv_robust와 달리 DataFrame만 반환(data_verification 미지원)." — parser_file은 배치용, load_service는 파일 업로드용으로 별도 모듈이지만 혼동 방지용 명시.
+
+**8. service.py — _sys_cursor context manager 추가**
+- 상단에 `from contextlib import contextmanager` 및 `@contextmanager def _sys_cursor():` 추가. yield (cur, conn), finally에서 cur.close()/conn.close(). 기존 함수는 점진적 변환 대상이며, 새 함수 작성 시 `with _sys_cursor() as (cur, conn):` 사용 권장.
+
+**변경 파일:** Backend/etl_server2/load_service_file.py, Backend/etl_server2/parser_file.py, Backend/etl_server2/service.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 service.py claim_next_pending_job finally에 rollback-safe 패턴 추가 (etl_server2)
+
+**목적:** `claim_next_pending_job`에서 `conn.commit()` 전 예외 시 except에서만 rollback하고, finally에서는 close만 하던 것을 보완. finally에서 close 전에 `try: conn.rollback() except: pass`를 넣어, 어떤 경로로 나가든 트랜잭션 정리 후 커넥션 반환.
+
+**수정 내용 (Backend/etl_server2/service.py):**
+- `claim_next_pending_job`의 finally 블록에서 `conn.close()` 직전에 `try: conn.rollback() except Exception: pass` 추가. 이미 commit된 경우 rollback은 no-op이므로 안전.
+
+**변경 파일:** Backend/etl_server2/service.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 batch_executor_file.py 파일 루프 내 commit 실패 명시 처리 (etl_server2)
+
+**목적:** `run_batch_job` 파일 루프에서 `target_conn.commit()` 실패 시 원인(commit 실패)을 로그·이력에 명확히 남기고, rollback 후 run을 error로 종료하도록 처리.
+
+**수정 내용 (Backend/etl_server2/batch_executor_file.py):**
+- `load_dataframe` 직후 `target_conn.commit()` 호출을 `try`/`except`로 감쌈.
+- `except Exception as commit_err`: `logger.exception("run_batch_job commit failed for %s: %s", filename, commit_err)` 로그, `target_conn.rollback()`(실패 시 무시), `file_results.append({..., "status": "error", "error": str(commit_err)})`, `finish_run(..., "error", ...)`, `update_job_status(..., "error", ...)`, `return`.
+
+**변경 파일:** Backend/etl_server2/batch_executor_file.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 db_load_service.py non-streaming 경로 conn_main 커넥션 누수 방지 (etl_server2)
+
+**목적:** non-streaming 경로에서 `conn_main` 생성 후 중간 예외 시 최상위 except만 타고 finally가 없어 커넥션이 닫히지 않을 수 있는 누수 방지.
+
+**수정 내용 (Backend/etl_server2/db_load_service.py):**
+- non-streaming 블록에서 `conn_main = None` 선언 후 `get_target_db_connection`·이하 전체를 `try` 안에 배치.
+- 해당 `try`에 대응하는 `finally` 추가: `if conn_main:` 일 때 `try: conn_main.close() except Exception: pass`로 예외 경로에서도 커넥션 정리.
+
+**변경 파일:** Backend/etl_server2/db_load_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 load_service.py run_file_load·run_file_upsert 변수 shadowing 정리 (etl_server2)
+
+**목적:** ETL 메타 dict와 혼동될 수 있는 `row` 변수명을 `etl_row`로 통일하여 가독성·유지보수성 개선.
+
+**수정 내용 (Backend/etl_server2/load_service.py):**
+- `run_file_load`: `row = etl_service.get_etl_table(...)` → `etl_row`, 함수 내 모든 `row.get(...)`·`if not row` → `etl_row.get(...)`·`if not etl_row`.
+- `run_file_upsert`: 동일하게 `row` → `etl_row` 리네임 및 `row.get` → `etl_row.get` 일괄 치환.
+
+**변경 파일:** Backend/etl_server2/load_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-03 db_load_service.py non-streaming 경로 미정의 변수 버그 수정 (etl_server2)
+
+**목적:** `run_db_load`에서 `effective_batch_size == 0`인 non-streaming 경로에서 `rows_processed`가 정의되기 전에 사용되어 NameError가 발생할 수 있는 버그 수정.
+
+**원인:** non-streaming 분기(else) 안에서 `rows_data`만 구성하고 `rows_processed`는 이후 Phase 4 이후(약 1046행)에서만 할당되는데, 그 전에 `if rows_processed == 0:`으로 조기 반환하는 코드가 있어, 행이 0건일 때 미정의 변수 참조 발생.
+
+**수정 내용 (Backend/etl_server2/db_load_service.py):**
+- non-streaming 분기 끝(etl_service.set_job_total_rows 직후)에 `rows_processed = len(rows_data)` 추가.
+- `if rows_processed == 0:` → `if len(rows_data) == 0:` 로 변경하여, 해당 분기에서 명시적으로 행 개수 기준으로 조기 반환하도록 함.
+
+**변경 파일:** Backend/etl_server2/db_load_service.py, docs/report/log.md.
+
+---
+
+## 2026-02-23 배치 주기에서 대기 파일 없을 때 run 기록 미생성
+
+**목적:** 해당 배치 주기에서 처리할 대기 파일이 없을 때 `batch_run_history`에 run 로우를 넣지 않고, 그 주기는 그냥 건너뛰도록 변경.
+
+**변경 전:** `create_batch_run()` 호출 후 `list_files`·`get_pending_files` 실행 → pending 비었을 때 `finish_run(run_id, "skipped", files_processed=0)` 호출. 매 주기마다 run 1건이 이력에 쌓임.
+
+**변경 후:** 먼저 폴더 어댑터 연결 → `list_files`·`get_pending_files` 실행. **pending이 비어 있으면** run 생성·갱신 없이 return(로그만 "no pending files, skip (run 기록 없음)"). pending이 있을 때만 `create_batch_run`·`update_job_status(running)` 호출 후 적재 진행.
+
+**효과:** 대기 파일이 없는 주기에는 `batch_run_history`에 로우가 쌓이지 않음. 실행 이력에는 실제로 파일을 처리했거나 시도한 run만 표시됨.
+
+**변경 파일:** Backend/etl_server2/batch_executor_file.py, docs/report/log.md.
+
+---
+
 ## 2026-02-23 등록된 폴더 연결 테이블: 연결 정보 열 (SFTP IP, S3 버킷/리전) + 학습 가이드 반영
 
 **목적:** 등록된 폴더 연결 목록에서 SFTP는 IP(host), S3는 버킷(및 리전)을 구분용으로 표시. 동일 내용을 학습 가이드에 반영.

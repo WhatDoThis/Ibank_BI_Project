@@ -13,7 +13,7 @@ CRM 데이터 조회·집계·적재를 위한 **노코드 쿼리 빌더**, **�
 | **대시보드2** | `/ibank-bi/dashboard2` | 성과리포트. 보기 모드(일간·주간·월간·연간 비교), KPI·집계 테이블·위젯, rate형 소수점·info 버튼 |
 | **위젯보드** | `/ibank-bi/widgetboard` | 드래그 앤 드롭 위젯 그리드 대시보드. 레이아웃·위젯 설정 localStorage 저장 |
 | **ETL** | `/ibank-bi/etl` | 파일 업로드·외부 DB(PostgreSQL·MySQL·Oracle) 연동 → 우리 PostgreSQL 적재. 동기화 모드(전체/증분), 배치·수동 실행 |
-| **ETL2** | `/ibank-bi/etl2` | 저장 DB 등록·선택, 테이블선택·컬럼매핑·변환 룰, 설정 모달(동기화·증분·행 실패 시 동작). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job·이력. ETL 목록에 배치 타겟 통합(삭제 시 cascade·테이블 DROP). 동일 폴더·패턴·타겟·저장DB 중복 Job 등록 방지 |
+| **ETL2** | `/ibank-bi/etl2` | 저장 DB 등록·선택, 테이블선택·컬럼매핑·변환 룰·**인덱스 설정**(index_definitions), 설정 모달(동기화·증분·행 실패 시 동작). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job·이력·**on_file_error**(stop/continue)·**일부 실패(partial_error)** 표기. ETL 목록에 배치 타겟 통합(삭제 시 cascade·테이블 DROP). **CSV 인코딩 통합**(csv_reader). 동일 폴더·패턴·타겟·저장DB 중복 Job 등록 방지 |
 
 - **설정**: `Env/config/config.json` 만 사용 (.env 미사용).
 - **상세 명세**: `docs/main/00_PRD.md`, `01_FRONTEND_GUIDE.md`, `02_BACKEND_GUIDE.md` 참고. ETL 한도(etl_limits) 미지정 시 etl_server2 기본값 적용, DB 적재 배치 미입력 시 1만 건 기본 상한.
@@ -66,7 +66,7 @@ python run.py front
 | `Frontend/static_server` | dist 서빙, SPA fallback, api-config.js 주입 |
 | `Backend/api_server` | FastAPI. routers: health, report, dashboard, dashboard2. ETL 워커 startup |
 | `Backend/etl_server` | ETL API·메타·업로드·DB 적재·Job 큐 (`/api/etl`) |
-| `Backend/etl_server2` | ETL2·폴더 배치 API (`/api/etl2`, `/api/etl2/batch`). 저장 DB·컬럼매핑·COPY 적재·etl_batch_target_registry |
+| `Backend/etl_server2` | ETL2·폴더 배치 API (`/api/etl2`, `/api/etl2/batch`). 저장 DB·컬럼매핑·COPY 적재·인덱스 설정·csv_reader·on_file_error·etl_batch_target_registry |
 | `Env/config` | config.json 로드. config.backend, config.frontend |
 | `docs/main` | 개발 문서. 00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md |
 | `docs/report` | 배포·실행 로그·리포트. log.md, 08_ETL_Phase_Implement_Guide.md, 09_ETL_SFTP_Connection.md 등 |
@@ -83,4 +83,4 @@ python run.py front
 
 ---
 
-*최종 업데이트: 2026-02-27. docs/main 및 log.md 반영(ETL 한도 기본값·배치 기본 1만 건·취소 체크 견고화).*
+*최종 업데이트: 2026-03-03. docs/main 최신화(log 2026-03-03·2026-02-23 반영): ETL2 인덱스 설정·on_file_error·csv_reader·partial_error·배치 run 미기록·폴더 연결정보 등.*
