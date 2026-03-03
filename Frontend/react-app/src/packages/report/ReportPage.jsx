@@ -19,8 +19,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
-import { getApiBase } from '@/shared/config/api'
-import { health, listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/shared/api/client'
+import { listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/shared/api/client'
+import { useReportData } from './hooks/useReportData'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
 import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils/safetyCheck'
@@ -35,9 +35,7 @@ function isGroupByColumn(groupBy, table, column) {
 }
 
 export default function ReportPage() {
-  const [dbStatus, setDbStatus] = useState({ ok: null, message: '확인 중...' })
-  const [tables, setTables] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { dbStatus, setDbStatus, tables, setTables, loading, loadHealth, loadTables, refreshAll } = useReportData()
 
   const [gridColumns, setGridColumns] = useState([])
   const [addedTables, setAddedTables] = useState([])
@@ -60,6 +58,7 @@ export default function ReportPage() {
   const [saveAsTableSubmitting, setSaveAsTableSubmitting] = useState(false)
   const [showJoinImpossibleModal, setShowJoinImpossibleModal] = useState(false)
   const [showColumnLabelsModal, setShowColumnLabelsModal] = useState(false)
+  const [autoExecute, setAutoExecute] = useState(true)
   /** 선택된 컬럼 기준: 테이블별 테이블 라벨 draft */
   const [tableLabelsDraft, setTableLabelsDraft] = useState({}) // { tableName: label }
   /** 선택된 컬럼 기준: 테이블별 컬럼 라벨 draft */
@@ -116,37 +115,15 @@ export default function ReportPage() {
     let cancelled = false
     let toastTimeout = null
     async function load() {
-      try {
-        const healthData = await health()
-        const ok = healthData?.status === 'healthy'
-        if (!cancelled) setDbStatus({ ok, message: ok ? 'DB 연결됨' : (healthData?.error || healthData?.message || 'DB 연결 안됨') })
-      } catch (e) {
-        if (!cancelled) setDbStatus({ ok: false, message: `API 서버 연결 실패 (${getApiBase()} 확인)` })
-      }
-      try {
-        const listData = await listTables()
-        const rawTables = listData?.tables || []
-        const tablesWithColumns = []
-        for (const t of rawTables) {
-          const name = t?.table_name
-          if (!name) continue
-          try {
-            const desc = await describeTable(name)
-            tablesWithColumns.push({ table_name: name, size: t?.size, table_label: t?.table_label ?? name, columns: desc?.columns || [] })
-          } catch {
-            tablesWithColumns.push({ table_name: name, size: t?.size, table_label: t?.table_label ?? name, columns: [] })
-          }
-        }
-        if (!cancelled) setTables(tablesWithColumns)
-      } catch (e) {
+      await loadHealth()
+      const res = await loadTables((msg) => {
         if (!cancelled) {
-          setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
-          setTables([])
-          setToast({ type: 'error', msg: e.message || '테이블 로드 실패' })
+          setToast({ type: 'error', msg })
           toastTimeout = setTimeout(() => setToast(null), 3000)
         }
-      } finally {
-        if (!cancelled) setLoading(false)
+      })
+      if (!cancelled && res.ok === false && res.error) {
+        setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
       }
     }
     load()
@@ -154,7 +131,7 @@ export default function ReportPage() {
       cancelled = true
       if (toastTimeout) clearTimeout(toastTimeout)
     }
-  }, [])
+  }, [loadHealth, loadTables])
 
   useEffect(() => {
     if (!tables.length) return
@@ -345,14 +322,16 @@ export default function ReportPage() {
     }
     const pathValidation = validateJoinPath(addedTables, relationshipOptions, { join_order: joinOrderData?.join_order })
     if (!pathValidation.valid) {
-      pathValidation.issues.filter((i) => i.severity === 'error').forEach((err) => {
-        showToast('error', err.message)
-      })
+      const errors = pathValidation.issues.filter((i) => i.severity === 'error')
+      const msg = errors.length === 1 ? errors[0].message : `조인 경로 오류 ${errors.length}건: ${errors.map((e) => e.message).join('; ')}`
+      showToast('error', msg)
       return
     }
-    pathValidation.issues.filter((i) => i.severity === 'warning').forEach((warn) => {
-      showToast('warning', warn.message)
-    })
+    const warnings = pathValidation.issues.filter((i) => i.severity === 'warning')
+    if (warnings.length > 0) {
+      const msg = warnings.length === 1 ? warnings[0].message : `경고 ${warnings.length}건: ${warnings.map((w) => w.message).join('; ')}`
+      showToast('warning', msg)
+    }
     setQueryRunning(true)
     try {
       const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs, joinOrder: joinOrderData?.join_order }
@@ -383,12 +362,12 @@ export default function ReportPage() {
   const runExecuteQueryRef = useRef(runExecuteQuery)
   runExecuteQueryRef.current = runExecuteQuery
   useEffect(() => {
-    if (gridColumns.length === 0) return
+    if (!autoExecute || gridColumns.length === 0) return
     const tid = setTimeout(() => {
       runExecuteQueryRef.current()
     }, 400)
     return () => clearTimeout(tid)
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, joinOrderData, pivot, havings])
+  }, [autoExecute, gridColumns, addedTables, filters, orderBy, currentPage, pageSize, joinOrderData, pivot, havings])
 
   const moveColumn = useCallback((fromIndex, toIndex, insertBefore) => {
     setGridColumns((prev) => {
@@ -740,7 +719,7 @@ export default function ReportPage() {
 
   const openColumnLabelsModal = useCallback(() => {
     if (gridColumns.length === 0) {
-      showToast('info', '먼저 그리드에 표시할 컬럼을 선택해 주세요.')
+      showToast('info', '먼저 그리드에 표시할 컬럼을 선택한 뒤 표시명 편집을 사용할 수 있습니다.')
       return
     }
     const byTable = {}
@@ -792,7 +771,7 @@ export default function ReportPage() {
         }))
       )
       setShowColumnLabelsModal(false)
-      showToast('success', '선택한 컬럼의 라벨이 해당 테이블에 저장되었습니다.')
+      showToast('success', '표시명이 저장되었습니다. DB 테이블·컬럼명은 변경되지 않았습니다.')
     } catch (e) {
       showToast('error', e.message || '라벨 저장 실패')
     } finally {
@@ -811,6 +790,15 @@ export default function ReportPage() {
           addedTables={addedTables}
           loading={loading}
           dbStatus={dbStatus}
+          onRefreshTables={async () => {
+            setToast(null)
+            const res = await loadTables((msg) => setToast({ type: 'error', msg }))
+            if (res?.ok) setToast({ type: 'success', msg: '테이블 목록을 새로고침했습니다.' })
+          }}
+          onRefreshDbStatus={async () => {
+            await loadHealth()
+            setToast({ type: 'success', msg: 'DB 상태를 확인했습니다.' })
+          }}
         />
         <MainArea
           gridColumns={gridColumns}
@@ -868,6 +856,8 @@ export default function ReportPage() {
           onExplainSql={runExplainSql}
           onCloseExplanation={() => setExplanation(null)}
           onOpenSaveAsTableModal={openSaveAsTableModal}
+          autoExecute={autoExecute}
+          onToggleAutoExecute={() => setAutoExecute((v) => !v)}
         />
       </div>
       {showColumnLabelsModal && (
@@ -878,31 +868,34 @@ export default function ReportPage() {
           aria-label="컬럼 라벨 편집"
           onClick={() => setShowColumnLabelsModal(false)}
         >
-          <div className="relationship-diagram-modal" style={{ minWidth: 360, maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+          <div className="relationship-diagram-modal" style={{ minWidth: 360, maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
             <div className="relationship-diagram-header">
-              <span>컬럼 라벨 편집</span>
+              <span>표시명 편집</span>
               <button type="button" className="relationship-diagram-close" onClick={() => setShowColumnLabelsModal(false)} aria-label="닫기">×</button>
             </div>
             <div className="relationship-diagram-body">
-              <p style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-light)' }}>
-                선택된 컬럼에 대해 라벨을 입력하고 저장하면, 해당 테이블의 라벨로 반영됩니다. 사이드바·그리드에 표시됩니다.
+              <p style={{ marginBottom: 12, padding: 8, background: 'var(--bg-muted, #f1f5f9)', borderRadius: 6, fontSize: 12, color: 'var(--text-light)' }}>
+                <strong>DB 테이블·컬럼명은 변경되지 않습니다.</strong> 화면에 보이는 표시명만 수정합니다. 비워두면 물리명이 표시됩니다.
               </p>
               <div style={{ maxHeight: 360, overflowY: 'auto', marginBottom: 16 }}>
                 {Object.keys(columnLabelsByTableDraft).map((tableName) => (
                   <div key={tableName} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 12 }}>테이블: {tables.find((t) => t.table_name === tableName)?.table_label ?? tableName}</label>
-                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>테이블 라벨 (표시명)</label>
-                    <input
-                      type="text"
-                      value={tableLabelsDraft[tableName] ?? ''}
-                      onChange={(e) => setTableLabelsDraft((prev) => ({ ...prev, [tableName]: e.target.value }))}
-                      placeholder={tableName}
-                      style={{ width: '100%', padding: 6, marginBottom: 10, fontSize: 12 }}
-                    />
-                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>컬럼 라벨</label>
+                    <div style={{ marginBottom: 8 }}>
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-light)', fontFamily: 'monospace', marginBottom: 2 }}>테이블 물리명 (변경 불가): {tableName}</span>
+                      <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>표시 라벨 (화면에만 표시)</label>
+                      <input
+                        type="text"
+                        value={tableLabelsDraft[tableName] ?? ''}
+                        onChange={(e) => setTableLabelsDraft((prev) => ({ ...prev, [tableName]: e.target.value }))}
+                        placeholder={`예: ${tableName} → 캠페인 목록`}
+                        style={{ width: '100%', padding: 6, fontSize: 12 }}
+                      />
+                    </div>
+                    <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 11 }}>컬럼 표시 라벨</label>
                     {Object.keys(columnLabelsByTableDraft[tableName] || {}).map((colName) => (
                       <div key={colName} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <span style={{ flex: '0 0 100px', fontSize: 11, fontFamily: 'monospace', color: 'var(--text-light)' }}>{colName}</span>
+                        <span style={{ flex: '0 0 110px', fontSize: 11, fontFamily: 'monospace', color: 'var(--text-light)' }} title="물리명">{colName}</span>
+                        <span style={{ color: 'var(--text-light)', fontSize: 12 }}>→</span>
                         <input
                           type="text"
                           value={columnLabelsByTableDraft[tableName][colName] ?? ''}
@@ -914,6 +907,7 @@ export default function ReportPage() {
                           }
                           placeholder={colName}
                           style={{ flex: 1, padding: 6, fontSize: 12 }}
+                          title="비워두면 물리명 표시"
                         />
                       </div>
                     ))}

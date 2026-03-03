@@ -16,7 +16,7 @@
  * - React, report/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), report/utils/helpers (isDateColumn, isDateType, isDateTimeType), report/utils/relationshipDiagram (buildRelationshipTree, buildRelationshipMermaid)
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
 import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relationshipDiagram'
@@ -110,7 +110,9 @@ export default function MainArea({
   onCopySql,
   onExplainSql,
   onCloseExplanation,
-  onOpenSaveAsTableModal
+  onOpenSaveAsTableModal,
+  autoExecute = true,
+  onToggleAutoExecute
 }) {
   const [dropOverlayActive, setDropOverlayActive] = useState(false)
   const [draggedColumnIndex, setDraggedColumnIndex] = useState(null)
@@ -125,6 +127,7 @@ export default function MainArea({
   const [addHavingPopup, setAddHavingPopup] = useState(null)
   const [filterOrderBarOpen, setFilterOrderBarOpen] = useState(false)
   const [showRelationshipDiagram, setShowRelationshipDiagram] = useState(false)
+  const [expandedJoinKey, setExpandedJoinKey] = useState(null)
 
   const isGroupByActive = groupBy && groupBy.length > 0
   const hasPivot = pivot && pivot.values && pivot.values.length > 0
@@ -201,6 +204,13 @@ export default function MainArea({
     if (hasImpossibleJoin) setFilterOrderBarOpen(false)
   }, [hasImpossibleJoin])
 
+  const prevTablesCountRef = useRef(0)
+  useEffect(() => {
+    const n = addedTables.length
+    if (n >= 2 && prevTablesCountRef.current < 2) setFilterOrderBarOpen(true)
+    prevTablesCountRef.current = n
+  }, [addedTables.length])
+
   const relationshipTree = buildRelationshipTree(joinOrder, addedTables)
   const relationshipMermaid = buildRelationshipMermaid(joinOrder, addedTables)
 
@@ -226,16 +236,89 @@ export default function MainArea({
           const opts = relationshipOptions[key] || []
           const noJoinPossible = opts.length === 0
           const firstOpt = opts[0]
-          const prevCol = firstOpt?.prevColumn ?? ''
-          const currCol = firstOpt?.currColumn ?? ''
+          const conds = (joinConditions[key]?.length ? joinConditions[key] : firstOpt ? [firstOpt] : []).filter((c) => c?.prevColumn && c?.currColumn)
+          const effectiveConds = conds.length ? conds : (firstOpt ? [{ prevColumn: firstOpt.prevColumn, currColumn: firstOpt.currColumn }] : [])
           const summary = noJoinPossible
             ? `${prevTable} ↔ ${currTable}: 조인 불가`
-            : `${prevTable} → ${currTable}: ${prevCol} = ${currCol}`
+            : effectiveConds.length > 1
+              ? `${prevTable} → ${currTable}: ${effectiveConds.map((c) => `${c.prevColumn}=${c.currColumn}`).join(' AND ')}`
+              : `${prevTable} → ${currTable}: ${effectiveConds[0]?.prevColumn ?? firstOpt?.prevColumn ?? ''} = ${effectiveConds[0]?.currColumn ?? firstOpt?.currColumn ?? ''}`
+          const isExpanded = expandedJoinKey === key
+          const joinType = joinTypes[key] || 'LEFT'
+          const logicalOp = joinLogicalOperators[key] || 'AND'
           return (
-            <div key={key} className={`join-conditions-pair join-conditions-pair--compact${noJoinPossible ? ' join-conditions-pair--impossible' : ''}`}>
-              <span className="join-conditions-pair__summary" title={noJoinPossible ? '중간 테이블 추가 또는 다른 조합을 선택하세요' : undefined}>
-                {summary}
-              </span>
+            <div key={key} className={`join-conditions-pair ${isExpanded ? 'join-conditions-pair--multi' : 'join-conditions-pair--compact'}${noJoinPossible ? ' join-conditions-pair--impossible' : ''}`}>
+              <div className="join-conditions-pair__head" style={{ flex: 1, minWidth: 0 }}>
+                <span
+                  className="join-conditions-pair__summary"
+                  onClick={() => !noJoinPossible && setExpandedJoinKey(isExpanded ? null : key)}
+                  title={noJoinPossible ? '중간 테이블 추가 또는 다른 조합을 선택하세요' : '클릭하여 JOIN 설정'}
+                  style={!noJoinPossible ? { cursor: 'pointer', paddingRight: 4 } : {}}
+                >
+                  {summary}
+                  {!noJoinPossible && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--text-light)' }}>{isExpanded ? '▲' : '▼'}</span>}
+                </span>
+                {!noJoinPossible && isExpanded && (
+                  <div className="join-conditions-pair__config" style={{ marginTop: 8 }}>
+                    <div className="join-conditions-pair__row-wrap" style={{ alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <label style={{ fontSize: 11, color: 'var(--text-light)' }}>JOIN 타입</label>
+                      <select
+                        className="join-conditions-pair__join-type"
+                        value={joinType}
+                        onChange={(e) => onSetJoinType?.(key, e.target.value)}
+                      >
+                        {JOIN_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="join-conditions-pair__conditions">
+                      {effectiveConds.map((c, idx) => (
+                        <span key={idx} className="join-conditions-pair__row">
+                          {idx > 0 && (
+                            <select
+                              className="join-conditions-pair__logical-op"
+                              value={logicalOp}
+                              onChange={(e) => onSetJoinLogicalOperator?.(key, e.target.value)}
+                              title="조건 간 연결"
+                            >
+                              <option value="AND">AND</option>
+                              <option value="OR">OR</option>
+                            </select>
+                          )}
+                          {opts.length > 1 ? (
+                            <select
+                              className="join-conditions-pair__select"
+                              value={Math.max(0, opts.findIndex((o) => o.prevColumn === c.prevColumn && o.currColumn === c.currColumn))}
+                              onChange={(e) => {
+                                const i = Number(e.target.value)
+                                if (i >= 0 && opts[i]) onSetJoinConditionAt?.(key, idx, opts[i])
+                              }}
+                            >
+                              {opts.map((o, i) => (
+                                <option key={i} value={i}>{joinOptionLabel(o)}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="join-conditions-pair__row" style={{ fontSize: 12 }}>{c.prevColumn} = {c.currColumn}</span>
+                          )}
+                          {effectiveConds.length > 1 && (
+                            <button type="button" className="join-conditions-pair__remove-condition" onClick={() => onRemoveJoinCondition?.(key, idx)} title="조건 제거">×</button>
+                          )}
+                        </span>
+                      ))}
+                      {opts.length > 1 && (
+                        <button type="button" className="join-conditions-pair__add-condition" onClick={() => {
+                          const next = opts.find((o) => !effectiveConds.some((c) => c.prevColumn === o.prevColumn && c.currColumn === o.currColumn))
+                          if (next) onSetJoinConditions?.(key, [...effectiveConds, next])
+                        }}>
+                          + 조건 추가
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 className="join-conditions-pair__remove-join"
@@ -267,6 +350,12 @@ export default function MainArea({
                   <button type="button" className="btn btn-report-secondary" onClick={onClearAll}>
                     초기화
                   </button>
+                )}
+                {typeof onToggleAutoExecute === 'function' && (
+                  <label className="btn-report-auto-toggle" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={autoExecute} onChange={onToggleAutoExecute} />
+                    자동 실행
+                  </label>
                 )}
                 {typeof onExecute === 'function' && (
                   <button type="button" className="btn btn-primary btn-execute" onClick={onExecute} disabled={queryRunning}>

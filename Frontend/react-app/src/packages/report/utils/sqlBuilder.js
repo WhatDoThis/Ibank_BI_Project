@@ -24,6 +24,13 @@
  * @param {string} prevTable
  * @param {string} currTable
  */
+/** PostgreSQL 식별자 이스케이프. 숫자시작·하이픈·공백 등 특수문자 포함 시 "name" 형태로 감싸야 함 */
+function quoteIdent(name) {
+  if (name == null || name === '') return '""'
+  const s = String(name).replace(/"/g, '""')
+  return `"${s}"`
+}
+
 /** ON 조건 배열에서 (prevColumn, currColumn) 기준 중복 제거 → 중복 JOIN 조건 방지 */
 function dedupeConditions(conditions) {
   if (!conditions?.length) return []
@@ -65,7 +72,7 @@ function escapeSingle(val) {
  * @param {{ alias: string, column: string }} c
  */
 function buildOneWhereClause(f, c) {
-  const colExpr = `${c.alias}.${c.column}`
+  const colExpr = `${c.alias}.${quoteIdent(c.column)}`
   const op = f.operator || '='
   if (op === 'IS NULL') return `${colExpr} IS NULL`
   if (op === 'IS NOT NULL') return `${colExpr} IS NOT NULL`
@@ -107,7 +114,7 @@ function isGroupByColumn(groupBy, table, column) {
 
 /** GROUP BY 절에 쓸 컬럼 표현식 (날짜 단위 적용) */
 function groupByExpression(alias, table, column, dateGranularity) {
-  let expr = `${alias}.${column}`
+  let expr = `${alias}.${quoteIdent(column)}`
   const key = `${table}.${column}`
   const gran = dateGranularity && dateGranularity[key]
   if (gran === 'YYYY') expr = `TO_CHAR(${expr}, 'YYYY')`
@@ -119,7 +126,7 @@ function groupByExpression(alias, table, column, dateGranularity) {
 /** SELECT 절 단일 컬럼 표현식 (날짜 단위 + 집계) */
 function getSelectExpression(col, gridColumns, groupBy, dateGranularity) {
   const alias = col.alias
-  let base = `${alias}.${col.column}`
+  let base = `${alias}.${quoteIdent(col.column)}`
   const key = `${col.table}.${col.column}`
   const gran = dateGranularity && dateGranularity[key]
   if (gran === 'YYYY') base = `TO_CHAR(${base}, 'YYYY')`
@@ -128,10 +135,10 @@ function getSelectExpression(col, gridColumns, groupBy, dateGranularity) {
 
   const isGB = isGroupByColumn(groupBy, col.table, col.column)
   if (groupBy && groupBy.length > 0 && !isGB && col.aggFunc) {
-    return `${col.aggFunc}(${base}) AS "${col.aggFunc}(${alias}.${col.column})"`
+    return `${col.aggFunc}(${alias}.${quoteIdent(col.column)}) AS ${quoteIdent(`${col.aggFunc}(${alias}.${col.column})`)}`
   }
   // 날짜 단위 적용 시 결과 컬럼명을 alias.column 으로 고정해 그리드에서 row[key]로 조회 가능하게 함
-  if (gran) return `${base} AS "${alias}.${col.column}"`
+  if (gran) return `${base} AS ${quoteIdent(`${alias}.${col.column}`)}`
   return base
 }
 
@@ -142,9 +149,9 @@ function getOrderByExpression(ob, gridColumns, groupBy) {
   const alias = c.alias
   const isGB = isGroupByColumn(groupBy, c.table, c.column)
   if (groupBy && groupBy.length > 0 && !isGB && c.aggFunc) {
-    return `${c.aggFunc}(${alias}.${c.column})`
+    return `${c.aggFunc}(${alias}.${quoteIdent(c.column)})`
   }
-  return `${alias}.${c.column}`
+  return `${alias}.${quoteIdent(c.column)}`
 }
 
 /**
@@ -186,21 +193,21 @@ export function generateSQL(
       const expr = groupByExpression(alias, g.table, g.column, dateGranularity)
       const gKey = `${g.table}.${g.column}`
       const gran = dateGranularity[gKey]
-      selectParts.push(gran ? `${expr} AS "${alias}.${g.column}"` : expr)
+      selectParts.push(gran ? `${expr} AS ${quoteIdent(`${alias}.${g.column}`)}` : expr)
     })
     pivotRowAggs.forEach((agg) => {
       const alias = getAlias(gridColumns, agg.table)
-      if (alias) selectParts.push(`${agg.aggFunc}(${alias}.${agg.column}) AS "${agg.aggFunc}(${agg.column})"`)
+      if (alias) selectParts.push(`${agg.aggFunc}(${alias}.${quoteIdent(agg.column)}) AS ${quoteIdent(`${agg.aggFunc}(${agg.column})`)}`)
     })
     const pivotCol = gridColumns.find((c) => c.table === pivot.table && c.column === pivot.column)
     const pivotKey = `${pivot.table}.${pivot.column}`
     const isPivotDate = pivotCol && isPivotColumnDateType(pivotCol.type)
     const pivotGran = isPivotDate ? (dateGranularity[pivotKey] || 'YYYY-MM-DD') : null
-    const pivotCompareExpr = pivotGran ? `TO_CHAR(${pivotAlias}.${pivot.column}, '${pivotGran}')` : `${pivotAlias}.${pivot.column}`
+    const pivotCompareExpr = pivotGran ? `TO_CHAR(${pivotAlias}.${quoteIdent(pivot.column)}, '${pivotGran}')` : `${pivotAlias}.${quoteIdent(pivot.column)}`
     pivot.values.forEach((value) => {
       const safeVal = String(value).replace(/'/g, "''")
       selectParts.push(
-        `${aggFunc}(CASE WHEN ${pivotCompareExpr} = '${safeVal}' THEN 1 END) AS "${value}"`
+        `${aggFunc}(CASE WHEN ${pivotCompareExpr} = '${safeVal}' THEN 1 END) AS ${quoteIdent(String(value))}`
       )
     })
     selectParts.push(`${aggFunc}(*) AS "전체"`)
@@ -212,7 +219,7 @@ export function generateSQL(
 
   let sql = `SELECT\n    ${selectParts.join(',\n    ')}`
   const firstTable = addedTables[0]
-  sql += `\nFROM ${firstTable} AS t1`
+  sql += `\nFROM ${quoteIdent(firstTable)} AS t1`
   const joinConfigs = options.joinConfigs || {}
   const joinOrder = options.joinOrder || []
   const stepByTable = {}
@@ -237,11 +244,11 @@ export function generateSQL(
     if (conditions && conditions.length > 0) {
       const op = (config.logicalOperator || 'AND').toUpperCase()
       const onClause = conditions
-        .map((c) => `t${prevAliasIdx + 1}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .map((c) => `t${prevAliasIdx + 1}.${quoteIdent(c.prevColumn)} = t${i + 1}.${quoteIdent(c.currColumn)}`)
         .join(` ${op} `)
-      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
+      sql += `\n${joinType} JOIN ${quoteIdent(currTable)} AS t${i + 1} ON ${onClause}`
     } else if (joinKey) {
-      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${prevAliasIdx + 1}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+      sql += `\n${joinType} JOIN ${quoteIdent(currTable)} AS t${i + 1} ON t${prevAliasIdx + 1}.${quoteIdent(joinKey.prevColumn)} = t${i + 1}.${quoteIdent(joinKey.currColumn)}`
     } else {
       throw new Error(`JOIN 관계 없음: ${fromTable} - ${currTable} (조인 조건 선택 필요)`)
     }
@@ -270,7 +277,7 @@ export function generateSQL(
             .map((h) => {
               const alias = getAlias(gridColumns, h.table)
               if (!alias) return null
-              return `${h.aggFunc}(${alias}.${h.column}) ${h.operator} ${h.value}`
+              return `${h.aggFunc}(${alias}.${quoteIdent(h.column)}) ${h.operator} ${h.value}`
             })
             .filter(Boolean)
           if (havingClauses.length > 0) sql += `\nHAVING ${joinWhereClauses(havingClauses, havings)}`
@@ -338,11 +345,11 @@ export function generateCountSQL(
     if (conditions && conditions.length > 0) {
       const op = (config.logicalOperator || 'AND').toUpperCase()
       const onClause = conditions
-        .map((c) => `t${prevAliasIdx + 1}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .map((c) => `t${prevAliasIdx + 1}.${quoteIdent(c.prevColumn)} = t${i + 1}.${quoteIdent(c.currColumn)}`)
         .join(` ${op} `)
-      joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
+      joinClauses += `\n${joinType} JOIN ${quoteIdent(currTable)} AS t${i + 1} ON ${onClause}`
     } else if (joinKey) {
-      joinClauses += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${prevAliasIdx + 1}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+      joinClauses += `\n${joinType} JOIN ${quoteIdent(currTable)} AS t${i + 1} ON t${prevAliasIdx + 1}.${quoteIdent(joinKey.prevColumn)} = t${i + 1}.${quoteIdent(joinKey.currColumn)}`
     } else {
       return null
     }
@@ -371,15 +378,15 @@ export function generateCountSQL(
         .map((h) => {
           const alias = getAlias(gridColumns, h.table)
           if (!alias) return null
-          return `${h.aggFunc}(${alias}.${h.column}) ${h.operator} ${h.value}`
+          return `${h.aggFunc}(${alias}.${quoteIdent(h.column)}) ${h.operator} ${h.value}`
         })
         .filter(Boolean)
       if (havingClauses.length > 0) havingStr = `\nHAVING ${joinWhereClauses(havingClauses, havings)}`
     }
-    return `SELECT COUNT(*) as total FROM (\nSELECT ${gbClauses.join(', ')}\nFROM ${firstTable} AS t1${joinClauses}${whereStr}\nGROUP BY ${gbClauses.join(', ')}${havingStr}\n) AS _grp;`
+    return `SELECT COUNT(*) as total FROM (\nSELECT ${gbClauses.join(', ')}\nFROM ${quoteIdent(firstTable)} AS t1${joinClauses}${whereStr}\nGROUP BY ${gbClauses.join(', ')}${havingStr}\n) AS _grp;`
   }
 
-  return `SELECT COUNT(*) as total\nFROM ${firstTable} AS t1${joinClauses}${whereStr};`
+  return `SELECT COUNT(*) as total\nFROM ${quoteIdent(firstTable)} AS t1${joinClauses}${whereStr};`
 }
 
 /** 피벗축이 날짜 컬럼인지 (타입 기준) */
@@ -417,11 +424,11 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
   const isDate = col && isPivotColumnDateType(col.type)
   const gran = isDate ? (dateGranularity[pivotKey] || 'YYYY-MM-DD') : null
   const pivotSelectExpr = gran
-    ? `TO_CHAR(${alias}.${column}, '${gran}')`
-    : `${alias}.${column}`
-  const pivotSelectAlias = `"${alias}.${column}"`
+    ? `TO_CHAR(${alias}.${quoteIdent(column)}, '${gran}')`
+    : `${alias}.${quoteIdent(column)}`
+  const pivotSelectAlias = quoteIdent(`${alias}.${column}`)
 
-  let sql = `SELECT DISTINCT ${pivotSelectExpr} AS ${pivotSelectAlias}\nFROM ${addedTables[0]} AS t1`
+  let sql = `SELECT DISTINCT ${pivotSelectExpr} AS ${pivotSelectAlias}\nFROM ${quoteIdent(addedTables[0])} AS t1`
   for (let i = 1; i < addedTables.length; i++) {
     const currTable = addedTables[i]
     const step = stepByTable[currTable]
@@ -440,17 +447,17 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
     if (conditions && conditions.length > 0) {
       const op = (config.logicalOperator || 'AND').toUpperCase()
       const onClause = conditions
-        .map((c) => `t${prevAliasIdx + 1}.${c.prevColumn} = t${i + 1}.${c.currColumn}`)
+        .map((c) => `t${prevAliasIdx + 1}.${quoteIdent(c.prevColumn)} = t${i + 1}.${quoteIdent(c.currColumn)}`)
         .join(` ${op} `)
-      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON ${onClause}`
+      sql += `\n${joinType} JOIN ${quoteIdent(currTable)} AS t${i + 1} ON ${onClause}`
     } else if (joinKey) {
-      sql += `\n${joinType} JOIN ${currTable} AS t${i + 1} ON t${prevAliasIdx + 1}.${joinKey.prevColumn} = t${i + 1}.${joinKey.currColumn}`
+      sql += `\n${joinType} JOIN ${quoteIdent(currTable)} AS t${i + 1} ON t${prevAliasIdx + 1}.${quoteIdent(joinKey.prevColumn)} = t${i + 1}.${quoteIdent(joinKey.currColumn)}`
     } else {
       return null
     }
   }
   const pivotWhereClauses = [
-    `${alias}.${column} IS NOT NULL`,
+    `${alias}.${quoteIdent(column)} IS NOT NULL`,
     ...filters
       .map((f) => {
         const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)

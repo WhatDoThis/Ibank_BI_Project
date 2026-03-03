@@ -70,10 +70,11 @@ export function aggregateForChart(rows, dimensionKey, metricKey) {
   return Array.from(map.values()).sort((a, b) => (a.name < b.name ? -1 : 1))
 }
 
-/** KPI용: 숫자 컬럼이 있으면 그 합계, 없으면 행 개수 */
-export function computeKpi(rows, columns) {
+/** KPI용: 숫자 컬럼이 있으면 그 합계, 없으면 행 개수. metricKey 지정 시 해당 컬럼 사용 */
+export function computeKpi(rows, columns, metricKey = null) {
   const list = columns || []
-  const metricCol = list.find((c) => isNumericType(c?.type))
+  let metricCol = metricKey ? list.find((c) => c?.name === metricKey) : null
+  if (!metricCol) metricCol = list.find((c) => isNumericType(c?.type))
   if (metricCol && rows?.length) {
     const key = metricCol.name
     let sum = 0
@@ -87,4 +88,10 @@ export function computeKpi(rows, columns) {
     return sum
   }
   return rows?.length ?? 0
+}
+
+/** columns에서 날짜/시간형 컬럼 목록 반환 (글로벌 기간 필터용) */
+export function getDateColumns(columns) {
+  const list = columns || []
+  return list.filter((c) => isDateType(c?.type)).map((c) => c?.name).filter(Boolean)
 }

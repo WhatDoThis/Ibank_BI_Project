@@ -36,7 +36,7 @@ function getTableFolder(tableName) {
 
 const FOLDER_ORDER = [FOLDER_I1, FOLDER_QUERY_BUILDER, FOLDER_OTHER]
 
-export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {}, onOpenColumnLabelsModal }) {
+export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {}, onOpenColumnLabelsModal, onRefreshTables, onRefreshDbStatus }) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [folderExpanded, setFolderExpanded] = useState({ [FOLDER_I1]: true, [FOLDER_QUERY_BUILDER]: true, [FOLDER_OTHER]: true })
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -119,13 +119,25 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
       <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
         <span>📁 테이블</span>
         {typeof onOpenColumnLabelsModal === 'function' && (
-          <button type="button" className="btn-small secondary" style={{ fontSize: 10, padding: '4px 8px' }} onClick={onOpenColumnLabelsModal} title="컬럼 표시 라벨 편집·저장">
-            라벨 편집
+          <button type="button" className="btn-small secondary" style={{ fontSize: 10, padding: '4px 8px' }} onClick={onOpenColumnLabelsModal} title="DB 테이블·컬럼명은 그대로 두고, 화면에 보이는 표시명만 변경합니다.">
+            표시명 편집
           </button>
         )}
       </div>
-      <div className={`sidebar-db-status ${dbStatus.ok === true ? 'ok' : dbStatus.ok === false ? 'error' : ''}`} title="API /health 결과">
-        {dbStatus.message ?? '확인 중...'}
+      <div className="sidebar-db-status-wrap" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span className={`sidebar-db-status ${dbStatus.ok === true ? 'ok' : dbStatus.ok === false ? 'error' : ''}`} title="API /health 결과">
+          {dbStatus.message ?? '확인 중...'}
+        </span>
+        {typeof onRefreshDbStatus === 'function' && (
+          <button type="button" className="btn-small secondary" style={{ fontSize: 10, padding: '2px 6px' }} onClick={onRefreshDbStatus} title="DB 연결 상태 재확인">
+            상태
+          </button>
+        )}
+        {typeof onRefreshTables === 'function' && (
+          <button type="button" className="btn-small secondary" style={{ fontSize: 10, padding: '2px 6px' }} onClick={onRefreshTables} disabled={loading} title="테이블 목록 새로고침">
+            {loading ? '…' : '새로고침'}
+          </button>
+        )}
       </div>
       <div className="sidebar-search">
         <input
