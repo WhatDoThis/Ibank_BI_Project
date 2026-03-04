@@ -1,41 +1,27 @@
 """
-Backend.etl_server.db_load_service (DB 연동 추출·적재)
-======================================================
-외부 DB(PostgreSQL·MySQL) 추출(E) → 메인 DB 적재(L). Full Load / Incremental Upsert. 소스 PK는 full 모드 시 타겟 CREATE에 반영.
+Backend.etl_server2.db_load_service (DB 연동 추출·적재)
+=======================================================
+외부 DB(PostgreSQL·MySQL·Oracle) 추출(E) → 저장 DB 적재(L). Full Load / Incremental Upsert. 소스 PK는 full 모드 시 타겟 CREATE에 반영.
 
 [Helpers]
 ===========
-41 - _get_source_connection: connection_id로 소스 PostgreSQL 연결
-59 - _is_date_type: data_type이 날짜/시간 타입인지 여부(증분 컬럼 추천용)
-71 - get_source_columns: connection_id·source_table으로 소스 테이블 컬럼 목록(column_name, data_type) 반환
-132 - get_source_indexes: connection_id·source_table으로 소스 테이블 인덱스 목록(PK 포함, is_primary 구분)
-133 - _fetch_source_indexes_pg / _fetch_source_indexes_mysql / _fetch_source_indexes_oracle: DB별 인덱스 조회
-134 - _create_indexes_on_target: 타겟 테이블에 index_definitions 기준으로 CREATE INDEX IF NOT EXISTS (PK 제외)
-125 - validate_incremental_column: 증분 컬럼 날짜 검증(date 타입 또는 샘플 isdate)
-55 - _fetch_source_columns_mysql: MySQL information_schema.COLUMNS (column_name, data_type)
-72 - _pg_type_from_mysql: MySQL DATA_TYPE → PostgreSQL 타입 문자열
-88 - _fetch_source_columns: PostgreSQL information_schema.columns
-109 - _fetch_source_pk_columns: PostgreSQL 소스 테이블 PRIMARY KEY 컬럼명 목록
-128 - _fetch_source_columns_oracle: Oracle ALL_TAB_COLUMNS/USER_TAB_COLUMNS (column_name, data_type)
-161 - _pg_type_from_oracle: Oracle DATA_TYPE → PostgreSQL 타입 문자열
-168 - _pg_type_from_info_schema: information_schema data_type → PostgreSQL 타입
-186 - _pg_type_from_pandas: pandas dtype → PostgreSQL 타입
-365 - _serialize_value: COPY TEXT 포맷 값 직렬화 (None/nan/inf/NaT → \\N, 이스케이프)
-366 - _copy_buf: rows_tuples → COPY용 StringIO 버퍼
-367 - _copy_insert_batch: Full 모드 COPY FROM STDIN 적재
-368 - _copy_upsert_batch: Incremental TEMP TABLE COPY + INSERT...SELECT ON CONFLICT DO UPDATE
-369 - _row_fallback: COPY 실패 시 행 단위 INSERT...ON CONFLICT, 동일 에러 50건 연속 시 조기 중단
-370 - _copy_upsert_batch_safe: 1차 COPY upsert, 실패 시 _row_fallback
-371 - _ensure_unique_constraint: 증분 시 타겟 테이블에 pk_list UNIQUE 없으면 ALTER TABLE 추가
-372 - _get_target_column_list: 타겟(PostgreSQL) 테이블의 컬럼명 목록. 증분 시 INSERT 컬럼을 타겟에 맞출 때 사용
+- _get_source_connection: connection_id로 소스 DB 연결(PostgreSQL 전용; MySQL/Oracle은 service 직접 사용)
+- _is_date_type, validate_incremental_column: 증분 컬럼 날짜 검증
+- get_source_columns: connection_id·source_table으로 소스 테이블 컬럼 목록(column_name, data_type)
+- get_source_indexes, _fetch_source_indexes_pg/mysql/oracle: 소스 인덱스·PK 목록(is_primary 구분)
+- _create_indexes_on_target: 타겟에 index_definitions 기준 CREATE INDEX IF NOT EXISTS (PK 제외)
+- _fetch_source_columns, _fetch_source_columns_mysql, _fetch_source_columns_oracle, _fetch_source_pk_columns
+- _pg_type_from_*: DB/정보스키마/pandas 타입 → PostgreSQL 타입
+- _serialize_value, _copy_buf, _copy_insert_batch, _copy_upsert_batch, _row_fallback, _copy_upsert_batch_safe
+- _ensure_unique_constraint, _get_target_column_list
 
-[Main]
+[Main Functions]
 ===========
-run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 메인 DB CREATE+INSERT 또는 Upsert. postgresql·mysql·oracle 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT 사용. incremental_column이 설정된 경우 Full 적재 완료 시에도 해당 컬럼 최대값으로 last_synced_at 갱신(Full→Incremental 전환 시 불필요한 전체 재적재 방지).
+- run_db_load: etl_table_id 기준 소스 SELECT → 변환 룰 적용 → 저장 DB CREATE+INSERT 또는 Upsert. postgresql·mysql·oracle 분기. full 시 소스 PK 반영, incremental 시 pk_columns·ON CONFLICT. incremental_column 설정 시 Full 적재 완료 후에도 last_synced_at 갱신.
 
 [Dependencies]
 =========
-- Backend.api_server.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
+- Backend.api_server.db, Backend.etl_server2.service, transform_engine, transform_rules_service, etl_limits
 - Env.config.loader.add_allowed_table
 - psycopg2 (copy_expert), pandas
 """
@@ -1084,7 +1070,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     batch = cur_src.fetchmany(effective_batch_size)
                     if not batch:
                         break
-                    if row_type == "tuple":
+                    if row_type == "dict":
+                        batch = [dict(r) for r in batch]
+                    elif row_type == "tuple":
                         batch = [dict(zip(col_names, r)) for r in batch]
                     if max_rows_per_load > 0 and total_processed + len(batch) > max_rows_per_load:
                         batch = batch[: max_rows_per_load - total_processed]
@@ -1278,7 +1266,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             rows_data = cur_src.fetchall()
             cur_src.close()
             src_conn.close()
-            if row_type == "tuple":
+            if row_type == "dict":
+                rows_data = [dict(r) for r in rows_data]
+            elif row_type == "tuple":
                 rows_data = [dict(zip(col_names, r)) for r in rows_data]
             etl_service.set_job_total_rows(job_id, len(rows_data))
             rows_processed = len(rows_data)

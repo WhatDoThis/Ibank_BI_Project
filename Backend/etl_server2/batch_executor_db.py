@@ -283,8 +283,23 @@ def run_db_batch_job(batch_job_id: int) -> None:
             if incremental_column not in col_names:
                 raise ValueError(f"증분 컬럼 '{incremental_column}'이(가) 소스 테이블에 없습니다.")
             if last_synced_at is not None:
-                where_clause = f" WHERE {_quote(incremental_column)} > {bind_placeholder}"
+                # >= 사용: 동일 시각(updated_at 등)인 행도 포함. 중복은 PK upsert로 방지.
+                # IS NOT NULL: 증분 컬럼이 NULL인 헤더/쓰레기 행 제외
+                where_clause = (
+                    f" WHERE {_quote(incremental_column)} >= {bind_placeholder}"
+                    f" AND {_quote(incremental_column)} IS NOT NULL"
+                )
                 params.append(last_synced_at)
+
+        select_sql = f"SELECT {select_list} FROM {quoted_src}{where_clause}"
+        logger.info(
+            "run_db_batch_job job_id=%s: last_synced_at=%s (batch_jobs 기준)",
+            batch_job_id, last_synced_at,
+        )
+        logger.info(
+            "run_db_batch_job job_id=%s: 증분 SELECT 쿼리: %s ; params=%s",
+            batch_job_id, select_sql, params if params else None,
+        )
 
         mapping_used: List[dict] = []
         if isinstance(column_mapping, list) and column_mapping:
@@ -312,7 +327,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
         else:
             cur_src = src_conn.cursor()
 
-        cur_src.execute(f"SELECT {select_list} FROM {quoted_src}{where_clause}", params if params else None)
+        cur_src.execute(select_sql, params if params else None)
 
         total_ins = 0
         total_upd = 0
@@ -326,8 +341,32 @@ def run_db_batch_job(batch_job_id: int) -> None:
             batch = cur_src.fetchmany(effective_batch_size)
             if not batch:
                 break
-            rows_dict = [dict(zip(col_names, r)) for r in batch]
+            logger.info(
+                "run_db_batch_job job_id=%s batch_offset=%s: 소스에서 %s행 조회",
+                batch_job_id, batch_offset, len(batch),
+            )
+            # row가 이미 dict-like(RealDictRow 등)면 zip 시 key만 나와 값이 컬럼명으로 채워지는 버그 방지
+            if batch and hasattr(batch[0], "keys"):
+                rows_dict = [dict(r) for r in batch]
+            else:
+                rows_dict = [dict(zip(col_names, r)) for r in batch]
             df = pd.DataFrame(rows_dict, columns=col_names)
+            # 소스에 헤더가 한 행으로 들어온 경우 제외: 첫 번째 컬럼 값이 해당 컬럼명과 동일한 행 제거
+            if col_names and len(df) > 0:
+                first_col = col_names[0]
+                first_series = df[first_col]
+                # NaN/None은 'nan' 등으로 변환되므로 컬럼명과 일치하지 않음 → 유지
+                header_like = first_series.astype(str).str.strip().str.lower() == str(first_col).strip().lower()
+                if header_like.any():
+                    n_before = len(df)
+                    df = df.loc[~header_like].reset_index(drop=True)
+                    logger.info(
+                        "run_db_batch_job job_id=%s batch_offset=%s: 헤더 유사 행 %s건 제외 (컬럼 '%s' 값=컬럼명)",
+                        batch_job_id, batch_offset, int(header_like.sum()), first_col,
+                    )
+            if df.empty:
+                batch_offset += 1
+                continue
             if mapping_used:
                 try:
                     df = transform_engine.apply_mapping_type_cast(df, mapping_used, default_on_error="null")
@@ -385,6 +424,13 @@ def run_db_batch_job(batch_job_id: int) -> None:
             cur_src.close()
         except Exception:
             pass
+
+        if batch_offset == 0:
+            logger.warning(
+                "run_db_batch_job job_id=%s: 소스에서 조회된 행 없음. "
+                "증분 모드일 경우 last_synced_at이 너무 최근이면 새 행이 없을 수 있음. full 동기화 또는 last_synced_at 초기화 권장.",
+                batch_job_id,
+            )
 
         if last_synced_candidate is not None:
             if not isinstance(last_synced_candidate, datetime):

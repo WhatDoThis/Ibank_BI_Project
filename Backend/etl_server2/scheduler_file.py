@@ -16,7 +16,7 @@ start_scheduler, load_active_batch_jobs, add_job, remove_job, reschedule_job, ru
 =========
 - apscheduler (BackgroundScheduler, ThreadPoolExecutor)
 - Backend.etl_server2.service_file (list_batch_jobs, get_batch_job)
-- Backend.etl_server2.batch_executor_file (run_batch_job)
+- Backend.etl_server2.batch_executor_file (run_batch_job), Backend.etl_server2.batch_executor_db (run_db_batch_job)
 """
 
 import logging

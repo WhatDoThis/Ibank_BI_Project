@@ -1,63 +1,38 @@
 """
 Backend.etl_server2.router (ETL2 API 라우터)
 ============================================
-FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결·실행·Job API. 09_ETL_Upgrade_Plan 확장. batch 라우터(router_file) include → /api/etl2/batch/*.
+FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결·실행·Job API. router_file(batch) include → /api/etl2/batch/*.
 
 [Pydantic Models]
 ===========
-75 - CreateConnectionBody: POST /connections 요청
-88 - TestConnectionBody: POST /connections/test 요청
-98 - CreateTransformRuleBody: POST /transform-rules 요청
-109 - UpdateTransformRuleBody: PUT /transform-rules/{id} 요청
-212 - CreateTableBody: POST /tables 요청
-229 - UpdateTableBody: PATCH /tables/{id} 요청 (pk_columns 등)
+- CreateConnectionBody, TestConnectionBody, CreateTransformRuleBody, UpdateTransformRuleBody
+- CreateTableBody, UpdateTableBody (pk_columns 등)
+- CreateStorageConnectionBody, ValidateIncrementalColumnBody, TransformPreviewBody 등
 
 [Helpers]
 ===========
-124 - _ensure_upload_dir: 업로드 디렉터리 생성
-128 - _cleanup_expired_uploads: 보관 기간 초과 업로드·zip_* 디렉터리 삭제
-151 - _save_upload: 업로드 파일 저장 후 flush·fsync하여 워커가 즉시 읽을 수 있게 함, (절대경로, 파일유형) 반환
-356 - _natural_sort_key: 파일명 자연 정렬용 키(숫자 구간 인식)
-359 - _file_type_from_ext: 확장자 → csv|excel|parquet
-362 - _normalize_column_name_for_check: 컬럼명 정규화(중복 시 접미사)
+- _ensure_upload_dir, _cleanup_expired_uploads, _save_upload
+- _natural_sort_key, _file_type_from_ext, _normalize_column_name_for_check
 
 [Endpoints]
 ===========
-172 - etl_index: GET / — 서비스 안내, upload_retention_days
-200 - list_tables: GET /tables — ETL 테이블 목록
-235 - update_table: PATCH /tables/{id} — pk_columns 등 설정 갱신
-246 - create_table: POST /tables — ETL 테이블 메타 등록
-271 - delete_table_row_only: DELETE /tables/{id}/row — 행·업로드 파일만 삭제(테이블 유지)
-283 - delete_table: DELETE /tables/{id} — ETL 테이블·타겟 DROP·파일 삭제
-303 - upload_file: POST /upload — 파일 업로드·스키마 추론·선택 시 메타 등록
-444 - infer_schema_from_file: POST /infer-schema — 파일만 받아 스키마(컬럼·타입) 반환, 메타 등록 없음
-369 - add_file_to_table: POST /tables/{id}/add-file — 동일 테이블 추가 적재(업서트), PK 검증 후 Job 등록
-480 - add_files_zip_to_table: POST /tables/{id}/add-files-zip — ZIP 압축 해제 후 파일명 순 Job 등록, skipped_files 반환
-626 - cleanup_expired_uploads: POST /cleanup-expired-uploads — 만료 업로드 삭제(cron용, zip_* 포함)
-452 - create_connection: POST /connections — DB 연결 등록
-474 - list_connections: GET /connections — 연결 목록
-489 - test_connection: POST /connections/test — 연결 테스트
-506 - list_transform_rules: GET /tables/{id}/transform-rules — 변환 룰 목록
-521 - create_transform_rule: POST /transform-rules — 룰 등록
-541 - update_transform_rule: PUT /transform-rules/{id} — 룰 수정
-561 - delete_transform_rule: DELETE /transform-rules/{id} — 룰 삭제
-562 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
-582 - list_source_columns: GET /connections/{id}/source-columns — 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용)
-591 - validate_incremental_column: POST /connections/{id}/validate-incremental-column — 증분 컬럼 날짜 검증
-602 - delete_connection: DELETE /connections/{id} — 연결 삭제
-591 - check_target_table_exists: GET /tables/{id}/target-exists — 타겟 테이블 메인 DB 존재 여부
-919 - list_target_tables: GET /target-tables — Phase 3 저장 DB 테이블 목록
-928 - list_target_columns: GET /target-columns — Phase 3 저장 DB 컬럼 목록
-610 - preview_table: GET /tables/{id}/preview — 미리보기(컬럼·10행)
-624 - run_table_load: POST /tables/{id}/run — 파일 소스는 요청 프로세스에서 스레드로 즉시 실행, DB/추가적재는 대기열
-656 - list_jobs: GET /jobs — Job 목록(etl_table_id, statuses, limit)
-673 - get_job: GET /jobs/{id} — Job 1건(폴링용)
-693 - delete_job: DELETE /jobs/{id} — Job 1건 삭제(add_file_path 파일 삭제)
-707 - cancel_job: POST /jobs/{id}/cancel — 실행 중·대기 Job 취소
+- GET / — 서비스 안내, upload_retention_days
+- GET/POST/PATCH/DELETE /tables, DELETE /tables/{id}/row
+- POST /upload, POST /infer-schema
+- POST /tables/{id}/add-file, POST /tables/{id}/add-files-zip
+- POST /cleanup-expired-uploads
+- GET/POST/DELETE /connections, POST /connections/test
+- GET /connections/{id}/tables, GET /connections/{id}/source-columns, GET /connections/{id}/source-indexes
+- POST /connections/{id}/validate-incremental-column
+- GET /tables/{id}/transform-rules, POST /transform-rules, PUT/DELETE /transform-rules/{id}
+- GET /tables/{id}/target-exists, GET /target-tables, GET /target-columns
+- GET /tables/{id}/preview, POST /tables/{id}/run
+- GET /jobs, GET /jobs/{id}, DELETE /jobs/{id}, POST /jobs/{id}/cancel
+- POST /transform/preview
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server2.service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service
+- fastapi, Backend.etl_server2.service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service, router_file
 """
 
 import logging

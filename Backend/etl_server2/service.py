@@ -1,76 +1,42 @@
 """
-Backend.etl_server.service (ETL 메타 CRUD·시스템 DB)
-====================================================
-etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB(ibank_system_data) 전용.
+Backend.etl_server2.service (ETL 메타 CRUD·시스템 DB)
+=====================================================
+etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전용.
 
 [Helpers]
 ===========
-66 - _get_db: api_server.db 지연 로드(순환 import 방지)
-72 - _schema: get_system_table_schema() 반환
-76 - _q: 스키마.테이블명 따옴표 감싼 문자열
-84 - _sys_cursor: 시스템 DB 커서·커넥션 context manager (yield cur, conn). 새 함수 작성 시 사용 권장
-79 - get_target_db_connection: 적재 대상 DB 연결 획득 (Phase 0: None=ibank_db. Phase 2b에서 storage_connection_id 분기)
-81 - _validate_identifier: 식별자 영문·숫자·언더스코어 검증
-   - _normalize_source_table_dots: 점 유사 문자를 ASCII 점으로 통일. _validate_source_table, parse_source_table_parts, Oracle PK 조회에서 사용
-   - _validate_source_table: source_table 검증. 정규화 후 'schema.table'/'table' 각 부분 식별자 검증. 실패 시 bad_chars 로깅
-91 - _connection_error_to_user_message: 연결 실패 예외 → 한글 메시지·점검 안내
-   - parse_source_table_parts: source_table이 'schema.table' 형식일 때 (schema_or_db, table_name) 반환. PK 조회·쿼리용
-152 - _connect_postgres: 외부 PostgreSQL 연결(테스트·소스 조회용). connect_timeout·로깅 적용
-181 - _connect_mysql: 외부 MySQL 연결. PyMySQL
-210 - _connect_oracle: 외부 Oracle 연결. oracledb
-238 - _fetch_pk_from_mysql: MySQL information_schema KEY_COLUMN_USAGE로 PK 컬럼 목록
-256 - _fetch_pk_from_oracle: Oracle all_constraints/user_constraints로 PK 컬럼 목록
+- _get_db, _schema, _q: DB·스키마·쿼리 식별자
+- _sys_cursor: 시스템 DB 커서·커넥션 context manager (yield cur, conn)
+- get_target_db_connection: 적재 대상 DB 연결 (storage_connection_id=None이면 ibank_db)
+- _validate_identifier, _normalize_source_table_dots, _validate_source_table, parse_source_table_parts
+- _connection_error_to_user_message: 연결 실패 예외 → 한글 메시지
+- _connect_postgres, _connect_mysql, _connect_oracle: 외부 DB 연결(테스트·소스 조회용)
+- _fetch_pk_from_mysql, _fetch_pk_from_oracle: 소스 PK 컬럼 목록 조회
 
-[Target DB - Phase 3~5]
-=====================
-517 - list_target_tables: 저장 DB(적재 대상) 테이블 목록. storage_connection_id 없으면 ibank_db
-541 - list_target_columns: 저장 DB 지정 테이블 컬럼 목록(column_name, data_type)
-579 - target_table_exists: 저장 DB에 테이블 존재 여부 (target-exists API·검증용)
-605 - get_target_table_column_names: 저장 DB 테이블 컬럼명 목록 (run_file_upsert 타겟 컬럼 조회)
-612 - get_target_pk_columns: 저장 DB 테이블 PRIMARY KEY 컬럼명 목록
+[Target DB]
+===========
+- list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
 
 [Connections]
 ===========
-107 - create_connection: DB 연결 등록(postgresql), 비밀번호 encrypted_password 저장
-149 - list_connections: 연결 목록(비밀번호 제외)
-170 - get_connection_for_etl: connection_id로 연결 정보(비밀번호 포함, 적재 시 사용)
-193 - test_connection: connection_id 또는 인자로 연결 테스트(SELECT 1)
-228 - list_source_tables: 외부 DB 테이블 목록. PostgreSQL(schema_name), MySQL(TABLE_SCHEMA=DB명), Oracle(ALL_TABLES/USER_TABLES)
-260 - get_or_create_file_connection: source_type='file' 연결 1개 조회 또는 생성
-291 - list_etl_tables_by_connection: connection_id별 ETL 테이블 목록
-310 - delete_connection: 연결 삭제(관련 etl_tables·메인 DB 타겟 DROP)
+- create_connection, list_connections, get_connection_for_etl, test_connection
+- list_source_tables, get_or_create_file_connection, list_etl_tables_by_connection, delete_connection
 
 [ETL Tables]
 ===========
-344 - list_etl_tables: ETL 테이블 전체 목록(connection_name, source_type 포함)
-369 - create_etl_table: ETL 테이블 1건 등록, etl_table_id 반환
-425 - get_etl_table: etl_table_id로 1건 조회
-436 - get_sync_mode_for_load: sync_mode 조회 후 'full'|'incremental' 정규화(명시적 full만 full)
-452 - delete_etl_table: ETL 테이블 삭제, 메인 DB 타겟 DROP, file_path 반환
-491 - delete_etl_table_row_only: 행·업로드 파일만 삭제(메인 DB 테이블 유지)
-549 - update_last_synced_at: 증분 적재 후 last_synced_at 갱신
-899 - update_etl_table: pk_columns 등 지정 필드만 갱신
+- list_etl_tables, create_etl_table, get_etl_table, get_sync_mode_for_load
+- delete_etl_table, delete_etl_table_row_only, update_last_synced_at, update_etl_table
 
 [Jobs]
 ===========
-568 - insert_job: etl_jobs 1건 삽입, job_id 반환. add_file_path/add_file_type 있으면 추가 적재 Job
-602 - set_job_running: status=running, started_at=NOW()
-623 - list_jobs: Job 목록(etl_table_id, statuses, limit), target_table 등 join
-674 - delete_job: Job 1건 삭제, add_file_path 파일 있으면 삭제
-703 - set_job_total_rows: total_rows 설정(ETA/진행률용)
-705 - update_job_progress: 진행 중 job의 rows_processed만 갱신(배치 단위 진행률 표시)
-720 - get_job: job_id로 1건 조회(target_table, add_file_path 등)
-758 - fetch_pending_jobs: pending Job created_at 순 limit건
-781 - claim_next_pending_job: 다음 pending 1건 claim(running으로 변경), (job_id, etl_table_id) 또는 None
-824 - count_running_jobs: status='running' 개수
-841 - is_job_cancelled: job 취소 여부 조회
-859 - update_job: status, finished_at, rows_processed, error_message, notice 갱신
-880 - update_etl_table_status: etl_tables.status 갱신
+- insert_job, set_job_running, list_jobs, delete_job, set_job_total_rows, update_job_progress
+- get_job, fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled
+- update_job, update_etl_table_status
 
 [Dependencies]
 =========
 - Backend.api_server.db (get_db_connection_system, get_system_table_schema)
-- psycopg2 (외부 DB 연결·테스트·소스 테이블 목록)
+- psycopg2, PyMySQL, oracledb (외부 DB 연결·테스트·소스 테이블 목록)
 """
 
 import json

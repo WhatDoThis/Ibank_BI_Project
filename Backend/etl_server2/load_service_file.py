@@ -10,9 +10,9 @@ get_target_connection, table_exists, create_table_from_dataframe, load_dataframe
 - get_target_connection: storage_connection_id(Optional) → (conn, schema). None이면 기본 DB(ibank_db). etl_server2.service 재사용.
 - table_exists: information_schema.tables로 테이블 존재 여부
 - create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
-- load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 upsert/없으면 INSERT, 있으면 PK 있으면 upsert/없으면 INSERT. 파라미터 한도 기반 배치(_calc_batch_size).
-  PK upsert 시 삽입/갱신 건수 구분을 위해 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES 2단계 실행. 반환 inserted/updated 실제 건수.
-  PK·출처 정보가 있으면 batch_loaded_keys에 적재된 행의 PK 기록(파일 단위 롤백용).
+- load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 _batch_upsert/없으면 _batch_insert, 테이블 있으면 동일. 파라미터 한도 기반 배치(_calc_batch_size).
+  PK upsert 시 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES(실제 변경 행만 IS DISTINCT FROM) 2단계. 반환 inserted/updated.
+  PK·출처 정보 있으면 batch_loaded_keys 기록(파일 단위 롤백용). index_definitions 있으면 적재 후 _create_indexes_on_target.
 
 [Dependencies]
 =========

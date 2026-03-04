@@ -1,3 +1,81 @@
+## 2026-03-04 DB 배치: 150행 기대 시 1행만 삽입·헤더처럼 보이는 행
+
+**증상:** DB 연결 배치잡 실행 시 150행을 넣었으나 1행만 삽입되고, 그 행이 `id / campaign_id / test_id` 등 컬럼명만 있는 것처럼 보임.
+
+**원인 후보 (우선순위):**
+1. **증분(incremental) 모드 + last_synced_at**  
+   `WHERE incremental_column > last_synced_at` 조건으로 인해 **소스에서 1행만 조회**되는 경우.  
+   - ETL 테이블 실행 완료 시점으로 `last_synced_at`이 세팅되어 있으면, 그 시점보다 큰 값을 가진 행이 1개뿐일 수 있음.  
+   - 그 1행이 소스 테이블에 “헤더처럼” 저장된 행(예: id='id', campaign_id='campaign_id', test_id='test_id')이면, 삽입 결과가 컬럼명만 있는 것처럼 보임.
+2. **소스 테이블에 헤더 행이 데이터로 존재**  
+   CSV 등에서 헤더를 한 줄 넣은 경우, 증분 컬럼 기준으로 그 행 1개만 선택될 수 있음.
+3. **Full 모드인데 소스가 1행만 반환**  
+   연결/스키마/테이블이 잘못되어 해당 테이블이 1행만 가지는 DB를 바라보는 경우.
+
+**권장 확인:**
+- 배치잡/ETL 테이블의 **sync_mode**: `incremental`이면 `last_synced_at`이 너무 최근이 아닌지 확인.
+- **전체 재적재**가 목적이면: 한 번 `sync_mode=full`로 실행하거나, `last_synced_at`을 NULL/과거로 초기화 후 증분 재실행.
+- 소스 테이블에 **컬럼명과 동일한 값의 행**이 있는지 확인; 필요 시 해당 행 제거 또는 증분 조건에서 제외.
+
+**조치:** `batch_executor_db.py`에 배치당 소스 조회 행 수 로그 추가.  
+`run_db_batch_job job_id=%s batch_offset=%s: 소스에서 %s행 조회` — 로그로 실제로 몇 행이 조회되는지 확인 가능.
+
+---
+
+## 2026-03-04 DB 배치: 실행 이력 삽입 0건·소스 0행 조회 시 진단 로그
+
+**증상:** 배치 주기/즉시실행 시 상세 이력에 삽입 0~1건만 기록. 실제 서버 타겟 테이블에는 600행 등 더 많은 데이터가 있는데 로컬/해당 환경에서는 추가 삽입이 없음.
+
+**원인:** 증분(incremental) 모드에서 `WHERE incremental_column > last_synced_at` 조건으로 소스를 조회할 때, `last_synced_at`이 이미 최근이라 **소스에서 조회되는 행이 0건**인 경우. (해당 환경 소스가 150행뿐이고 이미 동기화된 상태이거나, 서버와 다른 DB를 바라보는 경우 등.)
+
+**조치:** `batch_executor_db.py`에 다음 로그 추가.  
+- 실행 시: `sync_mode`, `incremental_column`, `last_synced_at` 출력 → 증분 조건 확인 가능.  
+- 소스에서 한 건도 안 나온 경우: `batch_offset == 0`일 때 경고 로그로 "소스에서 조회된 행 없음. 증분 모드일 경우 last_synced_at 확인 또는 full 동기화 권장" 출력.
+
+**운영 측 대응:** 증분인데 새 행이 안 잡히면 1) 타겟/소스가 같은지 확인, 2) 한 번 `sync_mode=full`로 실행하거나 배치잡/ETL의 `last_synced_at`을 NULL 또는 과거로 초기화 후 재실행.
+
+---
+
+## 2026-03-04 소스 DB fetch 결과 row 타입 분기 (RealDictRow 버그)
+
+**증상:** 소스 테이블 미리보기·배치 실행 시 모든 행이 컬럼명 문자열로 채워짐 (id 컬럼 값이 "id" 등).
+
+**원인:** PostgreSQL 소스 연결이 `RealDictCursor`를 사용해 `fetchall()`/`fetchmany()`가 `RealDictRow`(dict-like)를 반환함. 이때 `dict(zip(col_names, r))`에서 `r`을 이터레이션하면 **키(컬럼명)**만 나와, 값이 컬럼명으로 채워짐.
+
+**조치:** 소스 SELECT 결과를 dict 리스트로 바꾸는 모든 위치에서 row 타입 분기 적용.
+- `rows and hasattr(rows[0], "keys")` → 이미 dict-like → `[dict(r) for r in rows]`
+- 그 외(tuple) → `[dict(zip(col_names, r)) for r in rows]`
+
+**수정 파일:**
+- `preview_service.py` `_preview_db`: fetch 후 위 분기로 rows 변환.
+- `batch_executor_db.py`: fetchmany 배치에 동일 분기 적용.
+- `db_load_service.py`: `row_type == "dict"`일 때 `[dict(r) for r in batch/rows_data]` 명시 추가, tuple일 때만 zip 변환.
+
+---
+
+## 2026-03-04 DB 배치: 소스 헤더 행이 데이터로 적재되는 것 방지
+
+**증상:** 소스 151건 중 150건만 실제 데이터이고, 151번째 행이 컬럼명(id, campaign_id, test_id)으로 채워진 “헤더 행”이 타겟에 적재됨. 타겟 600건 중 해당 1건이 비정상 행.
+
+**원인:** 소스 테이블(또는 소스로 로드된 CSV 등)에 컬럼명과 동일한 값을 가진 한 행이 데이터로 포함된 경우.
+
+**조치:** `batch_executor_db.py`에서 소스 조회 후 DataFrame 생성 직후, **첫 번째 컬럼 값이 해당 컬럼명과 동일한 행**을 헤더 유사 행으로 간주해 제외. 제외 시 로그: `헤더 유사 행 N건 제외 (컬럼 '컬럼명' 값=컬럼명)`. 해당 배치 전체가 헤더 행뿐이면 적재 스킵.
+
+---
+
+## 2026-03-04 DB 배치: 증분 조건 > → >=, NULL 제외, 디버그 로깅
+
+**증상:** 소스 600건(updated_at 동일), 타겟 150건만 적재. 즉시 실행 시 450건이 들어와야 하는데 1건(헤더)만 삽입, 이후 0건.
+
+**원인:** 1) `WHERE updated_at > last_synced_at`에서 last_synced_at이 150건 적재 시 max(updated_at)과 동일해, 나머지 450건(동일 시각)이 제외됨. 2) 증분 컬럼 NULL인 헤더 행이 조건을 통과할 수 있는 경우 처리 필요.
+
+**조치 (batch_executor_db.py):**
+- 증분 조건을 **`>` → `>=`** 로 변경: 동일 시각 데이터 포함, 중복은 PK upsert로 방지.
+- **`AND incremental_column IS NOT NULL`** 추가: 증분 컬럼이 NULL인 행(헤더/쓰레기) 제외.
+- 디버그 로깅: `last_synced_at` (batch_jobs 기준), 생성된 **SELECT 쿼리 전문 + params** 로그 출력.
+
+---
+
 ## 2026-03-04 DB 배치 적재 시 duplicate key (sample_accdb_p_pkey) 수정
 
 **원인:** `load_dataframe`에서 테이블이 없을 때 CREATE 후 항상 `_batch_insert`만 사용. 소스에 동일 PK가 있거나 배치 내 중복이 있으면 `UniqueViolation: duplicate key value violates unique constraint` 발생.

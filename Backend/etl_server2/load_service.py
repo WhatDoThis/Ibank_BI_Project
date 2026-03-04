@@ -1,22 +1,22 @@
 """
-Backend.etl_server.load_service (파일 기반 추출·적재)
-=====================================================
+Backend.etl_server2.load_service (파일 기반 추출·적재)
+======================================================
 업로드된 파일 파싱 → 메인 DB 테이블 생성·적재. pk_columns 있으면 CREATE TABLE에 PRIMARY KEY 반영.
 
 [Helpers]
 ===========
-42 - _pg_type: inferred_type → PostgreSQL 타입 문자열
-55 - _resolve_upload_path: DB 경로가 현재 프로세스에서 없을 때 uploads/파일명으로 폴백 해석
-56 - _read_file: file_path, file_type으로 CSV/Excel/Parquet 읽기. CSV는 csv_reader.read_csv_robust 사용. (DataFrame, data_verification_needed)
+- _pg_type: inferred_type → PostgreSQL 타입 문자열
+- _resolve_upload_path: DB 경로가 현재 프로세스에서 없을 때 uploads/파일명으로 폴백 해석
+- _read_file: file_path, file_type으로 CSV/Excel/Parquet 읽기. CSV는 csv_reader.read_csv_robust 사용. (DataFrame, data_verification_needed)
 
-[Main]
+[Main Functions]
 ===========
-107 - run_file_load: etl_table_id 기준 파일 읽기 → total_rows 설정 → 메인 DB DROP+CREATE TABLE(pk_columns 있으면 PK 추가) → 배치 INSERT(2000건씩) → allowed_tables·job 갱신
-270 - run_file_upsert: 추가 적재(동일 테이블). Job의 add_file_path 파일 읽어 타겟 테이블에 PK 기준 ON CONFLICT DO UPDATE. etl_tables.pk_columns 또는 메인 DB PK 사용.
+- run_file_load: etl_table_id 기준 파일 읽기 → total_rows 설정 → 메인 DB DROP+CREATE TABLE(pk_columns 있으면 PK 추가) → 배치 INSERT(2000건씩) → allowed_tables·job 갱신
+- run_file_upsert: 추가 적재(동일 테이블). Job의 add_file_path 파일 읽어 타겟 테이블에 PK 기준 ON CONFLICT DO UPDATE. etl_tables.pk_columns 또는 메인 DB PK 사용.
 
 [Dependencies]
 =========
-- Backend.api_server.db, Backend.etl_server.service, schema_infer, transform_engine, transform_rules_service, etl_limits
+- Backend.api_server.db, Backend.etl_server2.service, schema_infer, transform_engine, transform_rules_service, etl_limits
 - Backend.etl_server2.csv_reader (CSV 인코딩 감지·읽기)
 - Env.config.loader.add_allowed_table
 - pandas

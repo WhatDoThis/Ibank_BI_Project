@@ -1,25 +1,25 @@
 """
-Backend.etl_server.transform_rules_service (변환 룰 메타 CRUD)
-==============================================================
+Backend.etl_server2.transform_rules_service (변환 룰 메타 CRUD)
+=============================================================
 etl_transform_rules 테이블 조회·등록·수정·삭제. rule_type: cleansing, type_cast, code_map, derived, masking.
 
 [Helpers]
 ===========
-30 - _get_db: api_server.db 지연 로드
-34 - _schema: get_system_table_schema()
-38 - _q: 스키마.테이블명 따옴표 감싼 문자열
+- _get_db: api_server.db 지연 로드
+- _schema: get_system_table_schema()
+- _q: 스키마.테이블명 따옴표 감싼 문자열
 
-[Functions]
+[Main Functions]
 ===========
-42 - list_transform_rules: etl_table_id별 룰 목록(apply_order, rule_id 순)
-65 - create_transform_rule: 룰 1건 등록, rule_id 반환
-107 - get_transform_rule: rule_id로 1건 조회
-129 - update_transform_rule: 룰 수정(전달 필드만)
-180 - delete_transform_rule: 룰 1건 삭제
+- list_transform_rules: etl_table_id별 룰 목록(apply_order, rule_id 순)
+- create_transform_rule: 룰 1건 등록, rule_id 반환
+- get_transform_rule: rule_id로 1건 조회
+- update_transform_rule: 룰 수정(전달 필드만)
+- delete_transform_rule: 룰 1건 삭제
 
 [Dependencies]
 =========
-- Backend.etl_server.service
+- Backend.etl_server2.service
 """
 
 from typing import Any, Dict, List, Optional

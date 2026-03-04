@@ -8,13 +8,13 @@ pending Job을 선점(claim)해 run_file_load / run_db_load / run_file_upsert �
 - _worker_loop: 무한 루프에서 run_worker_iteration 주기 실행(POLL_INTERVAL_SEC). _shutdown_requested 시 종료.
 - stop_background_worker: 앱 shutdown 시 호출 권장. 실행 중 Job 대기 후 풀 종료.
 
-[Functions]
+[Main Functions]
 ===========
-_run_one_job: Job 1건 실행. 전체 try로 감싸 예외 시에도 status failed 갱신(running 좀비 방지)
-run_worker_iteration: running 수 < MAX_CONCURRENT인 만큼 claim 후 스레드 풀에 제출(비동기)
-_worker_loop: run_worker_iteration 주기 호출, 예외 시 로그
-start_background_worker: 백그라운드 스레드 + 스레드 풀 생성(앱 startup에서 1회)
-stop_background_worker: 스레드 풀 shutdown(wait=True), 워커 루프 중단(앱 shutdown 훅에서 호출 권장)
+- _run_one_job: Job 1건 실행. 파일/DB 분기 후 load_service 또는 db_load_service 호출. 예외 시에도 status failed 갱신(running 좀비 방지)
+- run_worker_iteration: running 수 < MAX_CONCURRENT인 만큼 claim 후 스레드 풀에 제출
+- _worker_loop: run_worker_iteration 주기 호출(POLL_INTERVAL_SEC), 예외 시 로그
+- start_background_worker: 백그라운드 스레드 + 스레드 풀 생성(앱 startup에서 1회)
+- stop_background_worker: 스레드 풀 shutdown(wait=True), 워커 루프 중단(앱 shutdown 훅에서 호출 권장)
 
 [Dependencies]
 =========

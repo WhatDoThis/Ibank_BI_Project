@@ -1,18 +1,18 @@
 """
-Backend.etl_server.transform_engine (변환 룰 적용 엔진)
-=====================================================
+Backend.etl_server2.transform_engine (변환 룰 적용 엔진)
+=======================================================
 DataFrame에 etl_transform_rules를 apply_order 순으로 적용. cleansing/type_cast/code_map/derived/masking.
 
-[Functions]
+[Main Functions]
 ===========
-26 - _apply_cleansing: TRIM, empty_to_null, default_value
-36 - _apply_type_cast: target_type(date/timestamp/integer/bigint/numeric/text), on_error(null|zero|keep), date_format
-69 - _apply_type_cast_with_mask: 2-pass 벡터 변환(coerce) 후 실패 행만 on_error 적용. fail 시 ValueError
-76 - _apply_code_map: mappings, default
-77 - _apply_derived: formula(concat, year_minus), columns/separator, source_column
-98 - _apply_masking: type(right_n/left_n/email_domain), n, char
-137 - apply_rules: (df, rules) → 변환된 DataFrame. is_active=True만, source_column→target_column
-138 - apply_mapping_type_cast: column_mapping의 type·on_error로 소스 컬럼 형변환. skip_row/fail 지원
+- _apply_cleansing: TRIM, empty_to_null, default_value
+- _apply_type_cast: target_type(date/timestamp/integer/bigint/numeric/text), on_error(null|zero|keep), date_format
+- _apply_type_cast_with_mask: 2-pass 벡터 변환(coerce) 후 실패 행만 on_error 적용. fail 시 ValueError
+- _apply_code_map: mappings, default
+- _apply_derived: formula(concat, year_minus), columns/separator, source_column
+- _apply_masking: type(right_n/left_n/email_domain), n, char
+- apply_rules: (df, rules) → 변환된 DataFrame. is_active=True만, source_column→target_column
+- apply_mapping_type_cast: column_mapping의 type·on_error로 소스 컬럼 형변환. skip_row/fail 지원
 
 [Dependencies]
 =========

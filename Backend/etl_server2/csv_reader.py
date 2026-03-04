@@ -6,7 +6,7 @@ load_service, parser_file에서 사용하는 CSV 읽기 로직 통합.
 
 [Main Functions]
 ===========
-- read_csv_robust: path, nrows → (DataFrame, encoding_used, data_verification_needed)
+- read_csv_robust: path, nrows(optional) → (DataFrame, encoding_used, data_verification_needed). 인코딩 감지 또는 순차 시도(utf-8, cp949 등).
 
 [Dependencies]
 =========

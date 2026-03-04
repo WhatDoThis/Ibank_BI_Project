@@ -1,12 +1,12 @@
 """
-Backend.etl_server.schema_infer (파일 스키마 추론)
-==================================================
+Backend.etl_server2.schema_infer (파일 스키마 추론)
+===================================================
 CSV/Excel/Parquet 샘플 기반 컬럼명·타입 추론. 업로드 직후 스키마 표시 및 ETL 메타 등록 시 사용.
 
-[Functions]
+[Main Functions]
 ===========
-23 - _dtype_to_inferred: pandas dtype → 문서/UI용 타입명(integer, float, boolean, datetime, text)
-35 - infer_schema: file_path, file_type, max_rows → [{ name, inferred_type }, ...]
+- _dtype_to_inferred: pandas dtype → 문서/UI용 타입명(integer, float, boolean, datetime, text)
+- infer_schema: file_path, file_type, max_rows → [{ name, inferred_type }, ...]
 
 [Dependencies]
 =========

@@ -38,7 +38,7 @@ Backend.etl_server2.router_file (배치·폴더 연결 API 라우터)
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server2.service_file, parser_file, scheduler_file, folder_adapter_file
+- fastapi, Backend.etl_server2.service_file, parser_file, scheduler_file, folder_adapter_file, Backend.etl_server2.service (get_etl_table)
 """
 
 import logging

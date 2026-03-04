@@ -1,24 +1,24 @@
 """
-Backend.etl_server.preview_service (ETL 미리보기)
-=================================================
+Backend.etl_server2.preview_service (ETL 미리보기)
+==================================================
 파일/DB 소스에 대해 상위 10행·컬럼별 저장 가능 여부 반환. 미리보기 API·모달용.
 
 [Helpers]
 ===========
-33 - _read_file_preview: load_service._read_file 호출, DataFrame만 반환(튜플 언패킹)
-39 - _pg_type: inferred_type → PostgreSQL 타입 문자열
-52 - _check_column_save: 컬럼명 저장 가능 여부 (can_save, reason)
-61 - _serialize_row: 행 값 직렬화(datetime→isoformat 등)
-71 - _preview_file: 파일 소스 10행·컬럼 저장 가능 여부·정규화명
-119 - _preview_db: DB 소스 10행·컬럼 저장 가능 여부
+- _read_file_preview: load_service._read_file 호출, DataFrame만 반환(튜플 언패킹)
+- _pg_type: inferred_type → PostgreSQL 타입 문자열
+- _check_column_save: 컬럼명 저장 가능 여부 (can_save, reason)
+- _serialize_row: 행 값 직렬화(datetime→isoformat 등)
+- _preview_file: 파일 소스 10행·컬럼 저장 가능 여부·정규화명
+- _preview_db: DB 소스 10행·컬럼 저장 가능 여부
 
-[Main]
+[Main Functions]
 ===========
-get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. column_mapping 있으면 해당 매핑만 반영(제외 컬럼 미표시, 타겟명·순서로 표시).
+- get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. column_mapping 있으면 해당 매핑만 반영(제외 컬럼 미표시, 타겟명·순서로 표시).
 
 [Dependencies]
 =========
-- Backend.etl_server.service, load_service._read_file, schema_infer
+- Backend.etl_server2.service, load_service._read_file, schema_infer
 - pandas
 """
 
@@ -226,18 +226,32 @@ def _preview_db(row: dict) -> dict:
 
     select_list = ", ".join(_quote(c) for c in select_cols)
     cur = conn.cursor()
+    # 헤더 유사 행이 앞에 많을 수 있으므로 여유 있게 조회 후 필터·상위 10건만 사용
+    fetch_limit = 50
     if stype == "oracle":
-        cur.execute(f"SELECT {select_list} FROM {quoted_src} FETCH FIRST 10 ROWS ONLY")
+        cur.execute(f"SELECT {select_list} FROM {quoted_src} FETCH FIRST {fetch_limit} ROWS ONLY")
     else:
-        cur.execute(f"SELECT {select_list} FROM {quoted_src} LIMIT 10")
+        cur.execute(f"SELECT {select_list} FROM {quoted_src} LIMIT {fetch_limit}")
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
-    if stype in ("mysql", "oracle"):
-        rows = [dict(zip(select_cols, r)) for r in rows]
+    # row가 이미 dict-like(RealDictRow 등)면 zip 시 key만 나와 값이 컬럼명으로 채워지는 버그 방지
+    if rows and hasattr(rows[0], "keys"):
+        rows = [dict(r) for r in rows]
     else:
         rows = [dict(zip(select_cols, r)) for r in rows]
+
+    # 첫 번째 컬럼 값이 컬럼명과 동일한 행(헤더가 데이터로 들어간 행) 제외
+    if select_cols and rows:
+        first_col = select_cols[0]
+        def _is_header_like(r):
+            val = r.get(first_col)
+            if val is None:
+                return False
+            return str(val).strip().lower() == first_col.strip().lower()
+        rows = [r for r in rows if not _is_header_like(r)]
+    rows = rows[:10]
 
     if column_mapping and mapping_filtered:
         preview_columns = [t for s, t, ty in mapping_filtered]

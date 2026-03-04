@@ -11,9 +11,9 @@ config.backend.etl_limits 에서 최대 파일 크기·행 수·배치 크기 �
 
 config에 etl_limits를 넣으면 이 기본값 대신 config 값 사용. 0이면 "한도 없음"으로 동작.
 
-[Functions]
+[Main Functions]
 ===========
-get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0이면 해당 한도 미적용.
+- get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0이면 해당 한도 미적용.
 
 [Dependencies]
 =========
