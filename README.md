@@ -36,6 +36,11 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가 적재·건너뛴 파일 목록 표시.
 - **ETL 사용 시** config에 backend.system_db(시스템 DB), backend.etl_limits(파일 크기·행 수·배치 상한) 선택. 상세는 **docs/main/02_BACKEND_GUIDE.md §3·§6**.
 
+### ETL2 (/etl2)
+
+- **저장 DB·컬럼 매핑·폴더 배치·DB 탭 배치.** 탭: 파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력. **DB 탭**: ETL 테이블 등록 후 **실행(적재 완료)** 하면 **배치설정** 버튼 활성 → 주기 배치 등록(BatchScheduleModal). 미실행 시 배치설정 비활성·툴팁 "먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다." 배치 등록 시 마지막 적재 시점(last_synced_at)을 기준으로 증분 배치 적용. **폴더 배치**: SFTP/S3 연결·파일 패턴·주기·배치 Job 등록·이력·즉시 실행.
+- 상세는 **docs/main/00_PRD.md §6.3.1**, **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**.
+
 ### 공통
 
 - **설정**: 환경은 `Env/config/config.json` 만 사용(.env 미사용).
@@ -69,7 +74,7 @@ npm install
 `start.bat` 실행 시 API 서버·웹 서버가 각각 새 창에서 실행됩니다.
 
 - API: http://localhost:5001  
-- 웹: http://localhost:8080/ibank-bi/ (리포트 `/ibank-bi/report`, 대시보드 `/ibank-bi/dashboard`, 대시보드2 `/ibank-bi/dashboard2`, 위젯보드 `/ibank-bi/widgetboard`, **ETL** `/ibank-bi/etl`)
+- 웹: http://localhost:8080/ibank-bi/ (리포트 `/ibank-bi/report`, 대시보드 `/ibank-bi/dashboard`, 대시보드2 `/ibank-bi/dashboard2`, 위젯보드 `/ibank-bi/widgetboard`, ETL `/ibank-bi/etl`, **ETL2** `/ibank-bi/etl2`)
 
 **방법 B – 터미널에서 분리 실행**
 
@@ -137,6 +142,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   │   │       ├── dashboard2/  # 성과리포트
 │   │   │       ├── widgetboard/ # 위젯보드
 │   │   │       ├── etl/         # ETL (파일·DB 적재)
+│   │   │       ├── etl2/        # ETL2 (저장 DB·컬럼 매핑·폴더/DB 배치)
 │   │   │       └── shared/      # api/client.js, config, PeriodLabel 등
 │   │   ├── index.html
 │   │   └── dist/       # npm run build 결과 (정적 서버가 서빙)
@@ -168,6 +174,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 - **대시보드2**: `/ibank-bi/dashboard2` — 성과리포트, 주간/월간/일간/연간 비교, 디멘션별 비교/요약 토글  
 - **위젯보드**: `/ibank-bi/widgetboard` — 드래그 앤 드롭 위젯 그리드  
 - **ETL**: `/ibank-bi/etl` — 소스 유형(파일/DB) 선택 후 연결 등록·테이블 등록·실행·데이터 추가(ZIP 가능). Job 이력 패널에서 상태 확인.  
+- **ETL2**: `/ibank-bi/etl2` — 저장 DB·DB/폴더 탭. DB 탭: ETL 테이블 등록 → 실행(적재 완료) 후 **배치설정**으로 주기 배치 등록. 폴더 탭: SFTP/S3·파일 패턴·배치 Job·이력.  
 
 ---
 
@@ -175,5 +182,5 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE) |
+| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-04 (ETL2 DB 배치·status=done·적재 안정성). |
 | **docs/report/** | 배포·실행 로그 등 |
