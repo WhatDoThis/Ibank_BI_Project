@@ -70,10 +70,16 @@ def load_active_batch_jobs() -> None:
 
 def add_job(job: dict) -> None:
     """배치 1건 스케줄러에 등록. job은 get_batch_job/list_batch_jobs 항목.
+    job_type='db'이면 batch_executor_db.run_db_batch_job, 아니면 batch_executor_file.run_batch_job.
     서버 재시작 시 last_run_at이 있으면 next_run_time = last_run_at + interval로 두어 주기 유지."""
-    from Backend.etl_server2 import batch_executor_file
-
     batch_job_id = job["batch_job_id"]
+    job_type = (job.get("job_type") or "file").strip().lower()
+    if job_type == "db":
+        from Backend.etl_server2 import batch_executor_db
+        run_func = batch_executor_db.run_db_batch_job
+    else:
+        from Backend.etl_server2 import batch_executor_file
+        run_func = batch_executor_file.run_batch_job
     interval_minutes = int(job.get("interval_minutes") or 10)
     job_id = f"batch_{batch_job_id}"
 
@@ -95,7 +101,7 @@ def add_job(job: dict) -> None:
             pass
 
     get_scheduler().add_job(
-        batch_executor_file.run_batch_job,
+        run_func,
         trigger="interval",
         minutes=interval_minutes,
         id=job_id,
@@ -126,17 +132,23 @@ def reschedule_job(batch_job_id: int, interval_minutes: int) -> None:
 
 
 def run_now(batch_job_id: int) -> None:
-    """즉시 1회 실행. add_job with next_run_time=now (replace_existing)."""
-    from Backend.etl_server2 import batch_executor_file
+    """즉시 1회 실행. add_job with next_run_time=now (replace_existing). job_type에 따라 실행 함수 분기."""
     from Backend.etl_server2 import service_file as batch_service
 
     job = batch_service.get_batch_job(batch_job_id)
     if not job:
         logger.warning("run_now: batch_job_id=%s not found", batch_job_id)
         return
+    job_type = (job.get("job_type") or "file").strip().lower()
+    if job_type == "db":
+        from Backend.etl_server2 import batch_executor_db
+        run_func = batch_executor_db.run_db_batch_job
+    else:
+        from Backend.etl_server2 import batch_executor_file
+        run_func = batch_executor_file.run_batch_job
     job_id = f"batch_{batch_job_id}"
     get_scheduler().add_job(
-        batch_executor_file.run_batch_job,
+        run_func,
         trigger="interval",
         minutes=int(job.get("interval_minutes") or 10),
         id=job_id,

@@ -8,6 +8,7 @@ Backend.etl_server2.router_file (배치·폴더 연결 API 라우터)
 ===========
 - CreateFolderConnectionBody, UpdateFolderConnectionBody, TestFolderConnectionBody
 - CreateBatchJobBody: POST /jobs
+- CreateBatchJobFromEtlTableBody: POST /jobs/from-etl-table
 - UpdateBatchJobBody: PATCH /jobs/{id}
 
 [Endpoints]
@@ -15,8 +16,9 @@ Backend.etl_server2.router_file (배치·폴더 연결 API 라우터)
 - GET / — 배치 서비스 안내
 - GET/POST/PATCH/DELETE /folder-connections, POST /folder-connections/test
 - GET /folder-connections/{id}/files, GET /folder-connections/{id}/patterns, GET /folder-connections/{id}/columns?file_pattern=
-- GET /jobs — 배치 Job 목록 (folder_connection_id, is_active 쿼리)
+- GET /jobs — 배치 Job 목록 (folder_connection_id, is_active, job_type 쿼리)
 - POST /jobs — 배치 Job 등록 + is_active 시 스케줄러 등록
+- POST /jobs/from-etl-table — ETL 테이블 기반 DB 배치 등록 (소스/타겟은 etl_tables 참조)
 - PATCH /jobs/{id} — 수정 + 주기/활성 변경 시 스케줄러 동기화
 - DELETE /jobs/{id} — 스케줄러 제거 후 삭제
 - POST /jobs/{id}/run-now — 즉시 1회 실행
@@ -93,11 +95,12 @@ class UpdateFolderConnectionBody(BaseModel):
 
 
 class CreateBatchJobBody(BaseModel):
-    """POST /jobs. 배치 Job 등록."""
-    folder_connection_id: int = Field(..., description="폴더 연결 ID")
+    """POST /jobs. 배치 Job 등록. job_type=file이면 folder_connection_id·file_pattern 필수, job_type=db이면 connection_id·source_table 필수."""
+    job_type: str = Field("file", description="file | db")
+    folder_connection_id: Optional[int] = Field(None, description="폴더 연결 ID (file 배치 시 필수)")
     storage_connection_id: Optional[int] = Field(None, description="저장 DB 연결 ID. None=기본 DB(ibank_db)")
     job_name: str = Field(..., description="배치명")
-    file_pattern: str = Field(..., description="파일 접두사(예: sales_data)")
+    file_pattern: Optional[str] = Field("", description="파일 접두사(예: sales_data). file 배치 시 필수.")
     file_extensions: Optional[str] = Field("csv,xlsx,xls,parquet", description="허용 확장자")
     target_table: str = Field("", description="적재 테이블명")
     pk_columns: Optional[str] = Field(None, description="쉼표 구분 PK")
@@ -105,7 +108,25 @@ class CreateBatchJobBody(BaseModel):
     is_active: bool = Field(True, description="스케줄러 활성 여부")
     column_mapping: Optional[List[dict]] = Field(None, description="[{source, target, type}]")
     index_definitions: Optional[List[dict]] = Field(None, description="타겟 테이블 인덱스 [{index_name, columns, is_unique}]")
-    on_file_error: Optional[str] = Field("stop", description="파일 1건 실패 시: stop=전체 중단, continue=해당 파일만 error 기록 후 계속")
+    on_file_error: Optional[str] = Field("stop", description="파일 1건 실패 시: stop | continue")
+    connection_id: Optional[int] = Field(None, description="DB 배치: 소스 DB 연결 ID")
+    source_table: Optional[str] = Field(None, description="DB 배치: 소스 테이블 (schema.table)")
+    incremental_column: Optional[str] = Field(None, description="DB 배치: 증분 기준 컬럼")
+    sync_mode: Optional[str] = Field("incremental", description="DB 배치: full | incremental")
+    batch_size: Optional[int] = Field(None, description="DB 배치: fetch 배치 크기")
+    batch_interval_seconds: Optional[int] = Field(None, description="DB 배치: 배치 간 대기 초")
+    on_row_error: Optional[str] = Field("fail", description="DB 배치: fail | skip")
+
+
+class CreateBatchJobFromEtlTableBody(BaseModel):
+    """POST /jobs/from-etl-table. ETL 테이블 기반 DB 배치 등록. 소스/타겟/매핑은 etl_tables에서 참조."""
+    etl_table_id: int = Field(..., description="연결할 ETL 테이블 ID")
+    job_name: str = Field(..., description="배치 표시명")
+    interval_minutes: int = Field(60, ge=10, le=1440, description="실행 주기(분)")
+    batch_size: Optional[int] = Field(None)
+    batch_interval_seconds: Optional[int] = Field(None)
+    on_row_error: Optional[str] = Field("fail", description="fail | skip")
+    is_active: bool = Field(True, description="등록 후 즉시 활성화")
 
 
 class UpdateBatchJobBody(BaseModel):
@@ -121,6 +142,13 @@ class UpdateBatchJobBody(BaseModel):
     column_mapping: Optional[List[dict]] = None
     index_definitions: Optional[List[dict]] = None
     on_file_error: Optional[str] = None
+    connection_id: Optional[int] = None
+    source_table: Optional[str] = None
+    incremental_column: Optional[str] = None
+    sync_mode: Optional[str] = None
+    batch_size: Optional[int] = None
+    batch_interval_seconds: Optional[int] = None
+    on_row_error: Optional[str] = None
 
 
 class ValidateTargetBody(BaseModel):
@@ -452,14 +480,16 @@ def delete_batch_target_registry(registry_id: int):
 def list_batch_jobs(
     folder_connection_id: Optional[int] = Query(None, description="폴더 연결 ID 필터"),
     is_active: Optional[bool] = Query(None, description="활성 여부 필터"),
+    job_type: Optional[str] = Query(None, description="file | db"),
 ):
-    """배치 Job 목록. connection_name JOIN. §11.3 다음 실행 시각(next_run_time) 포함."""
+    """배치 Job 목록. connection_name JOIN. §11.3 다음 실행 시각(next_run_time) 포함. job_type으로 file/db 필터."""
     from Backend.etl_server2 import scheduler_file as sched
 
     try:
         jobs = batch_service.list_batch_jobs(
             folder_connection_id=folder_connection_id,
             is_active=is_active,
+            job_type=job_type,
         )
         for j in jobs:
             _serialize_job(j)
@@ -484,15 +514,26 @@ def _serialize_job(j: dict) -> None:
 
 @router.post("/jobs")
 def create_batch_job(body: CreateBatchJobBody):
-    """배치 Job 등록. is_active=True면 스케줄러에 등록."""
+    """배치 Job 등록. is_active=True면 스케줄러에 등록. job_type=db이면 connection_id·source_table 필수."""
     from Backend.etl_server2 import scheduler_file as sched
+
+    jtype = (body.job_type or "file").strip().lower()
+    if jtype not in ("file", "db"):
+        raise HTTPException(status_code=400, detail="job_type은 'file' 또는 'db'여야 합니다.")
+    if jtype == "file" and body.folder_connection_id is None:
+        raise HTTPException(status_code=400, detail="파일 배치에는 folder_connection_id가 필요합니다.")
+    if jtype == "db":
+        if body.connection_id is None:
+            raise HTTPException(status_code=400, detail="DB 배치에는 connection_id가 필요합니다.")
+        if not (body.source_table or "").strip():
+            raise HTTPException(status_code=400, detail="DB 배치에는 source_table이 필요합니다.")
 
     try:
         batch_job_id = batch_service.create_batch_job(
             folder_connection_id=body.folder_connection_id,
             storage_connection_id=body.storage_connection_id,
             job_name=body.job_name,
-            file_pattern=body.file_pattern,
+            file_pattern=body.file_pattern or "",
             file_extensions=body.file_extensions or "csv,xlsx,xls,parquet",
             target_table=body.target_table or "",
             pk_columns=body.pk_columns,
@@ -501,6 +542,14 @@ def create_batch_job(body: CreateBatchJobBody):
             column_mapping=body.column_mapping,
             index_definitions=body.index_definitions,
             on_file_error=body.on_file_error or "stop",
+            job_type=jtype,
+            connection_id=body.connection_id,
+            source_table=body.source_table,
+            incremental_column=body.incremental_column,
+            sync_mode=body.sync_mode or "incremental",
+            batch_size=body.batch_size,
+            batch_interval_seconds=body.batch_interval_seconds,
+            on_row_error=body.on_row_error or "fail",
         )
         if body.is_active:
             job = batch_service.get_batch_job(batch_job_id)
@@ -511,6 +560,70 @@ def create_batch_job(body: CreateBatchJobBody):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("배치 Job 등록 실패")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/from-etl-table")
+def create_batch_job_from_etl_table(body: CreateBatchJobFromEtlTableBody):
+    """ETL 테이블 기반 DB 배치 등록. 소스/타겟/매핑은 etl_tables에서 참조. 실행 시 실시간 조회. status=done일 때만 허용."""
+    from Backend.etl_server2 import scheduler_file as sched
+
+    etl_table = etl_service.get_etl_table(body.etl_table_id)
+    if not etl_table:
+        raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
+
+    status = (etl_table.get("status") or "").strip().lower()
+    if status != "done":
+        raise HTTPException(
+            status_code=400,
+            detail="ETL 테이블이 아직 실행되지 않았습니다. 먼저 실행하여 적재를 확인한 뒤 배치를 설정해 주세요.",
+        )
+
+    source_type = (etl_table.get("source_type") or "").strip().lower()
+    if source_type not in ("postgresql", "mysql", "oracle"):
+        raise HTTPException(
+            status_code=400,
+            detail="DB 소스 ETL 테이블만 배치 등록할 수 있습니다.",
+        )
+
+    try:
+        batch_job_id = batch_service.create_batch_job(
+            folder_connection_id=None,
+            storage_connection_id=etl_table.get("storage_connection_id"),
+            job_name=body.job_name,
+            file_pattern="",
+            target_table=(etl_table.get("target_table") or "").strip(),
+            job_type="db",
+            etl_table_id=body.etl_table_id,
+            connection_id=etl_table.get("connection_id"),
+            source_table=etl_table.get("source_table"),
+            column_mapping=None,
+            incremental_column=None,
+            sync_mode="incremental",
+            pk_columns=None,
+            index_definitions=None,
+            interval_minutes=body.interval_minutes,
+            batch_size=body.batch_size,
+            batch_interval_seconds=body.batch_interval_seconds,
+            on_row_error=body.on_row_error or "fail",
+            is_active=body.is_active,
+        )
+        # ETL 테이블의 마지막 적재 완료 시점(last_synced_at)을 배치 초기값으로 세팅 → 증분 배치는 이후 데이터만 처리
+        initial_synced_at = etl_table.get("last_synced_at")
+        if initial_synced_at is not None:
+            try:
+                batch_service.update_last_synced_at_db_batch(batch_job_id, initial_synced_at)
+            except Exception as e:
+                logger.warning("배치 등록 후 last_synced_at 초기 세팅 실패 batch_job_id=%s: %s", batch_job_id, e)
+        if body.is_active:
+            job = batch_service.get_batch_job(batch_job_id)
+            if job:
+                sched.add_job(job)
+        return {"batch_job_id": batch_job_id, "message": "배치 등록되었습니다."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("ETL 기반 배치 등록 실패")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -606,6 +719,20 @@ def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
             kwargs["index_definitions"] = body.index_definitions
         if body.on_file_error is not None:
             kwargs["on_file_error"] = body.on_file_error
+        if body.connection_id is not None:
+            kwargs["connection_id"] = body.connection_id
+        if body.source_table is not None:
+            kwargs["source_table"] = body.source_table
+        if body.incremental_column is not None:
+            kwargs["incremental_column"] = body.incremental_column
+        if body.sync_mode is not None:
+            kwargs["sync_mode"] = body.sync_mode
+        if body.batch_size is not None:
+            kwargs["batch_size"] = body.batch_size
+        if body.batch_interval_seconds is not None:
+            kwargs["batch_interval_seconds"] = body.batch_interval_seconds
+        if body.on_row_error is not None:
+            kwargs["on_row_error"] = body.on_row_error
         if not kwargs:
             return {"message": "변경 사항 없음."}
         batch_service.update_batch_job(batch_job_id, **kwargs)
@@ -645,6 +772,29 @@ def delete_batch_job(batch_job_id: int):
         raise
     except Exception as e:
         logger.exception("배치 Job 삭제 실패")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{batch_job_id}/db-preview")
+def get_batch_job_db_preview(batch_job_id: int):
+    """DB 배치 Job의 소스 테이블 10행 미리보기. job_type이 db가 아니면 400."""
+    try:
+        job = batch_service.get_batch_job(batch_job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
+        if (job.get("job_type") or "file").strip().lower() != "db":
+            raise HTTPException(status_code=400, detail="DB 배치가 아닙니다.")
+        from Backend.etl_server2.preview_service import _preview_db
+        preview = _preview_db({
+            "connection_id": job.get("connection_id"),
+            "source_table": job.get("source_table"),
+            "column_mapping": job.get("column_mapping"),
+        })
+        return preview
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("DB 배치 미리보기 실패")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -842,14 +992,15 @@ def rollback_file(batch_job_id: int, body: RollbackFileBody):
 
 @router.post("/jobs/{batch_job_id}/clone")
 def clone_batch_job(batch_job_id: int):
-    """배치 Job 복제. 동일 폴더·저장 DB·패턴 등으로 새 Job 생성, 비활성 상태. §3-2."""
+    """배치 Job 복제. 동일 설정으로 새 Job 생성, 비활성 상태. DB 배치 시 job_type·connection_id·source_table 등 전부 복사. §3-2."""
     try:
         job = batch_service.get_batch_job(batch_job_id)
         if not job:
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
+        jtype = (job.get("job_type") or "file").strip().lower()
         new_id = batch_service.create_batch_job(
-            folder_connection_id=job["folder_connection_id"],
-            storage_connection_id=job["storage_connection_id"],
+            folder_connection_id=job.get("folder_connection_id") if jtype == "file" else None,
+            storage_connection_id=job.get("storage_connection_id"),
             job_name=f"{job.get('job_name') or 'Job'} (복제)",
             file_pattern=job.get("file_pattern") or "",
             file_extensions=job.get("file_extensions") or "csv,xlsx,xls,parquet",
@@ -860,6 +1011,14 @@ def clone_batch_job(batch_job_id: int):
             column_mapping=job.get("column_mapping"),
             index_definitions=job.get("index_definitions"),
             on_file_error=(job.get("on_file_error") or "stop").strip().lower(),
+            job_type=jtype,
+            connection_id=job.get("connection_id") if jtype == "db" else None,
+            source_table=job.get("source_table") if jtype == "db" else None,
+            incremental_column=job.get("incremental_column") if jtype == "db" else None,
+            sync_mode=(job.get("sync_mode") or "incremental").strip().lower() if jtype == "db" else "incremental",
+            batch_size=job.get("batch_size") if jtype == "db" else None,
+            batch_interval_seconds=job.get("batch_interval_seconds") if jtype == "db" else None,
+            on_row_error=(job.get("on_row_error") or "fail").strip().lower() if jtype == "db" else "fail",
         )
         return {"batch_job_id": new_id, "message": "복제되었습니다. 비활성 상태입니다."}
     except HTTPException:

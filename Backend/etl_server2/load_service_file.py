@@ -10,7 +10,7 @@ get_target_connection, table_exists, create_table_from_dataframe, load_dataframe
 - get_target_connection: storage_connection_id(Optional) → (conn, schema). None이면 기본 DB(ibank_db). etl_server2.service 재사용.
 - table_exists: information_schema.tables로 테이블 존재 여부
 - create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
-- load_dataframe: 테이블 없으면 CREATE 후 INSERT, 있으면 PK 있으면 upsert/없으면 INSERT. 파라미터 한도 기반 배치(_calc_batch_size).
+- load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 upsert/없으면 INSERT, 있으면 PK 있으면 upsert/없으면 INSERT. 파라미터 한도 기반 배치(_calc_batch_size).
   PK upsert 시 삽입/갱신 건수 구분을 위해 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES 2단계 실행. 반환 inserted/updated 실제 건수.
   PK·출처 정보가 있으면 batch_loaded_keys에 적재된 행의 PK 기록(파일 단위 롤백용).
 
@@ -233,10 +233,15 @@ def load_dataframe(
                 _create_indexes_on_target(cur_idx, conn, schema, table_name, norm_index_defs)
             finally:
                 cur_idx.close()
-        # INSERT only
+        # PK가 있으면 upsert로 적재(동일 배치/소스 내 PK 중복 시 갱신 처리). 없으면 INSERT만.
         cols = list(df_work.columns)
-        inserted = _batch_insert(conn, full_name, cols, df_work)
-        out = {"inserted": inserted, "updated": 0}
+        if pk_list and all(p in df_work.columns for p in pk_list):
+            df_work = df_work.replace({pd.NA: None}).where(pd.notnull(df_work), None)
+            inserted, updated = _batch_upsert(conn, full_name, cols, pk_list, df_work)
+            out = {"inserted": inserted, "updated": updated}
+        else:
+            inserted = _batch_insert(conn, full_name, cols, df_work)
+            out = {"inserted": inserted, "updated": 0}
         if pk_list and batch_job_id is not None and run_id is not None and source_filename and sys_conn:
             _record_loaded_keys(sys_conn, batch_job_id, run_id, source_filename, df_work, pk_list)
         return out
@@ -407,9 +412,10 @@ def _batch_upsert(
 
         # 2) 충돌한 행만 UPDATE ... FROM (VALUES ...) 로 갱신.
         # WHERE에 (t.col IS DISTINCT FROM v.col OR ...) 추가로 값이 실제로 변경된 행만 UPDATE → WAL/디스크 I/O 절감.
+        # VALUES 쪽이 text로 추론될 수 있어(timestamp 등) 비교 시 ::text로 통일해 타입 불일치 오류 방지.
         set_clause = ", ".join(f'"{c}" = v."{c}"' for c in non_pk)
         pk_where = " AND ".join(f't."{p}" = v."{p}"' for p in pk_columns)
-        distinct_where = " OR ".join(f't."{c}" IS DISTINCT FROM v."{c}"' for c in non_pk)
+        distinct_where = " OR ".join(f't."{c}"::text IS DISTINCT FROM v."{c}"::text' for c in non_pk)
         n_cols = len(columns)
         v_cols = ", ".join(f'"{c}"' for c in columns)
         v_ph = "(" + ", ".join(["%s"] * n_cols) + ")"

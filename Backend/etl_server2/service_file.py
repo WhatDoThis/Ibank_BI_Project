@@ -9,7 +9,8 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 - list_folder_connections, get_folder_connection, create_folder_connection,
   update_folder_connection, delete_folder_connection, set_folder_connection_verified
 - get_folder_adapter: folder_connection_id → FolderAdapter
-- list_batch_jobs, get_batch_job (folder_connection_id, protocol 포함), create_batch_job (동일 폴더·파일패턴·타겟·저장DB 중복 시 ValueError), update_batch_job, delete_batch_job
+- list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (job_type=file|db, etl_table_id 있으면 DB 배치 시 etl_table_id로 중복 검사·실행 시 etl_tables 참조, 없으면 기존 connection_id·source_table·타겟·저장DB 중복 검사), update_batch_job, delete_batch_job
+- update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
 - etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry, upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table
 - create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
@@ -303,8 +304,9 @@ def get_folder_adapter(folder_connection_id: int):
 def list_batch_jobs(
     folder_connection_id: Optional[int] = None,
     is_active: Optional[bool] = None,
+    job_type: Optional[str] = None,
 ) -> List[dict]:
-    """배치 Job 목록. batch_folder_connections.connection_name JOIN. folder_connection_id, is_active 필터."""
+    """배치 Job 목록. batch_folder_connections.connection_name, etl_connections(DB배치) JOIN. folder_connection_id, is_active, job_type 필터."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -315,11 +317,16 @@ def list_batch_jobs(
                    j.file_pattern, j.file_extensions, j.target_table, j.pk_columns, j.timestamp_format,
                    j.interval_minutes, j.is_active, j.last_processed_ts, j.last_run_at, j.last_run_status,
                    j.last_error_message, j.column_mapping, j.index_definitions, j.created_at, j.updated_at,
+                   j.job_type, j.connection_id, j.source_table, j.incremental_column, j.sync_mode,
+                   j.last_synced_at, j.batch_size, j.batch_interval_seconds, j.on_row_error,
+                   j.etl_table_id,
                    c.connection_name, c.protocol,
+                   ec.connection_name AS source_connection_name,
                    sc.connection_name AS storage_connection_name
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
-            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON j.storage_connection_id = sc.storage_connection_id AND sc.is_active = TRUE
+            LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id
+            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON j.storage_connection_id = sc.storage_connection_id
             WHERE 1=1
             """
         params: List[Any] = []
@@ -329,6 +336,9 @@ def list_batch_jobs(
         if is_active is not None:
             sql += " AND j.is_active = %s"
             params.append(is_active)
+        if job_type is not None and (job_type or "").strip():
+            sql += " AND j.job_type = %s"
+            params.append((job_type or "").strip().lower())
         sql += " ORDER BY j.created_at DESC"
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
@@ -356,7 +366,7 @@ def _row_to_dict(r) -> dict:
 
 
 def get_batch_job(batch_job_id: int) -> Optional[dict]:
-    """배치 Job 1건 조회."""
+    """배치 Job 1건 조회. DB 배치 시 source_connection_name은 etl_connections JOIN."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -364,9 +374,11 @@ def get_batch_job(batch_job_id: int) -> Optional[dict]:
     try:
         cur.execute(
             f"""
-            SELECT j.*, c.connection_name, c.protocol
+            SELECT j.*, c.connection_name, c.protocol,
+                   ec.connection_name AS source_connection_name
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
+            LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id
             WHERE j.batch_job_id = %s
             """,
             (batch_job_id,),
@@ -379,10 +391,10 @@ def get_batch_job(batch_job_id: int) -> Optional[dict]:
 
 
 def create_batch_job(
-    folder_connection_id: int,
+    folder_connection_id: Optional[int],
     storage_connection_id: Optional[int],
     job_name: str,
-    file_pattern: str,
+    file_pattern: str = "",
     *,
     file_extensions: str = "csv,xlsx,xls,parquet",
     target_table: str = "",
@@ -392,65 +404,134 @@ def create_batch_job(
     column_mapping: Optional[List[dict]] = None,
     index_definitions: Optional[List[dict]] = None,
     on_file_error: str = "stop",
+    job_type: str = "file",
+    connection_id: Optional[int] = None,
+    source_table: Optional[str] = None,
+    incremental_column: Optional[str] = None,
+    sync_mode: str = "incremental",
+    batch_size: Optional[int] = None,
+    batch_interval_seconds: Optional[int] = None,
+    on_row_error: str = "fail",
+    etl_table_id: Optional[int] = None,
 ) -> int:
     """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환.
-    동일 폴더·파일패턴·타겟테이블·저장DB 조합이 이미 있으면 ValueError."""
+    job_type='file': folder_connection_id 필수. job_type='db': connection_id 필수(etl_table_id 없을 때), folder_connection_id NULL.
+    중복: file는 (folder_connection_id, file_pattern, target_table, storage). db+etl_table_id 있으면 etl_table_id만, 없으면 (connection_id, source_table, target_table, storage)."""
     if not (10 <= interval_minutes <= 1440):
         raise ValueError("interval_minutes는 10~1440 사이여야 합니다.")
+    jtype = (job_type or "file").strip().lower()
+    if jtype not in ("file", "db"):
+        raise ValueError("job_type은 'file' 또는 'db'여야 합니다.")
+    if jtype == "file" and folder_connection_id is None:
+        raise ValueError("파일 배치에는 folder_connection_id가 필요합니다.")
+    if jtype == "db" and etl_table_id is None and connection_id is None:
+        raise ValueError("DB 배치에는 connection_id가 필요합니다.")
+
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
         target_table_trimmed = (target_table or "").strip()
-        file_pattern_trimmed = (file_pattern or "").strip()
-        if target_table_trimmed and file_pattern_trimmed:
-            cur.execute(
-                f"""
-                SELECT 1 FROM {_q(schema, "batch_jobs")}
-                WHERE folder_connection_id = %s AND file_pattern = %s AND target_table = %s
-                  AND (storage_connection_id IS NOT DISTINCT FROM %s)
-                LIMIT 1
-                """,
-                (folder_connection_id, file_pattern_trimmed, target_table_trimmed, storage_connection_id),
-            )
-            if cur.fetchone():
-                raise ValueError(
-                    "이미 동일한 폴더·파일 패턴·타겟 테이블·저장 DB로 등록된 배치 Job이 있습니다. "
-                    "기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
+        if not target_table_trimmed:
+            raise ValueError("target_table이 비어 있습니다.")
+
+        if jtype == "db":
+            if etl_table_id:
+                cur.execute(
+                    f"""
+                    SELECT 1 FROM {_q(schema, "batch_jobs")}
+                    WHERE job_type = 'db' AND etl_table_id = %s LIMIT 1
+                    """,
+                    (etl_table_id,),
                 )
-        # storage_connection_id=None 이면 기본 DB(config ibank_db) 사용. DB에는 NULL로 저장.
+                if cur.fetchone():
+                    raise ValueError("이 ETL 테이블에 이미 배치 Job이 등록되어 있습니다.")
+            else:
+                source_table_trimmed = (source_table or "").strip()
+                if not source_table_trimmed:
+                    raise ValueError("DB 배치에는 source_table이 필요합니다.")
+                cur.execute(
+                    f"""
+                    SELECT 1 FROM {_q(schema, "batch_jobs")}
+                    WHERE job_type = 'db' AND connection_id = %s AND source_table = %s
+                      AND target_table = %s AND (storage_connection_id IS NOT DISTINCT FROM %s)
+                    LIMIT 1
+                    """,
+                    (connection_id, source_table_trimmed, target_table_trimmed, storage_connection_id),
+                )
+                if cur.fetchone():
+                    raise ValueError(
+                        "이미 동일한 연결·소스 테이블·타겟 테이블·저장 DB로 등록된 DB 배치 Job이 있습니다. "
+                        "기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
+                    )
+        else:
+            file_pattern_trimmed = (file_pattern or "").strip()
+            if target_table_trimmed and file_pattern_trimmed:
+                cur.execute(
+                    f"""
+                    SELECT 1 FROM {_q(schema, "batch_jobs")}
+                    WHERE folder_connection_id = %s AND file_pattern = %s AND target_table = %s
+                      AND (storage_connection_id IS NOT DISTINCT FROM %s)
+                    LIMIT 1
+                    """,
+                    (folder_connection_id, file_pattern_trimmed, target_table_trimmed, storage_connection_id),
+                )
+                if cur.fetchone():
+                    raise ValueError(
+                        "이미 동일한 폴더·파일 패턴·타겟 테이블·저장 DB로 등록된 배치 Job이 있습니다. "
+                        "기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
+                    )
+
         on_file_error_val = (on_file_error or "stop").strip().lower()
         if on_file_error_val not in ("stop", "continue"):
             on_file_error_val = "stop"
+        on_row_error_val = (on_row_error or "fail").strip().lower()
+        if on_row_error_val not in ("fail", "skip"):
+            on_row_error_val = "fail"
+        sync_mode_val = (sync_mode or "incremental").strip().lower()
+        if sync_mode_val not in ("full", "incremental"):
+            sync_mode_val = "incremental"
+
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "batch_jobs")}
             (folder_connection_id, storage_connection_id, job_name, file_pattern, file_extensions,
-             target_table, pk_columns, timestamp_format, interval_minutes, is_active, column_mapping, index_definitions, on_file_error, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, %s::jsonb, %s, NOW(), NOW())
+             target_table, pk_columns, timestamp_format, interval_minutes, is_active, column_mapping, index_definitions, on_file_error,
+             job_type, connection_id, source_table, incremental_column, sync_mode, last_synced_at, batch_size, batch_interval_seconds, on_row_error, etl_table_id, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, NOW(), NOW())
             RETURNING batch_job_id
             """,
             (
-                folder_connection_id,
+                folder_connection_id if jtype == "file" else None,
                 storage_connection_id,
                 (job_name or "").strip(),
-                (file_pattern or "").strip(),
-                (file_extensions or "csv,xlsx,xls,parquet").strip(),
-                (target_table or "").strip(),
+                (file_pattern or "").strip() if jtype == "file" else None,
+                (file_extensions or "csv,xlsx,xls,parquet").strip() if jtype == "file" else "csv,xlsx,xls,parquet",
+                target_table_trimmed,
                 (pk_columns or "").strip() or None,
                 interval_minutes,
                 is_active,
                 json.dumps(column_mapping) if column_mapping is not None else None,
                 json.dumps(index_definitions) if index_definitions is not None else None,
                 on_file_error_val,
+                jtype,
+                connection_id if jtype == "db" else None,
+                (source_table or "").strip() or None if jtype == "db" else None,
+                (incremental_column or "").strip() or None if jtype == "db" else None,
+                sync_mode_val if jtype == "db" else None,
+                batch_size if jtype == "db" else None,
+                batch_interval_seconds if jtype == "db" else None,
+                on_row_error_val if jtype == "db" else None,
+                etl_table_id if jtype == "db" else None,
             ),
         )
         row = cur.fetchone()
         batch_job_id = row["batch_job_id"]
         conn.commit()
+        # etl_table_id 기반 배치는 타겟이 이미 etl_tables에 있으므로 레지스트리 중복 등록하지 않음. 목록은 ETL 테이블 1행만 표시.
         target_table = (target_table or "").strip()
-        if target_table:
+        if target_table and not etl_table_id:
             try:
                 upsert_batch_target_registry(target_table, storage_connection_id, batch_job_id)
             except Exception as e:
@@ -466,10 +547,12 @@ def create_batch_job(
 
 def update_batch_job(batch_job_id: int, **kwargs) -> None:
     """배치 Job 수정. updatable: job_name, file_pattern, file_extensions, target_table, pk_columns,
-    interval_minutes, is_active, storage_connection_id, column_mapping, index_definitions, on_file_error."""
+    interval_minutes, is_active, storage_connection_id, column_mapping, index_definitions, on_file_error,
+    connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error."""
     allowed = {
         "job_name", "file_pattern", "file_extensions", "target_table", "pk_columns",
         "interval_minutes", "is_active", "storage_connection_id", "column_mapping", "index_definitions", "on_file_error",
+        "connection_id", "source_table", "incremental_column", "sync_mode", "batch_size", "batch_interval_seconds", "on_row_error",
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
@@ -481,6 +564,16 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
         if ofe not in ("stop", "continue"):
             raise ValueError("on_file_error는 'stop' 또는 'continue'여야 합니다.")
         updates["on_file_error"] = ofe
+    if "on_row_error" in updates and updates["on_row_error"] is not None:
+        ore = (updates["on_row_error"] or "").strip().lower()
+        if ore not in ("fail", "skip"):
+            raise ValueError("on_row_error는 'fail' 또는 'skip'여야 합니다.")
+        updates["on_row_error"] = ore
+    if "sync_mode" in updates and updates["sync_mode"] is not None:
+        sm = (updates["sync_mode"] or "").strip().lower()
+        if sm not in ("full", "incremental"):
+            raise ValueError("sync_mode는 'full' 또는 'incremental'여야 합니다.")
+        updates["sync_mode"] = sm
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -589,13 +682,14 @@ def list_batch_target_registry() -> List[dict]:
     cur = conn.cursor()
     try:
         cur.execute(
-            f"SELECT target_table, storage_connection_id, batch_job_id FROM {_q(schema, 'batch_jobs')}"
+            f"SELECT target_table, storage_connection_id, batch_job_id, etl_table_id FROM {_q(schema, 'batch_jobs')}"
         )
         for row in cur.fetchall():
             tt = (row.get("target_table") if hasattr(row, "get") else row[0]) or ""
             sid = row.get("storage_connection_id") if hasattr(row, "get") else row[1]
             jid = row.get("batch_job_id") if hasattr(row, "get") else row[2]
-            if (tt or "").strip() and jid is not None:
+            etl_tid = row.get("etl_table_id") if hasattr(row, "get") else (row[3] if len(row) > 3 else None)
+            if (tt or "").strip() and jid is not None and etl_tid is None:
                 try:
                     upsert_batch_target_registry(tt.strip(), sid, int(jid))
                 except Exception as e:
@@ -610,6 +704,7 @@ def list_batch_target_registry() -> List[dict]:
             LEFT JOIN {_q(schema, "batch_jobs")} j ON r.batch_job_id = j.batch_job_id
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
             LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON r.storage_connection_id = sc.storage_connection_id AND sc.is_active = TRUE
+            WHERE j.etl_table_id IS NULL
             ORDER BY r.updated_at DESC
             """
         )
@@ -968,6 +1063,32 @@ def update_last_processed_ts(batch_job_id: int, ts: Optional[str], conn: Any = N
             WHERE batch_job_id = %s
             """,
             (ts, batch_job_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        if should_close:
+            conn.close()
+
+
+def update_last_synced_at_db_batch(batch_job_id: int, synced_at: Any, conn: Any = None) -> None:
+    """DB 배치: batch_jobs.last_synced_at 갱신. synced_at은 datetime 또는 pd.Timestamp. conn 전달 시 호출부가 커넥션 관리."""
+    schema = _schema()
+    should_close = conn is None
+    if conn is None:
+        conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            UPDATE {_q(schema, "batch_jobs")}
+            SET last_synced_at = %s, updated_at = NOW()
+            WHERE batch_job_id = %s
+            """,
+            (synced_at, batch_job_id),
         )
         conn.commit()
     except Exception:

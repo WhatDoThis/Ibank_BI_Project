@@ -16,6 +16,7 @@
  * - onSuccess: () => void — 목록 갱신 후 콜백 (refresh 트리거)
  * - refreshKey: number — 변경 시 재조회
  * - onOpenHistory: (batchJobId: number) => void — 선택 시 이력 패널/모달 열기 (optional)
+ * - embedded: boolean — true면 섹션·h3 제목 없이 툴바·테이블만 렌더 (전역 "등록된 배치 Job 목록" 안에서 사용 시)
  *
  * [Dependencies]
  * =========
@@ -29,18 +30,22 @@ import {
   batchToggleJob,
   batchRunJobNow,
   batchDeleteJob,
-  batchUpdateJob
+  batchUpdateJob,
+  batchGetJobDbPreview,
 } from '@/shared/api/client';
 import SkippedFilesPanelFile from './SkippedFilesPanelFile';
 import '../etl.css';
 
-function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
+function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFilter = null, embedded = false }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [skippedJobId, setSkippedJobId] = useState(null);
   const [editIntervalJob, setEditIntervalJob] = useState(null);
+  const [dbPreviewJobId, setDbPreviewJobId] = useState(null);
+  const [dbPreviewData, setDbPreviewData] = useState(null);
+  const [dbPreviewLoading, setDbPreviewLoading] = useState(false);
 
   const INTERVAL_MIN = 10;
   const INTERVAL_MAX = 1440;
@@ -49,7 +54,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     setLoading(true);
     setError('');
     try {
-      const res = await batchListJobs();
+      const res = await batchListJobs(undefined, undefined, jobTypeFilter ?? undefined);
       const jobs = Array.isArray(res) ? res : (res?.jobs ?? []);
       setList(jobs);
     } catch (err) {
@@ -58,7 +63,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [jobTypeFilter]);
 
   useEffect(() => {
     loadList();
@@ -125,6 +130,20 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     return next.toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
   }
 
+  async function handleDbPreview(id) {
+    setDbPreviewJobId(id);
+    setDbPreviewData(null);
+    setDbPreviewLoading(true);
+    try {
+      const data = await batchGetJobDbPreview(id);
+      setDbPreviewData(data);
+    } catch (err) {
+      setDbPreviewData({ error: true, message: err?.message || '미리보기 조회 실패' });
+    } finally {
+      setDbPreviewLoading(false);
+    }
+  }
+
   async function handleDelete(row) {
     const name = row.job_name || row.batch_job_id;
     if (!window.confirm(`"${name}" 배치 Job을 삭제하시겠습니까?`)) return;
@@ -185,40 +204,46 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
     </button>
   );
 
+  const Wrap = embedded ? 'div' : 'section';
+  const sectionClass = embedded ? 'etl-batch-job-list__section' : 'etl-db-form__section etl-batch-job-list__section';
+
   if (loading && list.length === 0 && !error) {
     return (
-      <div className="etl-batch-job-list__section">
+      <Wrap className={sectionClass}>
+        {!embedded && <h3 className="etl-db-form__heading">배치 Job 목록</h3>}
         <div className="etl-batch-job-list__toolbar">{refreshBtn}</div>
         <p className="etl-db-form__muted">배치 Job 목록 로딩 중…</p>
-      </div>
+      </Wrap>
     );
   }
 
   if (list.length === 0) {
     return (
-      <div className="etl-batch-job-list__section">
+      <Wrap className={sectionClass}>
+        {!embedded && <h3 className="etl-db-form__heading">배치 Job 목록</h3>}
         <div className="etl-batch-job-list__toolbar">{refreshBtn}</div>
         {error ? (
           <p className="etl-db-form__error" role="alert">{error}</p>
         ) : (
           <p className="etl-db-form__muted">등록된 배치 Job이 없습니다. 위에서 Job을 등록하세요.</p>
         )}
-      </div>
+      </Wrap>
     );
   }
 
   return (
-    <section className="etl-db-form__section etl-batch-job-list__section">
-      <h3 className="etl-db-form__heading">배치 Job 목록</h3>
+    <Wrap className={sectionClass}>
+      {!embedded && <h3 className="etl-db-form__heading">배치 Job 목록</h3>}
       <div className="etl-batch-job-list__toolbar">{refreshBtn}</div>
       {error && <p className="etl-db-form__error" role="alert">{error}</p>}
       <div className="etl-db-form__table-wrap">
         <table className="etl-db-form__table etl-db-form__table--compact etl-batch-job-list__table">
           <thead>
             <tr>
+              <th>유형</th>
               <th>Job 이름</th>
-              <th>폴더</th>
-              <th>파일 패턴</th>
+              <th>{jobTypeFilter === 'db' ? '소스 연결' : jobTypeFilter === 'file' ? '폴더' : '소스/폴더'}</th>
+              <th>{jobTypeFilter === 'db' ? '소스 테이블' : jobTypeFilter === 'file' ? '파일 패턴' : '소스/패턴'}</th>
               <th>저장 DB</th>
               <th>주기(분)</th>
               <th>상태</th>
@@ -232,15 +257,25 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
             {list.map((row) => {
               const id = row.batch_job_id;
               const busy = actionLoadingId === id;
-              const folderName = row.connection_name ?? row.folder_connection_name ?? '-';
+              const jtype = (row.job_type || 'file').toLowerCase();
+              const folderName = jtype === 'db' ? (row.source_connection_name ?? '-') : (row.connection_name ?? row.folder_connection_name ?? '-');
+              const patternCell = jtype === 'db' ? (row.source_table ?? '-') : (row.file_pattern ?? '-');
               const storageName = row.storage_connection_name ?? (row.storage_connection_id ? `#${row.storage_connection_id}` : '기본');
               const lastStatus = row.last_run_status ?? 'idle';
               const lastRunAt = row.last_run_at;
               const nextRun = formatNextRun(lastRunAt, row.interval_minutes);
               const displayLastRunAt = lastRunAt != null && lastRunAt !== '' ? (typeof lastRunAt === 'string' && lastRunAt.length > 10 ? new Date(lastRunAt).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : lastRunAt) : '-';
-              const noPk = !row.pk_columns?.trim();
+              // DB 배치 중 etl_table_id 있으면 PK는 ETL 테이블/실행 시 자동 조회(_fetch_source_pk)이므로 경고 제외
+              const noPk = jtype === 'db'
+                ? !row.etl_table_id && !row.pk_columns?.trim()
+                : !row.pk_columns?.trim();
               return (
                 <tr key={id}>
+                  <td>
+                    <span className={jtype === 'db' ? 'etl-db-form__status-badge etl-db-form__status--idle' : 'etl-db-form__status-badge'} title={jtype === 'db' ? 'DB 소스 배치' : '파일 배치'}>
+                      {jtype === 'db' ? 'DB' : '파일'}
+                    </span>
+                  </td>
                   <td>
                     <span>
                       {row.job_name ?? '-'}
@@ -248,7 +283,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
                     </span>
                   </td>
                   <td>{folderName}</td>
-                  <td>{row.file_pattern ?? '-'}</td>
+                  <td>{patternCell}</td>
                   <td>{storageName}</td>
                   <td>{row.interval_minutes ?? '-'}</td>
                   <td>{row.is_active ? '활성' : '비활성'}</td>
@@ -292,14 +327,26 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
                           이력
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
-                        onClick={() => setSkippedJobId(id)}
-                        title="스킵/에러 파일 조회·삭제"
-                      >
-                        문제 파일
-                      </button>
+                      {jtype === 'db' && (
+                        <button
+                          type="button"
+                          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
+                          onClick={() => handleDbPreview(id)}
+                          title="소스 테이블 10행 미리보기"
+                        >
+                          미리보기
+                        </button>
+                      )}
+                      {jtype !== 'db' && (
+                        <button
+                          type="button"
+                          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
+                          onClick={() => setSkippedJobId(id)}
+                          title="스킵/에러 파일 조회·삭제"
+                        >
+                          문제 파일
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="etl-db-form__btn etl-db-form__btn--danger etl-db-form__btn--sm"
@@ -321,6 +368,44 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
           batchJobId={skippedJobId}
           onClose={() => setSkippedJobId(null)}
         />
+      )}
+      {dbPreviewJobId != null && (
+        <div className="etl-add-file-modal" role="dialog" aria-modal="true" aria-labelledby="etl-db-preview-title">
+          <div className="etl-add-file-modal__backdrop" onClick={() => { setDbPreviewJobId(null); setDbPreviewData(null); }} />
+          <div className="etl-add-file-modal__box" style={{ maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto' }}>
+            <div className="etl-add-file-modal__head">
+              <h3 id="etl-db-preview-title">소스 테이블 미리보기</h3>
+              <button type="button" className="etl-add-file-modal__close" onClick={() => { setDbPreviewJobId(null); setDbPreviewData(null); }} aria-label="닫기">×</button>
+            </div>
+            <div className="etl-add-file-modal__body">
+              {dbPreviewLoading && <p>로딩 중…</p>}
+              {!dbPreviewLoading && dbPreviewData?.error && <p className="etl-db-form__message etl-db-form__message--warning">{dbPreviewData.message}</p>}
+              {!dbPreviewLoading && dbPreviewData && !dbPreviewData.error && (
+                <div>
+                  {dbPreviewData.preview_columns?.length > 0 && (
+                    <table className="etl-db-form__table etl-db-form__table--compact" style={{ marginTop: 8 }}>
+                      <thead>
+                        <tr>
+                          {dbPreviewData.preview_columns.map((c) => <th key={c}>{c}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(dbPreviewData.preview_rows || []).slice(0, 10).map((row, i) => (
+                          <tr key={i}>
+                            {(dbPreviewData.preview_columns || []).map((col, j) => (
+                              <td key={col}>{Array.isArray(row) ? (row[j] != null ? String(row[j]) : '') : (row[col] != null ? String(row[col]) : '')}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {!(dbPreviewData.preview_columns?.length > 0) && <p className="etl-db-form__muted">데이터 없음</p>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
       {editIntervalJob != null && (
         <div className="etl-pk-modal" role="dialog" aria-modal="true" aria-labelledby="etl-interval-modal-title">
@@ -356,7 +441,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory }) {
           </div>
         </div>
       )}
-    </section>
+    </Wrap>
   );
 }
 

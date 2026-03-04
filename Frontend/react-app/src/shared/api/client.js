@@ -653,18 +653,29 @@ export async function etl2DeleteBatchTargetRegistry(registryId) {
   return request('DELETE', `/api/etl2/batch/target-registry/${encodeURIComponent(registryId)}`);
 }
 
-/** GET /api/etl2/batch/jobs - 배치 Job 목록. folderConnectionId, isActive 쿼리 선택 */
-export async function batchListJobs(folderConnectionId = null, isActive = null) {
+/** GET /api/etl2/batch/jobs - 배치 Job 목록. folderConnectionId, isActive, jobType 쿼리 선택 */
+export async function batchListJobs(folderConnectionId = null, isActive = null, jobType = null) {
   const params = new URLSearchParams();
   if (folderConnectionId != null) params.set('folder_connection_id', String(folderConnectionId));
   if (isActive != null) params.set('is_active', isActive === true ? 'true' : 'false');
+  if (jobType != null && String(jobType).trim()) params.set('job_type', String(jobType).trim());
   const qs = params.toString();
   return request('GET', `/api/etl2/batch/jobs${qs ? '?' + qs : ''}`);
+}
+
+/** GET /api/etl2/batch/jobs/:id/db-preview - DB 배치 Job 소스 테이블 10행 미리보기 */
+export async function batchGetJobDbPreview(batchJobId) {
+  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/db-preview`);
 }
 
 /** POST /api/etl2/batch/jobs - 배치 Job 등록 */
 export async function batchCreateJob(body) {
   return request('POST', '/api/etl2/batch/jobs', body);
+}
+
+/** POST /api/etl2/batch/jobs/from-etl-table - ETL 테이블 기반 DB 배치 등록 */
+export async function batchCreateJobFromEtlTable(body) {
+  return request('POST', '/api/etl2/batch/jobs/from-etl-table', body);
 }
 
 /** PATCH /api/etl2/batch/jobs/:id - 배치 Job 수정 */

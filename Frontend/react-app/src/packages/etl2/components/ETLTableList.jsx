@@ -16,8 +16,9 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow } from '@/shared/api/client';
+import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs } from '@/shared/api/client';
 import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
+import BatchScheduleModal from './BatchScheduleModal.jsx';
 
 function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistory, refreshing, runLoading, queueStatusTrigger }) {
   const [tables, setTables] = useState([]);
@@ -27,6 +28,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
   const [queueStatus, setQueueStatus] = useState({});
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsModalTable, setSettingsModalTable] = useState(null);
+  const [batchScheduleTarget, setBatchScheduleTarget] = useState(null);
+  const [dbBatchJobs, setDbBatchJobs] = useState([]);
   const [batchRunLoadingId, setBatchRunLoadingId] = useState(null);
   const pollRef = useRef(null);
 
@@ -52,16 +55,19 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
     setLoading(true);
     setError('');
     try {
-      const [tablesRes, registryRes] = await Promise.all([
+      const [tablesRes, registryRes, batchRes] = await Promise.all([
         etl2ListTables(),
         etl2ListBatchTargetRegistry(),
+        batchListJobs(undefined, undefined, 'db'),
       ]);
       setTables(tablesRes.tables || []);
       setBatchTargets(registryRes.targets || []);
+      setDbBatchJobs(batchRes?.jobs || []);
     } catch (err) {
       setError(err.message || '목록 조회 실패');
       setTables([]);
       setBatchTargets([]);
+      setDbBatchJobs([]);
     } finally {
       setLoading(false);
     }
@@ -111,6 +117,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
     });
     return m;
   }, [tables]);
+
+  const batchJobByEtlTable = useMemo(() => {
+    const m = {};
+    (dbBatchJobs || []).forEach((j) => {
+      if (j.etl_table_id != null) m[j.etl_table_id] = j;
+    });
+    return m;
+  }, [dbBatchJobs]);
 
   const refreshBtn = (
     <button
@@ -237,15 +251,18 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               rowPending && 'etl-table-list__row--pending'
             ].filter(Boolean).join(' ');
             const isDbSource = (t.source_type || '').toLowerCase() === 'postgresql' || (t.source_type || '').toLowerCase() === 'mysql' || (t.source_type || '').toLowerCase() === 'oracle';
+            const linkedBatch = batchJobByEtlTable[t.etl_table_id];
             const batchSize = t.batch_size != null && t.batch_size > 0 ? Number(t.batch_size) : 0;
             const batchInterval = t.batch_interval_seconds != null && t.batch_interval_seconds > 0 ? Number(t.batch_interval_seconds) : 0;
-            const batchText = !isDbSource ? '—' : batchSize > 0 && batchInterval > 0
-              ? `${batchSize.toLocaleString()}행 / ${batchInterval}초`
-              : batchSize > 0
-                ? `${batchSize.toLocaleString()}행`
-                : batchInterval > 0
-                  ? `1만 행(기본) / ${batchInterval}초`
-                  : '1만 행(기본)';
+            const batchText = !isDbSource ? '—' : linkedBatch
+              ? `${linkedBatch.interval_minutes ?? '—'}분 ${linkedBatch.is_active ? '●' : '○'}`
+              : batchSize > 0 && batchInterval > 0
+                ? `${batchSize.toLocaleString()}행 / ${batchInterval}초`
+                : batchSize > 0
+                  ? `${batchSize.toLocaleString()}행`
+                  : batchInterval > 0
+                    ? `1만 행(기본) / ${batchInterval}초`
+                    : '미설정';
             const connectionText = isDbSource ? (t.connection_name || '—') : '—';
             const syncMode = (t.sync_mode || '').toLowerCase();
             const syncText = !isDbSource ? '—' : syncMode === 'incremental' ? '증분' : '전체';
@@ -310,6 +327,17 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                           title="동기화 모드, 증분 컬럼, 배치, 행 실패 시 동작 수정"
                         >
                           설정
+                        </button>
+                      )}
+                      {isDbSource && (
+                        <button
+                          type="button"
+                          className="etl-table-list__batch-schedule"
+                          onClick={() => setBatchScheduleTarget(t)}
+                          disabled={runDisabled || statusLower !== 'done'}
+                          title={statusLower !== 'done' ? '먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다.' : '주기 자동 실행 설정'}
+                        >
+                          배치설정
                         </button>
                       )}
                     </>
@@ -424,6 +452,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
           onClose={() => setSettingsModalTable(null)}
           table={settingsModalTable}
           onSuccess={() => load()}
+        />
+      )}
+      {batchScheduleTarget && (
+        <BatchScheduleModal
+          open={!!batchScheduleTarget}
+          onClose={() => setBatchScheduleTarget(null)}
+          etlTable={batchScheduleTarget}
+          onSuccess={() => { load(); setBatchScheduleTarget(null); }}
         />
       )}
     </div>

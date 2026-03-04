@@ -292,8 +292,9 @@ function ETLPage() {
   const howToDb = (
     <ul className="etl-page__how-list">
       <li><strong>1.</strong> &quot;연결 추가&quot;에서 외부 DB 정보를 입력하고 <strong>연결 테스트</strong> 후 &quot;연결 등록&quot;을 누르세요.</li>
-      <li><strong>2.</strong> &quot;등록된 연결&quot;에서 연결을 고른 뒤, 소스 테이블과 타겟 테이블명을 입력하고 &quot;ETL 테이블 등록&quot;을 누르세요.</li>
-      <li><strong>3.</strong> 아래 목록에서 <strong>실행</strong>을 누르면 해당 테이블이 우리 DB로 적재됩니다.</li>
+      <li><strong>2.</strong> &quot;등록된 연결&quot;에서 연결을 고른 뒤, 소스 테이블과 타겟 테이블을 입력하고 &quot;ETL 테이블 등록&quot;을 누르세요.</li>
+      <li><strong>3.</strong> 아래 목록에서 <strong>실행</strong>을 누르면 수동 1회 적재됩니다.</li>
+      <li><strong>4.</strong> 주기적 자동 적재가 필요하면 목록에서 <strong>배치설정</strong>을 눌러 스케줄을 등록하세요.</li>
     </ul>
   );
   const howToFolder = (
@@ -367,16 +368,9 @@ function ETLPage() {
               <FolderConnectionFormFile onSuccess={handleRefresh} refreshKey={refreshKey} />
               <FolderConnectionListFile onSuccess={handleRefresh} refreshKey={refreshKey} />
               <section className="etl-db-form__section etl-db-form__section--batch-job" style={{ marginTop: '40px' }}>
-                <h3 className="etl-db-form__heading">배치 Job</h3>
+                <h3 className="etl-db-form__heading">배치 Job 등록 (파일)</h3>
+                <p className="etl-db-form__muted">폴더 배치를 새로 등록합니다. 등록된 목록은 아래 &quot;등록된 배치 Job 목록&quot;에서 확인하세요.</p>
                 <BatchJobFormFile onSuccess={handleRefresh} refreshKey={refreshKey} />
-                <BatchJobListFile
-                  onSuccess={handleRefresh}
-                  refreshKey={refreshKey}
-                  onOpenHistory={(id) => {
-                    setBatchHistoryJobId(id);
-                    setBatchHistoryRunId(null);
-                  }}
-                />
               </section>
             </>
           )}
@@ -406,6 +400,22 @@ function ETLPage() {
             refreshing={refreshKey}
             runLoading={runLoading}
             queueStatusTrigger={Object.values(jobResults).map((r) => `${r?.job_id}:${r?.status}`).join(',')}
+          />
+        </section>
+
+        <section className="etl-page__section">
+          <h2 className="etl-page__section-title">등록된 배치 Job 목록</h2>
+          <p className="etl-page__section-desc">
+            파일 배치·DB 배치를 한 목록에서 확인할 수 있습니다. 즉시 실행·이력·주기 수정·비활성/삭제가 가능합니다.
+          </p>
+          <BatchJobListFile
+            embedded
+            onSuccess={handleRefresh}
+            refreshKey={refreshKey}
+            onOpenHistory={(id) => {
+              setBatchHistoryJobId(id);
+              setBatchHistoryRunId(null);
+            }}
           />
         </section>
 

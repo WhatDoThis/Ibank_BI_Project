@@ -1,3 +1,137 @@
+## 2026-03-04 DB 배치 적재 시 duplicate key (sample_accdb_p_pkey) 수정
+
+**원인:** `load_dataframe`에서 테이블이 없을 때 CREATE 후 항상 `_batch_insert`만 사용. 소스에 동일 PK가 있거나 배치 내 중복이 있으면 `UniqueViolation: duplicate key value violates unique constraint` 발생.
+
+**조치:** `Backend/etl_server2/load_service_file.py` — 테이블 생성 직후에도 PK가 있고 `df_work`에 PK 컬럼이 모두 있으면 `_batch_upsert`로 적재하도록 변경. (동일 배치/소스 내 PK 중복은 ON CONFLICT DO UPDATE로 갱신 처리.)
+
+**추가(근본 원인):** 배치잡/ETL 테이블에 `pk_columns`가 저장되지 않으면 `pk_columns_str`이 None으로 넘어가 `load_dataframe` 내부 `pk_list`가 빈 리스트가 되어 여전히 `_batch_insert`만 타는 문제.  
+**조치:** `Backend/etl_server2/batch_executor_db.py` — `_fetch_source_pk(conn, stype, schema, table_name)` 헬퍼 추가(postgresql/mysql/oracle에서 PK 컬럼 목록 조회). `pk_columns_str`이 비어 있을 때 소스 연결 후·chunk 루프 전에 소스 DB에서 PK 자동 조회해 사용. 배치 등록 시 PK를 넣지 않아도 실행 시점에 자동 감지되어 upsert 정상 동작.
+
+---
+
+## 2026-03-04 ETL 테이블 status=done 기준 배치설정 흐름
+
+**목적:** ETL 등록 → 수동 실행으로 검증 → 배치 설정 시 마지막 적재 시점 이후부터 증분. 사용자 흐름 정리 및 서버 검증 추가.
+
+**플로우:** ETL 등록(status=draft) → 배치설정 버튼 비활성 → 실행 후 적재 완료(status=done) → 배치설정 활성화 → 배치 등록 시 `etl_tables.last_synced_at`을 `batch_jobs.last_synced_at` 초기값으로 세팅.
+
+**변경 사항**
+- **Backend/etl_server2/router_file.py**  
+  - POST `/jobs/from-etl-table`: `etl_table.status`가 `done`이 아니면 400 응답. "ETL 테이블이 아직 실행되지 않았습니다. 먼저 실행하여 적재를 확인한 뒤 배치를 설정해 주세요."  
+  - 배치 등록 직후 `etl_table.last_synced_at`이 있으면 `update_last_synced_at_db_batch(batch_job_id, initial_synced_at)` 호출로 증분 기준점 세팅.
+- **Frontend/.../ETLTableList.jsx**  
+  - DB 소스 행의 "배치설정" 버튼: `disabled={runDisabled || statusLower !== 'done'}`, 비활성 시 툴팁 "먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다.", 활성 시 "주기 자동 실행 설정".
+
+---
+
+## 2026-03-03 DB 배치 스케줄링 업그레이드 (10_DB_Batch_Scheduling_Upgrade) 구현
+
+**목적:** docs/report/10_DB_Batch_Scheduling_Upgrade.md 계획에 따라 DB 연결 기반 배치 Job 주기 실행 기능 구현. (DB 스키마는 사용자가 별도 반영 완료 가정.)
+
+**Phase 1 — batch_executor_db.py**
+- 신규 파일: `Backend/etl_server2/batch_executor_db.py`. `run_db_batch_job(batch_job_id)`로 job_type='db' 배치 실행. 소스 연결(PostgreSQL/MySQL/Oracle), 증분·전체 SELECT, batch_size 단위 fetch → DataFrame → column_mapping → load_dataframe → batch_interval_seconds sleep 반복. last_synced_at 갱신, finish_run, update_job_status. MySQL batch_size 상한 10000, check_consecutive_failures는 finally 밖에서 호출.
+
+**Phase 2 — scheduler_file.py**
+- `add_job`: job_type='db'이면 `batch_executor_db.run_db_batch_job`, 아니면 `batch_executor_file.run_batch_job` 사용.
+- `run_now`: 동일하게 job_type에 따라 실행 함수 분기.
+
+**Phase 3 — service_file.py**
+- `list_batch_jobs`: job_type 쿼리 파라미터 추가, 새 컬럼(job_type, connection_id, source_table 등) SELECT, etl_connections LEFT JOIN으로 source_connection_name.
+- `get_batch_job`: source_connection_name(etl_connections JOIN) 추가.
+- `create_batch_job`: job_type(file|db), connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error 추가. file은 folder_connection_id·file_pattern 필수·중복 검사 기존 로직; db는 connection_id·source_table 필수·(connection_id, source_table, target_table, storage) 중복 검사.
+- `update_batch_job`: connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error allowed 및 검증 추가.
+- `update_last_synced_at_db_batch`: 신규. batch_jobs.last_synced_at 갱신(conn 선택).
+
+**Phase 4 — router_file.py**
+- CreateBatchJobBody/UpdateBatchJobBody: job_type, connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error 추가. Create 시 folder_connection_id·file_pattern Optional.
+- POST /jobs: job_type 검증, db 시 connection_id·source_table 필수 검사, create_batch_job에 새 인자 전달.
+- GET /jobs: job_type 쿼리 파라미터 추가.
+- GET /jobs/{batch_job_id}/db-preview: DB 배치 소스 10행 미리보기(preview_service._preview_db).
+- PATCH /jobs/{id}: 새 필드 반영. clone_batch_job: job_type·connection_id·source_table 등 DB 배치 필드 복사.
+
+**Phase 5 — 프론트엔드**
+- client.js: batchListJobs에 jobType 인자 추가, batchGetJobDbPreview(batchJobId) 추가.
+- BatchJobFormDb.jsx 신규: DB 연결·소스 테이블·저장 DB·타겟 테이블·주기·배치 크기/간격·증분 컬럼·sync_mode·on_row_error 등 입력, job_type='db'로 batchCreateJob 호출.
+- BatchJobListFile.jsx: jobTypeFilter prop 추가, batchListJobs(undefined, undefined, jobTypeFilter) 호출. 유형(파일/DB) 컬럼, 소스 연결/소스 테이블 열 표시. DB 배치 행에 "미리보기" 버튼 및 미리보기 모달(preview_columns/preview_rows).
+- ETLPage.jsx: db 탭에서 DbConnectionForm 아래 "배치 Job (DB 소스)" 섹션에 BatchJobFormDb, BatchJobListFile(jobTypeFilter="db") 배치. howToDb에 4번 항목 추가.
+
+**변경·추가 파일:** Backend/etl_server2/batch_executor_db.py(신규), scheduler_file.py, service_file.py, router_file.py, Frontend/.../client.js, BatchJobFormDb.jsx(신규), BatchJobListFile.jsx, ETLPage.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-04 ETL 테이블 기반 배치 통합 (DB 탭 단일 출처)
+
+**목적:** etl_tables를 소스→타겟 정의의 단일 출처로 두고, 배치잡은 "어떤 ETL 테이블을 얼마나 자주 돌릴지"만 저장. DB 탭에서 BatchJobFormDb·BatchJobListFile(db) 제거, 등록된 ETL 목록의 "배치설정" 버튼으로 통합.
+
+**DB (사용자 직접 반영):** `batch_jobs.etl_table_id` INTEGER NULL FK, `batch_jobs.on_file_error` 등 필요 시 ALTER TABLE로 추가.
+
+**백엔드**
+- service_file.py: `create_batch_job`에 `etl_table_id` 인자 추가. db+etl_table_id 있으면 etl_table_id로 중복 검사, INSERT에 etl_table_id 포함. `list_batch_jobs` SELECT에 `j.etl_table_id` 추가.
+- router_file.py: `CreateBatchJobFromEtlTableBody`, POST `/jobs/from-etl-table` 추가. get_etl_table로 조회 후 create_batch_job(etl_table_id, connection_id/source_table/target_table/storage 스냅샷, job_name/interval_minutes/batch_size 등).
+- batch_executor_db.py: `job.etl_table_id` 있으면 get_etl_table에서 connection_id·source_table·target_table·column_mapping·incremental_column·sync_mode·pk_columns·index_definitions 조회; 없으면 기존대로 job에서 읽기. 배치 전용 설정(batch_size, batch_interval_seconds, on_row_error, last_synced_at)은 항상 job에서.
+
+**프론트엔드**
+- client.js: `batchCreateJobFromEtlTable(body)` 추가.
+- BatchScheduleModal.jsx 신규: ETL 테이블 기반 배치 등록/수정/토글/삭제/즉시실행. 배치 없으면 등록 폼, 있으면 현재 설정 표시+액션.
+- ETLTableList.jsx: load 시 `batchListJobs(undefined, undefined, 'db')` 병렬 조회, `batchJobByEtlTable` 매핑. DB 소스 행에 "배치설정" 버튼, 배치 컬럼에 연결된 배치 시 "N분 ●/○" 또는 "미설정" 표시. BatchScheduleModal 연동.
+- ETLPage.jsx: DB 탭에서 BatchJobFormDb·BatchJobListFile(db) 섹션 제거. howToDb 4번을 "배치설정을 눌러 스케줄 등록"으로 수정.
+- etl.css: `.etl-table-list__batch-schedule` 스타일 추가.
+
+**변경·추가 파일:** service_file.py, router_file.py, batch_executor_db.py, client.js, BatchScheduleModal.jsx(신규), ETLTableList.jsx, ETLPage.jsx, etl.css, log.md.
+
+---
+
+## 2026-03-04 DB 배치 스케줄링 코드 검증 (8건 이슈 확인)
+
+**목적:** log.md·10_DB_Batch_Scheduling_Upgrade.md 기반으로 DB 연결+배치잡 시스템 코드 전반 검증. 제기된 8건 이슈가 현재 코드에서 반영·특이사항 없는지 확인.
+
+**검증 결과 요약**
+
+| # | 항목 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | check_consecutive_failures 조건 제거 + 에러 이력 순서 | ✅ 반영됨 | create_batch_run 최상단 선행, finally 밖에서 run_id 무관 호출 |
+| 2 | except에서 sys_conn.rollback() 선행 | ✅ 반영됨 | except 블록 최상단에서 sys_conn.rollback() 후 finish_run·update_job_status |
+| 3 | full 모드 DROP → TRUNCATE | ✅ 반영됨 | table_exists 확인 후 TRUNCATE만 수행, 구조 보존 |
+| 4 | Oracle bind :1 검증 | ✅ 일치 | db_load_service와 동일 :1 positional bind 사용, 별도 수정 불필요 |
+| 5 | DB 배치 source_filename=None | ✅ 반영됨 | load_dataframe(..., source_filename=None)으로 _record_loaded_keys 스킵 |
+| 6 | 프론트 파일 전용 버튼 분기 | ✅ 반영됨 | "문제 파일"은 jtype !== 'db'일 때만, "미리보기"는 jtype === 'db'일 때만 노출 |
+| 7 | cancel 체크 + sleep 분할 | ✅ 반영됨 | 루프 상단 is_run_cancel_requested, sleep은 1초 단위 반복+취소 확인 |
+| 8 | list_batch_jobs storage JOIN is_active | ✅ 의도 유지 | storage JOIN에 is_active 조건 없음 → 비활성 저장 DB도 이름 표시, 혼란 방지 |
+
+**대상 파일 확인:** batch_executor_db.py, service_file.py, BatchJobListFile.jsx, db_load_service.py(Oracle :1). 추가 수정 없음.
+
+---
+
+## 2026-03-03 DB 배치 스케줄링 리뷰 반영 (1~3, 5, 7, 8번)
+
+**목적:** 10_DB_Batch_Scheduling_Upgrade 구현에 대한 코드 리뷰 8건 중 추가 조치 필요 항목 반영.
+
+**1. check_consecutive_failures + 에러 이력 순서 (높음)**
+- `check_consecutive_failures` 호출에서 `if run_id is not None` 조건 제거 → **항상** 호출. create_batch_run 전 예외에서도 연속 실패 카운트로 자동 비활성화 가능.
+- **create_batch_run**을 try 최상단으로 이동: `sys_conn` 획득 → `create_batch_run` → `update_job_status("running")` → target_conn·full 모드 TRUNCATE → 소스 연결·SELECT·루프. 소스 연결 실패 등에서도 실행 이력이 남고 `finish_run("error")`로 정리됨.
+
+**2. sys_conn 재사용 시 rollback 선행 (높음)**
+- except 블록 맨 앞에서 `if sys_conn: sys_conn.rollback()` 호출 후 `finish_run`·`update_job_status` 호출. PostgreSQL 등에서 트랜잭션 aborted 상태 전파 방지.
+
+**3. full 모드 DROP → TRUNCATE (높음)**
+- `sync_mode == "full"`일 때 `DROP TABLE IF EXISTS` 제거. **테이블이 존재할 때만** `load_service_file.table_exists` 확인 후 `TRUNCATE TABLE` 수행. 테이블 구조 유지, 적재 실패 시 다음 주기 재시도 가능.
+
+**5. DB 배치 source_filename=None (중간)**
+- `load_dataframe` 호출 시 `source_filename=None`으로 고정. DB 배치는 파일 단위 롤백 미지원이므로 `batch_loaded_keys` 기록 스킵, 테이블 비대화 방지.
+
+**7. 취소 체크 + sleep 분할 (낮음)**
+- chunk 루프 진입 시 `is_run_cancel_requested(run_id, conn=sys_conn)` 체크 후 break.
+- `batch_interval_seconds` 대기를 `time.sleep(batch_interval_seconds)` 대신 1초 단위 루프로 변경하고, 매 초 `is_run_cancel_requested` 확인해 취소 시 즉시 break.
+
+**8. list_batch_jobs storage JOIN (낮음)**
+- `etl_storage_connections` LEFT JOIN 조건에서 `AND sc.is_active = TRUE` 제거. 비활성 저장 DB에 연결된 Job도 목록에서 저장 DB명이 표시되도록 함.
+
+**4. Oracle bind :1** — db_load_service와 동일 패턴임을 주석으로 명시. **6. 프론트 파일 전용 버튼** — BatchJobListFile에서 "문제 파일"은 이미 `jtype !== 'db'`로 숨김. 타임스탬프 리셋·파일 롤백은 이력 상세(BatchHistoryDetailFile)에 있으며 DB 배치는 file_list 구조가 달라 별도 분기 없이 적용 제한됨.
+
+**변경 파일:** Backend/etl_server2/batch_executor_db.py, Backend/etl_server2/service_file.py (list_batch_jobs JOIN), docs/report/log.md.
+
+---
+
 ## 2026-03-03 docs/main·README 최신화 (log 2026-03-03·2026-02-23 반영)
 
 **목적:** log.md 기준 마지막 개발문서 수정(2026-02-27) 이후 반영된 기능을 백엔드·프론트엔드 코드 참조하여 docs/main 개발문서 및 README에 반영.

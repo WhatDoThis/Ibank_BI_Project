@@ -1144,6 +1144,23 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+.etl-table-list__batch-schedule {
+  padding: 5px 10px;
+  border: 1px solid #64748b;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.etl-table-list__batch-schedule:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #334155;
+}
+.etl-table-list__batch-schedule:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .etl-table-list__run {
   padding: 5px 10px;
   background: #2563eb;

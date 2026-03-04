@@ -12,11 +12,11 @@ openpyxl>=3.1.0
 xlrd>=2.0.0
 pyarrow>=14.0.0
 
-# ETL DB 연결 테스트 (PostgreSQL·MySQL·Oracle)
+# ETL·ETL2 DB 연결 및 DB 배치 실행기 (PostgreSQL·MySQL·Oracle, batch_executor_db)
 PyMySQL>=1.1.0
 oracledb>=2.0.0
 
-# ETL2 배치 파일 스케줄러 (09_ETL_SFTP_Connection)
+# ETL2 배치 스케줄러 (파일·DB 배치 공통, 09_ETL_SFTP_Connection / 10_DB_Batch_Scheduling_Upgrade)
 apscheduler>=3.10.0
 
 # ETL2 원격 폴더 연결 (SFTP·S3, folder_adapter_file)
