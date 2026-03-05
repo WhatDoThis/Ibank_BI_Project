@@ -372,7 +372,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
       {dbPreviewJobId != null && (
         <div className="etl-add-file-modal" role="dialog" aria-modal="true" aria-labelledby="etl-db-preview-title">
           <div className="etl-add-file-modal__backdrop" onClick={() => { setDbPreviewJobId(null); setDbPreviewData(null); }} />
-          <div className="etl-add-file-modal__box" style={{ maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto' }}>
+          <div className="etl-add-file-modal__box etl-add-file-modal__box--scroll-body" style={{ maxWidth: '90vw' }}>
             <div className="etl-add-file-modal__head">
               <h3 id="etl-db-preview-title">소스 테이블 미리보기</h3>
               <button type="button" className="etl-add-file-modal__close" onClick={() => { setDbPreviewJobId(null); setDbPreviewData(null); }} aria-label="닫기">×</button>

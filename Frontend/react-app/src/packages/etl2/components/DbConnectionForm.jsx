@@ -31,7 +31,7 @@ import {
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
 
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ(Cannot access 'ie' before initialization) 방지 */
-const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
+const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal'));
 import CollapsibleCardSection from './CollapsibleCardSection';
 
 function DbConnectionForm({ onSuccess }) {

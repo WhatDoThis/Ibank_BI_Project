@@ -185,6 +185,7 @@ def run_batch_job(batch_job_id: int) -> None:
                             "size_mb": round(size_mb, 2),
                             "limit_mb": max_file_mb,
                         })
+                        batch_service.update_last_processed_ts(batch_job_id, ts, conn=sys_conn)
                         batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                         continue
 
@@ -241,6 +242,7 @@ def run_batch_job(batch_job_id: int) -> None:
                         "status": "error",
                         "error": str(commit_err),
                     })
+                    batch_service.update_last_processed_ts(batch_job_id, ts, conn=sys_conn)
                     if on_file_error == "continue":
                         batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                         continue
@@ -255,6 +257,10 @@ def run_batch_job(batch_job_id: int) -> None:
                         conn=sys_conn,
                     )
                     batch_service.update_job_status(batch_job_id, "error", last_error_message=str(commit_err), conn=sys_conn)
+                    try:
+                        batch_service.check_consecutive_failures(batch_job_id, threshold=5, conn=sys_conn)
+                    except Exception:
+                        logger.exception("check_consecutive_failures 실패")
                     return
 
                 ins = result.get("inserted", 0) or 0
@@ -285,6 +291,7 @@ def run_batch_job(batch_job_id: int) -> None:
                     "status": "error",
                     "error": str(e),
                 })
+                batch_service.update_last_processed_ts(batch_job_id, ts, conn=sys_conn)
                 if on_file_error == "continue":
                     batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                     continue
@@ -299,6 +306,10 @@ def run_batch_job(batch_job_id: int) -> None:
                     conn=sys_conn,
                 )
                 batch_service.update_job_status(batch_job_id, "error", last_error_message=str(e), conn=sys_conn)
+                try:
+                    batch_service.check_consecutive_failures(batch_job_id, threshold=5, conn=sys_conn)
+                except Exception:
+                    logger.exception("check_consecutive_failures 실패")
                 return
             finally:
                 if local_path and os.path.exists(local_path):

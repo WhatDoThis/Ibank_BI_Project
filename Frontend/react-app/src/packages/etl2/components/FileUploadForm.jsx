@@ -19,7 +19,7 @@ import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/s
 import { getStorageConnectionIdForFormData } from '../utils/storageDb.js';
 
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ 방지 */
-const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal.jsx'));
+const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal'));
 
 function FileUploadForm({ onSuccess }) {
   const [file, setFile] = useState(null);

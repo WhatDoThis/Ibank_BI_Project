@@ -1554,6 +1554,7 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 .etl-preview-modal__head {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1581,7 +1582,9 @@
 }
 .etl-preview-modal__body {
   padding: 16px;
-  overflow: auto;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 .etl-preview-modal__section {
   margin-bottom: 20px;
@@ -1647,8 +1650,23 @@
   border-radius: 12px;
   max-width: 480px;
   width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   padding: 24px;
+}
+.etl-add-file-modal__box.etl-add-file-modal__box--scroll-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.etl-add-file-modal__box.etl-add-file-modal__box--scroll-body .etl-add-file-modal__head {
+  flex-shrink: 0;
+}
+.etl-add-file-modal__box.etl-add-file-modal__box--scroll-body .etl-add-file-modal__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .etl-add-file-modal__head {
   display: flex;
@@ -1895,6 +1913,8 @@
   border-radius: 12px;
   max-width: 440px;
   width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   padding: 24px;
 }
@@ -2271,6 +2291,8 @@
 .etl-target-select-modal__body {
   padding: 16px 28px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 .etl-target-select-modal__intro {
   margin: 0 0 14px 0;
@@ -2975,6 +2997,93 @@
 .etl-target-select-modal__btn--primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 변환 미리보기 패널 */
+.etl-target-select-modal__preview-panel {
+  padding: 12px 28px;
+  border-top: 1px solid #e5e7eb;
+  max-height: 240px;
+  overflow: auto;
+}
+.etl-target-select-modal__preview-title {
+  margin: 0 0 8px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.etl-target-select-modal__preview-table-wrap {
+  overflow: auto;
+  margin-bottom: 8px;
+}
+.etl-target-select-modal__preview-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.etl-target-select-modal__preview-table th,
+.etl-target-select-modal__preview-table td {
+  border: 1px solid #e5e7eb;
+  padding: 4px 8px;
+  text-align: left;
+}
+.etl-target-select-modal__preview-table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+.etl-target-select-modal__preview-failed {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+.etl-target-select-modal__preview-error {
+  padding: 8px 28px;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+/* 매핑 헤더 + 변환 설정된 컬럼만 보기 토글 */
+.etl-target-select-modal__mapping-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.etl-target-select-modal__filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.etl-target-select-modal__filter-toggle input {
+  cursor: pointer;
+}
+
+/* 변환 설정된 행 강조 */
+.etl-target-select-modal__row--has-transform {
+  background: #f0f9ff;
+}
+
+/* 값 매핑 4개 이상 시 팝오버 */
+.etl-target-select-modal__code-map-popover {
+  position: fixed;
+  z-index: 10000;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  padding: 16px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow: auto;
+}
+.etl-target-select-modal__code-map-popover .etl-target-select-modal__btn {
+  margin-top: 12px;
 }
 
 /* 등록된 ETL 목록: PK 설정 버튼 */

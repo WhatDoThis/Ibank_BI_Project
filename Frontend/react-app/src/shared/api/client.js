@@ -403,6 +403,15 @@ export async function etl2PreviewTable(etlTableId) {
   return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/preview`);
 }
 
+/**
+ * POST /api/etl2/transform/preview — 현재 설정한 변환 룰 적용 미리보기
+ * @param {{ etl_table_id: number, rules: Array<object>, column_mapping?: Array<object> }} body
+ * @returns {Promise<{ preview_columns: string[], preview_rows: any[][], row_count: number, transform_failed_count?: number }>}
+ */
+export async function etl2TransformPreview(body) {
+  return request('POST', '/api/etl2/transform/preview', body);
+}
+
 /** GET /api/etl2/tables/:id/target-exists */
 export async function etl2TargetExists(etlTableId) {
   return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/target-exists`);

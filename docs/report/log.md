@@ -1,3 +1,223 @@
+## 2026-03-05 Cursor 대용량 diff 방지 개선 (룰·파일 분할·안내)
+
+**배경:** 1600줄+ 단일 파일에서 StrReplace 매칭 실패 시 Write 도구로 전체 덮어쓰기가 발생해 +1611/-1610 수준의 diff가 생기는 문제. 원인: 파일 크기, Cursor 버전/apply 모델 변화, Format on Save·포맷터 확장.
+
+**적용한 개선:**
+1. **Write 도구 제한 룰** — `.cursor/rules/write-tool-restriction.mdc` 추가. 기존 파일 수정 시 Write 사용 금지, StrReplace만 사용, 매칭 실패 시 read_file 후 재시도·3회 실패 시 사용자 보고.
+2. **TargetTableSelectModal 분할** — 1611줄 단일 파일을 `components/TargetTableSelectModal/` 폴더로 분할(index.jsx, constants.js, CodeMapInlineEditor, TransformCell, TableSelector, ColumnMappingSection, PreviewSection). 메인 index는 여전히 ~827줄; 추가로 훅 분리 시 300~400줄 목표 달성 가능.
+3. **사용자 안내 (직접 확인 권장):**  
+   - **Format on Save:** Cursor Settings → "format on save" 검색 → 체크 해제. 저장 시 포맷터가 전체 리포맷하면 diff가 파일 전체로 나타날 수 있음.  
+   - **확장 없이 테스트:** `cursor --disable-extensions` 로 실행해 포맷터 확장이 원인인지 확인.  
+   - **모델 변경:** StrReplace vs Write 선택 패턴이 모델마다 다르므로, 동일 작업을 다른 모델로 시도해 비교 가능.
+
+**변경 파일:** .cursor/rules/write-tool-restriction.mdc(신규), TargetTableSelectModal 분할(아래 항목 참조).
+
+---
+
+## 2026-03-05 TargetTableSelectModal 패키지 연결 검증 (cross-check)
+
+**작업:** 패키지 분할 후 import·API·CSS·export 연결 정합성 검증.
+
+- **import 경로:** DbConnectionForm.jsx, FileUploadForm.jsx에서 `lazy(() => import('./TargetTableSelectModal'))` → 폴더 `TargetTableSelectModal/index.jsx` default export 정상 해석. ✅
+- **내부 export:** index.jsx → TableSelector, ColumnMappingSection, CustomIndexSection, PreviewSection import. ColumnMappingSection.jsx에서 `export function ColumnMappingSection`, `export function CustomIndexSection` 존재. ✅
+- **constants·TransformCell·CodeMapInlineEditor:** index/ColumnMappingSection/TransformCell에서 ./constants.js, ./TransformCell.jsx, ./CodeMapInlineEditor.jsx 상대 경로 정상. ✅
+- **client.js ↔ router:** etl2ListTargetTables(GET /api/etl2/target-tables), etl2ListTargetColumns(GET /api/etl2/target-columns), etl2TransformPreview(POST /api/etl2/transform/preview), etl2ListTransformRules(GET /api/etl2/tables/{id}/transform-rules), etl2CreateTransformRule(POST), etl2DeleteTransformRule(DELETE) — 라우터 prefix /api/etl2 및 경로 일치. ✅
+- **CSS:** etl.css에 etl-target-select-modal__* 클래스 정의 존재. 분할된 컴포넌트에서 동일 클래스명 사용. ✅
+- **빌드:** `npm run build` 성공(exit 0). ✅
+
+**요약:** 통과 6건, 실패 0건.
+
+---
+
+## 2026-03-05 TargetTableSelectModal 논리 단위 분할 (파일당 300~400줄 이하)
+
+**작업:** TargetTableSelectModal.jsx(1611줄)를 components/TargetTableSelectModal/ 폴더로 분할. 기존 동작·export·import 경로 유지.
+
+- **구조:** index.jsx(메인 모달·state/effect/handler·footer·변환 도움말), constants.js(상수·순수 함수), CodeMapInlineEditor.jsx, TransformCell.jsx, TableSelector.jsx, ColumnMappingSection.jsx(+ CustomIndexSection), PreviewSection.jsx.
+- **규칙:** CSS 클래스명(etl-target-select-modal__*) 유지. 검증된 로직(loadTables, getAssembledRules, buildIndexDefinitions, saveRulesIfNeeded, handleApply, handlePreviewClick, useEffect/useCallback) 수정 없이 index.jsx에 유지. JSX만 서브 컴포넌트로 분리.
+- **import:** DbConnectionForm, FileUploadForm에서 `import('./TargetTableSelectModal')`로 폴더 index 사용. 기존 단일 파일 TargetTableSelectModal.jsx 삭제.
+- **파일:** TargetTableSelectModal/constants.js, CodeMapInlineEditor.jsx, TransformCell.jsx, TableSelector.jsx, ColumnMappingSection.jsx, PreviewSection.jsx, index.jsx. 각 파일 상단 file-header 규칙 한글 설명·Main Functions·Dependencies 갱신.
+
+**변경 파일:** Frontend/.../TargetTableSelectModal/* (신규 7개), DbConnectionForm.jsx, FileUploadForm.jsx. 삭제: TargetTableSelectModal.jsx. docs/report/log.md.
+
+---
+
+## 2026-03-05 ETL2 프로덕션 배포 전 정리 (남은 버그·중간/낮음·구조 개선 일괄)
+
+**작업:** 즉시/높음 이외 남은 버그, 미리보기 stale·룰 에러 메시지, TransformCell·saveRulesIfNeeded 구조 개선, get_preview 주석까지 한 번에 반영.
+
+- **A. typeFamily / inferredTypeToPg datetime 오탐 (프론트):** `t.includes('date')`/`t.includes('time')` 제거. `DATETIME_TYPES` 배열과 `t === x` 정확 매칭만 사용해 `updated_at_text` 등이 datetime으로 오탐되지 않도록 수정. inferredTypeToPg도 동일하게 datetime 계열은 정확 매칭만.
+- **A. CodeMapInlineEditor useEffect deps:** `configMapKey = JSON.stringify(config.map || {})` 추가 후 deps에 `[sourceName, configMapKey]` 사용. 부모에서 기존 룰(etl2ListTransformRules) 복원 후 config.map이 바뀌면 items가 갱신되도록 함.
+- **A. NEW_TABLE tableName 빈값 시 피드백:** `rawTableName`으로 사용자 입력만 검사, 빈 문자열이면 `window.alert('테이블명을 입력해 주세요.')` 후 return. fallback `'new_table'` 제거해 빈 상태로 적용되는 경로 차단.
+- **B. 미리보기 stale 초기화:** `transformKind`/`stringConfig`/`maskingConfig`/`codeMapConfig` 변경 시 `setPreviewData(null)`, `setPreviewError(null)` 호출하는 useEffect 추가.
+- **B. 룰 삭제/등록 에러 메시지 구체화:** `saveRulesIfNeeded(etlTableId, allSourceColumnNames, assembled)` 공통 함수 추출. 삭제 단계 실패 시 `throw new Error('기존 룰 삭제 중 실패: ' + ...)`, 등록 단계 실패 시 `throw new Error('새 룰 등록 중 실패 (일부 삭제된 상태일 수 있음): ' + ...)`로 구분해 사용자 재시도 판단 가능하도록 함.
+- **C. TransformCell 컴포넌트 분리:** 새 테이블/기존 테이블 매핑 테이블의 변환 열(select + 값매핑/문자열/마스킹 UI)을 공통 `TransformCell({ excluded, src, sourceColumns, transformKind, setTransformKind, ... })`로 추출. 한쪽 수정 시 양쪽 동일 반영.
+- **C. handleApply 내 saveRulesIfNeeded 사용:** NEW_TABLE 분기·기존 테이블(소스매핑) 분기에서 룰 삭제/등록 블록을 `await saveRulesIfNeeded(...)` 호출로 치환.
+- **D. get_preview 주석:** docstring에 "양쪽 조건(DB·파일) 만족 시 DB 우선" 한 줄 추가.
+
+**변경 파일:** Frontend/.../TargetTableSelectModal.jsx, Backend/etl_server2/preview_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-05 ETL2 버그/안정성·UX 개선 (리뷰 반영)
+
+**작업:** 코드 리뷰 우선순위(즉시·높음) 항목 반영.
+
+- **즉시 — DB 커넥션 try/finally (preview_service.py):** `_preview_db`, `_get_source_df_db`에서 conn을 열고 쿼리 실행 후 예외가 나도 항상 닫도록 `try`/`finally` 패턴 적용. `conn = None` 초기화 후 `finally`에서 `if conn is not None: conn.close()` 호출.
+- **즉시 — handleApply onClose 순서 (TargetTableSelectModal.jsx):** try 블록 안에서 `onClose()` 호출 제거. `applied` 플래그를 두고 적용 성공 시에만 `applied = true`, `finally`에서 `setApplyLoading(false)` 후 `if (applied) onClose()` 호출해 언마운트 후 setState 방지.
+- **높음 — SQL 식별자 이스케이프 (preview_service.py):** `_quote_ident_pg`(PostgreSQL/Oracle: `"` → `""`), `_quote_ident_mysql`(MySQL: `` ` `` → ` `` ` ``) 헬퍼 추가. `_preview_db`/`_get_source_df_db`에서 스키마·테이블·컬럼명에 위 헬퍼 사용해 단순 문자열 감싸기 대신 이스케이프 적용.
+- **높음 — CodeMapInlineEditor 중복 키 (TargetTableSelectModal.jsx):** 값 매핑을 `Object.entries`/`Object.fromEntries` 대신 내부 state `items = [{ key, value }, ...]` 배열로 관리. `setKey(idx, key)` 시 해당 인덱스만 갱신하고 `flushMap`으로 객체 변환해 전달해, 동일 키 입력 시 행이 사라지는 문제 제거. `sourceName` 변경 시 `useEffect`로 items 초기화.
+- **기타:** `_normalize_mapping`에서 JSON 파싱 실패 시 `logger.warning` 로그 추가. `get_source_dataframe`/`get_preview`에서 DB 소스(connection_id·source_table) 있으면 파일보다 DB 우선 분기해, 양쪽 조건 동시 만족 시 의도치 않게 파일로 처리되던 문제 수정.
+
+**변경 파일:** Backend/etl_server2/preview_service.py, Frontend/.../TargetTableSelectModal.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-05 ETL2 모달 max-height·상하 스크롤 통일
+
+**작업:** 배치잡 실행 이력 모달 및 전체 모달에 적정 max 높이 고정 + 내용 초과 시 상하 스크롤 적용.
+
+- **실행 이력 모달 (ETLPage.jsx):** `etl-add-file-modal__box`에 `etl-add-file-modal__box--scroll-body` 추가, 헤더 아래 콘텐츠를 `etl-add-file-modal__body`로 감싸 헤더 고정·본문만 스크롤.
+- **etl.css:** `.etl-add-file-modal__box`에 `max-height: 90vh`, `overflow-y: auto` 적용(기본: 전체 박스 스크롤). `--scroll-body` 수정자 시 flex 컬럼 + `__body`에 `flex: 1; min-height: 0; overflow-y: auto`로 본문만 스크롤.
+- **BatchJobListFile:** DB 소스 미리보기 모달에 `--scroll-body` 적용, 인라인 `maxHeight`/`overflow` 제거하여 공통 스타일 사용.
+- **PreviewModal:** `.etl-preview-modal__body`에 `flex: 1; min-height: 0` 추가, `.etl-preview-modal__head`에 `flex-shrink: 0` 추가.
+- **PkColumnsModal:** `.etl-pk-modal__box`에 `max-height: 90vh; overflow-y: auto` 추가.
+- **EtlTableSettingsModal:** 기존 `max-height: 90vh; overflow-y: auto` 유지.
+- **TargetTableSelectModal:** `.etl-target-select-modal__body`에 `flex: 1; min-height: 0` 추가(박스는 기존 max-height·flex 유지).
+- AddFileModal, PatternSelectModalFile 등 `etl-add-file-modal__box` 사용 모달은 공통으로 90vh 제한·전체 스크롤 적용.
+
+---
+
+## 2026-03-05 ETL 변환 UI 개선 구현 (11번 화면 설계 기준)
+
+**작업:** 11_ETL_Transform_Upgrade_Guide.md §2 화면 설계 Step UI-1~UI-8 반영.
+
+- **UI-1:** Backend — preview_service에 get_source_dataframe, _get_source_df_db, get_transform_preview 추가. router에 TransformPreviewBody, POST /transform/preview 엔드포인트 추가.
+- **UI-2:** client.js — etl2TransformPreview(body) 함수 추가.
+- **UI-3:** TargetTableSelectModal — 미리보기 버튼(etlTableId·hasSourceMapping 시), handlePreviewClick, previewData 패널(테이블·변환 실패 N건), previewLoading/previewError.
+- **UI-4:** 문자열 변환 — substring(시작·길이), replace(찾을·바꿀), regex_replace(정규식·치환), concat(합칠 컬럼 멀티셀렉트·구분자) 입력 필드 추가(새 테이블/기존 테이블 매핑 테이블 모두).
+- **UI-5:** 변환 옵션 안내 — 값 매핑·문자열 변환·마스킹 설명 및 Before→After 예시 추가. 정리+타입 변환 순서 문구 정리.
+- **UI-6:** handleApply 진입 시 assembled 중 rule_type === 'masking' 있으면 window.confirm 비가역 경고 후 진행/취소.
+- **UI-7:** 매핑 헤더에 "변환 설정된 컬럼만 보기" 토글. displaySourcesForNewTable/displaySourcesForExisting 사용. 변환 설정 행에 etl-target-select-modal__row--has-transform 클래스(배경 강조).
+- **UI-8:** 값 매핑 4개 이상 시 "편집" 클릭 시 팝오버(코드맵 인라인 에디터 + 닫기). 4개 미만은 기존 인라인 토글 유지.
+- **CSS:** etl.css에 미리보기 패널·필터 토글·row--has-transform·code-map-popover 스타일 추가.
+
+---
+
+## 2026-03-05 ETL Transform 가이드 — 화면 설계 섹션 추가 (11번 문서)
+
+**작업:** 11_ETL_Transform_Upgrade_Guide.md에 **§2 화면 설계 (변환 UI 개선)** 섹션 추가.
+
+- **목표**: 저장 전 변환 확인·최소 입력·선택 위주 UX·마스킹 비가역 경고 등 8개 제안 반영.
+- **Step UI-1**: 백엔드 POST /api/etl2/transform/preview API 스펙(etl_table_id, rules, column_mapping → preview_columns, preview_rows, transform_failed_count).
+- **Step UI-2**: client.js etl2TransformPreview(body) 함수.
+- **Step UI-3**: 모달 미리보기 버튼·결과 패널·실패 N건 표시(의존: UI-1, UI-2).
+- **Step UI-4**: 문자열 substring/replace/regex_replace/concat 입력 필드·안내.
+- **Step UI-5**: 변환 옵션 안내에 문자열·마스킹 설명 + Before→After 예시.
+- **Step UI-6**: 마스킹 저장 시 비가역 확인 다이얼로그.
+- **Step UI-7**: 변환 설정 행 하이라이트 + "변환 설정된 컬럼만 보기" 토글.
+- **Step UI-8**: 값 매핑 4개 이상 시 팝오버/서브모달.
+- **Step UI-9**: 정리+타입 변환 순서 문서·검증.
+- **Step UI-10**: boolean/date 조건부 설정 필드(선택, 다음 스프린트).
+- 병렬 실행 표(그룹 A: UI-1·UI-2 동시, B: UI-3, C: UI-4~8, D: UI-10), 체크리스트, 대상 파일 경로(preview_service, client.js) 보강. 00_ReportIndex.md 11번 설명 갱신.
+
+---
+
+## 2026-03-05 ETL Transform 추가 코드 리뷰 반영 (3차)
+
+**작업:** 3차 리뷰 P1~P3 및 동작 명시 반영.
+
+- **P1:** update_transform_rule — 마이그레이션 전 DB(rule_category/operation 컬럼 없음)에서 UPDATE 실패 시 rollback 후 fallback. rule_category→rule_type 치환, operation 항목 제거 후 재시도. rule_type 인자 있으면 해당 값 사용.
+- **P2:** _apply_type_cast_with_mask — boolean 경로를 _apply_type_cast와 동일하게 벡터화(stripped.isin(true_vals/false_vals), failed 후 on_error 처리).
+- **P3:** _apply_type_cast — date를 try_convert 밖으로 벡터 경로 추가. still_none = converted.isna() & ~empty, 포맷별 pd.to_datetime(sub, format=fmt), still_failed 시 _fallback. try_convert는 text만 유지.
+- **P3:** router.py — upload_file 내부 `import json as _json` 제거, 파일 상단 `import json` 추가, json.loads 사용처를 json으로 통일.
+- **동작 명시:** _apply_type_cast docstring에 "empty(NA/빈문자열/nan 문자열)는 항상 None 처리" 문구 추가.
+
+---
+
+## 2026-03-05 ETL Transform 추가 코드 리뷰 반영 (2차)
+
+**작업:** 추가 리뷰 P0~P3 항목 반영.
+
+- **P0:** _apply_type_cast — integer/bigint 벡터화 후 on_error="keep"이면 원본(문자 등)이 섞여 Int64 캐스팅 시 TypeError. `on_error != "keep"`일 때만 `astype("Int64")` 시도, 실패 시 try/except로 유지.
+- **P1:** _apply_type_cast_with_mask date — 멀티포맷 루프에서 성공한 행만 순회. `success_mask = _dt.notna()`, `for idx in _dt.index[success_mask]` 로 변경.
+- **P1:** create_transform_rule fallback — "column" 문자열 매칭이 과도함(null value in column ... 등). `is_schema_mismatch`: "rule_category", "undefined column", "does not exist" 로 한정.
+- **P1:** apply_rules — 예외 완전 삼킴 제거. 컬럼/row 변환 실패 시 `logger.warning`(rule_id, category, operation, tgt, exc) 기록.
+- **P2:** _apply_type_cast boolean — true_vals/false_vals를 try_convert 밖에서 한 번만 생성하고, boolean 전용 벡터 경로 추가(stripped.isin, not_matched만 _fallback).
+- **P2:** _apply_range_map — conditional과 동일하게 첫 매칭 우선. `matched` 플래그, `to_apply = mask & ~matched` 적용.
+- **P3:** _apply_datetime_transform — date_format은 dt 미사용. `dt = pd.to_datetime(series, ...)` 를 date_format 분기 아래로 이동(필요 시에만 계산).
+
+---
+
+## 2026-03-05 ETL Transform 코드 리뷰 반영 (11번 문서·리뷰 피드백)
+
+**작업:** 코드 리뷰 P0/P1/P2 항목 검증 후 반영.
+
+- **P0:** transform_rules_service — create_transform_rule에서 첫 INSERT 실패 시 `conn.rollback()` 후 rule_type fallback INSERT. (PostgreSQL 트랜잭션 abort 상태에서 두 번째 execute 방지.)
+- **P0:** _apply_conditional — 첫 번째 매칭 우선(CASE WHEN 스타일). `matched` 플래그로 이미 매칭된 행은 이후 condition으로 덮어쓰지 않음.
+- **P0:** _apply_type_cast_with_mask — date 멀티포맷: 실패한 행만 다음 포맷으로 시도하도록 변경. `still_none` 구간만 `pd.to_datetime(sub, format=fmt)` 호출.
+- **P1:** _apply_type_cast — integer/bigint/numeric/timestamp 벡터 연산 우선 적용. `pd.to_numeric`/`pd.to_datetime` 후 실패 행만 _fallback 처리.
+- **P1:** router _save_upload — 파일명 sanitize(`re.sub(r"[^\w.\-]", "_", ...)`), `path.resolve().is_relative_to(UPLOAD_DIR.resolve())` 검증.
+- **P1:** transform_engine — `_NEEDS_DF` 모듈 레벨 캐시로 매 룰마다 `inspect.signature` 호출 제거.
+- **P2:** _apply_cleansing — operation 기본값 `"trim"` 명시 (`config.get("operation") or "trim"`).
+- **P2:** mask_phone — 하이픈 형식 `^(\d{2,4})-(\d{3,4})-(\d{4})$` 먼저, 없으면 숫자만 추출 후 01x 3자리/그 외 2자리 prefix + 중간 마스킹 + 뒤 4자리.
+- **P2:** masking hash — `getattr(hashlib, algo, None)`으로 직접 참조 시 사용, 없으면 `hashlib.new(algo, ...)` 유지.
+- **기타:** apply_rules에서 row transform 후 `out` 교체·인덱스 리셋됨 주석 추가. 기존 테스트 14개 통과.
+
+**미반영:** P3 스키마 버전 캐싱(모듈 로드 시 rule_category 컬럼 존재 여부 체크) — 현재 rollback fallback으로 동작하므로 추후 개선 시 검토. router 내부 `import json` — 해당 위치 미확인, 필요 시 별도 수정.
+
+---
+
+## 2026-03-05 ETL Transform Phase 3 구현 완료 (11_ETL_Transform_Upgrade_Guide 기준)
+
+**작업:** Phase 3 Step 16~20 반영.
+
+- **Step 16:** transform_engine — `_apply_numeric_transform` 추가. operation: round(decimals), arithmetic(operator, value/column), bucket(bins, labels), clamp(min, max). _COLUMN_TRANSFORMERS에 "numeric" 등록.
+- **Step 17:** _apply_masking에 operation hash(algorithm: sha256), redact(char) 추가.
+- **Step 18:** _apply_row_transform 추가. operation: filter(column, operator, value), deduplicate(subset, keep). apply_rules에서 rule_category "row"일 때 _ROW_TRANSFORMERS로 전체 DataFrame 변환 후 continue.
+- **Step 19:** _apply_cleansing에 operation fill_forward, fill_backward, normalize_unicode(form) 추가.
+- **Step 20:** transform_engine 상단 docstring 갱신. tests/test_transform_engine.py에 Phase 3 테스트 추가(test_apply_rules_numeric_round, test_apply_rules_row_deduplicate, test_apply_rules_masking_hash). 14개 테스트 통과.
+
+---
+
+## 2026-03-05 ETL Transform Phase 2 구현 완료 (11_ETL_Transform_Upgrade_Guide 기준)
+
+**작업:** Phase 2 Step 9~15 반영.
+
+- **Step 9:** DB 마이그레이션 명령 적용(사용자 실행). rule_type→rule_category 리네임, operation 컬럼 추가, code_map→mapping/derived→string·datetime 데이터 변환, chk_rule_category 제약. (SQL 파일은 저장하지 않고 명령만 제공하는 방식으로 정리)
+- **Step 10:** transform_rules_service — _VALID_CATEGORIES, _normalize_category(code_map→mapping, derived→string). list/get는 SELECT *로 rule_category·rule_type·operation 모두 대응. create는 rule_category+operation INSERT 시도 후 실패 시 rule_type만 INSERT(마이그레이션 전 호환). update에 rule_category, operation 파라미터 추가.
+- **Step 11:** transform_engine — _parse_config, _COLUMN_TRANSFORMERS 디스패치 테이블, _LEGACY_CATEGORY_MAP. apply_rules에서 rule_category 우선·rule_type 폴백, operation config 병합, inspect.signature로 df 인자 여부 판단.
+- **Step 12:** _apply_datetime_transform 추가. date_format, extract, date_diff, age, date_add.
+- **Step 13:** _apply_range_map, _apply_conditional, _apply_mapping 추가. mapping 카테고리에서 value_map/range_map/conditional 분기.
+- **Step 14:** router — CreateTransformRuleBody/UpdateTransformRuleBody에 rule_category, operation 필드 추가. create/update 시 서비스에 전달.
+- **Step 15:** tests/test_transform_engine.py에 Phase 2 테스트 추가(test_apply_rules_rule_category_fallback, test_apply_rules_mapping_range_map, test_apply_rules_datetime_age). 기존 Phase 1 테스트 포함 전체 통과.
+
+---
+
+## 2026-03-05 ETL Transform Phase 1 구현 완료 (11_ETL_Transform_Upgrade_Guide 기준)
+
+**작업:** 11_ETL_Transform_Upgrade_Guide.md Phase 1 Step 1~8 전부 구현.
+
+- **Step 1~4 (transform_engine.py):** `_apply_string_transform` 추가(uppercase, lowercase, pad_left, pad_right, substring, replace, regex_replace, concat), `_apply_masking`에 mask_phone·mask_name·레거시 type→operation 매핑, `_apply_type_cast`/`_apply_type_cast_with_mask`에 boolean·date_formats 리스트 지원, `apply_mapping_type_cast`에 boolean 타겟 반영, `apply_rules`에 rule_type `string` 분기.
+- **Step 5 (transform_rules_service.py):** `_VALID_RULE_TYPES`에 `string` 추가, create/update 검증 통일.
+- **Step 6 (router.py):** CreateTransformRuleBody의 rule_type·rule_config Field description 및 examples 보강.
+- **Step 7 (TargetTableSelectModal.jsx):** 변환 옵션에 "문자열 변환"(string)·"마스킹"(masking) 추가, operation 드롭다운 및 pad_left/pad_right·mask_right/mask_left 시 n·char 입력 필드, getAssembledRules에서 string/masking rule_config 조립, code_map 시 mappings/default 전송으로 정리.
+- **Step 8 (tests/test_transform_engine.py):** transform_engine 단위·통합 테스트 추가(직접 모듈 로드), 9개 테스트 통과.
+
+---
+
+## 2026-03-05 ETL Transform 업그레이드 가이드 — 커서 AI 실행용 스펙 보강 (11번)
+
+**작업:** **11_ETL_Transform_Upgrade_Guide.md** 를 “커서 AI가 코드를 뽑기 위한 스펙” 수준으로 재구성. (1) **Step 1~20** 단위로 분리(파일 1~2개·함수 1~3개 단위). (2) **함수 시그니처·config 스펙·테스트 케이스**를 Step별로 명시. (3) **하위 호환** 경계 명확화(Phase 1 DB 미변경, rule_type 확장만). (4) **서브에이전트 병렬 실행 표** 추가 — Phase 1에서 Step 2~4(엔진), Step 5(서비스), Step 6(라우터), Step 7(프론트)를 서로 다른 에이전트로 병렬 가능하도록 의존성·대상 파일 표기. (5) Phase 2 마이그레이션·디스패치·datetime·mapping Step(9~15), Phase 3 요약(16~20), 네이밍 매핑 표, 커서 프롬프트 작성 팁 수록. 00_ReportIndex.md 설명 갱신.
+
+---
+
+## 2026-03-05 ETL Transform 벤치마킹·업그레이드 가이드 문서화 (11번)
+
+**작업:** docs/report에 **11_ETL_Transform_Upgrade_Guide.md** 신규 작성. 업계 표준 Transform 카테고리·오퍼레이션과 현재 코드(rule_type 5개) 매핑, rule_category + operation 2단 구조 제안, DB 스키마 변경안, apply_rules 엔진 개선 방향, Phase 1~3 우선순위·체크리스트, 네이밍 컨벤션을 정리함. 대상 파일은 Backend/etl_server2/transform_engine.py, transform_rules_service.py, router.py, Frontend etl2 TargetTableSelectModal 등으로 명시. 00_ReportIndex.md에 11번 문서 항목 추가.
+
+---
+
 ## 2026-03-04 DB 배치: 150행 기대 시 1행만 삽입·헤더처럼 보이는 행
 
 **증상:** DB 연결 배치잡 실행 시 150행을 넣었으나 1행만 삽입되고, 그 행이 `id / campaign_id / test_id` 등 컬럼명만 있는 것처럼 보임.
@@ -50,6 +270,21 @@
 - `preview_service.py` `_preview_db`: fetch 후 위 분기로 rows 변환.
 - `batch_executor_db.py`: fetchmany 배치에 동일 분기 적용.
 - `db_load_service.py`: `row_type == "dict"`일 때 `[dict(r) for r in batch/rows_data]` 명시 추가, tuple일 때만 zip 변환.
+
+---
+
+## 2026-03-05 파일 배치: 동일 실패 파일 반복 재시도 + 연속 실패 시 자동 비활성화
+
+**증상:** run_id 61에서 파일 적재 실패 후 63, 65, 68, 71, 74까지 같은 파일로 5번 더 시도됨.
+
+**원인:**  
+1) 실패한 파일에 대해 `last_processed_ts`를 갱신하지 않아, 다음 주기에서 `get_pending_files`가 같은 파일을 다시 pending으로 반환함.  
+2) 파일 1건 적재 실패 시 `finish_run(error)` 후 `return`하는 경로에서는 `check_consecutive_failures`가 호출되지 않아, 연속 5회 실패 시 자동 비활성화가 적용되지 않음.
+
+**조치:**  
+1) 파일 적재 실패 시에도 `update_last_processed_ts(batch_job_id, ts)` 호출. 실패한 파일도 "시도 완료"로 기록해 다음 주기에서 `get_pending_files`의 `ts > last_processed_ts` 조건으로 자동 제외되며, 동일 파일 반복 실패로 이력이 쌓이는 것을 방지. (commit 실패·load 예외·file_size_exceeded 스킵 모두 적용. on_file_error=continue/stop 동일.)  
+2) 파일 실패로 run을 error로 끝낼 때 `check_consecutive_failures(batch_job_id, threshold=5)` 호출 유지.  
+3) **제거:** `list_skipped_files` 기반 문제 파일 제외 로직 제거. 매 실행 시 이력 JSONB 스캔 부하·일시 장애 파일 영구 차단 부작용을 없애고, last_processed_ts + 체크섬 + check_consecutive_failures만으로 동작.
 
 ---
 

@@ -35,6 +35,7 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 - fastapi, Backend.etl_server2.service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service, router_file
 """
 
+import json
 import logging
 import os
 import re
@@ -42,7 +43,7 @@ import shutil
 import uuid
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -129,11 +130,25 @@ class CreateTransformRuleBody(BaseModel):
     """POST /api/etl/transform-rules 요청 body."""
     etl_table_id: int = Field(..., description="ETL 테이블 ID")
     source_column: str = Field(..., description="소스 컬럼명")
-    rule_type: str = Field(..., description="cleansing | type_cast | code_map | derived | masking")
-    rule_config: Optional[dict] = Field(default_factory=dict, description="룰별 설정(JSON)")
+    rule_type: str = Field(
+        ...,
+        description="변환 룰 카테고리. cleansing | type_cast | string | code_map | derived | masking",
+        examples=["string"],
+    )
+    rule_config: Optional[dict] = Field(
+        default_factory=dict,
+        description=(
+            "룰 설정 JSON. 'operation' 키로 세부 동작 지정. "
+            "예) string: {\"operation\": \"uppercase\"}, "
+            "masking: {\"operation\": \"mask_phone\", \"char\": \"*\"}, "
+            "type_cast: {\"target_type\": \"boolean\", \"true_values\": [\"Y\",\"1\"]}"
+        ),
+    )
     target_column: Optional[str] = Field(None, description="타겟 컬럼명. 없으면 source_column과 동일")
     apply_order: int = Field(1, description="적용 순서")
     is_active: bool = Field(True, description="활성 여부")
+    rule_category: Optional[str] = Field(None, description="Phase 2. 없으면 rule_type 사용")
+    operation: Optional[str] = Field("default", description="Phase 2. 세부 오퍼레이션. 기본 default")
 
 
 class UpdateTransformRuleBody(BaseModel):
@@ -144,6 +159,18 @@ class UpdateTransformRuleBody(BaseModel):
     rule_config: Optional[dict] = None
     apply_order: Optional[int] = None
     is_active: Optional[bool] = None
+    rule_category: Optional[str] = None
+    operation: Optional[str] = None
+
+
+class TransformPreviewBody(BaseModel):
+    """POST /api/etl2/transform/preview 요청 body. 변환 룰 적용 미리보기."""
+    etl_table_id: int = Field(..., description="ETL 테이블 ID")
+    rules: List[dict] = Field(..., description="변환 룰 배열. getAssembledRules() 형식.")
+    column_mapping: Optional[List[dict]] = Field(
+        None,
+        description="컬럼 매핑. 없으면 해당 ETL 테이블 저장값 사용.",
+    )
 
 
 # 업로드 파일 저장 디렉터리 (etl_server 기준 상대)
@@ -200,8 +227,11 @@ def _save_upload(file: UploadFile) -> tuple[str, str]:
         ft = "parquet"
     else:
         raise ValueError("지원 형식: .csv, .xlsx, .xls, .parquet")
-    name = f"{uuid.uuid4().hex}_{file.filename or 'file'}"
+    safe_name = re.sub(r"[^\w.\-]", "_", (file.filename or "file").strip())
+    name = f"{uuid.uuid4().hex}_{safe_name}"
     path = UPLOAD_DIR / name
+    if not path.resolve().is_relative_to(UPLOAD_DIR.resolve()):
+        raise ValueError("잘못된 파일명입니다.")
     with open(path, "wb") as f:
         content = file.file.read()
         f.write(content)
@@ -402,11 +432,10 @@ async def upload_file(
 
     if target_table and str(target_table).strip():
         try:
-            import json as _json
             cm = None
             if column_mapping and str(column_mapping).strip():
                 try:
-                    cm = _json.loads(column_mapping)
+                    cm = json.loads(column_mapping)
                     if not isinstance(cm, list):
                         cm = None
                 except (ValueError, TypeError):
@@ -414,7 +443,7 @@ async def upload_file(
             idx_def = None
             if index_definitions and str(index_definitions).strip():
                 try:
-                    idx_def = _json.loads(index_definitions)
+                    idx_def = json.loads(index_definitions)
                     if not isinstance(idx_def, list):
                         idx_def = None
                 except (ValueError, TypeError):
@@ -823,6 +852,8 @@ def create_transform_rule(body: CreateTransformRuleBody):
             target_column=body.target_column,
             apply_order=body.apply_order,
             is_active=body.is_active,
+            rule_category=body.rule_category,
+            operation=body.operation or "default",
         )
         return {"rule_id": rule_id}
     except ValueError as e:
@@ -843,6 +874,8 @@ def update_transform_rule(rule_id: int, body: UpdateTransformRuleBody):
             rule_config=body.rule_config,
             apply_order=body.apply_order,
             is_active=body.is_active,
+            rule_category=body.rule_category,
+            operation=body.operation,
         )
         return {"message": "ok"}
     except ValueError as e:
@@ -1067,6 +1100,24 @@ def preview_table(etl_table_id: int):
     """미리보기: 컬럼별 저장 가능 여부 + 저장 후 테이블 모습 10행."""
     try:
         data = preview_service.get_preview(etl_table_id)
+        return data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/transform/preview")
+def transform_preview(body: TransformPreviewBody):
+    """변환 룰 적용 미리보기. preview_columns, preview_rows, row_count, transform_failed_count 반환."""
+    try:
+        data = preview_service.get_transform_preview(
+            body.etl_table_id,
+            body.rules,
+            body.column_mapping,
+        )
         return data
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
