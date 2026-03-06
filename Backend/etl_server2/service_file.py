@@ -18,6 +18,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
 - list_run_history, get_run_detail
 - list_skipped_files: 배치 실행 이력에서 skipped/error 파일 목록 (동일 파일명 최신 1건)
+- get_skipped_filenames_set: 이력 중 skipped/error 파일명 집합 (pending 제외용, 매 주기 재시도 방지)
 - delete_remote_files: 원격 폴더에서 지정 파일 삭제 (어댑터 delete_file)
 - rollback_file_from_target: batch_loaded_keys에서 PK 조회 → 타겟 테이블 DELETE → loaded_keys 삭제 (파일 단위 롤백)
 
@@ -29,7 +30,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 
 import json
 import logging
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -1362,6 +1363,56 @@ def list_skipped_files(batch_job_id: int, conn: Any = None, limit: int = 50) -> 
                     "run_id": d.get("run_id"),
                     "run_started_at": run_started_at,
                 })
+        return result
+    finally:
+        cur.close()
+        if should_close:
+            conn.close()
+
+
+def get_skipped_filenames_set(
+    batch_job_id: int, conn: Any = None, max_runs: int = 200
+) -> Set[str]:
+    """
+    이력에서 status가 skipped 또는 error인 파일명 집합 반환.
+    pending에서 제외해 이미 스킵/에러된 파일을 매 주기 재시도하지 않도록 할 때 사용 (§7.7).
+    """
+    schema = _schema()
+    should_close = conn is None
+    if conn is None:
+        conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    result: Set[str] = set()
+    try:
+        cur.execute(
+            f"""
+            SELECT r.file_list
+            FROM {_q(schema, "batch_run_history")} r
+            WHERE r.batch_job_id = %s
+              AND r.file_list IS NOT NULL
+            ORDER BY r.started_at DESC
+            LIMIT %s
+            """,
+            (batch_job_id, max_runs),
+        )
+        for row in cur.fetchall():
+            file_list = row[0] if not hasattr(row, "keys") else row.get("file_list")
+            if isinstance(file_list, str):
+                try:
+                    file_list = json.loads(file_list)
+                except (TypeError, ValueError):
+                    continue
+            if not file_list:
+                continue
+            for item in file_list:
+                if not isinstance(item, dict):
+                    continue
+                st = (item.get("status") or "").strip().lower()
+                if st not in ("skipped", "error"):
+                    continue
+                fname = (item.get("filename") or "").strip()
+                if fname:
+                    result.add(fname)
         return result
     finally:
         cur.close()

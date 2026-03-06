@@ -3,7 +3,7 @@ Backend.etl_server2.batch_executor_file (배치 실행기 — 다운로드·파�
 ============================================================================
 09_ETL_SFTP_Connection §4.3, §7.5, §7.7, §10. 스케줄러에서 호출.
 실제 흐름: get_batch_job → 폴더 어댑터 → list_files → get_pending_files →
-대기 없으면 run 기록 없이 return. 있으면 create_batch_run → 저장 DB 연결 →
+대기 있으면 create_batch_run → get_skipped_filenames_set로 이력 스킵/에러 파일 제외(재시도 방지) → 제외 후에도 대기 있으면 저장 DB 연결 →
 파일별 다운로드(임시) → 크기 검사 → SHA-256 체크섬 → 중복 시 건너뜀
 → read_file → load_dataframe → last_processed_ts 갱신 → finish_run, update_job_status. finally adapter.close().
 on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록·롤백 후 다음 파일 계속; 종료 시 partial_error/success.
@@ -131,6 +131,25 @@ def run_batch_job(batch_job_id: int) -> None:
         sys_conn = api_db.get_db_connection_system()
         run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
         batch_service.update_job_status(batch_job_id, "running", conn=sys_conn)
+
+        # 이력에 이미 skipped/error로 기록된 파일은 매 주기 재시도하지 않음 (§7.7)
+        skipped_filenames = batch_service.get_skipped_filenames_set(batch_job_id, conn=sys_conn)
+        if skipped_filenames:
+            pending = [(f, ts) for f, ts in pending if f not in skipped_filenames]
+            if not pending:
+                logger.debug("run_batch_job job_id=%s: all pending were previously skipped/error, finish run with 0 files", batch_job_id)
+                batch_service.finish_run(
+                    run_id,
+                    "success",
+                    files_processed=0,
+                    rows_inserted=0,
+                    rows_updated=0,
+                    file_list=[],
+                    conn=sys_conn,
+                )
+                run_completed_ok = True
+                batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
+                return
 
         target_conn, target_schema = load_service_file.get_target_connection(
             job["storage_connection_id"]

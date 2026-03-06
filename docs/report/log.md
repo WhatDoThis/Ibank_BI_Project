@@ -1,3 +1,17 @@
+## 2026-03-06 파일 배치: 이력에 스킵/에러된 파일 매 주기 재시도 방지
+
+**배경:** 한 번 skipped(duplicate_checksum, file_size_exceeded 등) 또는 error로 기록된 파일이 다음 주기마다 pending에 다시 포함되어 매번 다운로드·체크섬·스킵을 반복함. 이력/문제 파일 목록으로 이미 확인 가능하므로 재시도할 필요 없음.
+
+**적용 내용:**
+- **Backend/etl_server2/service_file.py**
+  - `get_skipped_filenames_set(batch_job_id, conn, max_runs=200)`: 배치 실행 이력(batch_run_history)에서 file_list의 status가 skipped 또는 error인 항목의 filename 집합 반환. 최근 max_runs개 run만 스캔.
+- **Backend/etl_server2/batch_executor_file.py**
+  - create_batch_run 후 `get_skipped_filenames_set` 호출 → pending 목록에서 해당 파일명 제외. 제외 후 pending이 비면 run을 success·files_processed=0으로 마치고 return하여 불필요한 다운로드 없음.
+
+**변경 파일:** Backend/etl_server2/service_file.py, Backend/etl_server2/batch_executor_file.py, docs/report/log.md.
+
+---
+
 ## 2026-03-06 파일 배치 "마지막 상태"가 성공인데 목록에 오류로 나오는 현상 수정
 
 **배경:** 실행 이력에서는 최근 run이 success인데, 배치 Job 목록의 "마지막 상태"만 오류로 표시되는 경우가 있음. 원인: 목록은 `batch_jobs.last_run_status`를 그대로 사용하며, 파일 배치 실행기(batch_executor_file)에서 **실행이 성공/부분성공으로 끝난 뒤** `update_job_status(batch_job_id, "success")` 호출이 예외를 던지면, 바깥 `except`에서 `update_job_status(batch_job_id, "error", ...)`가 호출되어 정상 완료인데도 last_run_status가 "error"로 덮어써짐.
