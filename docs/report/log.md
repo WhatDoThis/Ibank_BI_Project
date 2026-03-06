@@ -1,3 +1,31 @@
+## 2026-03-06 파일 배치 "마지막 상태"가 성공인데 목록에 오류로 나오는 현상 수정
+
+**배경:** 실행 이력에서는 최근 run이 success인데, 배치 Job 목록의 "마지막 상태"만 오류로 표시되는 경우가 있음. 원인: 목록은 `batch_jobs.last_run_status`를 그대로 사용하며, 파일 배치 실행기(batch_executor_file)에서 **실행이 성공/부분성공으로 끝난 뒤** `update_job_status(batch_job_id, "success")` 호출이 예외를 던지면, 바깥 `except`에서 `update_job_status(batch_job_id, "error", ...)`가 호출되어 정상 완료인데도 last_run_status가 "error"로 덮어써짐.
+
+**적용 내용:**
+- **Backend/etl_server2/batch_executor_file.py**
+  - `run_completed_ok` 플래그 추가: `finish_run`으로 run을 success/partial_error(또는 cancelled)로 마친 뒤 `update_job_status("success")` 호출 직전에 `True`로 설정.
+  - `except Exception` 블록에서 `update_job_status(batch_job_id, "error", ...)` 호출을 `if not run_completed_ok:` 안으로 이동. 성공/취소로 이미 끝난 뒤 `update_job_status("success")`만 실패한 경우에는 "error"로 갱신하지 않음.
+  - 취소 경로(사용자 취소 시 finish_run(cancelled) 후 update_job_status("success"))에서도 동일하게 `run_completed_ok = True` 설정 후 update 호출.
+- **Backend/etl_server2/batch_executor_db.py**: 동일한 패턴으로 `run_completed_ok` 플래그 추가, 성공 후 `update_job_status("success")` 실패 시 except에서 "error"로 덮어쓰지 않도록 수정.
+
+**변경 파일:** Backend/etl_server2/batch_executor_file.py, Backend/etl_server2/batch_executor_db.py, docs/report/log.md.
+
+---
+
+## 2026-03-06 테이블 목록 미리보기(저장 후 미리보기)에 변환 룰·타입 캐스트 적용
+
+**배경:** ETL 테이블 목록의 "미리보기"(etl-table-list__preview)는 GET /tables/{id}/preview로 호출되며, 기존에는 소스 원본만 보여주고 변환(transform)·타입 캐스트가 반영되지 않았음. 실제 저장 시에는 apply_rules → apply_mapping_type_cast 후 적재되므로, 미리보기도 저장될 모습으로 보여줘야 함.
+
+**적용 내용:**
+- **Backend/etl_server2/preview_service.py**
+  - `_get_preview_with_transform(etl_table_id)`: get_source_dataframe → list_transform_rules → apply_rules → apply_mapping_type_cast 순으로 적용 후 columns/preview_columns/preview_rows 구성. apply_rules·apply_mapping_type_cast 실패 시 경고 로그 후 기존 데이터로 진행.
+  - `get_preview(etl_table_id)`: 기존 _preview_file/_preview_db 분기 제거, `_get_preview_with_transform` 호출만 하도록 변경. 파일/DB 공통으로 변환·타입 캐스트가 적용된 "저장 후 테이블 미리보기"가 표시됨.
+
+**변경 파일:** Backend/etl_server2/preview_service.py, docs/report/log.md.
+
+---
+
 ## 2026-03-06 DB 연결 실패 시 로그 과다 출력 완화 및 복구 연결 분리
 
 **배경:** PostgreSQL(49.247.47.206) 또는 MySQL 소스 연결이 끊기면 queue_worker·report _save_table_worker·batch_executor_db에서 동일 예외가 반복 발생하고, 매번 전체 트레이스백이 출력되어 터미널 로그가 비대해짐. 또한 batch 복구(finish_run, update_job_status) 시 이미 끊긴 sys_conn을 재사용해 InterfaceError가 연쇄 발생.

@@ -187,6 +187,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
     target_conn = None
     sys_conn = None
     cur_src = None
+    run_completed_ok = False  # True after finish_run(success); avoid overwriting to "error" if update_job_status("success") fails
 
     try:
         # 정제 #5: create_batch_run을 최상단에서 수행해, 소스 연결 실패 등에도 실행 이력·연속 실패 카운트가 남도록 함.
@@ -466,6 +467,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
             rows_updated=total_upd,
             conn=sys_conn,
         )
+        run_completed_ok = True  # run finished success; do not overwrite to "error" if update_job_status below fails
         batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
         logger.info("run_db_batch_job job_id=%s completed rows_inserted=%s rows_updated=%s", batch_job_id, total_ins, total_upd)
 
@@ -488,15 +490,16 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 )
             except Exception:
                 logger.exception("finish_run 복구 실패")
-        try:
-            batch_service.update_job_status(
-                batch_job_id,
-                "error",
-                last_error_message=str(e),
-                conn=None,
-            )
-        except Exception:
-            logger.exception("update_job_status 복구 실패")
+        if not run_completed_ok:
+            try:
+                batch_service.update_job_status(
+                    batch_job_id,
+                    "error",
+                    last_error_message=str(e),
+                    conn=None,
+                )
+            except Exception:
+                logger.exception("update_job_status 복구 실패")
     finally:
         # 커서 먼저 닫기 (SSCursor close 에러 방지)
         if cur_src is not None:

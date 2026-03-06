@@ -346,17 +346,16 @@ function TargetTableSelectModal({
     [selectedTable, sourceColumns, newTableExcluded]
   );
 
+  /* 제외 체크/선택해도 행은 유지하고, 모달에서 제외를 다시 해제할 수 있도록 표시 목록에서 제외하지 않음 */
   const displaySourcesForNewTable = useMemo(
     () => sourceColumns
-      .filter((src) => !newTableExcluded[src.name])
       .filter((src) => !showOnlyWithTransform || (transformKind[src.name] || 'none') !== 'none'),
-    [sourceColumns, newTableExcluded, showOnlyWithTransform, transformKind]
+    [sourceColumns, showOnlyWithTransform, transformKind]
   );
   const displaySourcesForExisting = useMemo(
     () => sourceColumns
-      .filter((src) => sourceToTarget[src.name])
       .filter((src) => !showOnlyWithTransform || (transformKind[src.name] || 'none') !== 'none'),
-    [sourceColumns, sourceToTarget, showOnlyWithTransform, transformKind]
+    [sourceColumns, showOnlyWithTransform, transformKind]
   );
 
   const targetColumnNamesForPk = useMemo(() => {

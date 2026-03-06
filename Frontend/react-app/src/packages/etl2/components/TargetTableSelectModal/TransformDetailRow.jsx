@@ -23,6 +23,58 @@ import {
 } from './constants.js';
 import { CodeMapInlineEditor } from './CodeMapInlineEditor.jsx';
 
+/* ─── 힌트 툴팁 ─── */
+function HintIcon({ text }) {
+  if (!text) return null;
+  return (
+    <span className="etl-hint-icon" title={text} aria-label={text}>
+      ?
+    </span>
+  );
+}
+
+function FieldLabel({ children, hint }) {
+  return (
+    <label className="etl-target-select-modal__transform-detail-label">
+      {children}
+      {hint && <HintIcon text={hint} />}
+    </label>
+  );
+}
+
+function HintSelect({ options, value, onChange, className }) {
+  const selected = options.find((o) => o.value === value);
+  return (
+    <div className="etl-detail__select-wrap">
+      <select value={value} onChange={onChange} className={className}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {selected?.hint && <HintIcon text={selected.hint} />}
+    </div>
+  );
+}
+
+function ParamInput({ label, hint, type = 'text', value, onChange, placeholder, min, max, maxLength, className }) {
+  const inputClass = className || 'etl-target-select-modal__input--detail';
+  return (
+    <div className="etl-target-select-modal__transform-detail-group">
+      <FieldLabel hint={hint}>{label}</FieldLabel>
+      <input
+        type={type}
+        value={value ?? ''}
+        onChange={onChange}
+        placeholder={placeholder}
+        min={min}
+        max={max}
+        maxLength={maxLength}
+        className={inputClass}
+      />
+    </div>
+  );
+}
+
 export function TransformDetailRow({
   src,
   colSpan,
@@ -49,36 +101,30 @@ export function TransformDetailRow({
         <div className="etl-target-select-modal__transform-detail-inner">
 
           {(kind === 'type_cast' || kind === 'cleansing_and_type_cast') && (
-            <div className="etl-target-select-modal__transform-detail-group">
-              <label className="etl-target-select-modal__transform-detail-label">변환 대상 타입</label>
-              <select
+            <div className="etl-target-select-modal__transform-detail-group etl-detail__card">
+              <FieldLabel hint="저장 시 적용할 PostgreSQL 타입">변환 대상 타입</FieldLabel>
+              <HintSelect
+                options={TYPE_CAST_TARGET_OPTIONS}
                 value={typeCastConfig[src.name]?.target_type || inferredTypeToPg(src.type)}
                 onChange={(e) => setTypeCastConfig((p) => ({
                   ...p,
                   [src.name]: { ...(p[src.name] || {}), target_type: e.target.value }
                 }))}
                 className="etl-target-select-modal__select--type-cast-target"
-              >
-                {TYPE_CAST_TARGET_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              />
             </div>
           )}
 
           {kind === 'string' && (
-            <>
+            <div className="etl-detail__card">
               <div className="etl-target-select-modal__transform-detail-group">
-                <label className="etl-target-select-modal__transform-detail-label">가공 방식</label>
-                <select
+                <FieldLabel hint="문자열에 적용할 연산">가공 방식</FieldLabel>
+                <HintSelect
+                  options={STRING_OPERATION_OPTIONS}
                   value={stringConfig[src.name]?.operation || 'uppercase'}
                   onChange={(e) => setStringConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), operation: e.target.value } }))}
                   className="etl-target-select-modal__select--string-op"
-                >
-                  {STRING_OPERATION_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
+                />
               </div>
 
               {(stringConfig[src.name]?.operation === 'pad_left' || stringConfig[src.name]?.operation === 'pad_right') && (
@@ -136,18 +182,36 @@ export function TransformDetailRow({
               {stringConfig[src.name]?.operation === 'concat' && (
                 <>
                   <div className="etl-target-select-modal__transform-detail-group">
-                    <label className="etl-target-select-modal__transform-detail-label">합칠 컬럼 (Ctrl+클릭)</label>
-                    <select multiple className="etl-target-select-modal__select--concat-cols" value={Array.isArray(stringConfig[src.name]?.columns) && stringConfig[src.name].columns.length > 0 ? stringConfig[src.name].columns : [src.name]} onChange={(e) => setStringConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), columns: Array.from(e.target.selectedOptions, (o) => o.value) } }))}>
-                      {sourceColumns.map((c) => (<option key={c.name} value={c.name}>{c.name}</option>))}
-                    </select>
+                    <FieldLabel hint="체크한 컬럼을 순서대로 구분자로 이어 붙입니다">합칠 컬럼</FieldLabel>
+                    <div className="etl-target-select-modal__concat-checkboxes">
+                      {sourceColumns.map((c) => {
+                        const cols = Array.isArray(stringConfig[src.name]?.columns) && stringConfig[src.name].columns.length > 0 ? stringConfig[src.name].columns : [src.name];
+                        const checked = cols.includes(c.name);
+                        const orderNum = checked ? cols.indexOf(c.name) + 1 : null;
+                        return (
+                          <label key={c.name} className="etl-concat-checkbox">
+                            <span className="etl-concat-order-badge">{orderNum != null ? orderNum : ''}</span>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const next = checked ? cols.filter((x) => x !== c.name) : [...cols, c.name];
+                                setStringConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), columns: next.length > 0 ? next : [src.name] } }));
+                              }}
+                            />
+                            <span className="etl-concat-checkbox-label">{c.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="etl-target-select-modal__transform-detail-group">
-                    <label className="etl-target-select-modal__transform-detail-label">구분자</label>
+                    <FieldLabel hint="컬럼 사이에 넣을 문자">구분자</FieldLabel>
                     <input type="text" placeholder="-" value={stringConfig[src.name]?.separator ?? ''} onChange={(e) => setStringConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), separator: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
                   </div>
                 </>
               )}
-            </>
+            </div>
           )}
 
           {kind === 'code_map' && (
@@ -171,32 +235,23 @@ export function TransformDetailRow({
           )}
 
           {kind === 'masking' && (
-            <>
+            <div className="etl-detail__card">
               <div className="etl-target-select-modal__transform-detail-group">
-                <label className="etl-target-select-modal__transform-detail-label">마스킹 방식</label>
-                <select
+                <FieldLabel hint="개인정보 비식별화 방식">마스킹 방식</FieldLabel>
+                <HintSelect
+                  options={MASKING_OPERATION_OPTIONS}
                   value={maskingConfig[src.name]?.operation || 'mask_right'}
                   onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), operation: e.target.value } }))}
                   className="etl-target-select-modal__select--masking-op"
-                >
-                  {MASKING_OPERATION_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
+                />
               </div>
               {(maskingConfig[src.name]?.operation === 'mask_right' || maskingConfig[src.name]?.operation === 'mask_left') && (
                 <>
-                  <div className="etl-target-select-modal__transform-detail-group">
-                    <label className="etl-target-select-modal__transform-detail-label">가릴 자릿수</label>
-                    <input type="number" min={0} placeholder="4" value={maskingConfig[src.name]?.n ?? ''} onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), n: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
-                  </div>
-                  <div className="etl-target-select-modal__transform-detail-group">
-                    <label className="etl-target-select-modal__transform-detail-label">마스킹 문자</label>
-                    <input type="text" maxLength={1} placeholder="*" value={maskingConfig[src.name]?.char ?? ''} onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), char: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
-                  </div>
+                  <ParamInput label="가릴 자릿수" hint="숫자/문자열에서 가릴 개수" type="number" min={0} placeholder="4" value={maskingConfig[src.name]?.n ?? ''} onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), n: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                  <ParamInput label="마스킹 문자" hint="대체할 문자 1개" type="text" maxLength={1} placeholder="*" value={maskingConfig[src.name]?.char ?? ''} onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), char: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
                 </>
               )}
-            </>
+            </div>
           )}
 
         </div>

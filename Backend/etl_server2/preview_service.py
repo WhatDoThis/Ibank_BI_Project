@@ -15,14 +15,15 @@ Backend.etl_server2.preview_service (ETL 미리보기)
 
 [Main Functions]
 ===========
-- get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. DB 소스 시 변환 룰 요약을 columns[].transform_remark에 추가.
+- get_preview: 변환 룰·타입 캐스트 적용 후 저장될 모습으로 columns + preview_rows + preview_columns 반환. _get_preview_with_transform 호출.
+- _get_preview_with_transform: get_source_dataframe → apply_rules → apply_mapping_type_cast 후 미리보기 데이터 반환.
 - _format_single_rule_summary, _build_transform_remarks_by_column: DB 미리보기 비고용 변환 룰 요약(한글 라벨+옵션).
 - get_source_dataframe: 변환 미리보기용. 소스 컬럼명 기준 DataFrame과 column_mapping 반환 (파일/DB).
 - get_transform_preview: get_source_dataframe + transform_engine.apply_rules → preview_columns, preview_rows, row_count, transform_failed_count.
 
 [Dependencies]
 =========
-- Backend.etl_server2.service, load_service._read_file, schema_infer
+- Backend.etl_server2.service, load_service._read_file, schema_infer, transform_engine, transform_rules_service
 - pandas
 """
 
@@ -568,18 +569,79 @@ def get_transform_preview(
     }
 
 
-def get_preview(etl_table_id: int) -> dict:
-    """ETL 테이블 1건에 대한 미리보기. columns(저장가능/이유) + preview_rows(최대 10행). DB 소스 시 변환 룰 요약을 columns[].transform_remark에 추가."""
+def _get_preview_with_transform(etl_table_id: int) -> dict:
+    """저장 시와 동일하게 변환 룰 + 타입 캐스트 적용 후 미리보기. columns + preview_columns + preview_rows 반환."""
+    from Backend.etl_server2 import transform_engine
+    from Backend.etl_server2 import transform_rules_service as transform_rules_svc
+
     row = etl_service.get_etl_table(etl_table_id)
     if not row:
         raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
     source_type = (row.get("source_type") or "").strip().lower()
     if source_type in ("postgresql", "mysql", "oracle") or (row.get("connection_id") and row.get("source_table")):
-        data = _preview_db(row)
+        source_type = "db"
+    elif source_type == "file" or (row.get("file_path") and row.get("file_type")):
+        source_type = "file"
+    else:
+        raise ValueError("미리보기 지원 소스가 아닙니다.")
+
+    df, mapping = get_source_dataframe(etl_table_id)
+    if df.empty:
+        return {
+            "columns": [],
+            "preview_rows": [],
+            "preview_columns": [],
+            "source_type": source_type,
+        }
+
+    rules = transform_rules_svc.list_transform_rules(etl_table_id)
+    if rules:
+        try:
+            df = transform_engine.apply_rules(df.copy(), rules)
+        except Exception as e:
+            logger.warning("get_preview apply_rules 실패, 변환 없이 진행: %s", e)
+
+    mapping_dicts = [{"source": s, "target": t, "type": ty or "TEXT"} for (s, t, ty) in mapping]
+    if mapping_dicts:
+        try:
+            df = transform_engine.apply_mapping_type_cast(df, mapping_dicts, default_on_error="null")
+        except Exception as e:
+            logger.warning("get_preview apply_mapping_type_cast 실패: %s", e)
+        preview_columns = [m["target"] for m in mapping_dicts]
+        records = df.replace({pd.NA: None}).to_dict("records")
+        preview_rows = [
+            [_serialize_row(rec.get(m["source"])) for m in mapping_dicts]
+            for rec in records
+        ]
+        columns_out = []
+        for m in mapping_dicts:
+            t, ty = m["target"], (m.get("type") or "TEXT").strip().upper() or "TEXT"
+            can_save, reason = _check_column_save(t)
+            columns_out.append({"name": t, "inferred_type": ty, "can_save": can_save, "reason": reason})
+    else:
+        preview_columns = list(df.columns)
+        records = df.replace({pd.NA: None}).to_dict("records")
+        preview_rows = [[_serialize_row(rec.get(c)) for c in preview_columns] for rec in records]
+        columns_out = []
+        for col in preview_columns:
+            can_save, reason = _check_column_save(str(col))
+            dtype = schema_infer._dtype_to_inferred(df[col].dtype) if col in df.columns else "text"
+            pg_t = _pg_type(dtype)
+            columns_out.append({"name": str(col), "inferred_type": pg_t, "can_save": can_save, "reason": reason})
+
+    if source_type == "db":
         remarks = _build_transform_remarks_by_column(etl_table_id)
-        for col in data.get("columns") or []:
+        for col in columns_out:
             col["transform_remark"] = remarks.get((col.get("name") or "").strip(), "") or ""
-        return data
-    if source_type == "file" or (row.get("file_path") and row.get("file_type")):
-        return _preview_file(row)
-    raise ValueError("미리보기 지원 소스가 아닙니다. 파일(path/type) 또는 DB(connection_id/source_table)가 필요합니다.")
+
+    return {
+        "columns": columns_out,
+        "preview_rows": preview_rows,
+        "preview_columns": preview_columns,
+        "source_type": source_type,
+    }
+
+
+def get_preview(etl_table_id: int) -> dict:
+    """ETL 테이블 1건에 대한 미리보기. 변환 룰·타입 캐스트 적용 후 저장될 모습으로 columns + preview_rows(최대 10행) 반환."""
+    return _get_preview_with_transform(etl_table_id)

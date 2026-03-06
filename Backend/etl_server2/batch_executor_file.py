@@ -10,7 +10,7 @@ on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록�
 
 [Main Functions]
 ===========
-- run_batch_job(batch_job_id): 배치 1건 실행 (다운로드 → 체크섬 중복 검사 → 파싱 → 적재, 파일별 격리. on_file_error로 stop/continue)
+- run_batch_job(batch_job_id): 배치 1건 실행. run_completed_ok 플래그로 성공/취소 후 update_job_status("success") 실패 시 except에서 "error"로 덮어쓰지 않음.
 
 [Dependencies]
 =========
@@ -111,6 +111,7 @@ def run_batch_job(batch_job_id: int) -> None:
     adapter = None
     target_conn = None
     sys_conn = None
+    run_completed_ok = False  # True after finish_run(success/partial_error); avoid overwriting to "error" if update_job_status("success") fails
 
     try:
         adapter = _connect_with_retry(job["folder_connection_id"])
@@ -160,6 +161,7 @@ def run_batch_job(batch_job_id: int) -> None:
                     file_list=file_results,
                     conn=sys_conn,
                 )
+                run_completed_ok = True
                 batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
                 logger.info("run_batch_job run_id=%s cancelled by user (이미 처리된 파일은 커밋 유지)", run_id)
                 return
@@ -338,6 +340,7 @@ def run_batch_job(batch_job_id: int) -> None:
             file_list=file_results,
             conn=sys_conn,
         )
+        run_completed_ok = True  # run finished success/partial_error; do not overwrite to "error" if update_job_status below fails
         batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
 
     except Exception as e:
@@ -353,15 +356,16 @@ def run_batch_job(batch_job_id: int) -> None:
                 )
             except Exception:
                 logger.exception("finish_run 복구 실패")
-        try:
-            batch_service.update_job_status(
-                batch_job_id,
-                "error",
-                last_error_message=str(e),
-                conn=sys_conn,
-            )
-        except Exception:
-            logger.exception("update_job_status 복구 실패")
+        if not run_completed_ok:
+            try:
+                batch_service.update_job_status(
+                    batch_job_id,
+                    "error",
+                    last_error_message=str(e),
+                    conn=sys_conn,
+                )
+            except Exception:
+                logger.exception("update_job_status 복구 실패")
         if run_id is not None:
             batch_service.check_consecutive_failures(batch_job_id, threshold=5)
     finally:
