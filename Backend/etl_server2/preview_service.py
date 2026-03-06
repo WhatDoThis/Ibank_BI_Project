@@ -8,6 +8,7 @@ Backend.etl_server2.preview_service (ETL 미리보기)
 - _quote_ident_pg, _quote_ident_mysql: SQL 식별자 이스케이프(PostgreSQL/Oracle ", MySQL `)
 - _read_file_preview: load_service._read_file 호출, DataFrame만 반환(튜플 언패킹)
 - _pg_type: inferred_type → PostgreSQL 타입 문자열
+- _parse_rule_config: transform_engine._parse_config 재사용 (rule_config → dict)
 - _check_column_save: 컬럼명 저장 가능 여부 (can_save, reason)
 - _serialize_row: 행 값 직렬화(datetime→isoformat 등)
 - _preview_file: 파일 소스 10행·컬럼 저장 가능 여부·정규화명
@@ -37,6 +38,7 @@ import pandas as pd
 
 from Backend.etl_server2 import schema_infer
 from Backend.etl_server2 import service as etl_service
+from Backend.etl_server2.transform_engine import _parse_config as _parse_rule_config
 
 logger = logging.getLogger(__name__)
 
@@ -133,18 +135,6 @@ _OPERATION_LABEL = {
     "filter": "필터",
     "deduplicate": "중복제거",
 }
-
-
-def _parse_rule_config(cfg: Any) -> dict:
-    """rule_config를 dict로 반환."""
-    if isinstance(cfg, dict):
-        return cfg
-    if isinstance(cfg, str):
-        try:
-            return json.loads(cfg)
-        except Exception:
-            return {}
-    return {}
 
 
 def _format_single_rule_summary(rule: dict) -> str:

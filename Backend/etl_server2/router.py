@@ -12,7 +12,7 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 [Helpers]
 ===========
 - _ensure_upload_dir, _cleanup_expired_uploads, _save_upload
-- _natural_sort_key, _file_type_from_ext, _normalize_column_name_for_check
+- _natural_sort_key, _file_type_from_ext, normalize_column_name_for_sequence(load_service_file)
 
 [Endpoints]
 ===========
@@ -32,7 +32,7 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server2.service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service, router_file
+- fastapi, Backend.etl_server2.service, db_load_service, preview_service, schema_infer, transform_rules_service, router_file (load_service는 _run_file_load_in_process 내부 lazy import)
 """
 
 import json
@@ -40,6 +40,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 import uuid
 import zipfile
 from pathlib import Path
@@ -51,12 +52,11 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from Backend.etl_server2 import db_load_service
-from Backend.etl_server2 import load_service
 from Backend.etl_server2 import preview_service
 from Backend.etl_server2 import schema_infer
 from Backend.etl_server2 import service as etl_service
-from Backend.etl_server2 import transform_engine
 from Backend.etl_server2 import transform_rules_service as transform_rules_svc
+from Backend.etl_server2.load_service_file import normalize_column_name_for_sequence
 from Backend.etl_server2.router_file import router as batch_router
 
 router = APIRouter(prefix="/api/etl2", tags=["etl2"])
@@ -250,22 +250,22 @@ def etl_index():
         "service": "etl",
         "status": "ok",
         "endpoints": [
-            "GET /api/etl/connections",
-            "POST /api/etl/connections",
-            "POST /api/etl/connections/test",
-            "GET /api/etl/connections/{connection_id}/tables",
-            "GET /api/etl/tables",
-            "GET /api/etl/jobs",
-            "GET /api/etl/jobs/{job_id}",
-            "GET /api/etl/tables/{etl_table_id}/transform-rules",
-            "POST /api/etl/transform-rules",
-            "PUT /api/etl/transform-rules/{rule_id}",
-            "DELETE /api/etl/transform-rules/{rule_id}",
-            "POST /api/etl/tables",
+            "GET /api/etl2/connections",
+            "POST /api/etl2/connections",
+            "POST /api/etl2/connections/test",
+            "GET /api/etl2/connections/{connection_id}/tables",
+            "GET /api/etl2/tables",
+            "GET /api/etl2/jobs",
+            "GET /api/etl2/jobs/{job_id}",
+            "GET /api/etl2/tables/{etl_table_id}/transform-rules",
+            "POST /api/etl2/transform-rules",
+            "PUT /api/etl2/transform-rules/{rule_id}",
+            "DELETE /api/etl2/transform-rules/{rule_id}",
+            "POST /api/etl2/tables",
             "POST /api/etl2/upload",
-            "POST /api/etl/tables/{etl_table_id}/run",
-            "POST /api/etl/tables/{etl_table_id}/add-file",
-            "POST /api/etl/tables/{etl_table_id}/add-files-zip",
+            "POST /api/etl2/tables/{etl_table_id}/run",
+            "POST /api/etl2/tables/{etl_table_id}/add-file",
+            "POST /api/etl2/tables/{etl_table_id}/add-files-zip",
             "POST /api/etl2/cleanup-expired-uploads",
         ],
         "upload_retention_days": UPLOAD_FILE_RETENTION_DAYS,
@@ -524,19 +524,6 @@ def _file_type_from_ext(ext: str) -> Optional[str]:
     return None
 
 
-def _normalize_column_name_for_check(name: str, used: set) -> str:
-    """load_service과 동일한 컬럼명 정규화(검증용)."""
-    base = (str(name).strip() or "unnamed").replace(" ", "_")
-    base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
-    out = base
-    idx = 0
-    while out in used:
-        idx += 1
-        out = f"{base}_{idx}"
-    used.add(out)
-    return out
-
-
 @router.post("/tables/{etl_table_id}/add-file")
 async def add_file_to_table(
     etl_table_id: int,
@@ -585,7 +572,7 @@ async def add_file_to_table(
 
     inferred = schema_infer.infer_schema(file_path, file_type)
     used = set()
-    file_cols = [_normalize_column_name_for_check(c.get("name") or "col", used) for c in inferred]
+    file_cols = [normalize_column_name_for_sequence(c.get("name") or "col", used) for c in inferred]
     file_col_set = set(file_cols)
     missing_pk = [p for p in pk_list if p not in file_col_set]
     if missing_pk:
@@ -621,7 +608,7 @@ async def add_files_zip_to_table(
     """
     from Backend.api_server import db as api_db
     from Backend.etl_server2 import queue_worker
-    from Backend.etl_server2.etl_limits import get_etl_limits
+    from Backend.etl_server2.etl_limits import get_etl_limits, get_max_zip_extract_total_mb
 
     row = etl_service.get_etl_table(etl_table_id)
     if not row:
@@ -672,7 +659,19 @@ async def add_files_zip_to_table(
     try:
         extract_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zip_path, "r") as zf:
+            max_zip_mb = get_max_zip_extract_total_mb()
+            if max_zip_mb > 0:
+                total_uncompressed = sum(info.file_size for info in zf.infolist())
+                if total_uncompressed > max_zip_mb * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"ZIP 압축 해제 예상 크기가 {max_zip_mb}MB를 초과합니다. (약 {total_uncompressed // (1024*1024)}MB)",
+                    )
             zf.extractall(extract_dir)
+    except HTTPException:
+        if extract_dir.is_dir():
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        raise
     except zipfile.BadZipFile as e:
         if zip_path.is_file():
             zip_path.unlink(missing_ok=True)
@@ -718,7 +717,7 @@ async def add_files_zip_to_table(
             skipped_files.append({"filename": name, "reason": "schema_or_pk_failed"})
             continue
         used = set()
-        file_cols = [_normalize_column_name_for_check(c.get("name") or "col", used) for c in inferred]
+        file_cols = [normalize_column_name_for_sequence(c.get("name") or "col", used) for c in inferred]
         file_col_set = set(file_cols)
         missing_pk = [p for p in pk_list if p not in file_col_set]
         if missing_pk:
@@ -1146,9 +1145,8 @@ def run_table_load(etl_table_id: int):
     Phase 6: ETL 테이블 1건 실행.
     - 파일 소스: 이 요청을 받은 프로세스에서 스레드로 즉시 실행(다중 워커 시 업로드 파일 경로 불일치 방지).
     - DB 소스·추가 적재: 대기열 등록 후 백그라운드 워커가 실행.
-    반환: { job_id, status, message } — 완료 여부는 GET /api/etl/jobs/{job_id} 로 폴링.
+    반환: { job_id, status, message } — 완료 여부는 GET /api/etl2/jobs/{job_id} 로 폴링.
     """
-    import threading
     try:
         row = etl_service.get_etl_table(etl_table_id)
         if not row:
@@ -1209,7 +1207,7 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Opt
                     r[key] = val.isoformat()
         return {"jobs": rows}
     except Exception as e:
-        logger.exception("GET /api/etl/jobs failed: %s", e)
+        logger.exception("GET /api/etl2/jobs failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

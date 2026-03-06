@@ -86,8 +86,6 @@ def _run_one_job(job_id: int, etl_table_id: int) -> None:
 def run_worker_iteration() -> None:
     """running 수가 MAX_CONCURRENT 미만인 만큼 pending Job을 1건씩 선점(claim) 후 스레드 풀에 제출. 최대 MAX_CONCURRENT건 동시 실행."""
     global _executor
-    from Backend.etl_server2 import service as etl_service
-
     if _executor is None or _shutdown_requested:
         return
     running = etl_service.count_running_jobs()

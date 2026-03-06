@@ -1,3 +1,89 @@
+## 2026-03-06 개발문서·README 반영 (log 기준)
+
+**적용 내용:** docs/report/log.md 최종 개발문서 업데이트 이후 반영분을 docs/main·README에 반영.
+- **02_BACKEND_GUIDE.md**: §3.3 etl_limits에 max_zip_extract_total_mb·add-files-zip 동작, §4.6 GET preview·PATCH clear_last_synced_at·add-files-zip, §2 etl_server2에 transform_upsert_verification·etl_limits 설명 보강, §6.7 preview 변환 룰·clear_last_synced_at·delete_etl_table cascade·get_skipped_filenames_set·batch_executor_db apply_rules·transform_upsert_verification, 변경 이력 2026-03-06.
+- **00_PRD.md**: §3.2 etl_limits ZIP 총량 상한, §6.3.1 데이터 추가 모달 ZIP 안내 문구.
+- **README.md**: etl_limits ZIP 한도 언급, ETL 목록 ZIP 안내(50MB·2GB), docs/main 최종 반영일 2026-03-06.
+- **requirements.txt**: 대규모 코드 품질 개선 작업에서 신규 패키지 추가 없음(기존 의존성·표준 라이브러리만 사용). 수정 없음.
+
+---
+
+## 2026-03-06 ZIP 압축 해제 총량 제한 (ZIP bomb 방지)
+
+**적용 내용:**
+- **Backend/etl_server2/etl_limits.py**: `DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB = 2048`, `get_max_zip_extract_total_mb()` 추가. config.backend.etl_limits.max_zip_extract_total_mb 조회, 없으면 2GB 기본.
+- **Env/config/config.json**: backend.etl_limits에 `max_zip_extract_total_mb: 2048` 추가.
+- **Backend/etl_server2/router.py** `add_files_zip_to_table`: 압축 해제 전 `zf.infolist()`로 총 압축 해제 크기 합산 후 `get_max_zip_extract_total_mb()`와 비교, 초과 시 HTTP 400 및 메시지 반환. 제한 0이면 검사 생략. HTTPException 시 extract_dir 정리 후 재발생.
+
+**변경 파일:** Backend/etl_server2/etl_limits.py, Backend/etl_server2/router.py, Env/config/config.json, docs/report/log.md.
+
+---
+
+## 2026-03-06 service_file·transform_rules_service 코드 품질 정리
+
+**적용 내용:**
+- **Backend/etl_server2/service_file.py**: `import re` 상단 이동(delete_batch_target_registry_and_drop_table 내부 제거). `_get_db`, `_schema`, `_q` 독자 구현 제거 → `from Backend.etl_server2 import service as etl_service` 후 etl_service 위임으로 통일(transform_rules_service와 동일 패턴). delete_batch_target_registry_and_drop_table 내부 중복 etl_service import 제거.
+- **Backend/etl_server2/transform_rules_service.py**: `import json` 상단 이동, create_transform_rule·update_transform_rule 내부 2곳 제거.
+
+**변경 파일:** Backend/etl_server2/service_file.py, Backend/etl_server2/transform_rules_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-06 transform_engine·scheduler·컬럼정규화·_parse_config 통합
+
+**적용 내용:**
+- **Backend/etl_server2/transform_engine.py**: `import re`, `import hashlib`, `import json` 상단 이동. `_apply_masking` 내부 re/hashlib, `_parse_config` 내부 json 제거.
+- **Backend/etl_server2/scheduler_file.py**: `from apscheduler.triggers.interval import IntervalTrigger` 상단 이동, `reschedule_job` 내부 lazy import 제거.
+- **Backend/etl_server2/load_service_file.py**: `normalize_column_name_for_sequence(name, used)` 추가 — 컬럼명 정규화 + used 기준 유일 이름 반환. router/load_service와 공유.
+- **Backend/etl_server2/load_service.py**: run_file_load·run_file_upsert 내부 인라인 컬럼 정규화 루프 제거 → `normalize_column_name_for_sequence` 사용.
+- **Backend/etl_server2/router.py**: `_normalize_column_name_for_check` 제거 → `load_service_file.normalize_column_name_for_sequence` import 후 호출로 대체.
+- **Backend/etl_server2/preview_service.py**: `_parse_rule_config` 로컬 정의 제거 → `transform_engine._parse_config` import(`_parse_rule_config` 별칭) 사용.
+
+**변경 파일:** transform_engine.py, scheduler_file.py, load_service_file.py, load_service.py, router.py, preview_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-06 router_file·db_load_service·service 코드 품질 정리
+
+**적용 내용:**
+- **Backend/etl_server2/router_file.py**: `scheduler_file` 상단 import 추가, 7곳 함수 내부 lazy import 제거. `update_batch_job`: 18개 필드 if 분기 → `body.model_dump(exclude_none=True)` 한 줄로 대체.
+- **Backend/etl_server2/db_load_service.py**: `run_db_load` 내부 3곳의 `from datetime import datetime as dt` 제거, 상단 `datetime` 사용. `_pg_type_from_mysql` 내 도달 불가능한 `if t in ("tinyint",) and "bool" in t` 분기(dead code) 삭제.
+- **Backend/etl_server2/service.py**: `create_etl_table` 내 빈 try/finally(conn 열고 닫기만 하던 블록) 삭제.
+
+**변경 파일:** Backend/etl_server2/router_file.py, Backend/etl_server2/db_load_service.py, Backend/etl_server2/service.py, docs/report/log.md.
+
+---
+
+## 2026-03-06 queue_worker·db·etl_limits 코드 품질 정리
+
+**적용 내용:**
+- **Backend/etl_server2/queue_worker.py**: `run_worker_iteration` 내부의 중복 `from Backend.etl_server2 import service as etl_service` 삭제 (상단 import만 사용).
+- **Backend/api_server/db.py**: 컬럼/PK 조회 공통화 및 ETL 타겟 함수 커넥션 1회 사용.
+  - 내부 헬퍼 추가: `_table_exists(conn, schema, table_name)`, `_query_table_columns(conn, schema, table_name)`, `_query_primary_key_columns(conn, schema, table_name)`.
+  - `get_table_columns` / `get_primary_key_columns`: 위 헬퍼 사용으로 중복 SQL 제거.
+  - `table_exists_in_schema`: `_table_exists` 사용으로 SELECT 1 로직 일원화.
+  - `get_table_columns_for_etl_target`, `get_primary_key_columns_for_etl_target`: 존재 확인 + 본 쿼리를 동일 conn으로 수행해 커넥션 2회 → 1회로 축소.
+- **Backend/etl_server2/etl_limits.py**: `_safe_int(val, default)` 헬퍼 추가, `get_etl_limits` 내 3회 반복 try/except 정수 변환을 헬퍼 호출로 대체.
+
+**변경 파일:** Backend/etl_server2/queue_worker.py, Backend/api_server/db.py, Backend/etl_server2/etl_limits.py, docs/report/log.md.
+
+---
+
+## 2026-03-06 ETL2 router.py import·엔드포인트 안내 정리
+
+**배경:** 미사용 import 제거, lazy import 유지, threading 상단 이동, etl_index 엔드포인트 문자열을 실제 prefix(/api/etl2)에 맞춤.
+
+**적용 내용:**
+- **Backend/etl_server2/router.py**
+  - 삭제: `from Backend.etl_server2 import load_service`, `from Backend.etl_server2 import transform_engine` (상단 미사용; load_service는 `_run_file_load_in_process` 내부 lazy import만 사용).
+  - 상단 추가: `import threading`. `run_table_load` 내부의 `import threading` 제거.
+  - `etl_index()`의 endpoints 리스트: `/api/etl/` → `/api/etl2/` 로 전부 수정. 로그 메시지 "GET /api/etl/jobs failed" → "GET /api/etl2/jobs failed".
+  - 파일 상단 [Dependencies]: load_service·transform_engine 제거, load_service는 내부 lazy import 주석으로 명시.
+
+**변경 파일:** Backend/etl_server2/router.py, docs/report/log.md.
+
+---
+
 ## 2026-03-06 파일 배치: 이력에 스킵/에러된 파일 매 주기 재시도 방지
 
 **배경:** 한 번 skipped(duplicate_checksum, file_size_exceeded 등) 또는 error로 기록된 파일이 다음 주기마다 pending에 다시 포함되어 매번 다운로드·체크섬·스킵을 반복함. 이력/문제 파일 목록으로 이미 확인 가능하므로 재시도할 필요 없음.

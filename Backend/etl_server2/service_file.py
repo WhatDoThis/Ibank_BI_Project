@@ -24,28 +24,31 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection_system, get_system_table_schema)
+- Backend.api_server.db (get_db_connection_system, get_system_table_schema, _get_db/_schema/_q는 service 위임)
+- Backend.etl_server2.service (_get_db, _schema, _q 공유)
 - Backend.etl_server2.folder_adapter_file (SFTPAdapter, S3Adapter)
 """
 
 import json
 import logging
+import re
 from typing import Any, List, Optional, Set
+
+from Backend.etl_server2 import service as etl_service
 
 logger = logging.getLogger(__name__)
 
 
 def _get_db():
-    from Backend.api_server import db as api_db
-    return api_db
+    return etl_service._get_db()
 
 
 def _schema() -> str:
-    return _get_db().get_system_table_schema()
+    return etl_service._schema()
 
 
 def _q(schema_name: str, table_name: str) -> str:
-    return f'"{schema_name}"."{table_name}"'
+    return etl_service._q(schema_name, table_name)
 
 
 def list_folder_connections() -> List[dict]:
@@ -794,8 +797,6 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
     ETL 목록에서 "배치 유래 행" 삭제 시: 연결된 배치 Job이 있으면 먼저 삭제(cascade),
     해당 스토리지 연결에서 타겟 테이블 DROP 후 레지스트리 행 삭제.
     """
-    from Backend.etl_server2 import service as etl_service
-
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -833,7 +834,6 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
 
     target_table = (target_table or "").strip()
     if target_table and isinstance(target_table, str) and len(target_table) <= 200:
-        import re
         if re.match(r"^[a-zA-Z0-9_]+$", target_table):
             conn_main, main_schema = etl_service.get_target_db_connection(storage_connection_id)
             cur_main = conn_main.cursor()

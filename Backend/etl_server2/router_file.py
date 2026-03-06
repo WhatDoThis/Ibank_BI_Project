@@ -48,6 +48,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from Backend.etl_server2 import parser_file as batch_parser
+from Backend.etl_server2 import scheduler_file as sched
 from Backend.etl_server2 import service_file as batch_service
 from Backend.etl_server2 import service as etl_service
 from Backend.etl_server2.load_service_file import _normalize_column_name as normalize_col
@@ -483,8 +484,6 @@ def list_batch_jobs(
     job_type: Optional[str] = Query(None, description="file | db"),
 ):
     """배치 Job 목록. connection_name JOIN. §11.3 다음 실행 시각(next_run_time) 포함. job_type으로 file/db 필터."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     try:
         jobs = batch_service.list_batch_jobs(
             folder_connection_id=folder_connection_id,
@@ -515,8 +514,6 @@ def _serialize_job(j: dict) -> None:
 @router.post("/jobs")
 def create_batch_job(body: CreateBatchJobBody):
     """배치 Job 등록. is_active=True면 스케줄러에 등록. job_type=db이면 connection_id·source_table 필수."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     jtype = (body.job_type or "file").strip().lower()
     if jtype not in ("file", "db"):
         raise HTTPException(status_code=400, detail="job_type은 'file' 또는 'db'여야 합니다.")
@@ -566,8 +563,6 @@ def create_batch_job(body: CreateBatchJobBody):
 @router.post("/jobs/from-etl-table")
 def create_batch_job_from_etl_table(body: CreateBatchJobFromEtlTableBody):
     """ETL 테이블 기반 DB 배치 등록. 소스/타겟/매핑은 etl_tables에서 참조. 실행 시 실시간 조회. status=done일 때만 허용."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     etl_table = etl_service.get_etl_table(body.etl_table_id)
     if not etl_table:
         raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
@@ -690,49 +685,11 @@ def validate_target_for_batch(body: ValidateTargetBody):
 @router.patch("/jobs/{batch_job_id}")
 def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
     """배치 Job 수정. interval_minutes 변경 시 reschedule, is_active 변경 시 add/remove job."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     try:
         existing = batch_service.get_batch_job(batch_job_id)
         if not existing:
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
-        kwargs: dict = {}
-        if body.job_name is not None:
-            kwargs["job_name"] = body.job_name
-        if body.file_pattern is not None:
-            kwargs["file_pattern"] = body.file_pattern
-        if body.file_extensions is not None:
-            kwargs["file_extensions"] = body.file_extensions
-        if body.target_table is not None:
-            kwargs["target_table"] = body.target_table
-        if body.pk_columns is not None:
-            kwargs["pk_columns"] = body.pk_columns
-        if body.interval_minutes is not None:
-            kwargs["interval_minutes"] = body.interval_minutes
-        if body.is_active is not None:
-            kwargs["is_active"] = body.is_active
-        if body.storage_connection_id is not None:
-            kwargs["storage_connection_id"] = body.storage_connection_id
-        if body.column_mapping is not None:
-            kwargs["column_mapping"] = body.column_mapping
-        if body.index_definitions is not None:
-            kwargs["index_definitions"] = body.index_definitions
-        if body.on_file_error is not None:
-            kwargs["on_file_error"] = body.on_file_error
-        if body.connection_id is not None:
-            kwargs["connection_id"] = body.connection_id
-        if body.source_table is not None:
-            kwargs["source_table"] = body.source_table
-        if body.incremental_column is not None:
-            kwargs["incremental_column"] = body.incremental_column
-        if body.sync_mode is not None:
-            kwargs["sync_mode"] = body.sync_mode
-        if body.batch_size is not None:
-            kwargs["batch_size"] = body.batch_size
-        if body.batch_interval_seconds is not None:
-            kwargs["batch_interval_seconds"] = body.batch_interval_seconds
-        if body.on_row_error is not None:
-            kwargs["on_row_error"] = body.on_row_error
+        kwargs = body.model_dump(exclude_none=True)
         if not kwargs:
             return {"message": "변경 사항 없음."}
         batch_service.update_batch_job(batch_job_id, **kwargs)
@@ -759,8 +716,6 @@ def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
 @router.delete("/jobs/{batch_job_id}")
 def delete_batch_job(batch_job_id: int):
     """스케줄러에서 제거 후 배치 Job 삭제."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     try:
         existing = batch_service.get_batch_job(batch_job_id)
         if not existing:
@@ -801,8 +756,6 @@ def get_batch_job_db_preview(batch_job_id: int):
 @router.post("/jobs/{batch_job_id}/run-now")
 def run_batch_job_now(batch_job_id: int):
     """즉시 1회 실행. 이미 실행 중이면 스케줄하지 않고 메시지 반환."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     try:
         if not batch_service.get_batch_job(batch_job_id):
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
@@ -820,8 +773,6 @@ def run_batch_job_now(batch_job_id: int):
 @router.post("/jobs/{batch_job_id}/toggle")
 def toggle_batch_job(batch_job_id: int):
     """활성/비활성 토글 후 스케줄러 add/remove."""
-    from Backend.etl_server2 import scheduler_file as sched
-
     try:
         job = batch_service.get_batch_job(batch_job_id)
         if not job:

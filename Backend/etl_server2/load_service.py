@@ -63,6 +63,7 @@ from Backend.etl_server2 import service as etl_service
 from Backend.etl_server2 import transform_engine
 from Backend.etl_server2 import transform_rules_service as transform_rules_svc
 from Backend.etl_server2.etl_limits import get_etl_limits
+from Backend.etl_server2.load_service_file import normalize_column_name_for_sequence
 
 
 # schema_infer inferred_type → PostgreSQL 타입
@@ -161,14 +162,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     normalized_names: List[str] = []
     orig_columns = list(df.columns)
     for col in orig_columns:
-        base = str(col).strip() or "unnamed"
-        base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
-        name = base
-        idx = 0
-        while name in used:
-            idx += 1
-            name = f"{base}_{idx}"
-        used.add(name)
+        name = normalize_column_name_for_sequence(str(col), used)
         etl_service._validate_identifier(name, "컬럼명")
         normalized_names.append(name)
     source_to_normalized = dict(zip(orig_columns, normalized_names))
@@ -398,14 +392,7 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
     used: set = set()
     normalized_names: List[str] = []
     for col in df.columns:
-        base = str(col).strip() or "unnamed"
-        base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
-        name = base
-        idx = 0
-        while name in used:
-            idx += 1
-            name = f"{base}_{idx}"
-        used.add(name)
+        name = normalize_column_name_for_sequence(str(col), used)
         etl_service._validate_identifier(name, "컬럼명")
         normalized_names.append(name)
     df.columns = normalized_names

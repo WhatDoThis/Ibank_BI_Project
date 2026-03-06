@@ -433,8 +433,6 @@ def _pg_type_from_mysql(data_type: str) -> str:
         return "DOUBLE PRECISION"
     if t in ("date", "datetime", "timestamp", "time", "year"):
         return "TIMESTAMP"
-    if t in ("tinyint",) and "bool" in t:
-        return "BOOLEAN"
     return "TEXT"
 
 
@@ -1214,8 +1212,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
                         max_vals = [r.get(inc_key) for r in rows_batch if r.get(inc_key) is not None]
                         if max_vals:
-                            from datetime import datetime as dt
-                            latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
+                            latest = max(max_vals) if isinstance(max_vals[0], datetime) else max(max_vals)
                             # 전역 최대값 유지(full/증분 공통). 루프 끝에서 한 번만 update_last_synced_at 호출.
                             last_synced_candidate = latest if last_synced_candidate is None else max(last_synced_candidate, latest)
                     etl_service.update_job_progress(job_id, total_processed)
@@ -1351,8 +1348,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
                         max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
                         if max_vals:
-                            from datetime import datetime as dt
-                            latest = max(max_vals) if isinstance(max_vals[0], dt) else max(max_vals)
+                            latest = max(max_vals) if isinstance(max_vals[0], datetime) else max(max_vals)
                             etl_service.update_last_synced_at(etl_table_id, latest)
                 else:
                     # incremental: Upsert. PK 필요.
@@ -1432,8 +1428,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
                         max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
                         if max_vals:
-                            from datetime import datetime as dt
-                            if isinstance(max_vals[0], dt):
+                            if isinstance(max_vals[0], datetime):
                                 latest = max(max_vals)
                             else:
                                 latest = max(max_vals)

@@ -1160,13 +1160,6 @@ def create_etl_table(
         source_table = _validate_source_table(source_table)
     schema = _schema()
     # 동일 타겟 테이블은 다른 DB(연결)에서 같은 테이블로 추가 적재할 수 있으므로 target_table 유일성 검사 제거.
-    conn = api_db.get_db_connection_system()
-    cur = conn.cursor()
-    try:
-        pass  # target_table 중복 허용
-    finally:
-        cur.close()
-        conn.close()
     sync_mode = (sync_mode or "incremental").strip().lower()
     if sync_mode not in ("full", "incremental"):
         sync_mode = "incremental"

@@ -11,13 +11,14 @@ get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict
 get_system_table_schema: 시스템 DB의 table_schema (ETL 메타 등)
 get_allowed_tables: 허용 테이블 목록 (allowed_tables)
 get_table_schema: 테이블 스키마명 (table_schema)
+_table_exists, _query_table_columns, _query_primary_key_columns: 내부 공통 SQL 헬퍼 (conn 인자로 커넥션 1회 사용)
 get_table_columns: 테이블 컬럼명 목록 (information_schema, 허용 테이블만)
 get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
 get_all_tables_columns_with_types: 복수 테이블 컬럼·타입 일괄 조회
 get_primary_key_columns: 테이블 PK 컬럼명 목록 (허용 테이블만)
 table_exists_in_schema: 테이블 스키마 내 존재 여부 (allowed_tables 미검사)
-get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사)
-get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사)
+get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사, 커넥션 1회)
+get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사, 커넥션 1회)
 get_db_connection: 메인 DB 연결 생성 (UTF-8 인코딩)
 get_db_connection_system: 시스템 DB 연결 생성 (ETL 메타·세션 등용)
 format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
@@ -146,11 +147,21 @@ def get_table_schema():
     return str(schema).strip()
 
 
-def get_table_columns(table_name):
-    """테이블의 컬럼명 목록 반환 (information_schema 기준). 허용된 테이블만 조회 가능."""
-    validate_table_name(table_name)
-    schema = get_table_schema()
-    conn = get_db_connection()
+def _table_exists(conn, schema: str, table_name: str) -> bool:
+    """내부: 동일 conn으로 테이블 존재 여부 조회. conn은 호출자가 열고 닫음."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s",
+            (schema, table_name),
+        )
+        return cur.fetchone() is not None
+    finally:
+        cur.close()
+
+
+def _query_table_columns(conn, schema: str, table_name: str):
+    """내부: information_schema에서 컬럼명 목록 조회. conn은 호출자가 열고 닫음."""
     cur = conn.cursor()
     try:
         cur.execute(
@@ -165,6 +176,39 @@ def get_table_columns(table_name):
         return [row["column_name"] for row in cur.fetchall()]
     finally:
         cur.close()
+
+
+def _query_primary_key_columns(conn, schema: str, table_name: str):
+    """내부: information_schema에서 PK 컬럼명 목록 조회. conn은 호출자가 열고 닫음."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                 AND tc.table_catalog = kcu.table_catalog
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = %s AND tc.table_name = %s
+            ORDER BY kcu.ordinal_position
+            """,
+            (schema, table_name),
+        )
+        return [row["column_name"] for row in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+def get_table_columns(table_name):
+    """테이블의 컬럼명 목록 반환 (information_schema 기준). 허용된 테이블만 조회 가능."""
+    validate_table_name(table_name)
+    schema = get_table_schema()
+    conn = get_db_connection()
+    try:
+        return _query_table_columns(conn, schema, table_name)
+    finally:
         conn.close()
 
 
@@ -230,25 +274,9 @@ def get_primary_key_columns(table_name):
     validate_table_name(table_name)
     schema = get_table_schema()
     conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                 ON tc.constraint_name = kcu.constraint_name
-                 AND tc.table_schema = kcu.table_schema
-                 AND tc.table_catalog = kcu.table_catalog
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-              AND tc.table_schema = %s AND tc.table_name = %s
-            ORDER BY kcu.ordinal_position
-            """,
-            (schema, table_name),
-        )
-        return [row["column_name"] for row in cur.fetchall()]
+        return _query_primary_key_columns(conn, schema, table_name)
     finally:
-        cur.close()
         conn.close()
 
 
@@ -258,40 +286,23 @@ def table_exists_in_schema(table_name: str) -> bool:
         return False
     schema = get_table_schema()
     conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            "SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s",
-            (schema, table_name),
-        )
-        return cur.fetchone() is not None
+        return _table_exists(conn, schema, table_name)
     finally:
-        cur.close()
         conn.close()
 
 
 def get_table_columns_for_etl_target(table_name: str):
-    """ETL 타겟 테이블의 컬럼명 목록 반환. allowed_tables 미검사(ETL로 생성된 테이블용). 테이블이 없으면 []."""
+    """ETL 타겟 테이블의 컬럼명 목록 반환. allowed_tables 미검사(ETL로 생성된 테이블용). 테이블이 없으면 ValueError."""
     if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
         raise ValueError(f"잘못된 테이블 이름: {table_name}")
-    if not table_exists_in_schema(table_name):
-        raise ValueError(f"타겟 테이블이 메인 DB에 없습니다: {table_name}")
     schema = get_table_schema()
     conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            ORDER BY ordinal_position
-            """,
-            (schema, table_name),
-        )
-        return [row["column_name"] for row in cur.fetchall()]
+        if not _table_exists(conn, schema, table_name):
+            raise ValueError(f"타겟 테이블이 메인 DB에 없습니다: {table_name}")
+        return _query_table_columns(conn, schema, table_name)
     finally:
-        cur.close()
         conn.close()
 
 
@@ -299,29 +310,13 @@ def get_primary_key_columns_for_etl_target(table_name: str):
     """ETL 타겟 테이블의 PK 컬럼명 목록 반환. allowed_tables 미검사. PK 없으면 []."""
     if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
         raise ValueError(f"잘못된 테이블 이름: {table_name}")
-    if not table_exists_in_schema(table_name):
-        raise ValueError(f"타겟 테이블이 메인 DB에 없습니다: {table_name}")
     schema = get_table_schema()
     conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                 ON tc.constraint_name = kcu.constraint_name
-                 AND tc.table_schema = kcu.table_schema
-                 AND tc.table_catalog = kcu.table_catalog
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-              AND tc.table_schema = %s AND tc.table_name = %s
-            ORDER BY kcu.ordinal_position
-            """,
-            (schema, table_name),
-        )
-        return [row["column_name"] for row in cur.fetchall()]
+        if not _table_exists(conn, schema, table_name):
+            raise ValueError(f"타겟 테이블이 메인 DB에 없습니다: {table_name}")
+        return _query_primary_key_columns(conn, schema, table_name)
     finally:
-        cur.close()
         conn.close()
 
 

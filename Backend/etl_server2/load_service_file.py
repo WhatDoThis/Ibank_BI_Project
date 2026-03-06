@@ -2,7 +2,7 @@
 Backend.etl_server2.load_service_file (배치 파일 적재 서비스)
 ==========================================================
 09_ETL_SFTP_Connection §4.3, §7.5. 저장 DB 연결·테이블 존재 확인·CREATE·INSERT/upsert.
-get_target_connection, table_exists, create_table_from_dataframe, load_dataframe.
+get_target_connection, table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유), create_table_from_dataframe, load_dataframe.
 배치 실행기(batch_executor_file)에서 다운로드·파싱 후 호출.
 
 [Main Functions]
@@ -77,6 +77,18 @@ def _normalize_column_name(name: str) -> str:
     """컬럼명을 영문·숫자·언더스코어만 허용하도록 정규화."""
     s = re.sub(r"[^a-zA-Z0-9_]", "_", (name or "").strip()) or "col"
     return s.strip("_") or "col"
+
+
+def normalize_column_name_for_sequence(name: str, used: set) -> str:
+    """컬럼명 정규화 후 used 집합 기준 유일 이름 반환. used에 추가 후 반환. router/load_service와 공유."""
+    base = _normalize_column_name(name)
+    out = base
+    idx = 0
+    while out in used:
+        idx += 1
+        out = f"{base}_{idx}"
+    used.add(out)
+    return out
 
 
 def _dtype_to_pg(dtype) -> str:

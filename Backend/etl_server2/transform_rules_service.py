@@ -22,6 +22,7 @@ etl_transform_rules 테이블 조회·등록·수정·삭제. Phase 2: rule_cate
 - Backend.etl_server2.service
 """
 
+import json
 from typing import Any, Dict, List, Optional
 
 from Backend.etl_server2 import service as etl_service
@@ -119,7 +120,6 @@ def create_transform_rule(
         legacy = (rule_type or rule_category or "").strip().lower()
         if legacy not in _VALID_RULE_TYPES:
             raise ValueError(f"rule_type/rule_category는 {', '.join(sorted(_VALID_CATEGORIES | _VALID_RULE_TYPES))} 중 하나여야 합니다.")
-    import json
     config_json = json.dumps(rule_config if rule_config is not None else {})
     op = (operation or "default").strip() or "default"
     conn = api_db.get_db_connection_system()
@@ -230,7 +230,6 @@ def update_transform_rule(
             updates.append("operation = %s")
             params.append((operation or "default").strip() or "default")
         if rule_config is not None:
-            import json
             updates.append("rule_config = %s::jsonb")
             params.append(json.dumps(rule_config))
         if apply_order is not None:

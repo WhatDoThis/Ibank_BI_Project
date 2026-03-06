@@ -219,7 +219,7 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
             </div>
             <p className="etl-add-file-modal__accept">
               {mode === 'zip'
-                ? 'ZIP 내부: CSV, Excel(.xlsx/.xls), Parquet. 각 파일이 용량 한도(설정값) 이하여야 합니다.'
+                ? 'ZIP 해제 시 CSV, Excel(.xlsx/.xls), Parquet 확장자만 지원. 각 파일 최대 50MB(한도 초과 시 해당 파일 Skip), ZIP 파일 최대 2GB(한도 초과 시 데이터 추가 실패)'
                 : '지원 형식: CSV, Excel(.xlsx/.xls), Parquet / 최대 50MB'}
             </p>
 

@@ -26,6 +26,7 @@ from typing import Optional
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +125,6 @@ def remove_job(batch_job_id: int) -> None:
 
 def reschedule_job(batch_job_id: int, interval_minutes: int) -> None:
     """배치 주기 변경."""
-    from apscheduler.triggers.interval import IntervalTrigger
-
     job_id = f"batch_{batch_job_id}"
     get_scheduler().reschedule_job(job_id, trigger=IntervalTrigger(minutes=interval_minutes))
     logger.debug("scheduler reschedule_job %s interval=%s min", job_id, interval_minutes)

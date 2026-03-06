@@ -33,8 +33,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 - **파일·외부 DB → 우리 PostgreSQL 적재.** 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. 업로드 파일 3일 보관 후 자동 삭제. (2) **DB** PostgreSQL·MySQL 적재 지원(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). Oracle은 테이블 목록·미리보기·PK 자동 조회만 지원(적재 Phase 3 예정). **Oracle 연결은 Service Name만 지원**(JDBC @호스트:1521/서비스명, SID 미지원). 등록된 연결·연결 선택에 **호스트:포트/DB명** 표시. 타겟 테이블명 중복 시 etl_tables·메인 DB 검사(증분 모드면 기존 테이블 허용). Oracle 테이블 목록: 스키마 미지정 시 접속 사용자 소유만(USER_TABLES).
 - **동기화 모드**: 전체(삭제 후 적재) / **증분**(last_synced_at 이후 Upsert, 기본값). 배치 크기·배치 간 대기는 한 번 실행 시 적용. **실행은 수동(실행 버튼)만**, 매일 자동 실행 스케줄 없음.
-- **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가 적재·건너뛴 파일 목록 표시.
-- **ETL 사용 시** config에 backend.system_db(시스템 DB), backend.etl_limits(파일 크기·행 수·배치 상한) 선택. 상세는 **docs/main/02_BACKEND_GUIDE.md §3·§6**.
+- **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가 적재(각 파일 최대 50MB·ZIP 전체 최대 2GB, config로 변경 가능)·건너뛴 파일 목록 표시.
+- **ETL 사용 시** config에 backend.system_db(시스템 DB), backend.etl_limits(파일 크기·행 수·배치 상한·ZIP 압축 해제 총량 상한) 선택. 상세는 **docs/main/02_BACKEND_GUIDE.md §3·§6**.
 
 ### ETL2 (/etl2)
 
@@ -99,7 +99,7 @@ API·웹 서버 설정은 **Env/config/config.json** 에서 합니다.
 `Env/config/config.json.example` 을 복사해 `config.json` 으로 만든 뒤 값을 채우면 됩니다.
 
 - **backend**: api_host, api_port, db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema, query_timeout_seconds, claude_api_key, claude_api_url  
-  - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size) 선택
+  - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb** ZIP 압축 해제 총량 상한·기본 2GB) 선택
 - **frontend**: static_port, main_page, api_base_url, static_dir (기본: `Frontend/react-app/dist`)
 
 **.env 파일은 사용하지 않습니다.** 환경은 config.json 에만 정의합니다.
@@ -182,5 +182,5 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-04 (ETL2 DB 배치·status=done·적재 안정성). |
+| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-06 (ZIP 한도·미리보기 변환 룰·배치 스킵 재시도 방지·DB 배치 변환 룰·삭제 cascade·clear_last_synced_at·transform_upsert_verification). |
 | **docs/report/** | 배포·실행 로그 등 |

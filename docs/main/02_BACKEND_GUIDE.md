@@ -74,9 +74,10 @@ Backend/
     ├── csv_reader.py              # read_csv_robust(인코딩 감지·순차 시도)·load_service/parser_file에서 CSV 파싱 통합
     ├── parser_file.py             # get_pending_files(첫 실행 시 대기 파일 전부 반환)·CSV 시 csv_reader 호출
     ├── scheduler_file.py          # APScheduler·add_job·remove_job·reschedule_job
-    ├── preview_service.py         # get_raw_sample·transform/preview용
+    ├── preview_service.py         # get_preview·_get_preview_with_transform(변환 룰·타입 캐스트 적용 미리보기)
     ├── schema_infer.py            # infer_schema(파일→컬럼·타입)
-    └── etl_limits.py              # config 없을 때 ETL 한도 기본값(get_etl_limits)
+    ├── etl_limits.py              # get_etl_limits·get_max_zip_extract_total_mb(ZIP 압축 해제 총량 상한)
+    └── transform_upsert_verification.py  # 변환 룰·엔진 출력과 load_dataframe/_batch_upsert 호환 검증
 ```
 
 - **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **etl2_router**(Backend.etl_server2.router).
@@ -117,8 +118,10 @@ Backend/
 | **max_file_size_mb** | 파일 적재 시 파일 크기 상한(MB). 초과 시 거부. | 50 | 검사 안 함 |
 | **max_rows_per_load** | 1회 적재당 최대 행 수. 파일은 해당 행까지만 읽고, DB는 이 행 수까지만 가져와 적재. | 100_000 | 무제한 |
 | **max_batch_size** | DB 적재 시 배치당 최대 행 수(사용자 batch_size 상한). 스트리밍 시 메모리 상한. | 50_000 | 사용자값 그대로 |
+| **max_zip_extract_total_mb** | ZIP 추가 적재 시 압축 해제 **총** 용량 상한(MB). 초과 시 add-files-zip 전체 실패(ZIP bomb 방지). | 2048(2GB) | 검사 안 함(0) |
 
 - **파일**: 크기 > max_file_size_mb 이면 실패. CSV는 max_rows_per_load만큼만 읽고, Excel/Parquet는 읽은 뒤 해당 행 수로 자름.
+- **ZIP 추가 적재**(POST add-files-zip): 압축 해제 **전**에 `get_max_zip_extract_total_mb()`로 상한(MB) 조회 후, `zf.infolist()`의 `file_size` 합계가 상한을 초과하면 HTTP 400으로 거부. 상한 0이면 검사 생략. UI 안내: 각 파일 최대 50MB(초과 시 해당 파일 Skip), ZIP 전체 최대 2GB(초과 시 데이터 추가 실패).
 - **DB**: 사용자 batch_size가 있으면 min(사용자값, max_batch_size)로 배치. **배치 크기 미입력(batch_size=0)** 시: config의 max_rows_per_load가 있으면 그 값을 상한으로 사용하고, 없으면 **기본 10_000건** 상한 적용(PostgreSQL·MySQL·Oracle 공통). etl_server: `DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH=10000`. etl_server2: MySQL/Oracle은 effective_batch_size=0일 때 10_000 스트리밍 배치 적용.
 - **취소 체크 견고화(etl_server)**: DB 적재 중 `is_job_cancelled` 조회 시 시스템 DB 연결 실패 등 예외가 나면 `_safe_is_job_cancelled`가 False(취소 아님)를 반환해 적재를 계속 진행. 스트리밍·비스트리밍 경로 모두 적용.
 
@@ -215,8 +218,8 @@ Backend/
 | GET | /api/etl2/connections/{id}/source-columns | 소스 테이블 컬럼 목록 (query: source_table) |
 | **GET** | **/api/etl2/connections/{id}/source-indexes** | 소스 테이블 PK·인덱스 목록 (query: source_table, is_primary 구분) |
 | POST | /api/etl2/connections/{id}/validate-incremental-column | 증분 컬럼 날짜 검증 |
-| GET | /api/etl2/tables/{id}/preview | 미리보기 |
-| PATCH | /api/etl2/tables/{id} | ETL 테이블 설정 일부 갱신(sync_mode, on_row_error, incremental_column, batch_size 등) |
+| GET | /api/etl2/tables/{id}/preview | 미리보기(변환 룰·타입 캐스트 적용 후 저장될 모습) |
+| PATCH | /api/etl2/tables/{id} | ETL 테이블 설정 일부 갱신(sync_mode, on_row_error, incremental_column, batch_size, **clear_last_synced_at** 등) |
 | POST | /api/etl2/tables/{id}/run | 실행(대기열 등록) |
 | POST | /api/etl2/tables/{id}/add-files-zip | ZIP 다중 파일 추가 적재 |
 | GET | /api/etl2/jobs | Job 목록 |
@@ -324,7 +327,7 @@ Backend/
 
 ### 6.7 etl_server2
 
-- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**, **/api/etl2/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table** 다른 연결에서 추가 적재 허용. **폴더 배치**: batch_jobs(**on_file_error** stop/continue, **index_definitions**)·batch_run_history·**etl_batch_target_registry**. 배치 타겟 목록 삭제 시 delete_batch_target_registry_and_drop_table. **create_batch_job** 중복 검사. **update_run_progress** 실시간 갱신. **load_service_file**: _batch_upsert에서 INSERT DO NOTHING 후 **실제 변경 행만** UPDATE(IS DISTINCT FROM); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 **run 기록 미생성**; on_file_error=continue 시 파일별 실패해도 다음 파일 계속·partial_error; commit 실패 시 명시 처리. **csv_reader.read_csv_robust**: CSV 인코딩 감지·순차 시도, load_service·parser_file 공용. **parser_file.get_pending_files** 첫 실행 전부 반환. **folder_adapter_file.download_file_head** 64KB. **transform/preview** get_raw_sample·apply_rules. **db_load_service**: run_db_load 커넥션 누수 방지; 적재 후 **index_definitions** 있으면 _create_indexes_on_target; **get_source_indexes**(PostgreSQL/MySQL/Oracle). **transform_engine._apply_type_cast_with_mask** 벡터화. **service.claim_next_pending_job** finally rollback-safe; **_sys_cursor** context manager. **load_service** run_file_load/run_file_upsert 변수 etl_row.
+- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**, **/api/etl2/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table** 다른 연결에서 추가 적재 허용. **GET tables/{id}/preview**: **변환 룰·타입 캐스트 적용** 후 저장될 모습으로 미리보기 반환(preview_service.get_preview → _get_preview_with_transform). **PATCH tables/{id}**: body에 **clear_last_synced_at: true** 시 증분 기준(last_synced_at) 초기화. **delete_etl_table**: 해당 etl_table_id를 참조하는 **batch_jobs** 및 batch_loaded_keys·batch_run_history 선삭제 후 etl_tables 삭제. **폴더 배치**: batch_jobs(**on_file_error** stop/continue, **index_definitions**)·batch_run_history·**etl_batch_target_registry**. **service_file.get_skipped_filenames_set**: 배치 이력에서 skipped/error 파일명 집합 반환; **batch_executor_file**에서 pending에서 제외해 매 주기 재다운로드·재시도 방지. 배치 타겟 목록 삭제 시 delete_batch_target_registry_and_drop_table. **create_batch_job** 중복 검사. **update_run_progress** 실시간 갱신. **load_service_file**: _batch_upsert에서 INSERT DO NOTHING 후 **실제 변경 행만** UPDATE(IS DISTINCT FROM); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 **run 기록 미생성**; on_file_error=continue 시 파일별 실패해도 다음 파일 계속·partial_error; commit 실패 시 명시 처리. **batch_executor_db**: etl_table_id 있을 때 **list_transform_rules** → **apply_rules** 적용 후 apply_mapping_type_cast·적재(run_file_load/run_db_load와 동일 순서). **csv_reader.read_csv_robust**: CSV 인코딩 감지·순차 시도, load_service·parser_file 공용. **parser_file.get_pending_files** 첫 실행 전부 반환. **folder_adapter_file.download_file_head** 64KB. **transform/preview** get_raw_sample·apply_rules. **db_load_service**: run_db_load 커넥션 누수 방지; 적재 후 **index_definitions** 있으면 _create_indexes_on_target; **get_source_indexes**(PostgreSQL/MySQL/Oracle). **transform_engine._apply_type_cast_with_mask** 벡터화. **transform_upsert_verification**: 변환 룰·엔진 출력과 load_dataframe/_batch_upsert 호환 검증(run_dry_run_pipeline, verify_transform_output_columns). **service.claim_next_pending_job** finally rollback-safe; **_sys_cursor** context manager. **load_service** run_file_load/run_file_upsert 변수 etl_row.
 - **주요 기능**: (1) **저장 DB**: etl_storage_connections, get_target_db_connection. (2) **테이블·컬럼·인덱스 조회**: list_target_tables, list_target_columns, **get_source_indexes**(connection_id, source_table) → PK·인덱스 목록(is_primary 구분). (3) **infer-schema**: 파일 업로드 → 스키마 반환. (4) **column_mapping·변환 룰**: apply_mapping_type_cast·transform_rules. (5) **on_row_error**: fail/skip, Incremental. (6) **COPY 적재** 후 **index_definitions** 있으면 **_create_indexes_on_target**. (7) **etl_batch_target_registry**: list/upsert/clear/delete_batch_target_registry. (8) **배치 실행**: run_batch_job, on_file_error·index_definitions 반영.
 - **router.py**: tables, upload, infer-schema, target-tables, target-columns, storage-connections, source-columns, **GET connections/:id/source-indexes**, validate-incremental-column, transform/preview, tables PATCH, jobs, preview, run, add-files-zip.
 - **router_file.py**: GET/POST /batch/jobs, **POST /batch/jobs/from-etl-table**(ETL 테이블 기반 배치 등록·etl_table.status=done 검증·last_synced_at 초기 세팅), target-registry, validate-target, run/now, history, get-run-detail, skipped-files, rollback. list_folder_columns 시 CSV는 download_file_head만.
@@ -355,6 +358,7 @@ Backend/
 - (2026-02-27) **ETL 한도·배치 기본값·취소 체크**: §2 etl_server2에 etl_limits.py 추가. §3.3 etl_limits: config 없을 때 etl_server2 기본값(50/100_000/50_000), 배치 미입력 시 기본 10_000건 상한(etl_server·etl_server2), etl_server db_load_service _safe_is_job_cancelled(시스템 DB 실패 시 적재 계속) 반영.
 - (2026-03-03) **ETL2 인덱스·on_file_error·csv_reader·배치·안정성 반영**: §2 csv_reader.py 추가. §3.2 etl_tables index_definitions, batch_jobs on_file_error·index_definitions. §4.6 GET source-indexes, etl_tables/batch_jobs index_definitions·csv_reader·on_file_error·_batch_upsert IS DISTINCT FROM·배치 대기 파일 없으면 run 미기록·run_db_load/commit/transform_engine/claim_next_pending_job. §6.7 전면 보강: csv_reader, on_file_error, index_definitions, get_source_indexes, _create_indexes_on_target, _batch_upsert 최적화, batch_executor 대기 파일·commit 실패·partial_error, db_load_service·load_service·service_file·load_service_file 상세. log 2026-03-03·2026-02-23 반영.
 - (2026-03-04) **from-etl-table·status=done·last_synced_at·적재 안정성**: §2 batch_executor_db.py 명시. §4.6 POST /jobs/from-etl-table·status=done 검증·last_synced_at 초기 세팅. §6.7 router_file from-etl-table, load_service_file 테이블 없음+PK 시 upsert, batch_executor_db _fetch_source_pk. log 2026-03-04 반영.
+- (2026-03-06) **ZIP 한도·미리보기·배치·삭제·검증 반영**: §3.3 etl_limits에 **max_zip_extract_total_mb**(기본 2GB, ZIP bomb 방지)·add-files-zip 압축 해제 전 총량 검사. §4.6 GET preview 변환 룰·타입 캐스트 적용, PATCH clear_last_synced_at, add-files-zip ZIP 총량. §6.7 GET preview _get_preview_with_transform, PATCH clear_last_synced_at, delete_etl_table batch_jobs 연쇄 삭제, get_skipped_filenames_set·배치 스킵/에러 파일 재시도 방지, batch_executor_db apply_rules(변환 룰), transform_upsert_verification. log 2026-03-06 반영.
 
 ---
 

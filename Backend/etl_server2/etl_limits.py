@@ -13,7 +13,9 @@ config에 etl_limits를 넣으면 이 기본값 대신 config 값 사용. 0이�
 
 [Main Functions]
 ===========
+- _safe_int: config 값 정수 변환 헬퍼 (None/비숫자 시 default, 음수는 0으로 보정).
 - get_etl_limits: (max_file_size_mb, max_rows_per_load, max_batch_size) 반환. 0이면 해당 한도 미적용.
+- get_max_zip_extract_total_mb: ZIP 압축 해제 총 용량 상한(MB). config에 없으면 2048(2GB).
 
 [Dependencies]
 =========
@@ -24,6 +26,16 @@ config에 etl_limits를 넣으면 이 기본값 대신 config 값 사용. 0이�
 DEFAULT_MAX_FILE_SIZE_MB = 50
 DEFAULT_MAX_ROWS_PER_LOAD = 100000
 DEFAULT_MAX_BATCH_SIZE = 50000
+# ZIP 압축 해제 시 총 용량 상한(MB). ZIP bomb 방지. 2GB 기본.
+DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB = 2048
+
+
+def _safe_int(val, default: int) -> int:
+    """config 값 정수 변환. None/비숫자 시 default 반환. 음수는 0으로 보정."""
+    try:
+        return max(0, int(val)) if val is not None else default
+    except (TypeError, ValueError):
+        return default
 
 
 def get_etl_limits():
@@ -45,21 +57,29 @@ def get_etl_limits():
         max_file = getattr(limits, "max_file_size_mb", DEFAULT_MAX_FILE_SIZE_MB)
         max_rows = getattr(limits, "max_rows_per_load", DEFAULT_MAX_ROWS_PER_LOAD)
         max_batch = getattr(limits, "max_batch_size", DEFAULT_MAX_BATCH_SIZE)
-        try:
-            max_file = int(max_file) if max_file is not None else 0
-            max_file = max(0, max_file)
-        except (TypeError, ValueError):
-            max_file = 0
-        try:
-            max_rows = int(max_rows) if max_rows is not None else 0
-            max_rows = max(0, max_rows)
-        except (TypeError, ValueError):
-            max_rows = 0
-        try:
-            max_batch = int(max_batch) if max_batch is not None else 0
-            max_batch = max(0, max_batch)
-        except (TypeError, ValueError):
-            max_batch = 0
+        max_file = _safe_int(max_file, 0)
+        max_rows = _safe_int(max_rows, 0)
+        max_batch = _safe_int(max_batch, 0)
         return (max_file, max_rows, max_batch)
     except Exception:
         return (DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_MAX_ROWS_PER_LOAD, DEFAULT_MAX_BATCH_SIZE)
+
+
+def get_max_zip_extract_total_mb() -> int:
+    """
+    config.backend.etl_limits.max_zip_extract_total_mb 조회.
+    ZIP 압축 해제 전 총 용량(압축 해제 크기) 상한(MB). 초과 시 extractall 거부(ZIP bomb 방지).
+    없으면 DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB(2048 = 2GB) 반환.
+    """
+    try:
+        from Env import config
+        backend = getattr(config, "backend", None)
+        if backend is None:
+            return DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB
+        limits = getattr(backend, "etl_limits", None)
+        if limits is None:
+            return DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB
+        val = getattr(limits, "max_zip_extract_total_mb", DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB)
+        return _safe_int(val, DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB)
+    except Exception:
+        return DEFAULT_MAX_ZIP_EXTRACT_TOTAL_MB

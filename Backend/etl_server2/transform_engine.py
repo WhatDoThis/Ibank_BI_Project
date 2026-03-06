@@ -16,11 +16,14 @@ masking(hash, redact), cleansing(fill_forward, fill_backward, normalize_unicode)
 
 [Dependencies]
 =========
-- pandas
+- pandas, re, hashlib, json
 """
 
+import hashlib
 import inspect
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -383,7 +386,6 @@ def _apply_derived(series: pd.Series, config: Dict[str, Any], df: pd.DataFrame) 
 
 def _apply_masking(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
     """type/operation: right_n→mask_right, left_n→mask_left, email_domain→mask_email, mask_phone, mask_name."""
-    import re
     _LEGACY_MASK_MAP = {"right_n": "mask_right", "left_n": "mask_left", "email_domain": "mask_email"}
     op = config.get("operation") or config.get("type", "right_n")
     op = (op or "right_n").strip().lower()
@@ -451,7 +453,6 @@ def _apply_masking(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
     if op == "mask_name":
         return series.map(mask_name)
     if op == "hash":
-        import hashlib
         algo = (config.get("algorithm") or "sha256").strip().lower()
         _hash_cls = getattr(hashlib, algo, None)
         if _hash_cls is not None and callable(_hash_cls):
@@ -708,7 +709,6 @@ def _parse_config(rule_config: Any) -> Dict[str, Any]:
     if isinstance(rule_config, dict):
         return rule_config
     if isinstance(rule_config, str):
-        import json
         try:
             return json.loads(rule_config)
         except Exception:
