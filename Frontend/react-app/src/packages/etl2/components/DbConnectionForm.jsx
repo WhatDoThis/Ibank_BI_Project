@@ -26,12 +26,15 @@ import {
   etl2ValidateIncrementalColumn,
   etl2CreateTable,
   etl2DeleteConnection,
-  etl2ListStorageConnections
+  etl2ListStorageConnections,
+  etl2CreateTransformRule
 } from '@/shared/api/client';
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
+import { getOnErrorValue } from './TargetTableSelectModal/constants.js';
 
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ(Cannot access 'ie' before initialization) 방지 */
 const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal'));
+import { buildEmptyTransformSettings, TRANSFORM_OPTION_LABELS } from './TargetTableSelectModal/constants.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
 
 function DbConnectionForm({ onSuccess }) {
@@ -101,6 +104,7 @@ function DbConnectionForm({ onSuccess }) {
   const [columnMapping, setColumnMapping] = useState(null);
   const [pkColumns, setPkColumns] = useState('');
   const [indexDefinitions, setIndexDefinitions] = useState(null);
+  const [transformSettings, setTransformSettings] = useState(buildEmptyTransformSettings());
   const [sourceIndexes, setSourceIndexes] = useState([]);
   const [refetchingSourceForModal, setRefetchingSourceForModal] = useState(false);
 
@@ -154,6 +158,14 @@ function DbConnectionForm({ onSuccess }) {
       });
     return () => { cancelled = true; };
   }, [syncMode, selectedConnId, selectedSourceTable]);
+
+  useEffect(() => {
+    setTransformSettings(buildEmptyTransformSettings());
+    setColumnMapping(null);
+    setPkColumns('');
+    setIndexDefinitions(null);
+    setTargetTable('');
+  }, [selectedSourceTable]);
 
   /** 테이블선택 모달을 연다. 연결·소스 테이블이 있으면 소스 컬럼·소스 인덱스를 먼저 불러온 뒤 모달을 연다. */
   async function openTargetTableSelectModal() {
@@ -289,6 +301,68 @@ function DbConnectionForm({ onSuccess }) {
     setConnectionTestPassed(false);
   }
 
+  /** columnMapping + transformSettings → API용 변환 룰 배열. ETL 등록 후 etl_transform_rules 저장에 사용. */
+  function buildAssembledRulesFromSettings(columnMappingList, settings) {
+    if (!Array.isArray(columnMappingList) || columnMappingList.length === 0 || !settings?.transformKind) return [];
+    const rules = [];
+    columnMappingList.forEach((m, idx) => {
+      const source = (m.source || '').trim();
+      const target = (m.target || '').trim();
+      const pgType = (m.type || 'TEXT').toString().toUpperCase();
+      if (!source || !target) return;
+      const kind = settings.transformKind[source] || 'none';
+      if (kind === 'none') return;
+      const baseOrder = idx * 10;
+      const onError = getOnErrorValue(settings.mappingOnError, source);
+      const typeCastTarget = (settings.typeCastConfig && settings.typeCastConfig[source]?.target_type) || pgType;
+      if (kind === 'cleansing') {
+        rules.push({ source_column: source, target_column: target, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+      } else if (kind === 'type_cast') {
+        rules.push({ source_column: source, target_column: target, rule_type: 'type_cast', rule_config: { target_type: typeCastTarget.toLowerCase(), on_error: onError }, apply_order: baseOrder });
+      } else if (kind === 'cleansing_and_type_cast') {
+        rules.push({ source_column: source, target_column: target, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'type_cast', rule_config: { target_type: typeCastTarget.toLowerCase(), on_error: onError }, apply_order: baseOrder + 1 });
+      } else if (kind === 'code_map') {
+        const cfg = (settings.codeMapConfig && settings.codeMapConfig[source]) || {};
+        const defaultVal = cfg.unmapped === 'default' ? (cfg.default_value ?? '') : (cfg.unmapped === 'null' ? null : undefined);
+        rules.push({ source_column: source, target_column: target, rule_type: 'code_map', rule_config: { mappings: cfg.map || {}, default: defaultVal }, apply_order: baseOrder });
+      } else if (kind === 'string') {
+        const cfg = (settings.stringConfig && settings.stringConfig[source]) || {};
+        const op = cfg.operation || 'uppercase';
+        const ruleConfig = { operation: op };
+        if (op === 'pad_left' || op === 'pad_right') {
+          ruleConfig.width = parseInt(cfg.width, 10) || 10;
+          ruleConfig.fill_char = (cfg.fill_char !== undefined && cfg.fill_char !== '') ? String(cfg.fill_char) : (op === 'pad_left' ? '0' : ' ');
+        }
+        if (op === 'substring') {
+          ruleConfig.start = parseInt(cfg.start, 10) || 0;
+          if (cfg.length != null && cfg.length !== '') ruleConfig.length = parseInt(cfg.length, 10);
+        }
+        if (op === 'replace') {
+          ruleConfig.old = cfg.old != null ? String(cfg.old) : '';
+          ruleConfig.new = cfg.new != null ? String(cfg.new) : '';
+        }
+        if (op === 'regex_replace') {
+          ruleConfig.pattern = cfg.pattern != null ? String(cfg.pattern) : '';
+          ruleConfig.replacement = cfg.replacement != null ? String(cfg.replacement) : '';
+        }
+        if (op === 'concat') {
+          ruleConfig.columns = Array.isArray(cfg.columns) ? cfg.columns : (cfg.columns ? [cfg.columns].flat() : [source]);
+          ruleConfig.separator = cfg.separator != null ? String(cfg.separator) : '';
+        }
+        rules.push({ source_column: source, target_column: target, rule_type: 'string', rule_config: ruleConfig, apply_order: baseOrder });
+      } else if (kind === 'masking') {
+        const cfg = (settings.maskingConfig && settings.maskingConfig[source]) || {};
+        const ruleConfig = { operation: cfg.operation || 'mask_right', char: (cfg.char != null && cfg.char !== '') ? String(cfg.char) : '*' };
+        if (cfg.operation === 'mask_right' || cfg.operation === 'mask_left') {
+          ruleConfig.n = parseInt(cfg.n, 10) || 4;
+        }
+        rules.push({ source_column: source, target_column: target, rule_type: 'masking', rule_config: ruleConfig, apply_order: baseOrder });
+      }
+    });
+    return rules;
+  }
+
   async function handleCreateTable(e) {
     e.preventDefault();
     if (!selectedConnId || !selectedSourceTable || !targetTable.trim()) {
@@ -317,8 +391,10 @@ function DbConnectionForm({ onSuccess }) {
     }
     setCreateError('');
     setCreateLoading(true);
+    const mappingForRules = columnMapping && columnMapping.length > 0 ? columnMapping : [];
+    const assembledRules = buildAssembledRulesFromSettings(mappingForRules, transformSettings);
     try {
-      await etl2CreateTable({
+      const res = await etl2CreateTable({
         connection_id: Number(selectedConnId),
         target_table: targetTable.trim(),
         label_name: labelName.trim() || null,
@@ -330,11 +406,21 @@ function DbConnectionForm({ onSuccess }) {
         batch_size: batchSize.trim() ? parseInt(batchSize, 10) || null : null,
         batch_interval_seconds: batchIntervalSeconds.trim() ? parseInt(batchIntervalSeconds, 10) || null : null,
         storage_connection_id: normalizeStorageConnectionId(storageConnectionId),
-        column_mapping: columnMapping && columnMapping.length > 0 ? columnMapping : null,
+        column_mapping: mappingForRules.length > 0 ? mappingForRules : null,
         index_definitions: indexDefinitions && indexDefinitions.length > 0 ? indexDefinitions : null,
         on_row_error: (onRowError || 'fail').toLowerCase() === 'skip' ? 'skip' : 'fail',
         created_by: 'user'
       });
+      const etlTableId = res?.etl_table_id;
+      if (etlTableId != null && assembledRules.length > 0) {
+        try {
+          await Promise.all(
+            assembledRules.map((r) => etl2CreateTransformRule({ etl_table_id: etlTableId, ...r, is_active: true }))
+          );
+        } catch (ruleErr) {
+          console.error('변환 룰 저장 실패 (ETL 테이블은 등록됨):', ruleErr);
+        }
+      }
       if (onSuccess) onSuccess();
       setTargetTable('');
       setLabelName('');
@@ -349,6 +435,7 @@ function DbConnectionForm({ onSuccess }) {
       setColumnMapping(null);
       setPkColumns('');
       setIndexDefinitions(null);
+      setTransformSettings(buildEmptyTransformSettings());
     } catch (err) {
       setCreateError(err.message || 'ETL 테이블 등록 실패');
     } finally {
@@ -609,20 +696,22 @@ function DbConnectionForm({ onSuccess }) {
                 currentColumnMapping={columnMapping || []}
                 currentPkColumns={pkColumns}
                 currentIndexDefinitions={indexDefinitions || []}
+                currentTransformSettings={transformSettings}
                 sourceColumns={sourceColumns}
                 sourceIndexes={sourceIndexes}
                 pkReadOnlyFromSource={sourceIndexes.length > 0 && sourceIndexes.some((i) => i && i.is_primary)}
-                onSelect={(tableName, mapping, pkCols, idxDefs) => {
+                onSelect={(tableName, mapping, pkCols, idxDefs, tSettings) => {
                   setTargetTable(tableName);
                   setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
                   setPkColumns(pkCols ?? '');
                   setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
+                  if (tSettings) setTransformSettings(tSettings);
                   setTargetTableSelectOpen(false);
                 }}
               />
             </Suspense>
           )}
-          {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || pkColumns.trim() || (indexDefinitions && indexDefinitions.length > 0)) && (
+          {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || pkColumns.trim() || (indexDefinitions && indexDefinitions.length > 0) || (transformSettings?.transformKind && Object.values(transformSettings.transformKind).some((v) => v && v !== 'none'))) && (
             <div className="etl-db-form__field etl-db-form__summary">
               <label className="etl-db-form__label">설정 요약</label>
               <div className="etl-db-form__summary-box">
@@ -656,6 +745,28 @@ function DbConnectionForm({ onSuccess }) {
                     <strong>인덱스:</strong> {indexDefinitions.length}개
                   </p>
                 )}
+                {transformSettings && (() => {
+                  const kinds = transformSettings.transformKind || {};
+                  const configured = Object.entries(kinds).filter(([, v]) => v && v !== 'none');
+                  if (configured.length === 0) return null;
+                  const counts = {};
+                  configured.forEach(([, v]) => {
+                    const label = TRANSFORM_OPTION_LABELS[v] || v;
+                    counts[label] = (counts[label] || 0) + 1;
+                  });
+                  return (
+                    <>
+                      <p className="etl-db-form__summary-line">
+                        <strong>변환 룰:</strong> {configured.length}개 컬럼
+                      </p>
+                      <ul className="etl-db-form__mapping-list">
+                        {Object.entries(counts).map(([label, count]) => (
+                          <li key={label}>{label}: {count}개</li>
+                        ))}
+                      </ul>
+                    </>
+                  );
+                })()}
                 <button
                   type="button"
                   className="etl-db-form__summary-edit"

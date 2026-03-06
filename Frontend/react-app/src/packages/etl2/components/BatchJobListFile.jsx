@@ -96,9 +96,13 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
     setActionLoadingId(id);
     setError('');
     try {
-      await batchRunJobNow(id);
-      await loadList();
-      if (onSuccess) onSuccess();
+      const res = await batchRunJobNow(id);
+      if (res?.already_running) {
+        setError(res.message || '해당 배치가 이미 실행 중입니다. 완료 후 다시 시도하세요.');
+      } else {
+        await loadList();
+        if (onSuccess) onSuccess();
+      }
     } catch (err) {
       setError(err?.message || '즉시 실행 실패');
     } finally {

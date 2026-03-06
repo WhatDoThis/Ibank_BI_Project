@@ -104,7 +104,7 @@ def run_batch_job(batch_job_id: int) -> None:
         logger.debug("run_batch_job: job_id=%s is_active=False, skip", batch_job_id)
         return
     if (job.get("last_run_status") or "").strip().lower() == "running":
-        logger.warning("run_batch_job: batch %s already running, skip", batch_job_id)
+        logger.warning("run_batch_job: batch %s (job_type=file) already running (last_run_status=running), skip", batch_job_id)
         return
 
     run_id = None

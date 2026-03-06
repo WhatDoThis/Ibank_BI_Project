@@ -1322,6 +1322,7 @@ def get_sync_mode_for_load(etl_table_id: int) -> str:
 def delete_etl_table(etl_table_id: int) -> dict:
     """
     ETL 테이블 1건 삭제. 메인 DB에서 타겟 테이블 DROP,
+    해당 etl_table_id를 참조하는 batch_jobs 및 자식(batch_loaded_keys, batch_run_history) 삭제,
     해당 행의 file_path 및 해당 etl_table_id의 모든 job의 add_file_path 파일 삭제(경로 해석 후),
     etl_transform_rules·etl_jobs·etl_tables 행 삭제. 반환: {"file_path": None}(호환용).
     """
@@ -1377,6 +1378,20 @@ def delete_etl_table(etl_table_id: int) -> dict:
                     cur_main.close()
                     conn_main.close()
 
+        # 해당 ETL을 참조하는 배치 Job 제거(FK 자식 batch_loaded_keys, batch_run_history 선삭제 후 batch_jobs 삭제)
+        try:
+            cur_sys.execute(
+                f"DELETE FROM {_q(schema, 'batch_loaded_keys')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
+                (etl_table_id,),
+            )
+            cur_sys.execute(
+                f"DELETE FROM {_q(schema, 'batch_run_history')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
+                (etl_table_id,),
+            )
+            cur_sys.execute(f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
+        except Exception:
+            # batch_jobs 등 테이블이 없을 수 있음(구버전 DB). 무시하고 etl_tables 삭제 진행
+            conn_sys.rollback()
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
@@ -1433,6 +1448,18 @@ def delete_etl_table_row_only(etl_table_id: int) -> None:
                 add_file_paths = []
             else:
                 raise
+        try:
+            cur_sys.execute(
+                f"DELETE FROM {_q(schema, 'batch_loaded_keys')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
+                (etl_table_id,),
+            )
+            cur_sys.execute(
+                f"DELETE FROM {_q(schema, 'batch_run_history')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
+                (etl_table_id,),
+            )
+            cur_sys.execute(f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
+        except Exception:
+            conn_sys.rollback()
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
@@ -1836,8 +1863,9 @@ def update_etl_table(
     batch_size: Optional[int] = None,
     batch_interval_seconds: Optional[int] = None,
     index_definitions: Optional[List[dict]] = None,
+    clear_last_synced_at: bool = False,
 ) -> None:
-    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds, index_definitions 등 지정 필드만 갱신. None인 인자는 변경하지 않음."""
+    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds, index_definitions 등 지정 필드만 갱신. clear_last_synced_at=True면 last_synced_at을 NULL로 초기화(다음 실행 시 전체 조회)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -1895,6 +1923,11 @@ def update_etl_table(
             cur.execute(
                 f"UPDATE {_q(schema, 'etl_tables')} SET index_definitions = %s::jsonb, updated_at = NOW() WHERE etl_table_id = %s",
                 (json.dumps(index_definitions), etl_table_id),
+            )
+        if clear_last_synced_at:
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_tables')} SET last_synced_at = NULL, updated_at = NOW() WHERE etl_table_id = %s",
+                (etl_table_id,),
             )
         conn.commit()
     finally:

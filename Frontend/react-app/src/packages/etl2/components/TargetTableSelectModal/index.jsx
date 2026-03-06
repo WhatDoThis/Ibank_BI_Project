@@ -31,6 +31,7 @@ function TargetTableSelectModal({
   sourceColumns: sourceColumnsProp,
   sourceIndexes: sourceIndexesProp = [],
   currentIndexDefinitions = [],
+  currentTransformSettings,
   pkReadOnlyFromSource = false,
   etlTableId = null,
   onSelect
@@ -54,6 +55,7 @@ function TargetTableSelectModal({
   const [codeMapEditorOpen, setCodeMapEditorOpen] = useState({});
   const [stringConfig, setStringConfig] = useState({});
   const [maskingConfig, setMaskingConfig] = useState({});
+  const [typeCastConfig, setTypeCastConfig] = useState({});
   const [showTransformHelpModal, setShowTransformHelpModal] = useState(false);
   const [customIndexDefinitions, setCustomIndexDefinitions] = useState([]);
   const [previewData, setPreviewData] = useState(null);
@@ -66,7 +68,7 @@ function TargetTableSelectModal({
   useEffect(() => {
     setPreviewData(null);
     setPreviewError(null);
-  }, [transformKind, stringConfig, maskingConfig, codeMapConfig]);
+  }, [transformKind, stringConfig, maskingConfig, codeMapConfig, typeCastConfig]);
 
   const prevSelectedTableRef = useRef(selectedTable);
   const pkSyncedForOpenRef = useRef(false);
@@ -144,6 +146,16 @@ function TargetTableSelectModal({
       setSelectedColumns([]);
       setColumnsError('');
       setNewTableName((currentTargetTable || '').trim());
+      setTransformKind({});
+      setTypeCastConfig({});
+      setStringConfig({});
+      setMaskingConfig({});
+      setCodeMapConfig({});
+      setMappingOnError({});
+      setCodeMapEditorOpen({});
+      setCodeMapPopoverSource(null);
+      setPreviewData(null);
+      setPreviewError(null);
     }
   }, [open, loadTables, currentTargetTable]);
 
@@ -412,6 +424,7 @@ function TargetTableSelectModal({
         const strCfg = {};
         const maskCfg = {};
         const codeCfg = {};
+        const typeCastCfg = {};
         const onErrors = {};
         for (const r of rules || []) {
           const src = r.source_column;
@@ -421,6 +434,7 @@ function TargetTableSelectModal({
             kinds[src] = kinds[src] === 'type_cast' ? 'cleansing_and_type_cast' : 'cleansing';
           } else if (type === 'type_cast') {
             kinds[src] = kinds[src] === 'cleansing' ? 'cleansing_and_type_cast' : 'type_cast';
+            if (cfg.target_type) typeCastCfg[src] = { target_type: cfg.target_type };
           } else if (type === 'string') {
             kinds[src] = 'string';
             strCfg[src] = { operation: cfg.operation, width: cfg.width, fill_char: cfg.fill_char, start: cfg.start, length: cfg.length, old: cfg.old, new: cfg.new, pattern: cfg.pattern, replacement: cfg.replacement, columns: cfg.columns, separator: cfg.separator };
@@ -442,10 +456,36 @@ function TargetTableSelectModal({
         setStringConfig((prev) => ({ ...prev, ...strCfg }));
         setMaskingConfig((prev) => ({ ...prev, ...maskCfg }));
         setCodeMapConfig((prev) => ({ ...prev, ...codeCfg }));
+        setTypeCastConfig((prev) => ({ ...prev, ...typeCastCfg }));
         setMappingOnError((prev) => ({ ...prev, ...onErrors }));
       })
       .catch(() => {});
   }, [open, etlTableId]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (etlTableId != null && etlTableId !== '') return;
+    if (!currentTransformSettings) return;
+    const s = currentTransformSettings;
+    if (s.transformKind && Object.keys(s.transformKind).length > 0) {
+      setTransformKind((prev) => ({ ...prev, ...s.transformKind }));
+    }
+    if (s.typeCastConfig && Object.keys(s.typeCastConfig).length > 0) {
+      setTypeCastConfig((prev) => ({ ...prev, ...s.typeCastConfig }));
+    }
+    if (s.stringConfig && Object.keys(s.stringConfig).length > 0) {
+      setStringConfig((prev) => ({ ...prev, ...s.stringConfig }));
+    }
+    if (s.maskingConfig && Object.keys(s.maskingConfig).length > 0) {
+      setMaskingConfig((prev) => ({ ...prev, ...s.maskingConfig }));
+    }
+    if (s.codeMapConfig && Object.keys(s.codeMapConfig).length > 0) {
+      setCodeMapConfig((prev) => ({ ...prev, ...s.codeMapConfig }));
+    }
+    if (s.mappingOnError && Object.keys(s.mappingOnError).length > 0) {
+      setMappingOnError((prev) => ({ ...prev, ...s.mappingOnError }));
+    }
+  }, [open, currentTransformSettings, etlTableId]);
 
   const effectivePkForDisplay = useMemo(() => {
     const isCurrentTable = (selectedTable || '').trim() === (currentTargetTable || '').trim();
@@ -472,9 +512,8 @@ function TargetTableSelectModal({
       if (kind === 'none') return;
       const baseOrder = idx * 10;
       const onError = getOnErrorValue(mappingOnError, src.name);
-      const pgType = selectedTable === NEW_TABLE_VALUE
-        ? inferredTypeToPg(src.type)
-        : (targetColByName[targetName]?.data_type || 'TEXT');
+      const pgType = typeCastConfig[src.name]?.target_type
+        || (selectedTable === NEW_TABLE_VALUE ? inferredTypeToPg(src.type) : (targetColByName[targetName]?.data_type || 'TEXT'));
       if (kind === 'cleansing') {
         rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
       } else if (kind === 'type_cast') {
@@ -521,7 +560,7 @@ function TargetTableSelectModal({
       }
     });
     return rules;
-  }, [selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, sourceToTarget, transformKind, mappingOnError, codeMapConfig, stringConfig, maskingConfig, targetColByName]);
+  }, [selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, sourceToTarget, transformKind, mappingOnError, typeCastConfig, codeMapConfig, stringConfig, maskingConfig, targetColByName]);
 
   const getColumnMappingForPreview = useCallback(() => {
     if (selectedTable === NEW_TABLE_VALUE) {
@@ -578,23 +617,31 @@ function TargetTableSelectModal({
 
   const buildIndexDefinitions = useCallback(() => {
     if (sourceIndexes.length > 0) {
-      const includedSet = new Set(targetColumnNamesForPk.map((c) => String(c).trim()));
+      // 소스 컬럼명 → 타겟 컬럼명 매핑 (적재 시 테이블은 타겟 컬럼명으로 생성되므로 인덱스도 타겟명 사용)
+      const sourceToTargetMap = selectedTable === NEW_TABLE_VALUE
+        ? sourceColumns
+            .filter((src) => !newTableExcluded[src.name])
+            .reduce((acc, src) => {
+              const t = (newTableTargetNames[src.name] || src.name).trim().replace(/\s+/g, '_') || src.name;
+              acc[src.name] = t;
+              return acc;
+            }, {})
+        : { ...sourceToTarget };
+
       return nonPrimarySourceIndexes
-        .filter((i) => {
-          const cols = Array.isArray(i.columns) ? i.columns : [];
-          if (cols.length === 0) return false;
-          return cols.every((c) => includedSet.has(String(c).trim()));
-        })
         .map((i) => {
-          const cols = Array.isArray(i.columns) ? i.columns : [];
+          const srcCols = Array.isArray(i.columns) ? i.columns : [];
+          if (srcCols.length === 0) return null;
+          const targetCols = srcCols.map((c) => sourceToTargetMap[String(c).trim()]).filter(Boolean);
+          if (targetCols.length !== srcCols.length) return null;
           const name = (i && i.index_name) ? String(i.index_name).trim() : '';
           return {
-            index_name: name || ensureIndexName(name, cols),
-            columns: cols,
+            index_name: name || ensureIndexName(name, targetCols),
+            columns: targetCols,
             is_unique: !!i.is_unique
           };
         })
-        .filter((d) => d.index_name && d.columns.length > 0);
+        .filter((d) => d && d.index_name && d.columns.length > 0);
     }
     return (customIndexDefinitions || [])
       .filter((d) => Array.isArray(d.columns) && d.columns.length > 0)
@@ -603,7 +650,7 @@ function TargetTableSelectModal({
         const name = String(d.index_name || '').trim();
         return { index_name: name || ensureIndexName(name, cols), columns: cols, is_unique: !!d.is_unique };
       });
-  }, [sourceIndexes.length, nonPrimarySourceIndexes, targetColumnNamesForPk, customIndexDefinitions, ensureIndexName]);
+  }, [sourceIndexes.length, nonPrimarySourceIndexes, customIndexDefinitions, ensureIndexName, selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, sourceToTarget]);
 
   const saveRulesIfNeeded = useCallback(async (etlTableIdVal, allSourceColumnNames, assembled) => {
     if (etlTableIdVal == null || etlTableIdVal === '') return;
@@ -634,6 +681,14 @@ function TargetTableSelectModal({
     }
     setApplyLoading(true);
     let applied = false;
+    const currentSettings = {
+      transformKind: { ...transformKind },
+      typeCastConfig: { ...typeCastConfig },
+      stringConfig: { ...stringConfig },
+      maskingConfig: { ...maskingConfig },
+      codeMapConfig: { ...codeMapConfig },
+      mappingOnError: { ...mappingOnError }
+    };
     try {
       const indexDefinitions = buildIndexDefinitions();
       if (selectedTable === NEW_TABLE_VALUE) {
@@ -652,7 +707,7 @@ function TargetTableSelectModal({
             on_error: getOnErrorValue(mappingOnError, src.name)
           }));
         const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions);
+        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings);
         if (etlTableId != null && etlTableId !== '') {
           try {
             await saveRulesIfNeeded(
@@ -687,7 +742,7 @@ function TargetTableSelectModal({
           });
         });
         const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions);
+        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings);
         if (etlTableId != null && etlTableId !== '') {
           try {
             await saveRulesIfNeeded(
@@ -715,7 +770,7 @@ function TargetTableSelectModal({
         };
       });
       const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-      if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions);
+      if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings);
       applied = true;
     } finally {
       setApplyLoading(false);
@@ -725,7 +780,8 @@ function TargetTableSelectModal({
     getAssembledRules, buildIndexDefinitions, saveRulesIfNeeded,
     selectedTable, newTableName, currentTargetTable, sourceColumns, newTableExcluded, newTableTargetNames,
     mappingOnError, targetColumnNamesForPk, selectedPkColumns, onSelect, onClose,
-    hasSourceMapping, columns, sourceToTarget, targetColByName, selectedColumns, etlTableId
+    hasSourceMapping, columns, sourceToTarget, targetColByName, selectedColumns, etlTableId,
+    transformKind, typeCastConfig, stringConfig, maskingConfig, codeMapConfig
   ]);
 
   if (!open) return null;
@@ -779,6 +835,8 @@ function TargetTableSelectModal({
             targetColumnsInCustomIndexes={targetColumnsInCustomIndexes}
             transformKind={transformKind}
             setTransformKind={setTransformKind}
+            typeCastConfig={typeCastConfig}
+            setTypeCastConfig={setTypeCastConfig}
             stringConfig={stringConfig}
             setStringConfig={setStringConfig}
             maskingConfig={maskingConfig}

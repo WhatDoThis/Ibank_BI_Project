@@ -322,6 +322,7 @@ class UpdateTableBody(BaseModel):
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). null이면 변경 안 함.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). null이면 변경 안 함.")
     index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns, is_unique}]. null이면 변경 안 함.")
+    clear_last_synced_at: Optional[bool] = Field(None, description="True면 last_synced_at을 NULL로 초기화. 다음 실행 시 증분 조건 없이 전체 조회.")
 
 
 @router.patch("/tables/{etl_table_id}", status_code=204)
@@ -339,6 +340,7 @@ def update_table(etl_table_id: int, body: UpdateTableBody):
             batch_size=body.batch_size,
             batch_interval_seconds=body.batch_interval_seconds,
             index_definitions=body.index_definitions,
+            clear_last_synced_at=body.clear_last_synced_at is True,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

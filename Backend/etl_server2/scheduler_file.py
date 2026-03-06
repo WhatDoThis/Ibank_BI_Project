@@ -10,7 +10,7 @@ start_scheduler, load_active_batch_jobs, add_job, remove_job, reschedule_job, ru
 - add_job: 배치 1건 등록 (interval, next_run_time 10초 후)
 - remove_job: 배치 1건 제거
 - reschedule_job: 주기(interval_minutes) 변경
-- run_now: 즉시 1회 실행
+- run_now: 즉시 1회 실행. 이미 실행 중이면 스케줄하지 않고 {"already_running": True} 반환.
 
 [Dependencies]
 =========
@@ -131,15 +131,19 @@ def reschedule_job(batch_job_id: int, interval_minutes: int) -> None:
     logger.debug("scheduler reschedule_job %s interval=%s min", job_id, interval_minutes)
 
 
-def run_now(batch_job_id: int) -> None:
-    """즉시 1회 실행. add_job with next_run_time=now (replace_existing). job_type에 따라 실행 함수 분기."""
+def run_now(batch_job_id: int) -> dict:
+    """즉시 1회 실행. add_job with next_run_time=now (replace_existing). job_type에 따라 실행 함수 분기.
+    반환: {"already_running": True} 이면 이미 실행 중이라 스케줄만 건너뜀."""
     from Backend.etl_server2 import service_file as batch_service
 
     job = batch_service.get_batch_job(batch_job_id)
     if not job:
         logger.warning("run_now: batch_job_id=%s not found", batch_job_id)
-        return
+        return {}
     job_type = (job.get("job_type") or "file").strip().lower()
+    if (job.get("last_run_status") or "").strip().lower() == "running":
+        logger.info("run_now: batch_%s job_type=%s already running, skip scheduling", batch_job_id, job_type)
+        return {"already_running": True}
     if job_type == "db":
         from Backend.etl_server2 import batch_executor_db
         run_func = batch_executor_db.run_db_batch_job
@@ -156,4 +160,5 @@ def run_now(batch_job_id: int) -> None:
         replace_existing=True,
         next_run_time=datetime.now(),
     )
-    logger.info("scheduler run_now batch_%s", batch_job_id)
+    logger.info("scheduler run_now batch_%s job_type=%s scheduled", batch_job_id, job_type)
+    return {}

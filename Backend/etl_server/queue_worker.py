@@ -19,6 +19,8 @@ import logging
 import threading
 import time
 
+import psycopg2
+
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT = 2
@@ -26,6 +28,8 @@ POLL_INTERVAL_SEC = 2
 _worker_started = False
 _worker_lock = threading.Lock()
 _etl_tables_missing_logged = False
+_last_conn_error_log = 0.0
+_CONN_ERROR_LOG_INTERVAL_SEC = 60
 
 
 def _run_one_job(job_id: int, etl_table_id: int) -> None:
@@ -79,7 +83,7 @@ def run_worker_iteration() -> None:
 
 
 def _worker_loop() -> None:
-    global _etl_tables_missing_logged
+    global _etl_tables_missing_logged, _last_conn_error_log
     while True:
         try:
             run_worker_iteration()
@@ -91,6 +95,17 @@ def _worker_loop() -> None:
                     "ETL meta tables (e.g. etl_jobs) not found in system_db. "
                     "Create them to enable the queue. Worker idle."
                 )
+            elif isinstance(e, psycopg2.OperationalError) and (
+                "connection" in err_msg.lower() or "network" in err_msg.lower()
+            ):
+                now = time.time()
+                if now - _last_conn_error_log >= _CONN_ERROR_LOG_INTERVAL_SEC:
+                    logger.warning(
+                        "ETL worker: DB connection unavailable (%s). Next log in %ds.",
+                        err_msg.split("\n")[0].strip(),
+                        _CONN_ERROR_LOG_INTERVAL_SEC,
+                    )
+                    _last_conn_error_log = now
             else:
                 logger.exception("ETL worker iteration error: %s", e)
         time.sleep(POLL_INTERVAL_SEC)

@@ -164,9 +164,14 @@ function BatchScheduleModal({ open, onClose, etlTable, onSuccess }) {
 
   async function handleRunNow() {
     if (!existingJob) return;
+    setError('');
     try {
-      await batchRunJobNow(existingJob.batch_job_id);
-      if (onSuccess) onSuccess();
+      const res = await batchRunJobNow(existingJob.batch_job_id);
+      if (res?.already_running) {
+        setError(res.message || '해당 배치가 이미 실행 중입니다. 완료 후 다시 시도하세요.');
+      } else if (onSuccess) {
+        onSuccess();
+      }
     } catch (err) {
       setError(err?.message || '즉시 실행 실패');
     }

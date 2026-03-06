@@ -800,13 +800,15 @@ def get_batch_job_db_preview(batch_job_id: int):
 
 @router.post("/jobs/{batch_job_id}/run-now")
 def run_batch_job_now(batch_job_id: int):
-    """즉시 1회 실행."""
+    """즉시 1회 실행. 이미 실행 중이면 스케줄하지 않고 메시지 반환."""
     from Backend.etl_server2 import scheduler_file as sched
 
     try:
         if not batch_service.get_batch_job(batch_job_id):
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
-        sched.run_now(batch_job_id)
+        result = sched.run_now(batch_job_id)
+        if result.get("already_running"):
+            return {"message": "해당 배치가 이미 실행 중입니다. 완료 후 다시 시도하세요.", "already_running": True}
         return {"message": "즉시 실행이 스케줄되었습니다."}
     except HTTPException:
         raise
@@ -825,7 +827,14 @@ def toggle_batch_job(batch_job_id: int):
         if not job:
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
         new_active = not job.get("is_active", False)
-        batch_service.update_batch_job(batch_job_id, is_active=new_active)
+        update_kwargs = {"is_active": new_active}
+        if not new_active and (job.get("last_run_status") or "").strip().lower() == "running":
+            update_kwargs["last_run_status"] = None
+        batch_service.update_batch_job(batch_job_id, **update_kwargs)
+        if not new_active:
+            n = batch_service.mark_stuck_runs_finished(batch_job_id)
+            if n:
+                logger.info("toggle batch_%s: %s stuck run(s) marked error", batch_job_id, n)
         if new_active:
             job = batch_service.get_batch_job(batch_job_id)
             if job:
@@ -890,8 +899,11 @@ def cancel_batch_run(batch_job_id: int, run_id: int):
         st = (run.get("status") or "").strip().lower()
         if st != "running":
             return {"message": "이미 완료된 실행입니다." if st else "실행을 찾을 수 없습니다."}
-        ok = batch_service.set_run_cancel_requested(run_id)
-        return {"message": "취소 요청되었습니다. 진행 중이던 적재는 롤백됩니다." if ok else "취소 요청 처리 실패(cancel_requested_at 컬럼 확인)."}
+        batch_service.set_run_cancel_requested(run_id)
+        cleared = batch_service.force_finish_run_as_cancelled(run_id)
+        if cleared is not None:
+            return {"message": "취소되었습니다. 즉시 실행을 다시 누르면 새로 실행됩니다.", "run_finished": True}
+        return {"message": "취소 요청되었습니다. 진행 중이던 적재는 롤백됩니다."}
     except HTTPException:
         raise
     except Exception as e:

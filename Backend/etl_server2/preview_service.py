@@ -15,7 +15,8 @@ Backend.etl_server2.preview_service (ETL 미리보기)
 
 [Main Functions]
 ===========
-- get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. column_mapping 있으면 해당 매핑만 반영(제외 컬럼 미표시, 타겟명·순서로 표시).
+- get_preview: etl_table_id로 소스 타입 분기 → columns(저장가능/이유) + preview_rows + preview_columns 반환. DB 소스 시 변환 룰 요약을 columns[].transform_remark에 추가.
+- _format_single_rule_summary, _build_transform_remarks_by_column: DB 미리보기 비고용 변환 룰 요약(한글 라벨+옵션).
 - get_source_dataframe: 변환 미리보기용. 소스 컬럼명 기준 DataFrame과 column_mapping 반환 (파일/DB).
 - get_transform_preview: get_source_dataframe + transform_engine.apply_rules → preview_columns, preview_rows, row_count, transform_failed_count.
 
@@ -91,6 +92,99 @@ def _serialize_row(obj: Any) -> Any:
     if hasattr(obj, "isoformat"):
         return obj.isoformat()
     return obj
+
+
+# DB 미리보기 비고용: rule_category/rule_type → 한글 라벨
+_RULE_CATEGORY_LABEL = {
+    "type_cast": "타입변환",
+    "string": "문자열",
+    "cleansing": "정제",
+    "mapping": "매핑",
+    "code_map": "매핑",
+    "masking": "마스킹",
+    "datetime": "날짜/시간",
+    "numeric": "숫자",
+    "row": "행",
+}
+
+# operation/옵션 → 비고용 짧은 한글
+_OPERATION_LABEL = {
+    "uppercase": "대문자",
+    "lowercase": "소문자",
+    "trim": "trim",
+    "replace": "치환",
+    "regex_replace": "정규치환",
+    "mask_phone": "휴대폰",
+    "mask_email": "이메일",
+    "mask_name": "이름",
+    "hash": "해시",
+    "redact": "가리기",
+    "value_map": "값매핑",
+    "range_map": "구간매핑",
+    "conditional": "조건매핑",
+    "date_format": "형식변환",
+    "extract": "부분추출",
+    "date_add": "날짜가감",
+    "round": "반올림",
+    "arithmetic": "연산",
+    "bucket": "구간",
+    "clamp": "범위제한",
+    "filter": "필터",
+    "deduplicate": "중복제거",
+}
+
+
+def _parse_rule_config(cfg: Any) -> dict:
+    """rule_config를 dict로 반환."""
+    if isinstance(cfg, dict):
+        return cfg
+    if isinstance(cfg, str):
+        try:
+            return json.loads(cfg)
+        except Exception:
+            return {}
+    return {}
+
+
+def _format_single_rule_summary(rule: dict) -> str:
+    """룰 1건을 비고용 한 줄 요약으로. 예: 타입변환(bigint), 문자열(대문자)."""
+    cat = (rule.get("rule_category") or rule.get("rule_type") or "").strip().lower()
+    if cat == "code_map":
+        cat = "mapping"
+    label = _RULE_CATEGORY_LABEL.get(cat, cat or "변환")
+    config = _parse_rule_config(rule.get("rule_config"))
+    op = (config.get("operation") or "").strip().lower() or (rule.get("operation") or "").strip().lower()
+    opt_text = ""
+    if cat == "type_cast":
+        opt_text = (config.get("target_type") or "text").strip().lower()
+    elif op:
+        opt_text = _OPERATION_LABEL.get(op, op)
+    if opt_text:
+        return f"{label}({opt_text})"
+    return label
+
+
+def _build_transform_remarks_by_column(etl_table_id: int) -> dict:
+    """etl_table_id에 대한 변환 룰을 컬럼( target_column )별로 요약. 반환: { target_column: '타입변환(bigint), 문자열(대문자)' }."""
+    try:
+        from Backend.etl_server2 import transform_rules_service as transform_rules_svc
+        rules = transform_rules_svc.list_transform_rules(etl_table_id)
+    except Exception:
+        return {}
+    if not rules:
+        return {}
+    by_col: dict = {}
+    for r in rules:
+        if not r.get("is_active", True):
+            continue
+        tgt = (r.get("target_column") or r.get("source_column") or "").strip()
+        if not tgt:
+            continue
+        part = _format_single_rule_summary(r)
+        if tgt not in by_col:
+            by_col[tgt] = []
+        by_col[tgt].append(part)
+    return {k: ", ".join(v) for k, v in by_col.items()}
 
 
 def _normalize_mapping(column_mapping: Any) -> List[tuple]:
@@ -475,13 +569,17 @@ def get_transform_preview(
 
 
 def get_preview(etl_table_id: int) -> dict:
-    """ETL 테이블 1건에 대한 미리보기. columns(저장가능/이유) + preview_rows(최대 10행). 양쪽 조건(DB·파일) 만족 시 DB 우선."""
+    """ETL 테이블 1건에 대한 미리보기. columns(저장가능/이유) + preview_rows(최대 10행). DB 소스 시 변환 룰 요약을 columns[].transform_remark에 추가."""
     row = etl_service.get_etl_table(etl_table_id)
     if not row:
         raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
     source_type = (row.get("source_type") or "").strip().lower()
     if source_type in ("postgresql", "mysql", "oracle") or (row.get("connection_id") and row.get("source_table")):
-        return _preview_db(row)
+        data = _preview_db(row)
+        remarks = _build_transform_remarks_by_column(etl_table_id)
+        for col in data.get("columns") or []:
+            col["transform_remark"] = remarks.get((col.get("name") or "").strip(), "") or ""
+        return data
     if source_type == "file" or (row.get("file_path") and row.get("file_type")):
         return _preview_file(row)
     raise ValueError("미리보기 지원 소스가 아닙니다. 파일(path/type) 또는 DB(connection_id/source_table)가 필요합니다.")

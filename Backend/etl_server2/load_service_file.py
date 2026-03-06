@@ -13,6 +13,7 @@ get_target_connection, table_exists, create_table_from_dataframe, load_dataframe
 - load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 _batch_upsert/없으면 _batch_insert, 테이블 있으면 동일. 파라미터 한도 기반 배치(_calc_batch_size).
   PK upsert 시 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES(실제 변경 행만 IS DISTINCT FROM) 2단계. 반환 inserted/updated.
   PK·출처 정보 있으면 batch_loaded_keys 기록(파일 단위 롤백용). index_definitions 있으면 적재 후 _create_indexes_on_target.
+  타입 경계: transform_engine/apply_mapping_type_cast 출력 → itertuples → psycopg2 → VALUES(text 추론). SET/WHERE는 information_schema 기준 명시 캐스트. 검증: transform_upsert_verification.
 
 [Dependencies]
 =========
@@ -20,6 +21,11 @@ get_target_connection, table_exists, create_table_from_dataframe, load_dataframe
 - Backend.etl_server2.transform_engine (apply_mapping_type_cast, optional)
 - Backend.api_server.db (get_system_table_schema, get_db_connection_system은 호출부에서 전달)
 - pandas, psycopg2
+
+[Transform→Upsert 검증]
+====================
+변환 룰·엔진 출력이 upsert 시 타입 문제 없이 처리되는지 검증: Backend.etl_server2.transform_upsert_verification.
+run_dry_run_pipeline / verify_transform_output_columns로 파이프라인 호환성 확인 가능.
 """
 
 import re
@@ -133,6 +139,60 @@ def _get_table_columns(conn, schema: str, table_name: str) -> List[str]:
             (schema.strip(), table_name.strip()),
         )
         return [r[0] if isinstance(r, (list, tuple)) else r["column_name"] for r in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+def _get_table_column_types(conn, schema: str, table_name: str) -> dict:
+    """information_schema.columns에서 컬럼별 data_type 조회. VALUES→SET 시 text 추론으로 인한 타입 불일치 방지용 캐스트 맵."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+            """,
+            (schema.strip(), table_name.strip()),
+        )
+        # data_type → PostgreSQL 캐스트명. VALUES는 text로 추론되므로 SET/WHERE 시 명시적 캐스트 필요.
+        _cast_map = {
+            "bigint": "bigint",
+            "integer": "integer",
+            "smallint": "smallint",
+            "double precision": "double precision",
+            "real": "real",
+            "numeric": "numeric",
+            "character varying": "text",
+            "text": "text",
+            "character": "text",
+            "timestamp without time zone": "timestamp",
+            "timestamp with time zone": "timestamptz",
+            "date": "date",
+            "boolean": "boolean",
+            "uuid": "uuid",
+            "jsonb": "jsonb",
+            "json": "json",
+            "interval": "interval",
+            "bytea": "bytea",
+            "array": "text[]",
+            "inet": "inet",
+            "cidr": "cidr",
+            "macaddr": "macaddr",
+            "money": "money",
+            "xml": "xml",
+            "point": "point",
+            "time without time zone": "time",
+            "time with time zone": "timetz",
+            "oid": "oid",
+        }
+        out = {}
+        for r in cur.fetchall():
+            name = r[0] if isinstance(r, (list, tuple)) else r["column_name"]
+            dtype = (r[1] if isinstance(r, (list, tuple)) else r["data_type"] or "").strip().lower()
+            out[name] = _cast_map.get(dtype, "text")
+        return out
     finally:
         cur.close()
 
@@ -363,6 +423,9 @@ def _batch_upsert(
 ) -> Tuple[int, int]:
     """
     INSERT ... ON CONFLICT (pk) DO UPDATE SET.
+    Type flow: DataFrame (pandas dtypes) → itertuples (Python types) → psycopg2 bind params → PostgreSQL VALUES (inferred as text).
+    To avoid bigint=text etc., SET/WHERE use explicit casts from information_schema (e.g. v."col"::bigint).
+    Transform output dtypes are not used at SQL level; target table column types are the source of truth for casting.
     삽입/갱신 건수를 구분하기 위해 2단계 실행:
     (1) INSERT ON CONFLICT DO NOTHING → inserted = rowcount (실제로 새로 들어간 행 수).
     (2) UPDATE ... FROM (VALUES ...) WHERE pk 일치 AND (non_pk 컬럼 중 하나라도 IS DISTINCT FROM)
@@ -374,6 +437,12 @@ def _batch_upsert(
     non_pk 비면 DO NOTHING만 사용하며, 이 경우 inserted+skipped만 있고 updated=0.
     """
     cur = conn.cursor()
+    # full_name = "schema"."table" → schema, table 추출. SET/WHERE 시 VALUES가 text로 추론되므로 타겟 컬럼 타입으로 캐스트.
+    _parts = full_name.split(".")
+    _schema = _parts[0].strip('"') if len(_parts) >= 2 else "public"
+    _table = _parts[1].strip('"') if len(_parts) >= 2 else full_name.strip('"')
+    col_types = _get_table_column_types(conn, _schema, _table)
+
     non_pk = [c for c in columns if c not in pk_columns]
     cols_quoted = ", ".join(f'"{c}"' for c in columns)
     pk_quoted = ", ".join(f'"{p}"' for p in pk_columns)
@@ -412,9 +481,13 @@ def _batch_upsert(
 
         # 2) 충돌한 행만 UPDATE ... FROM (VALUES ...) 로 갱신.
         # WHERE에 (t.col IS DISTINCT FROM v.col OR ...) 추가로 값이 실제로 변경된 행만 UPDATE → WAL/디스크 I/O 절감.
-        # VALUES 쪽이 text로 추론될 수 있어(timestamp 등) 비교 시 ::text로 통일해 타입 불일치 오류 방지.
-        set_clause = ", ".join(f'"{c}" = v."{c}"' for c in non_pk)
-        pk_where = " AND ".join(f't."{p}" = v."{p}"' for p in pk_columns)
+        # VALUES 쪽이 text로 추론되므로 SET·WHERE 시 타겟 컬럼 타입으로 캐스트해 bigint=text 등 오류 방지.
+        set_clause = ", ".join(
+            f'"{c}" = v."{c}"::{col_types.get(c, "text")}' for c in non_pk
+        )
+        pk_where = " AND ".join(
+            f't."{p}"::text = v."{p}"::text' for p in pk_columns
+        )
         distinct_where = " OR ".join(f't."{c}"::text IS DISTINCT FROM v."{c}"::text' for c in non_pk)
         n_cols = len(columns)
         v_cols = ", ".join(f'"{c}"' for c in columns)

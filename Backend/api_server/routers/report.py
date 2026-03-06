@@ -32,6 +32,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 """
 
 import json
+import logging
 import re
 import threading
 import time
@@ -566,6 +567,9 @@ REPORT_SAVED_TABLE_PREFIX = "test_report_"
 # ---------- 큐 테이블 기반 저장 (report_save_queue) ----------
 REPORT_SAVE_QUEUE_TABLE = "report_save_queue"
 _worker_poll_interval = 3
+_save_table_worker_last_conn_err_log = 0.0
+_save_table_worker_conn_err_interval_sec = 60
+_save_table_worker_conn_err_sleep_sec = 10
 
 
 def _ensure_queue_table(conn):
@@ -595,6 +599,7 @@ def _ensure_queue_table(conn):
 
 def _save_table_worker():
     """큐 테이블에서 status='queued'인 행을 확인해 하나씩 CREATE TABLE 실행."""
+    global _save_table_worker_last_conn_err_log
     from Env import config as env_config
     while True:
         conn_sel = None
@@ -709,7 +714,24 @@ def _save_table_worker():
                 cur_up.close()
                 conn_up.close()
         except Exception as e:
-            traceback.print_exc()
+            err_msg = str(e)
+            is_conn_err = (
+                isinstance(e, psycopg2.OperationalError)
+                and ("connection" in err_msg.lower() or "network" in err_msg.lower())
+            )
+            if is_conn_err:
+                now = time.time()
+                if now - _save_table_worker_last_conn_err_log >= _save_table_worker_conn_err_interval_sec:
+                    logging.getLogger(__name__).warning(
+                        "save_table_worker: DB connection unavailable (%s). Next log in %ds.",
+                        err_msg.split("\n")[0].strip(),
+                        _save_table_worker_conn_err_interval_sec,
+                    )
+                    _save_table_worker_last_conn_err_log = now
+                time.sleep(_save_table_worker_conn_err_sleep_sec)
+            else:
+                traceback.print_exc()
+                time.sleep(0.5)
             if conn_sel:
                 try:
                     conn_sel.close()
@@ -720,7 +742,6 @@ def _save_table_worker():
                     conn_create.close()
                 except Exception:
                     pass
-        time.sleep(0.5)
 
 
 _save_table_worker_thread = threading.Thread(target=_save_table_worker, daemon=True)

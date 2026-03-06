@@ -1547,8 +1547,9 @@
 .etl-preview-modal {
   background: #fff;
   border-radius: 8px;
-  max-width: 90vw;
+  max-width: min(960px, 92vw);
   max-height: 85vh;
+  width: 100%;
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -1583,6 +1584,7 @@
 .etl-preview-modal__body {
   padding: 16px;
   overflow-y: auto;
+  overflow-x: auto;
   flex: 1;
   min-height: 0;
 }
@@ -1600,6 +1602,14 @@
 }
 .etl-preview-modal__table-wrap {
   overflow-x: auto;
+  overflow-y: visible;
+}
+.etl-preview-modal__remark {
+  max-width: 320px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+  max-height: 120px;
 }
 .etl-preview-modal__table {
   width: 100%;
@@ -2750,12 +2760,12 @@
   padding: 6px 8px;
 }
 .etl-target-select-modal__select--transform {
-  min-width: 100px;
-  max-width: 100%;
-  padding: 4px 6px;
+  min-width: 140px;
+  max-width: 180px;
+  padding: 5px 8px;
   font-size: 0.8125rem;
   border: 1px solid #d1d5db;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #fff;
 }
 .etl-target-select-modal__btn--code-map-edit {
@@ -3064,6 +3074,77 @@
 /* 변환 설정된 행 강조 */
 .etl-target-select-modal__row--has-transform {
   background: #f0f9ff;
+}
+
+/* 변환 상세 서브 행 */
+.etl-target-select-modal__row--transform-detail {
+  background: #f0f9ff;
+}
+.etl-target-select-modal__row--transform-detail:hover {
+  background: #e0f2fe;
+}
+.etl-target-select-modal__cell--transform-detail {
+  padding: 12px 16px 14px 80px;
+  border-top: none !important;
+  border-bottom: 2px solid #dbeafe;
+}
+.etl-target-select-modal__transform-detail-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  align-items: flex-start;
+}
+.etl-target-select-modal__transform-detail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+.etl-target-select-modal__transform-detail-group--wide {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.etl-target-select-modal__transform-detail-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.01em;
+}
+.etl-target-select-modal__input--detail {
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  width: 100%;
+  max-width: 160px;
+  background: #fff;
+}
+.etl-target-select-modal__input--detail:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.etl-target-select-modal__input--detail.etl-target-select-modal__input--tiny {
+  max-width: 60px;
+}
+.etl-target-select-modal__select--type-cast-target {
+  min-width: 180px;
+  padding: 5px 8px;
+  font-size: 0.8125rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+}
+.etl-target-select-modal__select--type-cast-target:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.etl-target-select-modal__select--concat-cols {
+  min-height: 60px;
+  max-height: 100px;
+  min-width: 140px;
+  font-size: 0.8125rem;
 }
 
 /* 값 매핑 4개 이상 시 팝오버 */

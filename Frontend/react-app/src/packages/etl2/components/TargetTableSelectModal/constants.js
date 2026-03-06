@@ -6,9 +6,10 @@
  * [Main Exports]
  * ===========
  * - DATETIME_TYPES, NEW_TABLE_VALUE
- * - ON_ERROR_OPTIONS, TRANSFORM_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS
+ * - TYPE_CAST_TARGET_OPTIONS, ON_ERROR_OPTIONS, TRANSFORM_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS
  * - typeFamily, isTypeCompatible, inferredTypeToPg
  * - getOnErrorValue, normalizeSourceCol, parsePkColumns
+ * - buildEmptyTransformSettings, TRANSFORM_OPTION_LABELS (모달↔부모 변환 스냅샷)
  *
  * [Dependencies]
  * =========
@@ -43,41 +44,51 @@ export function inferredTypeToPg(typeStr) {
 
 export const NEW_TABLE_VALUE = '__new__';
 
+/** 타입 변환 시 사용자가 선택할 대상 타입 (서브 드롭다운) */
+export const TYPE_CAST_TARGET_OPTIONS = [
+  { value: 'TEXT', label: '텍스트 (TEXT)' },
+  { value: 'BIGINT', label: '정수 (BIGINT)' },
+  { value: 'DOUBLE PRECISION', label: '실수 (DOUBLE PRECISION)' },
+  { value: 'BOOLEAN', label: '참/거짓 (BOOLEAN)' },
+  { value: 'TIMESTAMP', label: '날짜+시간 (TIMESTAMP)' },
+  { value: 'DATE', label: '날짜 (DATE)' }
+];
+
 export const ON_ERROR_OPTIONS = [
-  { value: 'null', label: 'NULL' },
-  { value: 'zero', label: '0/빈값' },
-  { value: 'keep', label: '원본 유지' },
-  { value: 'skip_row', label: '행 제외' },
-  { value: 'fail', label: '실패' }
+  { value: 'null', label: 'NULL (빈값)' },
+  { value: 'zero', label: '0 또는 빈 문자열' },
+  { value: 'keep', label: '원래 값 유지' },
+  { value: 'skip_row', label: '이 행 건너뛰기' },
+  { value: 'fail', label: '적재 중단' }
 ];
 
 export const TRANSFORM_OPTIONS = [
-  { value: 'none', label: '없음' },
-  { value: 'cleansing', label: '정리' },
+  { value: 'none', label: '변환 없음' },
+  { value: 'cleansing', label: '공백·빈값 정리' },
   { value: 'type_cast', label: '타입 변환' },
-  { value: 'cleansing_and_type_cast', label: '정리 + 타입 변환' },
-  { value: 'code_map', label: '값 매핑' },
-  { value: 'string', label: '문자열 변환' },
-  { value: 'masking', label: '마스킹' }
+  { value: 'cleansing_and_type_cast', label: '정리 후 타입 변환' },
+  { value: 'code_map', label: '값 치환 (M→남성)' },
+  { value: 'string', label: '문자열 가공' },
+  { value: 'masking', label: '마스킹 (비가역)' }
 ];
 
 export const STRING_OPERATION_OPTIONS = [
-  { value: 'uppercase', label: '대문자 변환' },
-  { value: 'lowercase', label: '소문자 변환' },
-  { value: 'pad_left', label: '왼쪽 패딩' },
-  { value: 'pad_right', label: '오른쪽 패딩' },
-  { value: 'substring', label: '부분 문자열' },
-  { value: 'replace', label: '문자열 치환' },
-  { value: 'regex_replace', label: '정규식 치환' },
-  { value: 'concat', label: '컬럼 합치기' }
+  { value: 'uppercase', label: '대문자로' },
+  { value: 'lowercase', label: '소문자로' },
+  { value: 'pad_left', label: '왼쪽 채우기 (예: 001)' },
+  { value: 'pad_right', label: '오른쪽 채우기' },
+  { value: 'substring', label: '일부 추출 (시작~길이)' },
+  { value: 'replace', label: '문자열 바꾸기' },
+  { value: 'regex_replace', label: '정규식 바꾸기' },
+  { value: 'concat', label: '여러 컬럼 합치기' }
 ];
 
 export const MASKING_OPERATION_OPTIONS = [
-  { value: 'mask_right', label: '뒷자리 마스킹' },
-  { value: 'mask_left', label: '앞자리 마스킹' },
-  { value: 'mask_email', label: '이메일 마스킹' },
-  { value: 'mask_phone', label: '전화번호 마스킹' },
-  { value: 'mask_name', label: '이름 마스킹' }
+  { value: 'mask_right', label: '뒷자리 가리기 (****5678)' },
+  { value: 'mask_left', label: '앞자리 가리기' },
+  { value: 'mask_email', label: '이메일 가리기 (h***@...)' },
+  { value: 'mask_phone', label: '전화번호 가리기 (010-****-5678)' },
+  { value: 'mask_name', label: '이름 가리기 (홍*동)' }
 ];
 
 export function getOnErrorValue(map, sourceKey) {
@@ -96,3 +107,29 @@ export function parsePkColumns(str) {
   if (!str || typeof str !== 'string') return [];
   return str.split(',').map((s) => s.trim()).filter(Boolean);
 }
+
+/**
+ * 모달 ↔ 부모 간 변환 설정 스냅샷. 모달 닫힐 때 조립, 모달 열릴 때 복원.
+ * @returns {{ transformKind: {}, typeCastConfig: {}, stringConfig: {}, maskingConfig: {}, codeMapConfig: {}, mappingOnError: {} }}
+ */
+export function buildEmptyTransformSettings() {
+  return {
+    transformKind: {},
+    typeCastConfig: {},
+    stringConfig: {},
+    maskingConfig: {},
+    codeMapConfig: {},
+    mappingOnError: {}
+  };
+}
+
+/** 변환 종류 value → 요약 표시용 라벨 (부모 요약 UI) */
+export const TRANSFORM_OPTION_LABELS = {
+  none: '변환 없음',
+  cleansing: '공백·빈값 정리',
+  type_cast: '타입 변환',
+  cleansing_and_type_cast: '정리 후 타입 변환',
+  code_map: '값 치환',
+  string: '문자열 가공',
+  masking: '마스킹'
+};

@@ -1,3 +1,83 @@
+## 2026-03-06 DB 연결 실패 시 로그 과다 출력 완화 및 복구 연결 분리
+
+**배경:** PostgreSQL(49.247.47.206) 또는 MySQL 소스 연결이 끊기면 queue_worker·report _save_table_worker·batch_executor_db에서 동일 예외가 반복 발생하고, 매번 전체 트레이스백이 출력되어 터미널 로그가 비대해짐. 또한 batch 복구(finish_run, update_job_status) 시 이미 끊긴 sys_conn을 재사용해 InterfaceError가 연쇄 발생.
+
+**적용 내용:**
+- **etl_server2/queue_worker.py, etl_server/queue_worker.py**: `psycopg2.OperationalError` 중 "connection"/"network" 포함 시 한 줄 경고만 출력하고 60초 동안 동일 유형 재로그 억제. 그 외 예외는 기존대로 `logger.exception` 유지.
+- **batch_executor_db.py**: 예외 처리 시 `finish_run`, `update_job_status` 호출에 `conn=None` 사용. 서비스 내부에서 새 시스템 DB 연결을 생성하므로 끊긴 연결로 인한 복구 실패 방지.
+- **report.py _save_table_worker**: 연결 관련 `psycopg2.OperationalError` 시 전체 traceback 대신 한 줄 경고 + 60초 억제, 재시도 전 대기 10초로 설정. 그 외 예외는 기존대로 traceback + 0.5초 대기.
+
+**변경 파일:** Backend/etl_server2/queue_worker.py, Backend/etl_server/queue_worker.py, Backend/etl_server2/batch_executor_db.py, Backend/api_server/routers/report.py, docs/report/log.md.
+
+---
+
+## 2026-03-05 ETL2 변환→Upsert 파이프라인 본질적 검증
+
+**배경:** 컬럼 변환(transform_rules_service + transform_engine) 후 upsert 시 타입 오류(bigint=text 등)를 단편적으로 수정한 것에 그치지 않고, 변환 룰·엔진 출력이 load_dataframe/_batch_upsert와 끝까지 호환되는지 검증 체계가 필요함.
+
+**적용 내용:**
+- **Backend/etl_server2/transform_upsert_verification.py** 신규:
+  - transform_engine 출력 + apply_mapping_type_cast 결과가 load_dataframe/_batch_upsert와 호환되는지 검증(컬럼 집합, pandas dtype→PG 캐스트 매핑).
+  - `PANDAS_DTYPE_TO_PG_CAST`: Int64, int64, float64, datetime64, bool, object 등 → bigint, double precision, timestamp, boolean, text 등.
+  - `get_expected_pg_cast_for_series(series)`: Series dtype → PG 캐스트명.
+  - `verify_transform_output_columns(df, target_columns)`: 중복 컬럼·누락 컬럼·미지원 dtype 검사, 에러 문자열 목록 반환.
+  - `run_dry_run_pipeline(sample_df, rules, column_mapping)`: apply_rules → apply_mapping_type_cast 드라이런, errors + dtype_map 반환(DB 없이 실행 가능).
+  - `python Backend/etl_server2/transform_upsert_verification.py`로 최소 드라이런 실행 시 OK 및 dtype_map 출력.
+- **load_service_file.py**:
+  - `_batch_upsert` docstring에 Type flow 문단 추가: DataFrame(pandas) → itertuples(Python) → psycopg2 → VALUES(text 추론) → information_schema 기반 명시 캐스트로 bigint=text 등 방지. SQL 단계에서는 타겟 테이블 컬럼 타입이 기준.
+  - 상단 [Transform→Upsert 검증] 섹션: transform_upsert_verification 모듈 참조 및 run_dry_run_pipeline/verify_transform_output_columns 안내.
+
+**변경 파일:** Backend/etl_server2/transform_upsert_verification.py(신규), Backend/etl_server2/load_service_file.py, docs/report/log.md.
+
+---
+
+## 2026-03-05 ETL 삭제 시 batch_jobs 연쇄 삭제 및 last_synced_at 초기화
+
+**배경:** (1) ETL 목록에서 "삭제" 후에도 etl_tables 행이 남거나, 배치 등록만 해둔 ETL을 지울 때 batch_jobs가 남는 문제. (2) 증분 모드에서 한 번 실행하면 last_synced_at이 설정되어, "방금 만든 ETL"처럼 보여도 다음 실행부터는 증분만 조회됨.
+
+**수정 내용:**
+- **delete_etl_table / delete_etl_table_row_only**: 해당 etl_table_id를 참조하는 `batch_jobs` 및 자식 `batch_loaded_keys`, `batch_run_history`를 선삭제한 뒤 etl_tables 삭제. batch_jobs 등 테이블이 없으면(구버전 DB) 예외 시 rollback 후 etl_* 삭제만 진행.
+- **update_etl_table**: `clear_last_synced_at=True` 시 `last_synced_at`을 NULL로 초기화. 다음 실행 시 증분 조건 없이 전체 조회.
+- **PATCH /api/etl2/tables/:id**: body에 `clear_last_synced_at: true` 추가. 설정 모달 등에서 "증분 기준 초기화" 시 사용 가능.
+
+**동작 정리:** last_synced_at은 생성 시 NULL이며, **적재 1회 완료 후** db_load_service에서 갱신됨. 따라서 "방금 만든 ETL"이라도 한 번 실행하면 last_synced_at이 채워지는 것이 정상. 다시 전체 적재하려면 동기화 모드를 "전체"로 바꾸거나, PATCH로 clear_last_synced_at=true 후 실행.
+
+**변경 파일:** Backend/etl_server2/service.py, Backend/etl_server2/router.py, docs/report/log.md.
+
+---
+
+## 2026-03-05 DB 연결 ETL 목록 업로드 시 인덱스 미적용 원인 및 수정
+
+**현상:** DB 연결에서 컬럼변환·인덱스 설정 후 ETL 목록 업로드 및 적재를 실행해도 생성된 테이블에 설정한 인덱스가 없음.
+
+**원인 (프론트엔드 TargetTableSelectModal buildIndexDefinitions):**
+1. **필터 오류:** 소스 DB 인덱스의 `columns`는 **소스** 컬럼명인데, 포함 여부를 **타겟** 컬럼명 집합(`targetColumnNamesForPk`)으로 검사함. 컬럼 매핑으로 이름이 바뀌면 모두 제외되어 `index_definitions`가 빈 배열로 전달됨.
+2. **컬럼명 미변환:** 통과하더라도 반환 객체의 `columns`에 **소스** 컬럼명을 그대로 넣고 있음. 백엔드는 타겟 테이블(column_mapping 기준 **타겟** 컬럼명)에 대해 `CREATE INDEX ... ON table (소스컬럼명)`을 시도해 컬럼 부재로 실패하고, `logger.warning` 후 스킵되어 인덱스가 생성되지 않음.
+
+**수정 내용:**
+- `TargetTableSelectModal/index.jsx`의 `buildIndexDefinitions()`:
+  - 소스 인덱스 사용 시 **소스→타겟 컬럼명 매핑** 구성 (신규 테이블: `newTableTargetNames`/`newTableExcluded`, 기존 테이블: `sourceToTarget`).
+  - 각 소스 인덱스의 컬럼을 위 매핑으로 **타겟 컬럼명**으로 변환. 매핑되지 않은 컬럼이 있으면 해당 인덱스는 제외.
+  - 반환 시 `columns`에 **타겟 컬럼명**만 넣어 백엔드 `_create_indexes_on_target`가 실제 테이블 컬럼명으로 CREATE INDEX 하도록 함.
+
+**변경 파일:** Frontend/.../TargetTableSelectModal/index.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-05 DB 배치잡에 변환 룰(Transform Rules) 적용
+
+**배경:** DB 연결 ETL을 배치잡으로 등록해 주기 실행할 때, `run_db_batch_job`에서는 `apply_mapping_type_cast`만 적용되고 `etl_transform_rules` 기반 변환(cleansing, string, masking, type_cast 등)이 적용되지 않던 문제.
+
+**적용 내용:**
+- `Backend/etl_server2/batch_executor_db.py`의 `run_db_batch_job` 내부:
+  - `transform_rules_service` import 추가, Dependencies에 명시.
+  - `while True:` 루프에서 DataFrame 생성·헤더 유사 행 제거 후, `etl_table_id`가 있을 때만 `list_transform_rules(etl_table_id)`로 룰 조회 → `apply_rules(df, rules)` 적용. 룰 적용 실패 시 `logger.warning` 후 적재는 계속 진행.
+- 실행 경로별 정합성: `run_file_load` / `run_db_load`와 동일하게 배치잡에서도 변환 룰 → column_mapping 형변환 순서로 적용.
+
+**변경 파일:** Backend/etl_server2/batch_executor_db.py, docs/report/log.md.
+
+---
+
 ## 2026-03-05 Cursor 대용량 diff 방지 개선 (룰·파일 분할·안내)
 
 **배경:** 1600줄+ 단일 파일에서 StrReplace 매칭 실패 시 Write 도구로 전체 덮어쓰기가 발생해 +1611/-1610 수준의 diff가 생기는 문제. 원인: 파일 크기, Cursor 버전/apply 모델 변화, Format on Save·포맷터 확장.
@@ -11,6 +91,42 @@
    - **모델 변경:** StrReplace vs Write 선택 패턴이 모델마다 다르므로, 동일 작업을 다른 모델로 시도해 비교 가능.
 
 **변경 파일:** .cursor/rules/write-tool-restriction.mdc(신규), TargetTableSelectModal 분할(아래 항목 참조).
+
+---
+
+## 2026-03-05 오케스트레이션 룰 강화 (메인=기획·위임·정리, 1개 이상 파일=서브 위임)
+
+**목적:** 메인 에이전트가 대용량 파일을 직접 수정할 때 발생하는 거대 diff(+900/-900)·컨텍스트 급증·간헐적 적용 오류를 줄이기 위해, 코드 수정은 서브에이전트에만 맡기고 메인은 기획·위임·결과 정리만 하도록 변경.
+
+**변경 내용 (tech-lead-orchestration.mdc):**
+- **메인 역할**: 코드 직접 수정 금지. 플랜 수립 → @에이전트명으로 위임 → 서브 결과 수신 후 요약·제공만 수행.
+- **위임 조건**: 수정 대상이 **코드 파일 1개 이상**이면 반드시 서브에이전트 위임. (기존: 3개 이상·백엔드+프론트 등)
+- **단독 처리 예외 축소**: 문서/주석만, 설정·룰 파일만, 사용자 명시 요청 시에만 메인 직접 수정. 단일 코드 파일·CSS만 수정도 원칙적으로 위임.
+- **대용량 단일 파일**: 수백 줄 이상이면 위임 권장(StrReplace 실패 시 Write fallback·거대 diff 방지).
+
+---
+
+## 2026-03-05 ETL2 변환 설정 유지 (모달↔부모 스냅샷)
+
+**문제:** 모달 닫히면 변환 state 소멸. 신규 등록 시 etlTableId 없어 API 복원 불가.
+
+**해결:** 변환 설정을 부모(DbConnectionForm)가 보관하고, 모달 재오픈 시 currentTransformSettings로 복원. 적용 시 onSelect 5번째 인자로 transformSettings 스냅샷 전달.
+
+- **constants.js:** buildEmptyTransformSettings(), TRANSFORM_OPTION_LABELS 추가.
+- **모달 index.jsx:** currentTransformSettings prop. open 시 변환 state 초기화 후, etlTableId 없을 때만 currentTransformSettings 복원 useEffect. handleApply에서 currentSettings 조립 후 onSelect(tableName, mapping, pk, idx, currentSettings) 3분기 모두 적용.
+- **DbConnectionForm:** transformSettings state, currentTransformSettings/onSelect(tSettings) 전달. 설정 요약에 변환 룰 컬럼 수·종류별 카운트 표시. selectedSourceTable 변경 시 transformSettings/매핑/PK/인덱스/타겟 초기화. 등록 성공 후 setTransformSettings(buildEmpty...).
+- **FileUploadForm:** onSelect 4인자 유지(5번째 인자 무시). 변경 없음.
+
+---
+
+## 2026-03-05 ETL2 변환 UI UX 개선 (타입 변환 선택·라벨·서브 행)
+
+**작업:** 변환 기능이 “기능은 있는데 사용 불가”에 가깝던 문제 해결.
+
+- **A-1. 타입 변환 대상 선택:** constants에 TYPE_CAST_TARGET_OPTIONS 추가. typeCastConfig state 추가, getAssembledRules·룰 복원·preview 초기화에 반영. TransformDetailRow에서 type_cast/cleansing_and_type_cast 시 “변환 대상 타입” 서브 드롭다운 표시.
+- **A-2. 변환·문자열·마스킹·실패 시 라벨:** TRANSFORM_OPTIONS(변환 없음, 공백·빈값 정리, 값 치환 (M→남성), 문자열 가공, 마스킹 (비가역)), STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS, ON_ERROR_OPTIONS 예시/설명 보강.
+- **B. 매핑 테이블 가독성:** TransformCell은 변환 종류 select만 표시. 상세 설정은 해당 행 아래 서브 행(TransformDetailRow)으로 분리. 새 테이블 colSpan=8, 기존 테이블 colSpan=7.
+- **파일:** constants.js, index.jsx, TransformCell.jsx, TransformDetailRow.jsx(신규), ColumnMappingSection.jsx, etl.css. 빌드·린트 통과.
 
 ---
 

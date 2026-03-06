@@ -13,6 +13,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 - update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
 - etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry, upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table
 - create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
+- mark_stuck_runs_finished: 비활성화 시 해당 배치의 status=running 이력을 error로 마감. force_finish_run_as_cancelled: 실행 취소 시 run을 cancelled로 마감·last_run_status 해제(이력 유지, 재실행 가능).
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
 - list_run_history, get_run_detail
@@ -548,11 +549,13 @@ def create_batch_job(
 def update_batch_job(batch_job_id: int, **kwargs) -> None:
     """배치 Job 수정. updatable: job_name, file_pattern, file_extensions, target_table, pk_columns,
     interval_minutes, is_active, storage_connection_id, column_mapping, index_definitions, on_file_error,
-    connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error."""
+    connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error,
+    last_run_status (비활성화 시 끼어 있던 running 상태 초기화용)."""
     allowed = {
         "job_name", "file_pattern", "file_extensions", "target_table", "pk_columns",
         "interval_minutes", "is_active", "storage_connection_id", "column_mapping", "index_definitions", "on_file_error",
         "connection_id", "source_table", "incremental_column", "sync_mode", "batch_size", "batch_interval_seconds", "on_row_error",
+        "last_run_status",
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
@@ -986,6 +989,74 @@ def update_job_status(batch_job_id: int, last_run_status: str, last_error_messag
             (last_run_status, last_error_message, batch_job_id),
         )
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        if should_close:
+            conn.close()
+
+
+def mark_stuck_runs_finished(batch_job_id: int, conn: Any = None) -> int:
+    """해당 배치의 status='running'인 이력을 모두 'error'로 마감. 비활성화 시 stuck run 정리용. 갱신된 행 수 반환."""
+    schema = _schema()
+    should_close = conn is None
+    if conn is None:
+        conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            UPDATE {_q(schema, "batch_run_history")}
+            SET finished_at = NOW(), status = 'error', error_message = COALESCE(error_message, '실행 중단(비활성화)')
+            WHERE batch_job_id = %s AND status = 'running'
+            """,
+            (batch_job_id,),
+        )
+        n = cur.rowcount
+        conn.commit()
+        return n
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        if should_close:
+            conn.close()
+
+
+def force_finish_run_as_cancelled(run_id: int, conn: Any = None) -> Optional[int]:
+    """stuck된 run을 즉시 cancelled로 마감하고 batch_jobs.last_run_status를 해제. 실행 취소 시 재실행 가능하도록.
+    해당 run의 batch_job_id 반환(갱신된 경우), 없으면 None."""
+    schema = _schema()
+    should_close = conn is None
+    if conn is None:
+        conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            UPDATE {_q(schema, "batch_run_history")}
+            SET finished_at = NOW(), status = 'cancelled', error_message = COALESCE(error_message, '사용자 취소')
+            WHERE run_id = %s AND status = 'running'
+            RETURNING batch_job_id
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+        batch_job_id = row["batch_job_id"] if row else None
+        if batch_job_id is not None:
+            cur.execute(
+                f"""
+                UPDATE {_q(schema, "batch_jobs")}
+                SET last_run_status = NULL, last_error_message = NULL, updated_at = NOW()
+                WHERE batch_job_id = %s
+                """,
+                (batch_job_id,),
+            )
+        conn.commit()
+        return batch_job_id
     except Exception:
         conn.rollback()
         raise

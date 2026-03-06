@@ -3,7 +3,7 @@ Backend.etl_server2.batch_executor_db (DB 소스 배치 실행기)
 ===========================================================
 10_DB_Batch_Scheduling_Upgrade. job_type='db'인 배치 Job 주기 실행.
 get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT → batch_size 단위 fetch
-→ DataFrame → column_mapping 적용 → load_dataframe → batch_interval_seconds 대기 반복
+→ DataFrame → 변환 룰(apply_rules) 적용 → column_mapping 적용 → load_dataframe → batch_interval_seconds 대기 반복
 → last_synced_at 갱신 → finish_run, update_job_status. 정제 #3 MySQL batch_size 상한 10000, #5 check_consecutive_failures finally 밖.
 
 [Main Functions]
@@ -18,6 +18,7 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 - Backend.etl_server2.db_load_service (_get_source_connection, get_source_columns, _fetch_source_columns, _fetch_source_columns_mysql, _fetch_source_columns_oracle)
 - Backend.etl_server2.load_service_file (get_target_connection, load_dataframe)
 - Backend.etl_server2.transform_engine (apply_mapping_type_cast)
+- Backend.etl_server2.transform_rules_service (list_transform_rules)
 """
 
 import logging
@@ -108,6 +109,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
     from Backend.etl_server2 import service_file as batch_service
     from Backend.etl_server2 import service as etl_service
     from Backend.etl_server2 import transform_engine
+    from Backend.etl_server2 import transform_rules_service as transform_rules_svc
     from Backend.etl_server2 import db_load_service
     from Backend.etl_server2 import load_service_file
 
@@ -122,7 +124,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
         logger.debug("run_db_batch_job: job_id=%s is_active=False, skip", batch_job_id)
         return
     if (job.get("last_run_status") or "").strip().lower() == "running":
-        logger.warning("run_db_batch_job: batch %s already running, skip", batch_job_id)
+        logger.warning("run_db_batch_job: batch %s (job_type=db) already running (last_run_status=running), skip", batch_job_id)
         return
 
     etl_table_id = job.get("etl_table_id")
@@ -184,6 +186,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
     src_conn = None
     target_conn = None
     sys_conn = None
+    cur_src = None
 
     try:
         # 정제 #5: create_batch_run을 최상단에서 수행해, 소스 연결 실패 등에도 실행 이력·연속 실패 카운트가 남도록 함.
@@ -367,6 +370,16 @@ def run_db_batch_job(batch_job_id: int) -> None:
             if df.empty:
                 batch_offset += 1
                 continue
+            if etl_table_id:
+                try:
+                    rules = transform_rules_svc.list_transform_rules(etl_table_id)
+                    if rules:
+                        df = transform_engine.apply_rules(df, rules)
+                except Exception as e:
+                    logger.warning(
+                        "run_db_batch_job job_id=%s: 변환 룰 적용 실패 (skip): %s",
+                        batch_job_id, e,
+                    )
             if mapping_used:
                 try:
                     df = transform_engine.apply_mapping_type_cast(df, mapping_used, default_on_error="null")
@@ -436,6 +449,15 @@ def run_db_batch_job(batch_job_id: int) -> None:
             if not isinstance(last_synced_candidate, datetime):
                 last_synced_candidate = pd.to_datetime(last_synced_candidate)
             batch_service.update_last_synced_at_db_batch(batch_job_id, last_synced_candidate, conn=sys_conn)
+            # ETL 목록(etl_tables) 행도 동기화: postgres/mysql/oracle 공통, 기존 row에 갱신 반영
+            if etl_table_id is not None:
+                try:
+                    etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
+                except Exception as sync_err:
+                    logger.warning(
+                        "run_db_batch_job job_id=%s: etl_tables.last_synced_at 갱신 실패(배치 자체는 성공): %s",
+                        batch_job_id, sync_err,
+                    )
 
         batch_service.finish_run(
             run_id,
@@ -462,7 +484,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     rows_inserted=0,
                     rows_updated=0,
                     error_message=str(e),
-                    conn=sys_conn,
+                    conn=None,
                 )
             except Exception:
                 logger.exception("finish_run 복구 실패")
@@ -471,11 +493,17 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 batch_job_id,
                 "error",
                 last_error_message=str(e),
-                conn=sys_conn,
+                conn=None,
             )
         except Exception:
             logger.exception("update_job_status 복구 실패")
     finally:
+        # 커서 먼저 닫기 (SSCursor close 에러 방지)
+        if cur_src is not None:
+            try:
+                cur_src.close()
+            except Exception:
+                pass
         if sys_conn:
             try:
                 sys_conn.close()

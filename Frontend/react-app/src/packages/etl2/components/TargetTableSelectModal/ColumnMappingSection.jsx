@@ -11,11 +11,13 @@
  * =========
  * - React
  * - ./constants (ON_ERROR_OPTIONS, getOnErrorValue, isTypeCompatible)
- * - ./TransformCell
+ * - ./TransformCell, ./TransformDetailRow
  */
 
+import React from 'react';
 import { ON_ERROR_OPTIONS, getOnErrorValue, isTypeCompatible, NEW_TABLE_VALUE } from './constants.js';
 import { TransformCell } from './TransformCell.jsx';
+import { TransformDetailRow } from './TransformDetailRow.jsx';
 
 export function ColumnMappingSection({
   hasSourceMapping,
@@ -41,6 +43,8 @@ export function ColumnMappingSection({
   targetColumnsInCustomIndexes,
   transformKind,
   setTransformKind,
+  typeCastConfig,
+  setTypeCastConfig,
   stringConfig,
   setStringConfig,
   maskingConfig,
@@ -99,12 +103,14 @@ export function ColumnMappingSection({
                   {displaySourcesForNewTable.map((src) => {
                     const targetColName = ((newTableTargetNames[src.name] ?? src.name).trim().replace(/\s+/g, '_') || src.name);
                     const excluded = !!newTableExcluded[src.name];
-                    const hasTransform = (transformKind[src.name] || 'none') !== 'none';
+                    const kind = transformKind[src.name] || 'none';
+                    const hasTransform = kind !== 'none';
                     const wasPk = effectivePkForDisplay.includes(targetColName);
                     const hasIndexFromSource = sourceIndexes.length > 0 && targetColumnsInReflectedIndexes.has(targetColName);
                     const hasIndexFromCustom = sourceIndexes.length === 0 && targetColumnsInCustomIndexes.has(targetColName);
                     return (
-                      <tr key={src.name} className={excluded ? 'etl-target-select-modal__row--excluded' : (hasTransform ? 'etl-target-select-modal__row--has-transform' : '')}>
+                      <React.Fragment key={src.name}>
+                      <tr className={excluded ? 'etl-target-select-modal__row--excluded' : (hasTransform ? 'etl-target-select-modal__row--has-transform' : '')}>
                         <td className="etl-target-select-modal__cell--pk">
                           {excluded ? (
                             '—'
@@ -159,19 +165,8 @@ export function ColumnMappingSection({
                           <TransformCell
                             excluded={excluded}
                             src={src}
-                            sourceColumns={sourceColumns}
                             transformKind={transformKind}
                             setTransformKind={setTransformKind}
-                            stringConfig={stringConfig}
-                            setStringConfig={setStringConfig}
-                            maskingConfig={maskingConfig}
-                            setMaskingConfig={setMaskingConfig}
-                            codeMapConfig={codeMapConfig}
-                            setCodeMapConfig={setCodeMapConfig}
-                            codeMapEditorOpen={codeMapEditorOpen}
-                            setCodeMapEditorOpen={setCodeMapEditorOpen}
-                            codeMapPopoverSource={codeMapPopoverSource}
-                            setCodeMapPopoverSource={setCodeMapPopoverSource}
                           />
                         </td>
                         <td className="etl-target-select-modal__cell--exclude">
@@ -185,6 +180,27 @@ export function ColumnMappingSection({
                           </label>
                         </td>
                       </tr>
+                      {!excluded && kind !== 'none' && (
+                        <TransformDetailRow
+                          src={src}
+                          colSpan={8}
+                          kind={kind}
+                          sourceColumns={sourceColumns}
+                          typeCastConfig={typeCastConfig}
+                          setTypeCastConfig={setTypeCastConfig}
+                          stringConfig={stringConfig}
+                          setStringConfig={setStringConfig}
+                          maskingConfig={maskingConfig}
+                          setMaskingConfig={setMaskingConfig}
+                          codeMapConfig={codeMapConfig}
+                          setCodeMapConfig={setCodeMapConfig}
+                          codeMapEditorOpen={codeMapEditorOpen}
+                          setCodeMapEditorOpen={setCodeMapEditorOpen}
+                          codeMapPopoverSource={codeMapPopoverSource}
+                          setCodeMapPopoverSource={setCodeMapPopoverSource}
+                        />
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -219,11 +235,13 @@ export function ColumnMappingSection({
                   const targetColName = sourceToTarget[src.name] ?? '';
                   const wasPk = targetColName && effectivePkForDisplay.includes(targetColName);
                   const excluded = !targetColName;
-                  const hasTransform = (transformKind[src.name] || 'none') !== 'none';
+                  const kind = transformKind[src.name] || 'none';
+                  const hasTransform = kind !== 'none';
                   const hasIndexFromSource = sourceIndexes.length > 0 && targetColumnsInReflectedIndexes.has(targetColName);
                   const hasIndexFromCustom = sourceIndexes.length === 0 && targetColumnsInCustomIndexes.has(targetColName);
                   return (
-                    <tr key={src.name} className={excluded ? 'etl-target-select-modal__row--excluded' : (hasTransform ? 'etl-target-select-modal__row--has-transform' : '')}>
+                    <React.Fragment key={src.name}>
+                    <tr className={excluded ? 'etl-target-select-modal__row--excluded' : (hasTransform ? 'etl-target-select-modal__row--has-transform' : '')}>
                       <td className="etl-target-select-modal__cell--pk">
                         {excluded ? (
                           '—'
@@ -287,22 +305,32 @@ export function ColumnMappingSection({
                         <TransformCell
                           excluded={!targetColName}
                           src={src}
-                          sourceColumns={sourceColumns}
                           transformKind={transformKind}
                           setTransformKind={setTransformKind}
-                          stringConfig={stringConfig}
-                          setStringConfig={setStringConfig}
-                          maskingConfig={maskingConfig}
-                          setMaskingConfig={setMaskingConfig}
-                          codeMapConfig={codeMapConfig}
-                          setCodeMapConfig={setCodeMapConfig}
-                          codeMapEditorOpen={codeMapEditorOpen}
-                          setCodeMapEditorOpen={setCodeMapEditorOpen}
-                          codeMapPopoverSource={codeMapPopoverSource}
-                          setCodeMapPopoverSource={setCodeMapPopoverSource}
                         />
                       </td>
                     </tr>
+                    {!excluded && kind !== 'none' && (
+                      <TransformDetailRow
+                        src={src}
+                        colSpan={7}
+                        kind={kind}
+                        sourceColumns={sourceColumns}
+                        typeCastConfig={typeCastConfig}
+                        setTypeCastConfig={setTypeCastConfig}
+                        stringConfig={stringConfig}
+                        setStringConfig={setStringConfig}
+                        maskingConfig={maskingConfig}
+                        setMaskingConfig={setMaskingConfig}
+                        codeMapConfig={codeMapConfig}
+                        setCodeMapConfig={setCodeMapConfig}
+                        codeMapEditorOpen={codeMapEditorOpen}
+                        setCodeMapEditorOpen={setCodeMapEditorOpen}
+                        codeMapPopoverSource={codeMapPopoverSource}
+                        setCodeMapPopoverSource={setCodeMapPopoverSource}
+                      />
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
