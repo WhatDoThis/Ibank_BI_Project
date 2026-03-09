@@ -1,0 +1,449 @@
+/* 뉴 대시보드 패키지 전용 스타일 (#7c5cfc 톤) */
+
+.new-dashboard-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 32px;
+  background: #f5f5f7;
+  min-height: 100vh;
+}
+.new-dashboard-page__error {
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.new-dashboard-page__empty {
+  text-align: center;
+  padding: 80px 0;
+  color: #9ca3af;
+  font-size: 15px;
+}
+
+/* 헤더 */
+.nd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.nd-header__left {}
+.nd-header__table-select {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+}
+.nd-header__center {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nd-header__nav-btn {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.nd-header__nav-btn:hover { background: #f3f4f6; }
+.nd-header__date-label {
+  position: relative;
+  cursor: pointer;
+}
+.nd-header__date-display {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+  min-width: 120px;
+  text-align: center;
+  display: inline-block;
+}
+.nd-header__date-calendar-hint {
+  font-size: 14px;
+  margin-left: 6px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+.nd-header__date-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.nd-header__week-label {
+  margin-left: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+.nd-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nd-header__period-toggle {
+  display: flex;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-right: 8px;
+}
+.nd-header__period-btn {
+  background: #fff;
+  border: none;
+  border-right: 1px solid #d1d5db;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #6b7280;
+}
+.nd-header__period-btn:last-child { border-right: none; }
+.nd-header__period-btn:hover { background: #f9fafb; }
+.nd-header__period-btn--active {
+  background: #7c5cfc;
+  color: #fff;
+}
+.nd-header__period-btn--active:hover { background: #6d4de6; }
+.nd-header__refresh-btn {
+  background: #7c5cfc;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.nd-header__refresh-btn:disabled { opacity: 0.5; cursor: default; }
+.nd-header__refresh-btn:hover:not(:disabled) { opacity: 0.85; }
+
+/* 섹션 */
+.nd-section { margin-bottom: 28px; }
+.nd-section__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #7c5cfc;
+  display: inline-block;
+}
+
+/* KPI 그리드 */
+.nd-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.nd-kpi-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  min-height: 100px;
+}
+.nd-kpi-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.nd-kpi-card__label { font-size: 14px; font-weight: 500; color: #6b7280; }
+.nd-kpi-card__value { font-size: 32px; font-weight: 700; color: #111827; line-height: 1.2; }
+.nd-kpi-card__desc { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+.nd-kpi-card__change { font-size: 13px; font-weight: 500; }
+.nd-kpi-card__change--up { color: #22c55e; }
+.nd-kpi-card__change--down { color: #ef4444; }
+
+.nd-kpi-card--with-donut { min-height: 140px; }
+.nd-kpi-card__donut-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.nd-kpi-card__donut-left { flex: 1; min-width: 0; }
+.nd-kpi-card__donut-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nd-kpi-card__donut-legend { margin-top: 8px; }
+.nd-kpi-card__donut-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #4b5563;
+  margin-bottom: 2px;
+}
+.nd-kpi-card__donut-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nd-kpi-card__donut-legend-label { flex: 1; }
+.nd-kpi-card__donut-legend-pct { font-weight: 500; color: #374151; }
+
+/* 추이 차트 */
+.nd-trend-chart {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.nd-trend-chart__tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+.nd-trend-chart__tab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.nd-trend-chart__tab:hover {
+  background: #f9fafb;
+  color: #374151;
+}
+.nd-trend-chart__tab--active {
+  background: #7c5cfc;
+  color: #fff;
+  border-color: #7c5cfc;
+}
+.nd-trend-chart__legend-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+  padding-bottom: 4px;
+}
+.nd-trend-chart__custom-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 0;
+  justify-content: center;
+}
+.nd-trend-chart__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #4b5563;
+}
+.nd-trend-chart__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nd-trend-chart__legend-name { font-weight: 500; }
+.nd-trend-chart__legend-val { color: #111827; font-weight: 600; }
+
+/* 퍼널 */
+.nd-funnel-section {
+  display: flex;
+  gap: 32px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.nd-funnel-section__bars { flex: 2; display: flex; flex-direction: column; gap: 12px; }
+.nd-funnel-bar { display: flex; align-items: center; gap: 12px; }
+.nd-funnel-bar__label { width: 80px; font-size: 13px; color: #4b5563; text-align: right; }
+.nd-funnel-bar__track { flex: 1; height: 24px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
+.nd-funnel-bar__fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+.nd-funnel-bar__value { width: 90px; font-size: 13px; font-weight: 600; text-align: right; }
+.nd-funnel-bar__pct { width: 55px; font-size: 12px; color: #6b7280; }
+.nd-funnel-section__guide { flex: 1; padding-left: 24px; border-left: 1px solid #e5e7eb; }
+.nd-funnel-section__guide-title { font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 12px; }
+.nd-funnel-section__guide-desc { font-size: 13px; color: #6b7280; margin-bottom: 12px; }
+.nd-funnel-section__guide-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #4b5563; margin-bottom: 10px; }
+.nd-funnel-section__guide-thresholds { margin-top: 12px; }
+.nd-funnel-section__threshold { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+
+/* ── 캠페인 발송 순위 테이블 ── */
+
+.nd-rank-table-wrap {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.nd-rank-table__tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.nd-rank-table__tab {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.15s;
+}
+.nd-rank-table__tab:hover { background: #f9fafb; }
+.nd-rank-table__tab--active {
+  background: #7c5cfc;
+  color: #fff;
+  border-color: #7c5cfc;
+}
+
+/* 스크롤 래퍼 — 좁은 화면 대응 */
+.nd-rank-table__scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nd-rank-table {
+  width: 100%;
+  min-width: 820px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.nd-rank-table th {
+  background: #f9fafb;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+  border-bottom: 2px solid #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nd-rank-table__th--sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.nd-rank-table__th--sortable:hover {
+  background: #f3f4f6;
+  color: #7c5cfc;
+}
+
+.nd-rank-table__th--sorted {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.nd-rank-table__th--right {
+  text-align: right;
+}
+
+.nd-rank-table__th--center {
+  text-align: center;
+}
+
+.nd-rank-table__sort-icon {
+  font-size: 10px;
+  margin-left: 2px;
+  color: #6d28d9;
+}
+.nd-rank-table__sort-priority {
+  font-size: 9px;
+  color: #a78bfa;
+  margin-left: 2px;
+  font-weight: 700;
+}
+
+.nd-rank-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nd-rank-table tbody tr:hover {
+  background: #f5f3ff;
+}
+
+.nd-rank-table__td--center {
+  text-align: center;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.nd-rank-table__td--name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
+}
+
+.nd-rank-table__td--right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.nd-rank-table__pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 8px 0;
+}
+.nd-rank-table__page-btn {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 36px;
+  text-align: center;
+}
+.nd-rank-table__page-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #7c5cfc;
+}
+.nd-rank-table__page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.nd-rank-table__page-info {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  min-width: 60px;
+  text-align: center;
+}
+
+.nd-empty {
+  text-align: center;
+  padding: 40px;
+  color: #9ca3af;
+  font-size: 14px;
+}

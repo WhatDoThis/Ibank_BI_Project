@@ -9,6 +9,7 @@
  * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats (리포트)
  * - getDashboardTables, getDashboardFilterOptions, getDashboardData, getDashboardRequiredColumns, getChartData (대시보드1)
  * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2)
+ * - getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti (뉴 대시보드)
  * - batchListJobs, batchCreateJob, batchUpdateJob, batchDeleteJob, batchRunJobNow, batchToggleJob, batchListJobHistory, batchGetJobHistoryDetail (ETL2 배치 Job)
  *
  * [Endpoints/Classes/Functions]
@@ -190,6 +191,47 @@ export async function getDashboard2RequiredColumns() {
 /** POST /api/dashboard2/chart-data - 대시보드2 차트 데이터 */
 export async function getDashboard2ChartData(body) {
   return request('POST', '/api/dashboard2/chart-data', body);
+}
+
+// ---------- New Dashboard (뉴 대시보드: 일간/주간/월간 현황판) ----------
+
+function baseUrlNewDashboard() {
+  return getApiBase().replace(/\/$/, '');
+}
+
+/** GET /api/new-dashboard/tables - 뉴 대시보드 집계 가능 테이블 목록 */
+export async function getNewDashboardTables() {
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/tables`);
+  if (!res.ok) throw new Error(`테이블 목록 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard/summary - 뉴 대시보드 기간별 요약 (KPI·증감률·aggregated_data) */
+export async function getNewDashboardSummary(tableId, targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ table_id: tableId, period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/summary?${params}`);
+  if (!res.ok) throw new Error(`요약 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard/trend - 뉴 대시보드 단일 메트릭 추이 */
+export async function getNewDashboardTrend(tableId, { endDate = null, days = 30, metric = 'success_count' } = {}) {
+  const params = new URLSearchParams({ table_id: tableId, days: String(days), metric });
+  if (endDate) params.set('end_date', endDate);
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/trend?${params}`);
+  if (!res.ok) throw new Error(`추이 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard/trend-multi - 뉴 대시보드 기간별 복수 메트릭 (period: daily 10일 / weekly 10주 / monthly 10개월) */
+export async function getNewDashboardTrendMulti(tableId, { endDate = null, period = 'daily', days = 10, count = 10, byChannel = false } = {}) {
+  const params = new URLSearchParams({ table_id: tableId, period, days: String(days), count: String(count) });
+  if (endDate) params.set('end_date', endDate);
+  if (byChannel) params.set('by_channel', 'true');
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/trend-multi?${params}`);
+  if (!res.ok) throw new Error(`추이(멀티) 조회 실패: ${res.status}`);
+  return res.json();
 }
 
 // ---------- ETL (Phase 5 UI) ----------

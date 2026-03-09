@@ -191,9 +191,12 @@ def run_db_batch_job(batch_job_id: int) -> None:
 
     try:
         # 정제 #5: create_batch_run을 최상단에서 수행해, 소스 연결 실패 등에도 실행 이력·연속 실패 카운트가 남도록 함.
+        # 중복 실행 방지: FOR UPDATE로 선점 후 running 갱신. 스케줄러·run_now 동시 진입 시 한 쪽만 진행.
         sys_conn = api_db.get_db_connection_system()
+        if not batch_service.try_claim_batch_job_for_run(batch_job_id, sys_conn):
+            logger.warning("run_db_batch_job: batch %s already running (claimed by another), skip", batch_job_id)
+            return
         run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
-        batch_service.update_job_status(batch_job_id, "running", conn=sys_conn)
 
         target_conn, target_schema = load_service_file.get_target_connection(storage_connection_id)
         # full 모드: DROP 대신 TRUNCATE로 테이블 구조 보존. 적재 실패 시 다음 주기 재시도 가능.

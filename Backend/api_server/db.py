@@ -35,18 +35,17 @@ import re
 from datetime import datetime, date
 
 import psycopg2
-from pathlib import Path
-
 from psycopg2.extras import RealDictCursor
 
-# 프로젝트 루트를 sys.path 맨 앞에 넣어 Env가 프로젝트 쪽으로 로드되도록 함
-import sys
-_db_module_dir = Path(__file__).resolve().parent
-_project_root_from_db = _db_module_dir.parent.parent
-if str(_project_root_from_db) not in sys.path:
-    sys.path.insert(0, str(_project_root_from_db))
-
-from Env import config
+try:
+    from Env import config
+except ImportError:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _project_root = _Path(__file__).resolve().parent.parent.parent
+    if str(_project_root) not in _sys.path:
+        _sys.path.insert(0, str(_project_root))
+    from Env import config
 
 
 def get_db_config():

@@ -6,17 +6,17 @@
  * [Main Functions]
  * ===========
  * - AppLayout: 네비(리포트/대시보드/대시보드2 링크) + Outlet
- * - Routes: / → /report 리다이렉트, /report, /dashboard, /dashboard2, /widgetboard, /etl, /etl2, 그 외 → /report
+ * - Routes: / → /report 리다이렉트, /report, /dashboard, /dashboard2, /new-dashboard, /widgetboard, /etl, /etl2, 그 외 → /report
  *
  * [Endpoints/Classes/Functions]
  * =======================
  * - Route path "/" → Navigate to="/report"
- * - Route path "/report" → ReportPage, "/dashboard" → DashboardPage, "/dashboard2" → Dashboard2Page, "/etl" → ETLPage, "/etl2" → ETL2Page
+ * - Route path "/report" → ReportPage, "/dashboard" → DashboardPage, "/dashboard2" → Dashboard2Page, "/new-dashboard" → NewDashboardPage, "/etl" → ETLPage, "/etl2" → ETL2Page
  *
  * [Dependencies]
  * =========
  * - React, react-router-dom (BrowserRouter, Routes, Route, NavLink, Navigate, useLocation)
- * - packages/report, packages/dashboard, packages/dashboard2, packages/etl, packages/etl2
+ * - packages/report, packages/dashboard, packages/dashboard2, packages/new-dashboard, packages/etl, packages/etl2
  */
 
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
@@ -26,6 +26,7 @@ import Dashboard2Page from './packages/dashboard2'
 import WidgetboardPage from './packages/widgetboard'
 import ETLPage from './packages/etl'
 import ETL2Page from './packages/etl2'
+import NewDashboardPage from './packages/new-dashboard'
 
 /** 도메인/서브경로 적용 시 vite.config base 설정 시 자동 반영 (끝 슬래시 제거) */
 const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || ''
@@ -57,6 +58,13 @@ function AppLayout() {
           대시보드2
         </NavLink>
         <NavLink
+          to="/new-dashboard"
+          className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+          style={({ isActive }) => ({ color: 'white', textDecoration: 'none', opacity: isActive ? 1 : 0.85 })}
+        >
+          뉴 대시보드
+        </NavLink>
+        <NavLink
           to="/widgetboard"
           className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
           style={({ isActive }) => ({ color: 'white', textDecoration: 'none', opacity: isActive ? 1 : 0.85 })}
@@ -84,6 +92,7 @@ function AppLayout() {
           <Route path="/report" element={<ReportPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/dashboard2" element={<Dashboard2Page />} />
+          <Route path="/new-dashboard" element={<NewDashboardPage />} />
           <Route path="/widgetboard" element={<WidgetboardPage />} />
           <Route path="/etl" element={<ETLPage />} />
           <Route path="/etl2" element={<ETL2Page />} />

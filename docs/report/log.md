@@ -1,3 +1,236 @@
+## 2026-03-09 KPI 카드 채널별 도넛 추가
+
+**적용 내용:**
+- **총 발송요청·총 발송성공·총 오픈수·총 클릭수** 4개 카드에 채널별 % 도넛 차트 및 범례 추가. 캠페인 건수·워크플로우 건수는 도넛 없이 MiniStat 유지.
+- **Backend dashboard_service.py**: 채널 집계 쿼리에 open_count, click_count 추가. channel_distribution.open, channel_distribution.click 채널별 value·percentage 반환.
+- **Frontend KPISummaryCards**: MiniDonutCard 복원(증감률 표시 포함), 4개 지표에 dist.send/success/open/click 전달.
+
+**변경 파일:** Backend/api_server/dashboard_service.py, Frontend/.../KPISummaryCards.jsx.
+
+---
+
+## 2026-03-09 KPI 카드 구성·라벨 변경
+
+**적용 내용:**
+- **KPISummaryCards**: 상단 3개 — 캠페인 건수, 총 발송요청, 총 발송성공 / 하단 3개 — 워크플로우 건수, 총 오픈수, 총 클릭수. 6개 모두 MiniStat 카드로 통일, 도넛 카드 제거. 증감률은 발송요청·발송성공·오픈수·클릭수에만 표시(kpi.send_change_pct 등).
+- **NewDashboardPage**: KPISummaryCards에 distribution prop 제거.
+- **백엔드**: summary API가 이미 campaign_count, workflow_count, total_send, total_success, total_open, total_click 및 증감률 4종 반환 — 변경 없음.
+
+**변경 파일:** KPISummaryCards.jsx, NewDashboardPage.jsx.
+
+---
+
+## 2026-03-09 주차 표준(M월 N주차)·주간 추이 W00 수정·테이블 헤더 정렬
+
+**적용 내용:**
+- **주차 기준**: ISO 8601·마케팅 관례 적용 — 월요일 시작, 목요일 포함 기준. 표시는 "몇월 몇주차"(M월 N주차). 매월 1주차 = 1일이 월~목에 있으면 그 주가 1주차, 1일이 금~일이면 다음 주 월요일부터 1주차.
+- **dateUtils.js**: getMonthWeekLabel(ymd) → "M월 N주차" 추가. toLocalDateString(d) 추가(UTC 비틀림 방지). getISOWeekNumber 유지(연간 주차·input type="week" 용).
+- **TrendLineChart**: getFullDateRange/getFullWeekRange에서 toISOString 대신 toLocalDateString 사용(로컬 YYYY-MM-DD 보장). getFullWeekRange 월요일 계산 수정. 주간 X축 라벨을 getMonthWeekLabel(ymd)로 변경(W00 제거, 각 주 "M월 N주차" 표시).
+- **SummaryHeader**: 주차 라벨을 getISOWeekNumber 기반 "N주차" → getMonthWeekLabel 기반 "M월 N주차"로 변경.
+- **CampaignRankTable**: 컬럼 헤더 정렬 — 순위·캠페인명(워크플로우명)만 nd-rank-table__th--center, 채널·숫자 컬럼 nd-rank-table__th--right.
+
+**변경 파일:** dateUtils.js, TrendLineChart.jsx, SummaryHeader.jsx, CampaignRankTable.jsx.
+
+---
+
+## 2026-03-09 CampaignRankTable UI 전면 개선
+
+**적용 내용:**
+- **컬럼 폭**: `table-layout: fixed` + `<colgroup>`으로 컬럼별 고정 width(순위 52px, 이름 200/260px, 채널 72px, 숫자/비율 75~90px). `min-width: 820px`로 좁은 화면에서 가로 스크롤.
+- **정렬**: 전체/캠페인별/워크플로우별 모든 탭에서 동일 정렬 UX. 탭 전환 시 정렬 기본값(발송성공 내림차순)으로 리셋(handleViewChange).
+- **숫자·비율**: `nd-rank-table__th--right`, `nd-rank-table__td--right` + `font-variant-numeric: tabular-nums`.
+- **캠페인명**: `nd-rank-table__td--name` + `max-width: 0` + ellipsis, `title` 툴팁.
+- **구조**: COLUMNS 배열에 width·format(number/rate), formatCell, VIEW_TABS, nd-rank-table__scroll 래퍼. CSS 랭킹 테이블 블록 전면 교체.
+
+**변경 파일:** CampaignRankTable.jsx, new-dashboard.css.
+
+---
+
+## 2026-03-09 추이 첫 구간·퍼널 정합성·비율 표시 개선 및 검증
+
+**적용 내용:**
+- **Backend/new_dash_server/router.py**: trend-multi 응답 `date` 포맷 통일. weekly는 `date_trunc(...)::date::text` → `to_char(date_trunc('week', delivery_date)::date, 'YYYY-MM-DD')`, daily는 `delivery_date::text` → `to_char(delivery_date, 'YYYY-MM-DD')`로 변경. 프론트 fullDates와의 매칭 보장(첫 구간 누락 가능성 제거).
+- **Backend/api_server/dashboard_service.py**: KPI `click_rate` 정의 수정. 기존 `total_click/total_success` → `total_click/total_open`(오픈 대비 클릭). 퍼널 바의 "클릭" pct(click/open)와 가이드 "클릭률" 표시 일치.
+- **TrendLineChart**: 오픈률/클릭률 탭 선택 시 툴팁·범례·Y축에 `%` 표시 확인됨(isRate 기반 toFixed(2)% / tickFormatter `${v}%`) — 추가 수정 없음.
+- **FunnelSection**: 가이드(success_rate, open_rate, click_rate)와 바(발송성공=성공/발송, 오픈=오픈/성공, 클릭=클릭/오픈) 정합성 — 백엔드 click_rate 수정으로 해소. CampaignRankTable은 이미 click_rate = click/open 사용 중.
+
+**검증 요약:** trend-multi API 응답 date 필드명·형식 변경 없음(YYYY-MM-DD 유지). summary KPI 필드명 변경 없음(click_rate 계산식만 수정). 프론트 FunnelSection·KPISummaryCards·CampaignRankTable 연동 필드 일치.
+
+**변경 파일:** Backend/new_dash_server/router.py, Backend/api_server/dashboard_service.py.
+
+---
+
+## 2026-03-09 뉴 대시보드 백엔드 코드 품질 개선 (router.py)
+
+**적용 내용:**
+- **Backend/new_dash_server/router.py**: trend-multi 6개 쿼리(by_channel×period) → `_build_trend_multi_query(full_table, date_expr, group_expr, by_channel)` 1개 함수로 통합. `_trend_multi_range(end_dt, period, days, count)`로 period별 start_dt·date_expr·group_expr 계산 분리. CHANNEL_MAPPING 중복 제거 → dashboard_service에서 import. summary 증감률 4줄 → for 루프로 통합. _calc_previous_range 중간 변수 정리.
+- **db.py, dashboard_service.py, analysis_store.py, dependencies.py, main.py**: 변경 없음.
+
+**변경 파일:** Backend/new_dash_server/router.py.
+
+---
+
+## 2026-03-09 뉴 대시보드 코드 품질 개선 (중복 제거·유틸 분리·연산 최적화)
+
+**적용 내용:**
+- **dateUtils.js (신규)**: `getISOWeekNumber`, `dateToWeekValue`, `weekValueToDate` 공통 유틸 분리. SummaryHeader·TrendLineChart 중복 제거.
+- **SummaryHeader.jsx**: 로컬 날짜 유틸 3개 삭제 → `./dateUtils` import. formatDateDisplay·handleDateInput 간소화.
+- **TrendLineChart.jsx**: METRIC_TABS에 dataKey·stroke 통합 → 6단 분기 제거. RATE_KEYS를 Set으로 변경(.has). calcRate 공통화, getChannelMetricValue·buildTotalChartData에서 사용. buildTotalChartData는 byDate 구성 시 한 번만 계산 후 dates.map으로 매핑. 전체 모드 범례에서 오픈률/클릭률 중복 제거(탭으로 이미 분리). 툴팁 하단 오픈률/클릭률 블록 제거, isRate 기반 값 포맷만 유지.
+- **CampaignRankTable.jsx**: aggregateByCampaign·aggregateByWorkflow → `aggregateBy(data, groupKey)` 하나로 통합. 비정렬 모드 헤더를 SORTABLE_COLUMNS.map으로 통일. isAll 변수 추출.
+- **ChannelDonutSection.jsx**: 미사용 빈 컴포넌트 삭제.
+- **new-dashboard.css**: nd-loading-overlay, nd-loading-spinner, @keyframes nd-spin 제거(미사용).
+
+**변경 파일:** components/dateUtils.js(신규), SummaryHeader.jsx, TrendLineChart.jsx, CampaignRankTable.jsx, new-dashboard.css. 삭제: ChannelDonutSection.jsx.
+
+---
+
+## 2026-03-09 뉴 대시보드 로딩·추이 탭·주차·기간·정렬 개선
+
+**적용 내용:**
+- **로딩**: nd-loading-overlay div 제거. 새로고침 버튼에만 "조회 중..." 표시(최초 진입 시에도 동일).
+- **TrendLineChart**: 메트릭 탭에 오픈률·클릭률 추가(발송수/성공수/오픈수/클릭수/오픈률/클릭률 6개). 탭은 항상 노출, 선택한 메트릭 1개만 라인 표시. 채널 모드에서 오픈률/클릭률은 성공수 기준 계산 후 피벗. Y축·툴팁 rate 시 % 포맷.
+- **SummaryHeader**: 주간 선택 시 ◀ 날짜 ▶ 와 period 토글 사이에 "N주차" 표시(ISO 주차). 달력: 주간 시 input type="week"(YYYY-Www), 월간 시 type="month". dateToWeekValue/weekValueToDate/getISOWeekNumber 추가. nd-header__week-label 스타일.
+- **trend-multi API**: period(daily|weekly|monthly), count(10) 파라미터 추가. 일간=해당 일 포함 이전 10일, 주간=해당 주 포함 이전 10주(date_trunc week), 월간=해당 월 포함 이전 10개월(date_trunc month). 응답에 period 포함.
+- **client.js**: getNewDashboardTrendMulti에 period, count 전달.
+- **NewDashboardPage**: trend 호출 시 period, days:10, count:10. TrendLineChart에 period, count 전달.
+- **TrendLineChart**: fullDates를 period별 생성(getFullWeekRange, getFullMonthRange). dateLabel을 period에 따라 일(MM/DD)·주(Wn)·월(YYYY/MM) 형식. buildTotalChartData/pivotByChannel에 period 전달.
+- **CampaignRankTable**: view===전체 일 때 발송요청~클릭률 컬럼 헤더 클릭 정렬. 클릭=단일 컬럼 오름/내림 전환, Shift+클릭=다중 정렬 추가. 정렬된 헤더 시각 표시(배경·▼▲·우선순위). nd-rank-table__th--sortable/__th--sorted 등 CSS.
+
+**변경 파일:** NewDashboardPage.jsx, TrendLineChart.jsx, SummaryHeader.jsx, CampaignRankTable.jsx, new-dashboard.css, Backend/new_dash_server/router.py, shared/api/client.js, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴 대시보드 추이 기간·채널별 탭 수정
+
+**적용 내용:**
+- **기간**: 추이 그래프를 "기준일(targetDate) 포함 이전 30일"로 통일. loadData를 Promise.all 병렬 호출로 복원, endDate=targetDate 사용(date_range_actual 종료일 제거).
+- **trend-multi by_channel**: Backend new_dash_server/router.py에 by_channel 쿼리 파라미터 추가. True일 때 delivery_channel별 GROUP BY, 응답 rows에 channel/channel_code, by_channel 플래그 반환.
+- **client.js**: getNewDashboardTrendMulti에 byChannel 옵션 추가, by_channel=true 쿼리 전달.
+- **TrendLineChart**: 메트릭 탭(발송수/성공수/열람수/클릭수) 추가. byChannel이면 탭 선택 시 해당 지표 채널별 라인(Email/SMS/iOS/Android/Kakao), 아니면 전체 합산 4라인. pivotByChannel, buildTotalChartData, dateLabel 사용. Tooltip labelFormatter·contentStyle 적용.
+- **NewDashboardPage**: trend-multi 호출 시 byChannel: true, TrendLineChart에 byChannel={trendMultiData?.by_channel} 전달.
+- **CSS**: nd-trend-chart__tabs, nd-trend-chart__tab, nd-trend-chart__tab--active 스타일 추가.
+
+**변경 파일:** NewDashboardPage.jsx, Backend/new_dash_server/router.py, shared/api/client.js, TrendLineChart.jsx, new-dashboard.css, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴 대시보드 UX/품질 개선 (날짜 달력·KPI·퍼널·추이·페이지네이션·로딩)
+
+**적용 내용:**
+- **SummaryHeader**: 날짜 영역 클릭 시 네이티브 `<input type="date|month">` 달력 표시. `onDateChange` props 추가, period별 input type(daily/weekly: date, monthly: month).
+- **NewDashboardPage**: trend-multi 호출 시 `endDate`를 summary의 `date_range_actual[1]`로 변경(월간 시 기간 정확성). `handleDateChange`, 로딩 시 `nd-loading-overlay`+스피너 표시.
+- **KPISummaryCards**: MiniStat에 description·header(증감률 우측), value 32px, nd-kpi-card__desc 추가. MiniDonutCard 80×80 도넛, 카드 내 범례(donut-legend), description 추가.
+- **FunnelSection**: "전환" 바 제거(4단계). FunnelBar에 prevValue 추가, 이전 단계 대비 비율(%) 표시. 가이드에 guide-desc·guide-thresholds(✅🔶🔴 기준) 추가.
+- **TrendLineChart**: "전환" 라인 제거. recharts Legend를 커스텀(renderLegend)으로 교체, 메트릭명+최신값 한 곳에 표시. nd-trend-chart__legend-values 제거.
+- **CampaignRankTable**: PAGE_SIZE 5→10. 페이지네이션을 ≪ ◀ "1/N" ▶ ≫ 방식으로 변경(nd-rank-table__page-btn, nd-rank-table__page-info).
+- **new-dashboard.css**: nd-header__date-label/date-display/date-input, nd-loading-overlay/spinner, nd-spin 키프레임, KPI 카드·도넛 레이아웃·범례, trend 커스텀 범례, funnel guide-desc/thresholds, rank 테이블 페이지네이션 스타일.
+
+**변경 파일:** SummaryHeader.jsx, NewDashboardPage.jsx, KPISummaryCards.jsx, FunnelSection.jsx, TrendLineChart.jsx, CampaignRankTable.jsx, new-dashboard.css, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴 대시보드 페이지 제작 구현 완료
+
+**적용 내용:**
+- **백엔드**: `Backend/new_dash_server` 패키지 신규 생성. `router.py`에 summary(period·증감률), trend, trend-multi, tables 엔드포인트 및 `_calc_date_range`, `_calc_previous_range`, `_calc_change_pct` 구현. `api_server/main.py`에 new_dashboard_router 등록.
+- **프론트 API**: `shared/api/client.js`에 getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti 4함수 추가.
+- **프론트 패키지**: `packages/new-dashboard` — index.jsx, NewDashboardPage.jsx(loadData: summary+trendMulti, period 기본 monthly, moveDate), new-dashboard.css(전체 스타일). components: SummaryHeader(period 토글·날짜 표시), KPISummaryCards(증감·미니 도넛), ChannelDonutSection(빈 껍데기), TrendLineChart(5라인 recharts), FunnelSection(5단계+가이드), CampaignRankTable(탭 전체/캠페인별/워크플로우별·페이지네이션).
+- **App.jsx**: import NewDashboardPage, NavLink "뉴 대시보드", Route /new-dashboard, 상단 주석 갱신.
+- 플랜 문서 최종 점검 반영: summary period 기본값 monthly, 하단 퍼널도 별도 파일 미생성, Phase 6 주석 갱신 체크리스트 추가.
+
+**변경·신규 파일:** Backend/new_dash_server/__init__.py, router.py, api_server/main.py, Frontend/react-app/src/shared/api/client.js, packages/new-dashboard/*, App.jsx, docs/report/12_뉴대시보드_제작_플랜.md, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴대시보드 제작 플랜 — Phase 6 App.jsx 구체화
+
+**적용 내용:**
+- **docs/report/12_뉴대시보드_제작_플랜.md** Phase 6 (§8) 수정: App.jsx 확인 결과 반영.
+  - **구조 확정**: 좌측 사이드바가 아닌 **상단 수평 네비바**. 프로토타입 이미지의 좌측 사이드바 영역은 무시.
+  - **수정 파일**: App.jsx **단일 파일**. import 1줄, NavLink 1개(대시보드2 다음), Route 1줄 추가. **lazy 미사용**(직접 import, 기존 패턴과 동일).
+  - §8.2에 추가할 **구체 코드** 명시: `import NewDashboardPage from './packages/new-dashboard'`, NavLink(to="/new-dashboard", 라벨 "뉴 대시보드"), `<Route path="/new-dashboard" element={<NewDashboardPage />} />`.
+  - §8.3 체크리스트: 사이드바 관련 항목 제거, App.jsx 기준 import·NavLink·Route 추가·동작 확인으로 정리.
+  - §1 Phase 6 테이블: 대상 파일 `App.jsx`로 명시. §1-1 영역 A: 상단 네비바 확정·이미지 사이드바 무시. §12 관련 파일: 라우팅·네비 = App.jsx.
+
+**변경 파일:** docs/report/12_뉴대시보드_제작_플랜.md, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴대시보드 제작 플랜 — 2차 검증 반영(구멍 메우기 8건)
+
+**적용 내용:**
+- **docs/report/12_뉴대시보드_제작_플랜.md** 수정: 1차 검증(이미지↔플랜)·2차 검증(문서 내부 일관성)·실행 실패 가능 지점 보완.
+  - **수정 1**: Phase 2a "API 클라이언트 4종"으로 정정 (getNewDashboardTrendMulti 포함).
+  - **수정 2**: summary 엔드포인트 **group_by 전부 True** 명시 (CampaignRankTable 워크플로우별 탭에서 workflow 데이터 필요).
+  - **수정 3**: trend-multi에 **db import**·**SQL 패턴 pseudo-code** 추가.
+  - **수정 4**: Phase 3 loadData에서 **trend-multi만 호출**, 상태는 trendMultiData만 사용(trendData 제거).
+  - **수정 5**: **ChannelDonutSection** Phase 4에서 미구현·빈 껍데기, NewDashboardPage 레이아웃에서 호출 제거. FunnelSection은 영역 F만, 영역 H(하단 퍼널도)는 플레이스홀더/주석 명시.
+  - **수정 6**: Phase 4 체크리스트 최상단 **recharts 설치 확인** 항목 추가.
+  - **수정 7**: Phase 6 체크리스트에 **사이드바·라우터 파일 확인** 추가. 상위 페이지(App.jsx 등) 수정은 프로젝트 구조에 따라 확인하도록 §8 목표·수정 대상·체크리스트 완화.
+  - **수정 8**: Phase 5 체크리스트에 **증감 표시 색상 방향 확인** 항목 추가.
+
+**변경 파일:** docs/report/12_뉴대시보드_제작_플랜.md, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴대시보드 제작 플랜 — 프로토타입 대조 반영(증감률·멀티라인·기본값·탭 등)
+
+**적용 내용:**
+- **docs/report/12_뉴대시보드_제작_플랜.md** 수정: 프로토타입 이미지와의 누락·불일치 사항 반영.
+  - **추가 A — 증감률**: Phase 1 summary에 `_calc_previous_range`, `_calc_change_pct` 및 현재·이전 기간 2회 조회, kpi에 `send_change_pct`, `success_change_pct`, `open_change_pct`, `click_change_pct` 반환 명세.
+  - **추가 B — trend-multi**: `GET /api/new-dashboard/trend-multi`, 일자별 total_count·success_count·open_count·click_count 한 번에 반환.
+  - **추가 C — KPISummaryCards**: 2행 카드에 미니 도넛(60×60) 인라인, Props에 distribution·changePcts.
+  - **추가 D — TrendLineChart**: trendMulti rows 기준 5라인(발송요청/성공/오픈/클릭/전환), 범례+최신값.
+  - **추가 E — CampaignRankTable**: 상단 탭 전체/캠페인별/워크플로우별, 프론트 reduce 재집계.
+  - **추가 F — period 기본값**: period 기본값 `monthly`, getNewDashboardSummary 기본 period `monthly`.
+  - **FunnelSection**: 전환 단계 0 또는 N/A 표시(5단계).
+  - **§1-1 프로토타입 이미지 vs 플랜 대조 요약** 표 추가(A~H 영역·심각도).
+  - Phase 6에 **사이드바** 설명(좌측 사이드바 있으면 항목만 추가).
+  - Phase 4·7 체크리스트 세분화(컴포넌트별·증감률·trend-multi·기본값 monthly).
+- **docs/report/00_ReportIndex.md**: 12_뉴대시보드_제작_플랜.md 설명 갱신.
+
+**변경 파일:** docs/report/12_뉴대시보드_제작_플랜.md, docs/report/00_ReportIndex.md, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴대시보드 제작 플랜 — 일간/주간/월간 반영
+
+**적용 내용:**
+- **docs/report/12_뉴대시보드_제작_플랜.md** 수정: 프로토타입 헤더 우측 **일간·주간·월간** 토글 사양 반영.
+  - Phase 1: `/daily-summary` → `/summary`, `period`(daily|weekly|monthly) 파라미터 및 `_calc_date_range`로 기간별 date_range 계산, 응답에 `period`, `date_range_actual` 포함.
+  - Phase 2a: `getNewDashboardDailySummary` → `getNewDashboardSummary(tableId, targetDate, period)`.
+  - Phase 3: `period` 상태, `moveDate`를 period별 이동 단위(daily ±1일, weekly ±7일, monthly ±1개월), `dateRangeActual` 전달.
+  - Phase 4 SummaryHeader: period 토글 버튼 3개, period별 날짜 표시 형식(daily: YYYY.MM.DD, weekly: 시작~종료, monthly: YYYY.MM).
+  - Phase 5: 기간 토글 CSS 클래스 추가. Phase 7 검증: `/summary` 및 period별 검증 항목.
+  - §10 **최종 데이터 흐름** 추가(period=weekly 예시). 교체 가이드: Phase 1·2a·3·4-1·5는 사용자 제공 Cursor 프롬프트로 교체 적용.
+
+**변경 파일:** docs/report/12_뉴대시보드_제작_플랜.md, docs/report/log.md.
+
+---
+
+## 2026-03-09 뉴대시보드 제작 플랜 문서 작성
+
+**적용 내용:**
+- **docs/report/12_뉴대시보드_제작_플랜.md** 신규 작성: 일간 현황판 스타일 New Dashboard 제작을 위한 Phase별 플랜. 데이터 소스는 ibank_test_data 스키마의 ibank_1 테이블(table_id="ibank_1"). Phase 1(백엔드 라우터 daily-summary/trend/tables) → 2a(API 클라이언트 3종)·2b(패키지 껍데기, 병렬 가능) → 3(메인 페이지)·4(6개 컴포넌트)·5(CSS)·6(라우팅·네비)·7(검증). 서브에이전트 배정(@be-router, @fe-impl, @fe-style, @linker, @verifier)·대상 파일·체크리스트·API·컴포넌트 명세 포함.
+- **docs/report/00_ReportIndex.md**: 12_뉴대시보드_제작_플랜.md 항목 추가.
+
+**변경 파일:** docs/report/12_뉴대시보드_제작_플랜.md(신규), docs/report/00_ReportIndex.md, docs/report/log.md.
+
+---
+
+## 2026-03-06 API Server 코드 품질 점검·개선
+
+**적용 내용:**
+- **Backend/api_server/analysis_store.py**: `save_analysis_result`에서 예외 시 `conn.rollback()` 후 `raise` 하도록 try/except/finally 추가.
+- **Backend/api_server/dashboard_service.py**: `get_chart_data`에서 dimension·metric 식별자 SQL 삽입 시 이스케이프용 큰따옴표 적용 및 화이트리스트 검증 주석 추가. `_calculate_kpi`의 channel_distribution open/click 빈 배열에 TODO 주석. `_build_where_and_params` → `_build_filter_linked_where` 함수명 변경 및 get_filter_options 호출부 3곳 수정.
+- **Backend/api_server/db.py**: `from Env import config`를 먼저 시도하고, 실패 시에만 try/except ImportError 내에서 sys.path·pathlib.Path로 프로젝트 루트 추가 후 재import. 모듈 상단 `from pathlib import Path` 제거.
+- **Backend/api_server/dependencies.py**: except ImportError 블록에서 미사용 `import os` 제거.
+- **Backend/api_server/main.py**: `import io`를 `if __name__ == "__main__"` 블록 안으로 이동. allow_origins를 `["*"]`만 사용하도록 단순화. `@app.on_event("startup")` 제거 후 `contextlib.asynccontextmanager` lifespan 패턴으로 전환, FastAPI(lifespan=lifespan)로 ETL 워커·배치 스케줄러 기동 유지.
+
+**변경 파일:** Backend/api_server/analysis_store.py, dashboard_service.py, db.py, dependencies.py, main.py, docs/report/log.md.
+
+---
+
 ## 2026-03-06 개발문서·README 반영 (log 기준)
 
 **적용 내용:** docs/report/log.md 최종 개발문서 업데이트 이후 반영분을 docs/main·README에 반영.

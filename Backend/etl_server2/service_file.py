@@ -12,7 +12,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 - list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (job_type=file|db, etl_table_id 있으면 DB 배치 시 etl_table_id로 중복 검사·실행 시 etl_tables 참조, 없으면 기존 connection_id·source_table·타겟·저장DB 중복 검사), update_batch_job, delete_batch_job
 - update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
 - etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry, upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table
-- create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
+- try_claim_batch_job_for_run: 배치 실행 전 FOR UPDATE 선점·last_run_status='running' 갱신(중복 실행 방지). create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - mark_stuck_runs_finished: 비활성화 시 해당 배치의 status=running 이력을 error로 마감. force_finish_run_as_cancelled: 실행 취소 시 run을 cancelled로 마감·last_run_status 해제(이력 유지, 재실행 가능).
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
@@ -856,6 +856,49 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
     finally:
         cur.close()
         conn.close()
+
+
+def try_claim_batch_job_for_run(batch_job_id: int, conn: Any) -> bool:
+    """
+    배치 실행권 선점. batch_jobs 행을 FOR UPDATE로 잠근 뒤 last_run_status가 이미 'running'이면 False,
+    아니면 last_run_status='running', last_run_at=NOW() 갱신 후 True 반환.
+    호출 전 conn은 트랜잭션 미시작. 중복 실행(스케줄러·run_now 동시 진입) 방지용.
+    """
+    schema = _schema()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            SELECT batch_job_id, last_run_status
+            FROM {_q(schema, "batch_jobs")}
+            WHERE batch_job_id = %s
+            FOR UPDATE
+            """,
+            (batch_job_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return False
+        last = (row.get("last_run_status") or "") if hasattr(row, "get") else (row[1] if len(row) > 1 else "")
+        if (last or "").strip().lower() == "running":
+            conn.rollback()
+            return False
+        cur.execute(
+            f"""
+            UPDATE {_q(schema, "batch_jobs")}
+            SET last_run_at = NOW(), last_run_status = 'running', updated_at = NOW()
+            WHERE batch_job_id = %s
+            """,
+            (batch_job_id,),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
 
 
 def create_batch_run(batch_job_id: int, conn: Any = None) -> int:

@@ -13,7 +13,7 @@ Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
 148 - _row_to_aggregated: raw 행 → 집계 행 포맷
 169 - get_dashboard_data: 필터·group_by 기준 집계 데이터·KPI 반환
 219 - _calculate_kpi: KPI 집계 (성공률 등)
-298 - _build_where_and_params: 캠페인·워크플로우·채널 필터 조건·파라미터
+298 - _build_filter_linked_where: 캠페인·워크플로우·채널 필터 조건·파라미터
 326 - get_filter_options: 캠페인·워크플로우·채널 목록 (테이블·필터 조건 기반)
 381 - get_chart_data: 단일 dimension·metric 집계 (차트 전용)
 
@@ -241,7 +241,9 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
     ch_query = f"""
         SELECT delivery_channel,
                COALESCE(SUM(total_count), 0)::bigint AS total_count,
-               COALESCE(SUM(success_count), 0)::bigint AS success_count
+               COALESCE(SUM(success_count), 0)::bigint AS success_count,
+               COALESCE(SUM(open_count), 0)::bigint AS open_count,
+               COALESCE(SUM(click_count), 0)::bigint AS click_count
         FROM {full_table}
         WHERE {where_sql}
         GROUP BY delivery_channel
@@ -249,8 +251,13 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
     """
     cur.execute(ch_query, params)
     ch_rows = cur.fetchall()
+    total_failed = int(row["total_failed"] or 0)
+    total_open = int(row["total_open"] or 0)
+    total_click = int(row["total_click"] or 0)
     send_dist = []
     success_dist = []
+    open_dist = []
+    click_dist = []
     for r in ch_rows:
         code = r["delivery_channel"]
         name = CHANNEL_MAPPING.get(code, "Unknown")
@@ -266,13 +273,22 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
             "value": r["success_count"] or 0,
             "percentage": round((r["success_count"] or 0) / total_success * 100, 2) if total_success else 0,
         })
-    total_failed = int(row["total_failed"] or 0)
-    total_open = int(row["total_open"] or 0)
-    total_click = int(row["total_click"] or 0)
+        open_dist.append({
+            "channel": name,
+            "channel_code": code,
+            "value": r["open_count"] or 0,
+            "percentage": round((r["open_count"] or 0) / total_open * 100, 2) if total_open else 0,
+        })
+        click_dist.append({
+            "channel": name,
+            "channel_code": code,
+            "value": r["click_count"] or 0,
+            "percentage": round((r["click_count"] or 0) / total_click * 100, 2) if total_click else 0,
+        })
     success_rate = round(float(total_success) / total_send * 100, 2) if total_send else 0.0
     failed_rate = round(float(total_failed) / total_send * 100, 2) if total_send else 0.0
     open_rate = round(float(total_open) / total_success * 100, 2) if total_success else 0.0
-    click_rate = round(float(total_click) / total_success * 100, 2) if total_success else 0.0
+    click_rate = round(float(total_click) / total_open * 100, 2) if total_open else 0.0
     return {
         "campaign_count": int(row["campaign_count"] or 0),
         "workflow_count": int(row["workflow_count"] or 0),
@@ -291,13 +307,13 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
         "channel_distribution": {
             "send": send_dist,
             "success": success_dist,
-            "open": [],
-            "click": [],
+            "open": open_dist,
+            "click": click_dist,
         },
     }
 
 
-def _build_where_and_params(campaign_ids=None, workflow_ids=None, channels=None, for_campaigns=False, for_workflows=False, for_channels=False):
+def _build_filter_linked_where(campaign_ids=None, workflow_ids=None, channels=None, for_campaigns=False, for_workflows=False, for_channels=False):
     """연동 필터: 캠페인 목록은 워크플로우·채널 기준, 워크플로우는 캠페인·채널 기준, 채널은 캠페인·워크플로우 기준."""
     conditions = []
     params = []
@@ -337,7 +353,7 @@ def get_filter_options(table_id, campaign_ids=None, workflow_ids=None, channels=
     cur = conn.cursor()
     try:
         campaigns = []
-        where_c, params_c = _build_where_and_params(campaign_ids, workflow_ids, channels, for_campaigns=True)
+        where_c, params_c = _build_filter_linked_where(campaign_ids, workflow_ids, channels, for_campaigns=True)
         try:
             cur.execute(
                 f"SELECT DISTINCT campaign_id, campaign_label FROM {table} WHERE {where_c} ORDER BY campaign_label",
@@ -347,7 +363,7 @@ def get_filter_options(table_id, campaign_ids=None, workflow_ids=None, channels=
         except psycopg2.Error:
             pass
         workflows = []
-        where_w, params_w = _build_where_and_params(campaign_ids, workflow_ids, channels, for_workflows=True)
+        where_w, params_w = _build_filter_linked_where(campaign_ids, workflow_ids, channels, for_workflows=True)
         try:
             cur.execute(
                 f"SELECT DISTINCT workflow_id, workflow_label FROM {table} WHERE {where_w} ORDER BY workflow_label",
@@ -357,7 +373,7 @@ def get_filter_options(table_id, campaign_ids=None, workflow_ids=None, channels=
         except psycopg2.Error:
             pass
         channel_list = []
-        where_ch, params_ch = _build_where_and_params(campaign_ids, workflow_ids, channels, for_channels=True)
+        where_ch, params_ch = _build_filter_linked_where(campaign_ids, workflow_ids, channels, for_channels=True)
         try:
             cur.execute(
                 f"SELECT DISTINCT delivery_channel FROM {table} WHERE {where_ch} ORDER BY delivery_channel",
@@ -400,21 +416,21 @@ def get_chart_data(req):
     if metric not in CHART_METRIC_KEYS:
         metric = "success_count"
 
-    # 디멘션별 GROUP BY / SELECT
+    # 디멘션별 GROUP BY / SELECT (dimension은 CHART_DIMENSION_KEYS 화이트리스트 검증 완료)
     if dimension == "delivery_date":
-        group_cols = "delivery_date"
-        select_dim = "delivery_date::text AS name"
+        group_cols = '"delivery_date"'
+        select_dim = '"delivery_date"::text AS name'
     elif dimension == "campaign_label":
-        group_cols = "campaign_id, campaign_label"
-        select_dim = "COALESCE(campaign_label, campaign_id::text) AS name"
+        group_cols = '"campaign_id", "campaign_label"'
+        select_dim = 'COALESCE("campaign_label", "campaign_id"::text) AS name'
     elif dimension == "workflow_label":
-        group_cols = "workflow_id, workflow_label"
-        select_dim = "COALESCE(workflow_label, workflow_id::text) AS name"
+        group_cols = '"workflow_id", "workflow_label"'
+        select_dim = 'COALESCE("workflow_label", "workflow_id"::text) AS name'
     else:  # channel_name
-        group_cols = "delivery_channel"
-        select_dim = "delivery_channel::text AS name"
+        group_cols = '"delivery_channel"'
+        select_dim = '"delivery_channel"::text AS name'
 
-    # 메트릭 표현식 (비율은 집계 후 계산)
+    # 메트릭 표현식 (metric은 CHART_METRIC_KEYS 화이트리스트 검증 완료)
     if metric in ("success_rate", "open_rate", "click_rate"):
         if metric == "success_rate":
             metric_expr = "ROUND(SUM(success_count)::numeric / NULLIF(SUM(total_count), 0) * 100, 2)"
@@ -423,10 +439,10 @@ def get_chart_data(req):
         else:
             metric_expr = "ROUND(SUM(click_count)::numeric / NULLIF(SUM(open_count), 0) * 100, 2)"
     else:
-        metric_expr = f"COALESCE(SUM({metric}), 0)::bigint"
+        metric_expr = f'COALESCE(SUM("{metric}"), 0)::bigint'
 
     if dimension == "delivery_date":
-        order_sql = "ORDER BY delivery_date ASC"
+        order_sql = 'ORDER BY "delivery_date" ASC'
     else:
         order_sql = "ORDER BY value DESC"
 

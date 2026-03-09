@@ -20,7 +20,6 @@ from Backend.api_server import db
 try:
     from Env import config
 except ImportError:
-    import os
     import sys
     from pathlib import Path
     _root = Path(__file__).resolve().parent.parent.parent

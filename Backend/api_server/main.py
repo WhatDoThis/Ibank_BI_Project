@@ -5,7 +5,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 
 [Functions]
 ===========
-startup_etl_worker: ETL Job 큐 워커 기동 (pending→running, 동시 2건 제한); 배치 파일 스케줄러(etl_server2.scheduler_file) 기동
+lifespan: ETL Job 큐 워커·배치 스케줄러(etl_server2.scheduler_file) 기동
 not_found_handler: 404 예외 시 JSON 응답
 internal_error_handler: 500 예외 시 JSON 응답
 
@@ -17,14 +17,14 @@ dashboard_router: /api/dashboard/* (data, filter-options, tables, required-colum
 dashboard2_router: /api/dashboard2/* (동일)
 etl_router: /api/etl/* (ETL 메타·업로드·연결 테스트·Job·add-file·add-files-zip 등)
 etl2_router: /api/etl2/* (ETL2 페이지용, 09_ETL_Upgrade_Plan 확장 예정)
+new_dashboard_router: /api/new-dashboard/* (summary, trend, trend-multi, tables)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router, Backend.etl_server2.router
+- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router, Backend.etl_server2.router, Backend.new_dash_server
 - fastapi, uvicorn
 """
 
-import io
 import os
 import sys
 
@@ -44,32 +44,14 @@ from Backend.api_server import db
 from Backend.api_server.routers import health_router, report_router, dashboard_router, dashboard2_router
 from Backend.etl_server import router as etl_router
 from Backend.etl_server2 import router as etl2_router
+from Backend.new_dash_server import router as new_dashboard_router
 
-app = FastAPI(
-    title="Starbucks CRM NoCode Query Builder API",
-    description="노코드 쿼리 빌더 및 대시보드 API",
-)
-
-# 프론트(127.0.0.1:8080 등)에서 API 호출 시 CORS 허용. 500 응답에도 헤더가 붙도록 명시 origin 포함.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*", "http://127.0.0.1:8080", "http://localhost:8080"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
-
-app.include_router(health_router)
-app.include_router(report_router)
-app.include_router(dashboard_router)
-app.include_router(dashboard2_router)
-app.include_router(etl_router)
-app.include_router(etl2_router)
+from contextlib import asynccontextmanager
 
 
-@app.on_event("startup")
-def startup_etl_worker():
-    """Phase 6: ETL Job 큐 워커 기동 (pending → running, 동시 2건 제한). Phase 3: 배치 파일 스케줄러 기동."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """ETL Job 큐 워커·배치 스케줄러 기동. shutdown 시 yield 이후 정리 가능."""
     try:
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
@@ -81,6 +63,31 @@ def startup_etl_worker():
         scheduler_file.load_active_batch_jobs()
     except Exception:
         pass
+    yield
+
+
+app = FastAPI(
+    title="Starbucks CRM NoCode Query Builder API",
+    description="노코드 쿼리 빌더 및 대시보드 API",
+    lifespan=lifespan,
+)
+
+# 프론트(127.0.0.1:8080 등)에서 API 호출 시 CORS 허용. 500 응답에도 헤더가 붙도록 명시 origin 포함.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+app.include_router(health_router)
+app.include_router(report_router)
+app.include_router(dashboard_router)
+app.include_router(dashboard2_router)
+app.include_router(etl_router)
+app.include_router(etl2_router)
+app.include_router(new_dashboard_router)
 
 
 @app.exception_handler(404)
@@ -106,6 +113,7 @@ def internal_error_handler(request: Request, exc):
 
 
 if __name__ == "__main__":
+    import io
     import logging
     logging.basicConfig(
         level=logging.INFO,

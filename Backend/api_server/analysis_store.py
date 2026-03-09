@@ -39,6 +39,9 @@ def save_analysis_result(allowed_tables, table_columns, relationships):
         )
         conn.commit()
         return cur.rowcount
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cur.close()
         conn.close()
