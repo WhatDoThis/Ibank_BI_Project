@@ -111,7 +111,7 @@ export default function KPISummaryCards({ kpi, changePcts }) {
         value={kpi.total_send}
         change={changePcts?.send_change_pct}
         items={dist.send ?? []}
-        color="#7c5cfc"
+        color="#6366f1"
       />
       <MiniDonutCard
         label="총 발송성공"
@@ -141,7 +141,7 @@ export default function KPISummaryCards({ kpi, changePcts }) {
         value={kpi.total_click}
         change={changePcts?.click_change_pct}
         items={dist.click ?? []}
-        color="#22c55e"
+        color="#06b6d4"
       />
     </div>
   )
