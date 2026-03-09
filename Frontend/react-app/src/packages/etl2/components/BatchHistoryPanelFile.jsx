@@ -18,7 +18,7 @@
  * [Dependencies]
  * =========
  * - React, @/shared/api/client (batchListJobHistory)
- * - etl.css (etl-db-form__table, etl-db-form__table-wrap, etl-db-form__table-actions)
+ * - etl.css (etl-db-form__table, etl-db-form__table-wrap, etl-db-form__table-wrap--viewport-scroll, etl-db-form__table-actions)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -101,7 +101,7 @@ function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {
       ) : runs.length === 0 ? (
         <p className="etl-db-form__muted">실행 이력이 없습니다.</p>
       ) : (
-        <div className="etl-db-form__table-wrap">
+        <div className="etl-db-form__table-wrap etl-db-form__table-wrap--viewport-scroll">
           <table className="etl-db-form__table etl-db-form__table--compact">
             <thead>
               <tr>

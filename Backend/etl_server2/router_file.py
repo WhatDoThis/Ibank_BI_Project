@@ -762,6 +762,8 @@ def run_batch_job_now(batch_job_id: int):
         result = sched.run_now(batch_job_id)
         if result.get("already_running"):
             return {"message": "해당 배치가 이미 실행 중입니다. 완료 후 다시 시도하세요.", "already_running": True}
+        if result.get("skipped_recent_run"):
+            return {"message": "최근 실행된 배치라 건너뜁니다. 잠시 후 다시 시도하세요.", "skipped_recent_run": True}
         return {"message": "즉시 실행이 스케줄되었습니다."}
     except HTTPException:
         raise

@@ -4,7 +4,7 @@ Backend.etl_server2.batch_executor_file (배치 실행기 — 다운로드·파�
 09_ETL_SFTP_Connection §4.3, §7.5, §7.7, §10. 스케줄러에서 호출.
 실제 흐름: get_batch_job → 폴더 어댑터 → list_files → get_pending_files →
 대기 있으면 get_skipped_filenames_set로 이력 스킵/에러 파일 제외 후 실제 처리할 파일이 있을 때만 create_batch_run → 저장 DB 연결 →
-파일별 다운로드(임시) → 크기 검사 → SHA-256 체크섬 → 중복 시 건너뜀
+파일별 다운로드(임시) → 크기 검사 → SHA-256 체크섬 → 중복 시 건너뜀(이때도 last_processed_ts 갱신하여 다음 주기 재진입 방지)
 → read_file → load_dataframe → last_processed_ts 갱신 → finish_run, update_job_status. finally adapter.close().
 on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록·롤백 후 다음 파일 계속; 종료 시 partial_error/success.
 
@@ -206,9 +206,11 @@ def run_batch_job(batch_job_id: int) -> None:
                 if batch_service.is_duplicate_checksum(batch_job_id, checksum, conn=sys_conn):
                     file_results.append({
                         "filename": filename,
+                        "timestamp": ts,
                         "status": "skipped",
                         "reason": "duplicate_checksum",
                     })
+                    batch_service.update_last_processed_ts(batch_job_id, ts, conn=sys_conn)
                     batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                     continue
 

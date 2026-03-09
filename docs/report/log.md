@@ -1,3 +1,36 @@
+## 2026-03-09 ETL2 DB 배치 동일 시각 이중 실행 방지
+
+**문제:** DB 연결 배치 잡 실행 이력에서 동일 시간대에 두 번씩 조회되는 현상(예: 17:40:18 run 225, 17:40:20 run 226). 원인: run_now가 `add_job(..., replace_existing=True, next_run_time=now)`로 기존 interval 잡을 덮어써, interval 실행 직후 '지금 실행'이 한 번 더 스케줄되어 이중 실행됨.
+
+**조치:**
+- **scheduler_file.run_now**: (1) last_run_at이 최근(min(주기/2초, 60초) 이내)이면 스킵하고 `skipped_recent_run` 반환. (2) interval 잡을 덮어쓰지 않고, 1회용 잡만 추가(DateTrigger, id=`batch_{id}_run_now_{ts}`)하여 동일 배치가 짧은 간격으로 두 번 실행되지 않도록 함.
+- **router_file**: run-now 응답에 `skipped_recent_run` 시 메시지 반환.
+- **BatchJobListFile, BatchScheduleModal**: run-now 응답의 `skipped_recent_run` 처리 및 에러 영역에 메시지 표시.
+
+**변경 파일:** Backend/etl_server2/scheduler_file.py, router_file.py, Frontend/.../BatchJobListFile.jsx, BatchScheduleModal.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-09 ETL2 실행 이력·문제파일 목록 UI 개선
+
+**적용 내용:**
+- **실행 이력 목록 모달**: 테이블 wrap에 `etl-db-form__table-wrap--viewport-scroll` 적용. `max-height: min(55vh, 480px)`, `overflow: auto`로 좌우·상하 스크롤이 보이는 창 안에서 동작하도록 변경(이전에는 row 맨 아래에 스크롤이 있어 사용 불편).
+- **문제 파일 목록**: 테이블에 `etl-skipped-files-table` 클래스 추가. 파일명·타임스탬프·상태·감지 시각 컬럼은 `min-width`·`white-space: nowrap`으로 줄바꿈 없이 폭 여유 확보. 사유 컬럼은 `max-width: 220px`, `overflow: hidden`, `text-overflow: ellipsis`, 호버 시 `title`로 전체 내용 표시.
+
+**변경 파일:** Frontend/.../etl2/etl.css, BatchHistoryPanelFile.jsx, SkippedFilesPanelFile.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-09 ETL2 폴더 배치: duplicate_checksum 스킵 시 재진입 방지
+
+**문제:** 동일 내용 파일이 다른 일자명으로 올라올 때 duplicate_checksum으로 스킵되나, 스킵 시 `last_processed_ts`를 갱신하지 않아 다음 주기마다 같은 파일이 pending에 다시 포함되고, 매번 새 run이 생성되어 실행 이력 행이 불필요하게 누적됨.
+
+**조치:** `Backend/etl_server2/batch_executor_file.py`에서 duplicate_checksum으로 스킵할 때도 `update_last_processed_ts(batch_job_id, ts)` 호출. 해당 파일(타임스탬프)을 이미 본 것으로 처리해 다음 `get_pending_files`에서 제외되도록 함. file_results 항목에 `timestamp` 필드 추가(이력/문제파일 목록 표시 일관성).
+
+**변경 파일:** Backend/etl_server2/batch_executor_file.py, docs/report/log.md.
+
+---
+
 ## 2026-03-09 KPI 카드 채널별 도넛 추가
 
 **적용 내용:**

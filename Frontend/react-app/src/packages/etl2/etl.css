@@ -871,6 +871,27 @@
   overflow-x: auto;
   margin-top: 12px;
 }
+/* 실행 이력 모달 등: 테이블 스크롤을 보이는 창 안에 두기 위해 최대 높이 제한 후 스크롤 */
+.etl-db-form__table-wrap--viewport-scroll {
+  max-height: min(55vh, 480px);
+  overflow: auto;
+}
+/* 문제 파일 목록: 파일명·타임스탬프·상태는 줄바꿈 없이 폭 여유, 사유는 overflow+호버로 전체 표시 */
+.etl-skipped-files-table th:nth-child(2),
+.etl-skipped-files-table td:nth-child(2) { min-width: 200px; white-space: nowrap; }
+.etl-skipped-files-table th:nth-child(3),
+.etl-skipped-files-table td:nth-child(3) { min-width: 140px; white-space: nowrap; }
+.etl-skipped-files-table th:nth-child(4),
+.etl-skipped-files-table td:nth-child(4) { min-width: 72px; white-space: nowrap; }
+.etl-skipped-files-table th:nth-child(5),
+.etl-skipped-files-table td:nth-child(5) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etl-skipped-files-table th:nth-child(6),
+.etl-skipped-files-table td:nth-child(6) { min-width: 160px; white-space: nowrap; }
 .etl-db-form__table {
   width: 100%;
   border-collapse: collapse;

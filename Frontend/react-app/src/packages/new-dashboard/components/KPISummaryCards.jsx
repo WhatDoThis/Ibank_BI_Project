@@ -111,7 +111,7 @@ export default function KPISummaryCards({ kpi, changePcts }) {
         value={kpi.total_send}
         change={changePcts?.send_change_pct}
         items={dist.send ?? []}
-        color="#6366f1"
+        color="#ea580c"
       />
       <MiniDonutCard
         label="총 발송성공"
@@ -119,13 +119,13 @@ export default function KPISummaryCards({ kpi, changePcts }) {
         value={kpi.total_success}
         change={changePcts?.success_change_pct}
         items={dist.success ?? []}
-        color="#22c55e"
+        color="#16a34a"
       />
       <MiniStat
         label="워크플로우 건수"
         description="조회 기간 내 발송된 워크플로우 수"
         value={kpi.workflow_count}
-        color="#3b82f6"
+        color="#2563eb"
       />
       <MiniDonutCard
         label="총 오픈수"
@@ -133,7 +133,7 @@ export default function KPISummaryCards({ kpi, changePcts }) {
         value={kpi.total_open}
         change={changePcts?.open_change_pct}
         items={dist.open ?? []}
-        color="#f59e0b"
+        color="#ca8a04"
       />
       <MiniDonutCard
         label="총 클릭수"
@@ -141,7 +141,7 @@ export default function KPISummaryCards({ kpi, changePcts }) {
         value={kpi.total_click}
         change={changePcts?.click_change_pct}
         items={dist.click ?? []}
-        color="#06b6d4"
+        color="#db2777"
       />
     </div>
   )

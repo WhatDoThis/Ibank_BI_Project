@@ -16,7 +16,7 @@
  * [Dependencies]
  * =========
  * - React, @/shared/api/client (batchListSkippedFiles, batchDeleteSkippedFiles)
- * - etl.css (etl-db-form__section, etl-db-form__table)
+ * - etl.css (etl-db-form__section, etl-db-form__table, etl-skipped-files-table: 파일명/타임스탬프/상태 폭 고정·사유 overflow+호버)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -150,7 +150,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
         </div>
       ) : (
         <div className="etl-db-form__table-wrap">
-          <table className="etl-db-form__table" style={{ width: '100%', fontSize: 13 }}>
+          <table className="etl-db-form__table etl-skipped-files-table" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
                 <th style={{ width: 32 }}>
@@ -182,7 +182,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
                       aria-label={`${f.filename} 선택`}
                     />
                   </td>
-                  <td style={{ wordBreak: 'break-all' }}>{f.filename}</td>
+                  <td>{f.filename}</td>
                   <td>{f.timestamp || '-'}</td>
                   <td>
                     <span
@@ -194,8 +194,8 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
                       {f.status === 'error' ? '에러' : '스킵'}
                     </span>
                   </td>
-                  <td>{reasonLabel(f)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{f.run_started_at || '-'}</td>
+                  <td title={reasonLabel(f)}>{reasonLabel(f)}</td>
+                  <td>{f.run_started_at || '-'}</td>
                 </tr>
               ))}
             </tbody>
