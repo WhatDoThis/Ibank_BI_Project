@@ -155,8 +155,8 @@ export default function CampaignRankTable({ data }) {
           <thead>
             <tr>
               <th className="nd-rank-table__th--center">순위</th>
-              <th className="nd-rank-table__th--center">{nameLabel}</th>
-              {showChannel && <th className="nd-rank-table__th--right">채널</th>}
+              <th className="nd-rank-table__th--left">{nameLabel}</th>
+              {showChannel && <th className="nd-rank-table__th--left">채널</th>}
               {COLUMNS.map((col) => {
                 const sortState = sortKeys.find((s) => s.key === col.key)
                 const isSorted = !!sortState

@@ -356,11 +356,14 @@
   color: #5b21b6;
 }
 
-.nd-rank-table__th--right {
+/* 헤더 정렬: 데이터 셀과 동일하게 (순위·이름·채널=좌/중앙, 숫자=우) */
+.nd-rank-table th.nd-rank-table__th--left {
+  text-align: left;
+}
+.nd-rank-table th.nd-rank-table__th--right {
   text-align: right;
 }
-
-.nd-rank-table__th--center {
+.nd-rank-table th.nd-rank-table__th--center {
   text-align: center;
 }
 
