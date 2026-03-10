@@ -1,3 +1,18 @@
+## 2026-03-10 ETL2 폴더 배치 duplicate_checksum 스킵 후에도 run 반복 생성 방지(보강)
+
+**문제:** duplicate_checksum 시 update_last_processed_ts 호출을 추가했음에도, 재시작 후 동일 파일(test_sftp_1_ib_20260306100001.csv)이 매 주기 pending에 남아 run이 계속 생성됨(244, 241, 239, 237 등).
+
+**원인 추정:** (1) last_processed_ts가 빈 문자열로 읽히면 get_pending_files에서 `ts > ""`가 항상 참이 되어 해당 파일이 계속 포함됨. (2) run 시작 시점의 job 캐시와 실제 DB의 last_processed_ts 불일치 가능성.
+
+**조치:**
+- **parser_file.get_pending_files**: last_processed_ts가 빈 문자열/공백이면 None으로 정규화.
+- **service_file.get_last_processed_ts**: batch_jobs.last_processed_ts를 DB에서 직접 조회하는 함수 추가(빈 문자열이면 None 반환).
+- **batch_executor_file**: skipped_filenames 필터 후, get_last_processed_ts로 DB에서 last_processed_ts 재조회하여 `pending`을 한 번 더 필터(ts > fresh_lp). 실제 처리할 파일이 없으면 run 생성 없이 return.
+
+**변경 파일:** Backend/etl_server2/parser_file.py, service_file.py, batch_executor_file.py, docs/report/log.md.
+
+---
+
 ## 2026-03-09 ETL2 DB 배치 동일 시각 이중 실행 방지
 
 **문제:** DB 연결 배치 잡 실행 이력에서 동일 시간대에 두 번씩 조회되는 현상(예: 17:40:18 run 225, 17:40:20 run 226). 원인: run_now가 `add_job(..., replace_existing=True, next_run_time=now)`로 기존 interval 잡을 덮어써, interval 실행 직후 '지금 실행'이 한 번 더 스케줄되어 이중 실행됨.

@@ -63,8 +63,11 @@ def get_pending_files(
     all_files 중 file_pattern + _ib_ + 14자리 형식만 수집해 타임스탬프 오름차순 정렬.
     - last_processed_ts가 None이면 첫 실행: max_ts 이전의 매칭 파일 전부 반환(한 run에서 큐처럼 순차 처리).
     - 아니면 ts > last_processed_ts 이고 ts <= max_ts 인 파일만 반환.
+    - last_processed_ts가 빈 문자열/공백이면 None으로 간주(동일 파일이 매 주기 pending에 포함되는 것 방지).
     - max_ts 미지정 시 현재 시각(미래 파일 제외).
     """
+    if last_processed_ts is not None and (not isinstance(last_processed_ts, str) or not last_processed_ts.strip()):
+        last_processed_ts = None
     if max_ts is None:
         max_ts = datetime.now().strftime("%Y%m%d%H%M%S")
     matched: List[Tuple[str, str]] = []

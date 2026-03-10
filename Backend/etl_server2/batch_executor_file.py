@@ -14,7 +14,7 @@ on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록�
 
 [Dependencies]
 =========
-- Backend.etl_server2.service_file (get_batch_job, create_batch_run, finish_run, update_run_progress, update_job_status, update_last_processed_ts, is_duplicate_checksum, check_consecutive_failures, get_folder_adapter)
+- Backend.etl_server2.service_file (get_batch_job, create_batch_run, finish_run, update_run_progress, update_job_status, get_last_processed_ts, update_last_processed_ts, is_duplicate_checksum, check_consecutive_failures, get_skipped_filenames_set, get_folder_adapter)
 - Backend.etl_server2.parser_file (get_pending_files, read_file)
 - Backend.etl_server2.load_service_file (get_target_connection, load_dataframe)
 - Backend.etl_server2.etl_limits (get_etl_limits)
@@ -133,8 +133,12 @@ def run_batch_job(batch_job_id: int) -> None:
         skipped_filenames = batch_service.get_skipped_filenames_set(batch_job_id, conn=sys_conn)
         if skipped_filenames:
             pending = [(f, ts) for f, ts in pending if f not in skipped_filenames]
+        # last_processed_ts를 DB에서 재조회해 한 번 더 필터(동일 파일이 매 주기 pending에 남는 현상 방지)
+        fresh_lp = batch_service.get_last_processed_ts(batch_job_id, conn=sys_conn)
+        if fresh_lp:
+            pending = [(f, t) for f, t in pending if t > fresh_lp]
         if not pending:
-            logger.debug("run_batch_job job_id=%s: all pending were previously skipped/error, skip (run 기록 없음)", batch_job_id)
+            logger.debug("run_batch_job job_id=%s: all pending were previously skipped/error or ts<=last_processed_ts, skip (run 기록 없음)", batch_job_id)
             return
 
         # 중복 실행 방지: FOR UPDATE로 선점 후 running 갱신. 스케줄러·run_now 동시 진입 시 한 쪽만 진행.
