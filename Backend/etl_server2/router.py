@@ -398,6 +398,7 @@ def delete_table(etl_table_id: int):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("DELETE /tables/%s failed: %s", etl_table_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
