@@ -1163,9 +1163,9 @@ def create_etl_table(
     sync_mode = (sync_mode or "incremental").strip().lower()
     if sync_mode not in ("full", "incremental"):
         sync_mode = "incremental"
-    if sync_mode == "full" and api_db.table_exists_in_schema(target_table):
+    if sync_mode == "full" and target_table_exists(storage_connection_id, target_table):
         raise ValueError(
-            "메인 DB에 이미 존재하는 테이블명입니다. 전체(Full) 동기화는 기존 테이블을 삭제한 뒤 재생성하므로, "
+            "해당 저장 DB에 이미 존재하는 테이블명입니다. 전체(Full) 동기화는 기존 테이블을 삭제한 뒤 재생성하므로, "
             "다른 이름을 사용하거나 증분(Incremental) 모드로 등록하세요."
         )
     pk_columns_val = (pk_columns or "").strip() or None
@@ -1383,8 +1383,9 @@ def delete_etl_table(etl_table_id: int) -> dict:
             )
             cur_sys.execute(f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
         except Exception:
-            # batch_jobs 등 테이블이 없을 수 있음(구버전 DB). 무시하고 etl_tables 삭제 진행
+            # batch_jobs 등 테이블이 없을 수 있음(구버전 DB). 롤백 후 etl_* 삭제는 새 트랜잭션으로 진행
             conn_sys.rollback()
+        # etl_transform_rules / etl_jobs / etl_tables 삭제(위에서 rollback 됐어도 새 트랜잭션에서 실행)
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
@@ -1864,63 +1865,51 @@ def update_etl_table(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        updates: List[str] = []
+        params: List[Any] = []
         if on_row_error is not None:
             val = (on_row_error or "fail").strip().lower()
             val = "fail" if val not in ("fail", "skip") else val
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET on_row_error = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (val, etl_table_id),
-            )
+            updates.append("on_row_error = %s")
+            params.append(val)
         if pk_columns is not None:
             val = (pk_columns or "").strip() or None
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET pk_columns = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (val, etl_table_id),
-            )
+            updates.append("pk_columns = %s")
+            params.append(val)
         if sync_mode is not None:
             raw = (sync_mode or "").strip().lower()
             val = "full" if raw == "full" else "incremental"
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET sync_mode = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (val, etl_table_id),
-            )
+            updates.append("sync_mode = %s")
+            params.append(val)
         if incremental_column is not None:
             val = (incremental_column or "").strip() or None
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET incremental_column = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (val, etl_table_id),
-            )
+            updates.append("incremental_column = %s")
+            params.append(val)
         if storage_connection_id is not None:
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET storage_connection_id = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (storage_connection_id, etl_table_id),
-            )
+            updates.append("storage_connection_id = %s")
+            params.append(storage_connection_id)
         if column_mapping is not None:
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET column_mapping = %s::jsonb, updated_at = NOW() WHERE etl_table_id = %s",
-                (json.dumps(column_mapping), etl_table_id),
-            )
+            updates.append("column_mapping = %s::jsonb")
+            params.append(json.dumps(column_mapping))
         if batch_size is not None:
             val = batch_size if batch_size > 0 else None
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET batch_size = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (val, etl_table_id),
-            )
+            updates.append("batch_size = %s")
+            params.append(val)
         if batch_interval_seconds is not None:
             val = max(0, batch_interval_seconds)
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET batch_interval_seconds = %s, updated_at = NOW() WHERE etl_table_id = %s",
-                (val, etl_table_id),
-            )
+            updates.append("batch_interval_seconds = %s")
+            params.append(val)
         if index_definitions is not None:
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET index_definitions = %s::jsonb, updated_at = NOW() WHERE etl_table_id = %s",
-                (json.dumps(index_definitions), etl_table_id),
-            )
+            updates.append("index_definitions = %s::jsonb")
+            params.append(json.dumps(index_definitions))
         if clear_last_synced_at:
+            updates.append("last_synced_at = NULL")
+        if updates:
+            updates.append("updated_at = NOW()")
+            params.append(etl_table_id)
             cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET last_synced_at = NULL, updated_at = NOW() WHERE etl_table_id = %s",
-                (etl_table_id,),
+                f"UPDATE {_q(schema, 'etl_tables')} SET {', '.join(updates)} WHERE etl_table_id = %s",
+                tuple(params),
             )
         conn.commit()
     finally:

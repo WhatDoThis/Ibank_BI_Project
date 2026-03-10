@@ -1,3 +1,111 @@
+## 2026-03-10 ETL2 배치 즉시실행·재활성 동작 수정
+
+**목적:** 즉시실행 버튼/비활성→재활성 시 실행이 되지 않던 문제 해결. 마지막 실행 시각 갱신 및 다음 예상 실행이 "현재+주기"로 리셋되도록 함.
+
+**적용 항목:**
+- **scheduler_file.py**: `add_job`에 `force_now` 파라미터 추가. `force_now=True` 시 next_run_time=지금+5초(즉시 실행). `run_now`에서 `skipped_recent_run` 로직 제거(사용자 명시 클릭 시 무조건 실행). 즉시실행 전 interval 잡의 next_run을 "지금+interval"로 리셋. `refresh_interval_after_run` 신규 추가(실행 완료 후 next_run_time을 "지금+interval"로 리셋). `reschedule_job`에서 next_run_time을 지금+interval로 리셋하도록 수정. `_get_run_func` 헬퍼 추가. `import time` 제거.
+- **router_file.py**: toggle 재활성 시 `sched.add_job(job, force_now=True)` 호출. run_now 응답에서 `skipped_recent_run` 분기 제거.
+- **batch_executor_file.py**: 성공 완료 후·에러 시·조기 return(commit_err/파일 예외) 시 `refresh_interval_after_run(batch_job_id)` 호출 추가(4곳). 상단 Dependencies에 scheduler_file 추가.
+- **batch_executor_db.py**: `finally` 블록 밖, `check_consecutive_failures` 앞에 `refresh_interval_after_run(batch_job_id)` 호출 추가. 상단 Dependencies에 scheduler_file 추가.
+
+**변경 파일:** Backend/etl_server2/scheduler_file.py, router_file.py, batch_executor_file.py, batch_executor_db.py, docs/report/log.md.
+
+**추가 수정(같은 일):** pending 파일 0건일 때 run 기록 없이 return하던 구간에서도 `last_run_at`/다음 주기 갱신이 되도록, `batch_executor_file.py` 조기 return 2곳에 `update_job_status(batch_job_id, "success")` + `refresh_interval_after_run(batch_job_id)` 추가. (1) `get_pending_files` 직후 `if not pending` (2) skipped_filenames/fresh_lp 필터 후 `if not pending`.
+
+---
+
+## 2026-03-10 ETL Server2 코드 종합 점검 4차(최종) 반영
+
+**적용 항목:**
+- **P0-1** load_service.run_file_load: mapping_used 분기에서 INSERT 값 추출 시 `rec.get(tgt, rec.get(src_norm))`로 target 우선·source 폴백(apply_mapping_type_cast가 rename하지 않아도 방어).
+- **P0-3** batch_executor_db.run_db_batch_job: 독립 모드(else 분기)에서 column_mapping이 str일 때 json.loads 파싱 추가.
+- **P0-5** db_load_service._serialize_value: Python bool을 COPY TEXT 시 PostgreSQL boolean 인식용 "true"/"false"로 직렬화(float 체크보다 먼저).
+- **P2-1** db_load_service._serialize_value: decimal.Decimal 명시 처리(is_nan/is_infinite → "\\N", 그 외 str(v)), Decimal import 추가.
+- **P2-4** router._cleanup_expired_uploads: zip_* 빈 디렉터리(max_mtime==0)일 때 디렉터리 자체 mtime으로 폴백 후 삭제 판단.
+- **P2-7** db_load_service.run_db_load: 배치 경로 finally에서 MySQL SSCursor 미소비 결과 drain 후 cur_src.close()(batch_executor_db와 동일 패턴).
+- **P2-8** csv_reader.read_csv_robust: EOF(0x1a) 처리를 replace(b"\\x1a", b" ") 대신 rstrip(b"\\x1a")로 변경(파일 끝만 제거, 중간 데이터 보존).
+- **P3-1** db_load_service._create_indexes_on_target: 사용자 지정 index_name에 re.sub(r"[^a-zA-Z0-9_]", "_", idx_name)[:63] 적용(SQL 식별자·인젝션 방지).
+
+**스킵·이유:**
+- **P0-4** delete_etl_table rollback 후 주석: psycopg2 동작상 코드 변경 불필요, 주석만 정리된 상태 유지.
+- **P1-5** preview_service SKIP_HEADER_LIKE_ROWS 상수 삭제: 파일 미리보기에서 향후 사용 가능성 있음, 동작 변경 없이 데드 코드만 제거하는 것은 스킵(문서화로 대체).
+
+**변경 파일:** Backend/etl_server2/load_service.py, batch_executor_db.py, db_load_service.py, router.py, csv_reader.py, docs/report/log.md.
+
+---
+
+## 2026-03-10 ETL 코드 종합 점검 3차 반영
+
+**적용 항목:**
+- **P0-1** load_service.run_file_upsert: `{batch_ph}` 문자열 치환 제거, 루프 안에서 f-string으로 INSERT SQL 직접 조립(SQL Injection·파라미터 깨짐 방지).
+- **P0-2** load_service.run_file_load: column_mapping 블록 전에 `columns: list = []` 초기화.
+- **P0-3** batch_executor_db: except 블록에서 finish_run 호출 전 `run_completed_ok` 체크 추가(이미 성공한 run을 error로 덮어쓰지 않음).
+- **P0-4** db_load_service._copy_upsert_batch: TEMP 테이블명을 `id(cur)` 대신 `uuid.uuid4().hex[:12]` 사용.
+- **P0-5** service_file.create_batch_job: DB 배치 시 file_extensions를 None 대신 빈 문자열(`""`)로 저장(parser_file·프론트 기본값 호환).
+- **P1-2** batch_executor_db: SKIP_HEADER_LIKE_ROWS = False (DB 소스에는 헤더 행 없음, 정상 데이터 삭제 방지).
+- **P1-3** preview_service: _preview_db 등 DB 소스 미리보기에서 SKIP_HEADER_LIKE_ROWS 필터 제거.
+- **P1-4** db_load_service.run_db_load: 비배치 경로에서 cur_src/src_conn close 후 None 할당(except 이중 close 방지).
+- **P1-6** router.upload_file: column_mapping·index_definitions JSON 파싱 실패 시 HTTPException(400) 반환.
+- **P2-1** load_service_file._batch_upsert: distinct_where를 col_types 기반 캐스트로 변경(TIMESTAMP 등 일관성).
+- **P2-2** batch_executor_file._wait_for_stable_size: 안정 판정 조건에 `prev_size >= 0` 추가.
+- **P2-4** csv_reader._read_with_pandas: 1차 engine="c", 실패 시 engine="python" 폴백.
+- **P2-5** db_load_service._ensure_unique_constraint: 제약 이름에 pk_list 해시 추가(`_etl_uq_{pk_hash}`).
+- **P2-6** scheduler_file.run_now: one_shot_id를 time 대신 uuid.uuid4().hex[:8] 사용.
+- **P3-1** load_service._resolve_upload_path: fallback 경로에 is_relative_to(UPLOAD_DIR) 검사 추가(Path traversal 방어).
+- **P3-2** router.add_files_zip_to_table: extractall 전 각 멤버 경로가 extract_dir 하위인지 검증(Zip Slip 방어).
+
+**스킵·이유:** 명시된 항목은 모두 반영. 별도 스킵 없음.
+
+**변경 파일:** Backend/etl_server2/load_service.py, batch_executor_db.py, db_load_service.py, service_file.py, preview_service.py, router.py, load_service_file.py, batch_executor_file.py, csv_reader.py, scheduler_file.py, docs/report/log.md.
+
+---
+
+## 2026-03-10 ETL2 코드 점검 결과 2차 반영
+
+**적용 항목:**
+- **P0-1** batch_executor_file: run_batch_job 본문의 import 4줄을 함수 안으로 들여쓰기 이동(SyntaxError 방지).
+- **P0-2** load_service_file._batch_upsert: UPDATE의 pk_where에서 v 쪽 캐스트를 `(v."{p}")::{col_types.get(p, "text")}`로 명시(UUID 등 비text PK 대응).
+- **P0-3** batch_executor_db: etl_table_id 참조 모드에서 column_mapping이 문자열이면 json.loads 처리 추가.
+- **P0-4** service.delete_etl_table: batch_jobs 삭제 실패 시 rollback 후 etl_transform_rules/etl_jobs/etl_tables 삭제가 새 트랜잭션에서 실행되도록 주석 정리.
+- **P1-5** scheduler_file.run_now: skip_seconds = max(interval_minutes * 30, 60)으로 수정(주기 절반 또는 최소 60초).
+- **P1-6** preview_service._get_preview_with_transform: apply_mapping_type_cast 후 preview_rows 조회 시 rec.get(m["target"], rec.get(m["source"])) 사용.
+- **P1-7** service_file.create_batch_job: jtype == "db"일 때 file_extensions를 None으로 저장.
+- **P1-8** batch_executor_db: finally에서 MySQL SSCursor close 전에 fetchmany로 남은 결과 소비 로직 추가.
+- **P2-9** service.update_etl_table: 필드별 개별 UPDATE를 동적 SET 절 1회 UPDATE로 통합.
+- **P2-10** router._save_upload: file.file.read() 대신 shutil.copyfileobj(file.file, f, 65536)으로 대용량 업로드 시 메모리 절감.
+- **P3-11** service_file.list_batch_jobs: SELECT에 j.on_file_error 컬럼 추가(get_batch_job은 j.*로 이미 포함).
+
+**스킵·이유:** 이번 지시에서 명시된 항목은 모두 반영함. 별도 스킵 없음.
+
+**변경 파일:** Backend/etl_server2/batch_executor_file.py, load_service_file.py, batch_executor_db.py, service.py, scheduler_file.py, preview_service.py, service_file.py, router.py, docs/report/log.md.
+
+---
+
+## 2026-03-10 ETL2 코드 전체 점검 리포트 반영 (P0·P1·P2·P3)
+
+**적용 항목:**
+- **P0-1** service_file.get_last_processed_ts: DB에서 datetime/ISO 문자열로 오는 last_processed_ts를 14자리 형식으로 통일해 get_pending_files 비교와 일치시킴.
+- **P0-2** parser_file.get_pending_files: last_processed_ts에 datetime 객체가 들어와도 14자리 문자열로 정규화.
+- **P0-3** load_service_file._batch_upsert: PK 비교를 ::text가 아닌 col_types 기준 캐스트로 변경(타입 불일치 방지).
+- **P0-4** service.create_etl_table: full 모드 시 테이블 존재 여부를 기본 DB가 아닌 storage_connection_id 기준 target_table_exists로 확인.
+- **P1-5** batch_executor_file: 모든 파일이 skipped일 때 run status를 "skipped"로 마감하도록 분기 추가.
+- **P1-6** schema_infer: CSV 읽기 시 pd.read_csv(utf-8) 대신 csv_reader.read_csv_robust 사용(인코딩 감지).
+- **P1-7** batch_executor_db, preview_service: 헤더 유사 행 제거를 SKIP_HEADER_LIKE_ROWS 플래그로 제어(False 시 비활성화 가능).
+- **P2-10** load_service_file.get_target_connection 제거, 호출처(batch_executor_file, batch_executor_db, service_file)에서 service.get_target_db_connection 직접 사용.
+- **P2-13** batch_executor_db: 루프 직후 중복 cur_src.close() 제거, finally에서만 close.
+- **P3-14** service_file.create_batch_job: file 배치에서 file_pattern 빈 값이어도 (folder + target_table + storage) 중복 검사 수행.
+- **P3-15** service_file._ensure_batch_target_registry_table: 프로세스당 1회만 DDL 실행하도록 _registry_table_ensured 플래그 추가.
+
+**스킵·이유:**
+- **#8 type_mapping 통합**: 신규 모듈·다수 파일 수정으로 영향 범위 큼. 별도 작업으로 진행 권장.
+- **#9 file_reader 통합**: 동일. 별도 리팩토링으로 진행 권장.
+- **#11 service_file dict/tuple 정리**: 시스템 DB가 항상 RealDictCursor인지 전제 검증 필요. 일괄 제거 시 tuple 전달 경로에서 오동작 가능해 보수적으로 스킵.
+- **#12 JSONB 불필요 json.loads 제거**: 드라이버/환경에 따라 JSONB가 문자열로 올 수 있어 제거 시 호환성 리스크.
+
+**변경 파일:** Backend/etl_server2/service_file.py, parser_file.py, load_service_file.py, service.py, batch_executor_file.py, batch_executor_db.py, schema_infer.py, preview_service.py, docs/report/log.md.
+
+---
+
 ## 2026-03-10 ETL2 폴더 배치 duplicate_checksum 스킵 후에도 run 반복 생성 방지(보강)
 
 **문제:** duplicate_checksum 시 update_last_processed_ts 호출을 추가했음에도, 재시작 후 동일 파일(test_sftp_1_ib_20260306100001.csv)이 매 주기 pending에 남아 run이 계속 생성됨(244, 241, 239, 237 등).

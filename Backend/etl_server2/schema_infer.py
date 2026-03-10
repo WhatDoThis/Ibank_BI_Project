@@ -45,7 +45,8 @@ def infer_schema(file_path: str, file_type: str, max_rows: int = 1000) -> List[d
 
     ft = (file_type or "").strip().lower()
     if ft == "csv":
-        df = pd.read_csv(file_path, nrows=max_rows, encoding="utf-8")
+        from Backend.etl_server2 import csv_reader
+        df, _, _ = csv_reader.read_csv_robust(file_path, nrows=max_rows)
     elif ft in ("excel", "xlsx", "xls"):
         df = pd.read_excel(file_path, nrows=max_rows)
     elif ft == "parquet":

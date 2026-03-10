@@ -26,12 +26,15 @@ Backend.etl_server2.db_load_service (DB 연동 추출·적재)
 - psycopg2 (copy_expert), pandas
 """
 
+import hashlib
 import io
 import logging
 import math
 import re
 import time
+import uuid
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import List, Optional, Tuple
 
 import pandas as pd
@@ -514,7 +517,8 @@ def _ensure_unique_constraint(
             if set(cols) == pk_set:
                 return None
         safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in target_table)[:50]
-        constraint_name = f"{safe_name}_etl_uq"
+        pk_hash = hashlib.md5("_".join(pk_list).encode()).hexdigest()[:8]
+        constraint_name = f"{safe_name}_etl_uq_{pk_hash}"
         pk_cols = ", ".join(f'"{p}"' for p in pk_list)
         full_name = f'"{main_schema}"."{target_table}"'
         cur.execute(f'ALTER TABLE {full_name} ADD CONSTRAINT "{constraint_name}" UNIQUE ({pk_cols})')
@@ -564,6 +568,9 @@ def _create_indexes_on_target(cur, conn, main_schema: str, target_table: str, in
         if not idx_name:
             safe_cols = [re.sub(r"[^a-zA-Z0-9_]", "", str(c).strip().replace(" ", "_")) for c in columns if isinstance(c, str) and c.strip()]
             idx_name = "idx_" + "_".join(safe_cols) if safe_cols else ""
+        if not idx_name:
+            continue
+        idx_name = re.sub(r"[^a-zA-Z0-9_]", "_", idx_name)[:63]
         if not idx_name:
             continue
         # 컬럼명은 CSV/테이블 실제 컬럼명(공백·한글 등 가능)이므로 _validate_identifier 사용하지 않음.
@@ -667,9 +674,15 @@ def _pg_type_from_pandas(dtype) -> str:
 
 
 def _serialize_value(v) -> str:
-    """COPY TEXT 포맷용 값 직렬화. None/nan/inf/NaT → \\N, 그 외는 str 후 \\ \\t \\n \\r 이스케이프."""
+    """COPY TEXT 포맷용 값 직렬화. None/nan/inf/NaT → \\N, bool은 true/false, 그 외는 str 후 \\ \\t \\n \\r 이스케이프."""
     if v is None:
         return "\\N"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, Decimal):
+        if v.is_nan() or v.is_infinite():
+            return "\\N"
+        return str(v)
     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
         return "\\N"
     try:
@@ -713,7 +726,7 @@ def _copy_upsert_batch(
     """Incremental: TEMP 테이블(TEXT)에 COPY 후 INSERT...SELECT로 CAST·ON CONFLICT DO UPDATE."""
     if not rows_tuples:
         return
-    stg = f"_etl_stg_{id(cur)}"
+    stg = f"_etl_stg_{uuid.uuid4().hex[:12]}"
     col_str = ", ".join(f'"{c}"' for c in cols)
     cur.execute(
         f'CREATE TEMP TABLE "{stg}" ({", ".join(chr(34) + c + chr(34) + " TEXT" for c in cols)}) ON COMMIT DROP'
@@ -1223,12 +1236,20 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             finally:
                 cur_main.close()
                 conn_main.close()
+                if stype == "mysql" and cur_src is not None:
+                    try:
+                        while cur_src.fetchmany(1000):
+                            pass
+                    except Exception:
+                        pass
                 try:
-                    cur_src.close()
+                    if cur_src is not None:
+                        cur_src.close()
                 except Exception:
                     pass
                 try:
-                    src_conn.close()
+                    if src_conn is not None:
+                        src_conn.close()
                 except Exception:
                     pass
             idx_def = row.get("index_definitions")
@@ -1262,7 +1283,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             cur_src.execute(f'SELECT {select_list} FROM {quoted_src}{where_clause}{limit_sql}', params)
             rows_data = cur_src.fetchall()
             cur_src.close()
+            cur_src = None
             src_conn.close()
+            src_conn = None
             if row_type == "dict":
                 rows_data = [dict(r) for r in rows_data]
             elif row_type == "tuple":

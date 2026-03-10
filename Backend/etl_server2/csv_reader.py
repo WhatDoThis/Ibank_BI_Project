@@ -53,18 +53,21 @@ _DEFAULT_ENCODINGS = ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1", "cp125
 
 
 def _read_with_pandas(source, encoding: Optional[str], nrows: Optional[int]) -> pd.DataFrame:
-    """pandas read_csv 한 번 실행. source는 경로(str) 또는 file-like."""
-    kwargs = {"nrows": nrows, "engine": "python"}
-    if isinstance(source, str):
-        kwargs["encoding"] = encoding
-    else:
-        # StringIO 등에는 encoding 불필요(이미 디코딩된 문자열)
-        if encoding:
-            kwargs["encoding"] = encoding
+    """pandas read_csv. 1차 C 엔진(고속), 실패 시 Python 엔진 폴백."""
+    base_kwargs = {"nrows": nrows}
+    if isinstance(source, str) and encoding:
+        base_kwargs["encoding"] = encoding
+    elif not isinstance(source, str) and encoding:
+        base_kwargs["encoding"] = encoding
     try:
-        return pd.read_csv(source, **kwargs, on_bad_lines="skip")
+        return pd.read_csv(source, **base_kwargs, engine="c", on_bad_lines="skip")
+    except (TypeError, ValueError, Exception):
+        pass
+    base_kwargs["engine"] = "python"
+    try:
+        return pd.read_csv(source, **base_kwargs, on_bad_lines="skip")
     except TypeError:
-        return pd.read_csv(source, **kwargs, error_bad_lines=False)
+        return pd.read_csv(source, **base_kwargs, error_bad_lines=False)
 
 
 def read_csv_robust(
@@ -113,7 +116,7 @@ def read_csv_robust(
                 try:
                     with open(file_path, "rb") as f:
                         raw = f.read()
-                    cleaned = raw.replace(b"\x1a", b" ").decode(encoding_used, errors="replace")
+                    cleaned = raw.rstrip(b"\x1a").decode(encoding_used, errors="replace")
                     df = _read_with_pandas(io.StringIO(cleaned), None, nrows)
                     data_verification_needed = True
                     return (df, encoding_used, data_verification_needed)

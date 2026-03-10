@@ -323,7 +323,7 @@ def list_batch_jobs(
                    j.interval_minutes, j.is_active, j.last_processed_ts, j.last_run_at, j.last_run_status,
                    j.last_error_message, j.column_mapping, j.index_definitions, j.created_at, j.updated_at,
                    j.job_type, j.connection_id, j.source_table, j.incremental_column, j.sync_mode,
-                   j.last_synced_at, j.batch_size, j.batch_interval_seconds, j.on_row_error,
+                   j.last_synced_at, j.batch_size, j.batch_interval_seconds, j.on_row_error, j.on_file_error,
                    j.etl_table_id,
                    c.connection_name, c.protocol,
                    ec.connection_name AS source_connection_name,
@@ -472,15 +472,15 @@ def create_batch_job(
                     )
         else:
             file_pattern_trimmed = (file_pattern or "").strip()
-            if target_table_trimmed and file_pattern_trimmed:
+            if target_table_trimmed:
                 cur.execute(
                     f"""
                     SELECT 1 FROM {_q(schema, "batch_jobs")}
-                    WHERE folder_connection_id = %s AND file_pattern = %s AND target_table = %s
+                    WHERE folder_connection_id = %s AND (file_pattern IS NOT DISTINCT FROM %s) AND target_table = %s
                       AND (storage_connection_id IS NOT DISTINCT FROM %s)
                     LIMIT 1
                     """,
-                    (folder_connection_id, file_pattern_trimmed, target_table_trimmed, storage_connection_id),
+                    (folder_connection_id, file_pattern_trimmed or None, target_table_trimmed, storage_connection_id),
                 )
                 if cur.fetchone():
                     raise ValueError(
@@ -512,7 +512,7 @@ def create_batch_job(
                 storage_connection_id,
                 (job_name or "").strip(),
                 (file_pattern or "").strip() if jtype == "file" else None,
-                (file_extensions or "csv,xlsx,xls,parquet").strip() if jtype == "file" else "csv,xlsx,xls,parquet",
+                ("" if jtype == "db" else (file_extensions or "csv,xlsx,xls,parquet").strip()),
                 target_table_trimmed,
                 (pk_columns or "").strip() or None,
                 interval_minutes,
@@ -651,10 +651,14 @@ def delete_batch_job(batch_job_id: int) -> None:
 # ---------- etl_batch_target_registry (ETL 목록에 배치 타겟 테이블 행으로 관리) ----------
 
 _REGISTRY_TABLE = "etl_batch_target_registry"
+_registry_table_ensured: bool = False
 
 
 def _ensure_batch_target_registry_table(conn) -> None:
-    """etl_batch_target_registry 테이블이 없으면 생성. (target_table, storage_connection_id) UNIQUE."""
+    """etl_batch_target_registry 테이블이 없으면 생성. (target_table, storage_connection_id) UNIQUE. 프로세스당 1회만 DDL 실행."""
+    global _registry_table_ensured
+    if _registry_table_ensured:
+        return
     schema = _schema()
     cur = conn.cursor()
     try:
@@ -672,6 +676,7 @@ def _ensure_batch_target_registry_table(conn) -> None:
             """
         )
         conn.commit()
+        _registry_table_ensured = True
     finally:
         cur.close()
 
@@ -1181,8 +1186,26 @@ def get_last_processed_ts(batch_job_id: int, conn: Any = None) -> Optional[str]:
         val = row.get("last_processed_ts") if hasattr(row, "get") else row[0]
         if val is None:
             return None
+        # datetime 객체면 14자리 형식으로 변환 (get_pending_files 비교 포맷과 일치)
+        if hasattr(val, "strftime"):
+            return val.strftime("%Y%m%d%H%M%S")
         s = (val if isinstance(val, str) else str(val)).strip()
-        return s if s else None
+        if not s:
+            return None
+        # "2026-03-06 10:00:01" 등 ISO/DB 형식이면 14자리로 변환
+        if "-" in s or ":" in s:
+            try:
+                from datetime import datetime as _dt
+                s_clean = s.split("+")[0].split("Z")[0].strip()
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+                    try:
+                        parsed = _dt.strptime(s_clean, fmt)
+                        return parsed.strftime("%Y%m%d%H%M%S")
+                    except ValueError:
+                        continue
+            except Exception:
+                pass
+        return s
     finally:
         cur.close()
         if should_close:
@@ -1566,11 +1589,7 @@ def rollback_file_from_target(
         pk_dicts.append(val)
 
     # 2) 타겟 DB에서 DELETE
-    from Backend.etl_server2 import load_service_file
-
-    target_conn, target_schema = load_service_file.get_target_connection(
-        storage_connection_id
-    )
+    target_conn, target_schema = etl_service.get_target_db_connection(storage_connection_id)
     total_deleted = 0
     try:
         cur = target_conn.cursor()

@@ -2,15 +2,16 @@
 Backend.etl_server2.scheduler_file (배치 스케줄러)
 ================================================
 09_ETL_SFTP_Connection §5. APScheduler로 주기적 배치 실행.
-start_scheduler, load_active_batch_jobs, add_job, remove_job, reschedule_job, run_now.
+start_scheduler, load_active_batch_jobs, add_job, remove_job, reschedule_job, run_now, refresh_interval_after_run.
 
 [Main Functions]
 ===========
 - get_scheduler: lazy 초기화 (멀티 워커 시 import 시점 단일 인스턴스 방지). SCHEDULER_ENABLED=false 시 start_scheduler no-op.
-- add_job: 배치 1건 등록 (interval, next_run_time 10초 후)
+- add_job: 배치 1건 등록 (interval, next_run_time). force_now=True면 즉시 실행(5초 후), False면 last_run_at+interval 또는 10초 후.
 - remove_job: 배치 1건 제거
-- reschedule_job: 주기(interval_minutes) 변경
-- run_now: 즉시 1회 실행. 이미 실행 중이면 already_running. 최근(last_run_at) 실행이면 skipped_recent_run. 그 외엔 1회용 잡(DateTrigger)으로만 스케줄(interval 잡 미대체로 이중 실행 방지).
+- reschedule_job: 주기(interval_minutes) 변경, next_run_time을 지금+interval로 리셋
+- run_now: 즉시 1회 실행. 이미 running이면 already_running만 반환. 사용자 명시 클릭이면 skip 없이 실행 후 interval 잡 next_run 리셋.
+- refresh_interval_after_run: 실행 완료 후 interval 잡의 next_run_time을 "지금+interval"로 리셋.
 
 [Dependencies]
 =========
@@ -21,7 +22,7 @@ start_scheduler, load_active_batch_jobs, add_job, remove_job, reschedule_job, ru
 
 import logging
 import os
-import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -71,37 +72,43 @@ def load_active_batch_jobs() -> None:
     logger.info("loaded %d active batch jobs into scheduler", len(jobs))
 
 
-def add_job(job: dict) -> None:
-    """배치 1건 스케줄러에 등록. job은 get_batch_job/list_batch_jobs 항목.
-    job_type='db'이면 batch_executor_db.run_db_batch_job, 아니면 batch_executor_file.run_batch_job.
-    서버 재시작 시 last_run_at이 있으면 next_run_time = last_run_at + interval로 두어 주기 유지."""
-    batch_job_id = job["batch_job_id"]
-    job_type = (job.get("job_type") or "file").strip().lower()
+def _get_run_func(job_type: str):
+    """job_type에 따른 실행 함수 반환."""
     if job_type == "db":
         from Backend.etl_server2 import batch_executor_db
-        run_func = batch_executor_db.run_db_batch_job
-    else:
-        from Backend.etl_server2 import batch_executor_file
-        run_func = batch_executor_file.run_batch_job
+        return batch_executor_db.run_db_batch_job
+    from Backend.etl_server2 import batch_executor_file
+    return batch_executor_file.run_batch_job
+
+
+def add_job(job: dict, force_now: bool = False) -> None:
+    """배치 1건 스케줄러에 등록.
+    force_now=True: 재활성·수동 트리거 시 next_run_time = 지금+5초(즉시 실행).
+    force_now=False(기본): 서버 재시작 시 last_run_at+interval 또는 10초 후."""
+    batch_job_id = job["batch_job_id"]
+    job_type = (job.get("job_type") or "file").strip().lower()
+    run_func = _get_run_func(job_type)
     interval_minutes = int(job.get("interval_minutes") or 10)
     job_id = f"batch_{batch_job_id}"
 
-    # 서버 재시작 시: 마지막 실행 시각 + 주기가 아직 안 됐으면 그 시각에 실행, 이미 지났으면 10초 후
-    next_run_time = datetime.now() + timedelta(seconds=10)
-    last_run_at = job.get("last_run_at")
-    if last_run_at and interval_minutes > 0:
-        try:
-            if isinstance(last_run_at, str):
-                last_run = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
-            else:
-                last_run = last_run_at
-            if getattr(last_run, "tzinfo", None):
-                last_run = last_run.replace(tzinfo=None)
-            next_run = last_run + timedelta(minutes=interval_minutes)
-            if next_run > datetime.now():
-                next_run_time = next_run
-        except (TypeError, ValueError):
-            pass
+    if force_now:
+        next_run_time = datetime.now() + timedelta(seconds=5)
+    else:
+        next_run_time = datetime.now() + timedelta(seconds=10)
+        last_run_at = job.get("last_run_at")
+        if last_run_at and interval_minutes > 0:
+            try:
+                if isinstance(last_run_at, str):
+                    last_run = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
+                else:
+                    last_run = last_run_at
+                if getattr(last_run, "tzinfo", None):
+                    last_run = last_run.replace(tzinfo=None)
+                next_run = last_run + timedelta(minutes=interval_minutes)
+                if next_run > datetime.now():
+                    next_run_time = next_run
+            except (TypeError, ValueError):
+                pass
 
     get_scheduler().add_job(
         run_func,
@@ -112,7 +119,10 @@ def add_job(job: dict) -> None:
         replace_existing=True,
         next_run_time=next_run_time,
     )
-    logger.debug("scheduler add_job batch_%s interval=%s min next_run=%s", batch_job_id, interval_minutes, next_run_time)
+    logger.info(
+        "scheduler add_job batch_%s interval=%smin next_run=%s force_now=%s",
+        batch_job_id, interval_minutes, next_run_time, force_now,
+    )
 
 
 def remove_job(batch_job_id: int) -> None:
@@ -126,15 +136,51 @@ def remove_job(batch_job_id: int) -> None:
 
 
 def reschedule_job(batch_job_id: int, interval_minutes: int) -> None:
-    """배치 주기 변경."""
+    """배치 주기 변경. next_run_time을 지금+interval로 리셋."""
     job_id = f"batch_{batch_job_id}"
-    get_scheduler().reschedule_job(job_id, trigger=IntervalTrigger(minutes=interval_minutes))
-    logger.debug("scheduler reschedule_job %s interval=%s min", job_id, interval_minutes)
+    next_run = datetime.now() + timedelta(minutes=interval_minutes)
+    get_scheduler().reschedule_job(
+        job_id,
+        trigger=IntervalTrigger(minutes=interval_minutes, start_date=next_run),
+    )
+    logger.debug("scheduler reschedule_job %s interval=%smin next_run=%s", job_id, interval_minutes, next_run)
+
+
+def refresh_interval_after_run(batch_job_id: int) -> None:
+    """
+    실행 완료 후 호출. interval 잡의 next_run_time을 "지금+interval"로 리셋.
+    스케줄러에 해당 잡이 없으면(비활성 등) 무시.
+    """
+    job_id = f"batch_{batch_job_id}"
+    try:
+        sched = get_scheduler()
+        existing = sched.get_job(job_id)
+        if existing is None:
+            return
+        trigger = existing.trigger
+        interval_seconds = None
+        if hasattr(trigger, "interval"):
+            interval_seconds = trigger.interval.total_seconds()
+        elif hasattr(trigger, "interval_length"):
+            interval_seconds = trigger.interval_length
+        if interval_seconds is None or interval_seconds <= 0:
+            return
+        next_run = datetime.now() + timedelta(seconds=interval_seconds)
+        sched.reschedule_job(
+            job_id,
+            trigger=IntervalTrigger(seconds=int(interval_seconds), start_date=next_run),
+        )
+        logger.info(
+            "scheduler refresh_interval_after_run batch_%s next_run=%s (interval=%sm)",
+            batch_job_id, next_run, int(interval_seconds / 60),
+        )
+    except Exception as e:
+        logger.debug("refresh_interval_after_run batch_%s ignored: %s", batch_job_id, e)
 
 
 def run_now(batch_job_id: int) -> dict:
-    """즉시 1회 실행. 기존 interval 잡을 덮어쓰지 않고 1회용 잡으로 스케줄(동일 시각 이중 실행 방지).
-    최근(last_run_at 기준) 실행이 있으면 스킵. 반환: already_running | skipped_recent_run."""
+    """즉시 1회 실행. 사용자 명시 클릭이면 skip 없이 실행. 이미 running이면 already_running만 반환.
+    실행 전 interval 잡의 next_run_time을 지금+interval로 리셋한 뒤 1회용 잡으로 실행."""
     from Backend.etl_server2 import service_file as batch_service
 
     job = batch_service.get_batch_job(batch_job_id)
@@ -143,44 +189,34 @@ def run_now(batch_job_id: int) -> dict:
         return {}
     job_type = (job.get("job_type") or "file").strip().lower()
     if (job.get("last_run_status") or "").strip().lower() == "running":
-        logger.info("run_now: batch_%s job_type=%s already running, skip scheduling", batch_job_id, job_type)
+        logger.info("run_now: batch_%s already running, skip", batch_job_id)
         return {"already_running": True}
 
-    # 최근 실행이면 스킵: interval 직후 '지금 실행'으로 이중 run 방지
+    run_func = _get_run_func(job_type)
+    sched = get_scheduler()
+    job_id = f"batch_{batch_job_id}"
     interval_minutes = int(job.get("interval_minutes") or 10)
-    skip_seconds = min(interval_minutes * 30, 60)  # 주기의 절반(초) 또는 60초
-    last_run_at = job.get("last_run_at")
-    if last_run_at:
-        try:
-            if isinstance(last_run_at, str):
-                last_run = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
-            else:
-                last_run = last_run_at
-            if getattr(last_run, "tzinfo", None):
-                last_run = last_run.replace(tzinfo=None)
-            if (datetime.now() - last_run).total_seconds() < skip_seconds:
-                logger.info(
-                    "run_now: batch_%s job_type=%s skipped (last_run_at within %s sec)",
-                    batch_job_id, job_type, skip_seconds,
-                )
-                return {"skipped_recent_run": True, "skip_seconds": skip_seconds}
-        except (TypeError, ValueError):
-            pass
 
-    if job_type == "db":
-        from Backend.etl_server2 import batch_executor_db
-        run_func = batch_executor_db.run_db_batch_job
-    else:
-        from Backend.etl_server2 import batch_executor_file
-        run_func = batch_executor_file.run_batch_job
-    # interval 잡(batch_123)을 덮어쓰지 않고, 1회용 잡으로만 실행해 동일 시각 이중 실행 방지
-    one_shot_id = f"batch_{batch_job_id}_run_now_{int(time.time() * 1000)}"
-    get_scheduler().add_job(
+    # 즉시실행 직후 interval이 곧바로 다시 도는 것 방지: next_run을 지금+interval로 리셋
+    try:
+        existing = sched.get_job(job_id)
+        if existing:
+            next_after_run = datetime.now() + timedelta(minutes=interval_minutes)
+            sched.reschedule_job(
+                job_id,
+                trigger=IntervalTrigger(minutes=interval_minutes, start_date=next_after_run),
+            )
+            logger.info("run_now: batch_%s interval reset, next_run=%s", batch_job_id, next_after_run)
+    except Exception as e:
+        logger.debug("run_now: batch_%s interval reset skipped: %s", batch_job_id, e)
+
+    one_shot_id = f"batch_{batch_job_id}_run_now_{uuid.uuid4().hex[:8]}"
+    sched.add_job(
         run_func,
         trigger=DateTrigger(run_date=datetime.now()),
         id=one_shot_id,
         args=[batch_job_id],
         replace_existing=True,
     )
-    logger.info("scheduler run_now batch_%s job_type=%s one-shot scheduled", batch_job_id, job_type)
+    logger.info("run_now: batch_%s one-shot scheduled", batch_job_id)
     return {}

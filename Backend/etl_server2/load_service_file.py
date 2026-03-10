@@ -2,12 +2,11 @@
 Backend.etl_server2.load_service_file (배치 파일 적재 서비스)
 ==========================================================
 09_ETL_SFTP_Connection §4.3, §7.5. 저장 DB 연결·테이블 존재 확인·CREATE·INSERT/upsert.
-get_target_connection, table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유), create_table_from_dataframe, load_dataframe.
-배치 실행기(batch_executor_file)에서 다운로드·파싱 후 호출.
+table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유), create_table_from_dataframe, load_dataframe.
+배치 실행기(batch_executor_file)에서 다운로드·파싱 후 호출. 저장 DB 연결은 service.get_target_db_connection 사용.
 
 [Main Functions]
 ===========
-- get_target_connection: storage_connection_id(Optional) → (conn, schema). None이면 기본 DB(ibank_db). etl_server2.service 재사용.
 - table_exists: information_schema.tables로 테이블 존재 여부
 - create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
 - load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 _batch_upsert/없으면 _batch_insert, 테이블 있으면 동일. 파라미터 한도 기반 배치(_calc_batch_size).
@@ -44,17 +43,6 @@ def _calc_batch_size(num_columns: int) -> int:
     if num_columns <= 0:
         return BATCH_SIZE
     return max(1, MAX_PARAMS // num_columns)
-
-
-def get_target_connection(storage_connection_id: Optional[int] = None) -> Tuple[Any, str]:
-    """
-    저장 DB 연결 획득. etl_server2.service.get_target_db_connection 재사용.
-    storage_connection_id가 None이면 기본 DB(ibank_db) 사용.
-    반환: (conn, schema). conn 사용 후 close/commit 책임은 호출부.
-    """
-    from Backend.etl_server2 import service as etl_service
-    conn, schema = etl_service.get_target_db_connection(storage_connection_id)
-    return conn, (schema or "public").strip() or "public"
 
 
 def table_exists(conn, schema: str, table_name: str) -> bool:
@@ -498,9 +486,11 @@ def _batch_upsert(
             f'"{c}" = v."{c}"::{col_types.get(c, "text")}' for c in non_pk
         )
         pk_where = " AND ".join(
-            f't."{p}"::text = v."{p}"::text' for p in pk_columns
+            f't."{p}" = (v."{p}")::{col_types.get(p, "text")}' for p in pk_columns
         )
-        distinct_where = " OR ".join(f't."{c}"::text IS DISTINCT FROM v."{c}"::text' for c in non_pk)
+        distinct_where = " OR ".join(
+            f't."{c}" IS DISTINCT FROM v."{c}"::{col_types.get(c, "text")}' for c in non_pk
+        )
         n_cols = len(columns)
         v_cols = ", ".join(f'"{c}"' for c in columns)
         v_ph = "(" + ", ".join(["%s"] * n_cols) + ")"

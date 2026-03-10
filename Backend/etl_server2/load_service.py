@@ -51,9 +51,11 @@ def _resolve_upload_path(file_path: str) -> str:
         return p
     fallback = UPLOAD_DIR / base
     try:
+        if not fallback.resolve().is_relative_to(UPLOAD_DIR.resolve()):
+            return p
         if fallback.is_file():
             return str(fallback.resolve())
-    except (OSError, PermissionError):
+    except (OSError, PermissionError, ValueError):
         pass
     return p
 
@@ -175,6 +177,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
 
     # Phase 4: column_mapping 있으면 타겟 컬럼/타입·INSERT 순서를 매핑 기준으로 사용 + 매핑 기반 형변환
     column_mapping = etl_row.get("column_mapping")
+    columns: list = []
     mapping_used: List[dict] = []
     if isinstance(column_mapping, list) and len(column_mapping) > 0:
         for m in column_mapping:
@@ -234,15 +237,17 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         cur.execute(f"CREATE TABLE {full_name} ({col_defs})")
         conn_main.commit()
 
-        # INSERT: column_mapping 있으면 소스→타겟 매핑으로 값 추출. rec는 정규화된 컬럼명 키이므로 source→정규화명으로 조회.
+        # INSERT: column_mapping 있으면 소스→타겟 매핑으로 값 추출. target 우선, 없으면 source 정규화명 폴백(apply_mapping_type_cast가 rename하지 않아도 방어).
         if mapping_used:
             df_records = df.replace({pd.NA: None}).to_dict("records")
             rows = []
             for rec in df_records:
-                row_vals = [
-                    rec.get(source_to_normalized.get(m.get("source"), m.get("source")))
-                    for m in mapping_used
-                ]
+                row_vals = []
+                for m in mapping_used:
+                    tgt = (m.get("target") or "").strip()
+                    src_norm = source_to_normalized.get(m.get("source"), m.get("source"))
+                    val = rec.get(tgt, rec.get(src_norm))
+                    row_vals.append(val)
                 rows.append(dict(zip(cols, row_vals)))
         else:
             cols = [c[0] for c in columns]
@@ -429,10 +434,6 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
         one_row_ph = "(" + ", ".join(["%s"] * len(cols)) + ")"
         cols_quoted = ", ".join(chr(34) + c + chr(34) for c in cols)
         pk_quoted = ", ".join(chr(34) + p + chr(34) for p in pk_list)
-        upsert_sql = (
-            f'INSERT INTO {full_name} ({cols_quoted}) VALUES {{batch_ph}} '
-            f"ON CONFLICT ({pk_quoted}) DO UPDATE SET {', '.join(set_parts)}"
-        )
         insert_batch_size = 2000
         rows_data = df[cols].replace({pd.NA: None}).to_dict("records")
         rows_processed = 0
@@ -445,9 +446,12 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
                 return {"job_id": job_id, "status": "cancelled", "rows_processed": rows_processed, "error_message": "사용자 취소"}
             batch = rows_data[i : i + insert_batch_size]
             batch_ph = ", ".join([one_row_ph] * len(batch))
-            sql = upsert_sql.replace("{batch_ph}", batch_ph)
+            insert_sql = (
+                f'INSERT INTO {full_name} ({cols_quoted}) VALUES {batch_ph} '
+                f"ON CONFLICT ({pk_quoted}) DO UPDATE SET {', '.join(set_parts)}"
+            )
             flat_args = [r.get(c) for r in batch for c in cols]
-            cur.execute(sql, flat_args)
+            cur.execute(insert_sql, flat_args)
             rows_processed += len(batch)
             i += insert_batch_size
         conn_main.commit()

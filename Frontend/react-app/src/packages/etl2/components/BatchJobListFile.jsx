@@ -84,6 +84,12 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
       await batchToggleJob(id);
       await loadList();
       if (onSuccess) onSuccess();
+      // 비활성→활성 전환 시 스케줄러가 곧 한 번 실행할 수 있으므로, 실행 완료 후 마지막 실행/다음 예상 갱신을 위해 지연 새로고침
+      if (!goingInactive) {
+        const scheduleRefresh = (ms) => setTimeout(() => { loadList(); if (onSuccess) onSuccess(); }, ms);
+        scheduleRefresh(5000);
+        scheduleRefresh(15000);
+      }
     } catch (err) {
       setError(err?.message || '토글 실패');
     } finally {
@@ -104,6 +110,10 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
       } else {
         await loadList();
         if (onSuccess) onSuccess();
+        // 즉시실행은 비동기로 완료되므로, 완료 후 마지막 실행/다음 예상 실행 갱신을 위해 지연 새로고침
+        const scheduleRefresh = (ms) => setTimeout(() => { loadList(); if (onSuccess) onSuccess(); }, ms);
+        scheduleRefresh(3000);
+        scheduleRefresh(8000);
       }
     } catch (err) {
       setError(err?.message || '즉시 실행 실패');

@@ -14,13 +14,15 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 [Dependencies]
 =========
 - Backend.etl_server2.service_file (get_batch_job, create_batch_run, finish_run, update_run_progress, update_job_status, update_last_synced_at_db_batch, check_consecutive_failures, is_run_cancel_requested)
+- Backend.etl_server2.scheduler_file (refresh_interval_after_run)
 - Backend.etl_server2.service (get_connection_for_etl, _connect_postgres, _connect_mysql, _connect_oracle, parse_source_table_parts, _validate_source_table, get_target_db_connection)
 - Backend.etl_server2.db_load_service (_get_source_connection, get_source_columns, _fetch_source_columns, _fetch_source_columns_mysql, _fetch_source_columns_oracle)
-- Backend.etl_server2.load_service_file (get_target_connection, load_dataframe)
+- Backend.etl_server2.load_service_file (load_dataframe)
 - Backend.etl_server2.transform_engine (apply_mapping_type_cast)
 - Backend.etl_server2.transform_rules_service (list_transform_rules)
 """
 
+import json
 import logging
 import time
 from datetime import datetime
@@ -33,6 +35,9 @@ logger = logging.getLogger(__name__)
 # MySQL SSCursor 배치 상한 (net_write_timeout 대응)
 MYSQL_BATCH_SIZE_CAP = 10000
 ORACLE_BATCH_SIZE_DEFAULT = 10000
+
+# 소스에 헤더가 한 행으로 들어온 경우 제외 여부. DB 소스에는 헤더 행이 없으므로 False(정상 데이터 삭제 방지)
+SKIP_HEADER_LIKE_ROWS = False
 
 
 def _fetch_source_pk(conn, stype: str, schema: str, table_name: str) -> List[str]:
@@ -142,6 +147,11 @@ def run_db_batch_job(batch_job_id: int) -> None:
         target_table = (etl_def.get("target_table") or "").strip()
         storage_connection_id = etl_def.get("storage_connection_id")
         column_mapping = etl_def.get("column_mapping")
+        if isinstance(column_mapping, str):
+            try:
+                column_mapping = json.loads(column_mapping)
+            except (TypeError, ValueError):
+                column_mapping = None
         incremental_column = (etl_def.get("incremental_column") or "").strip() or None
         sync_mode = (etl_def.get("sync_mode") or "incremental").strip().lower()
         if sync_mode not in ("full", "incremental"):
@@ -155,6 +165,11 @@ def run_db_batch_job(batch_job_id: int) -> None:
         target_table = (job.get("target_table") or "").strip()
         storage_connection_id = job.get("storage_connection_id")
         column_mapping = job.get("column_mapping")
+        if isinstance(column_mapping, str):
+            try:
+                column_mapping = json.loads(column_mapping)
+            except (TypeError, ValueError):
+                column_mapping = None
         incremental_column = (job.get("incremental_column") or "").strip() or None
         sync_mode = (job.get("sync_mode") or "incremental").strip().lower()
         if sync_mode not in ("full", "incremental"):
@@ -187,6 +202,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
     target_conn = None
     sys_conn = None
     cur_src = None
+    stype = None
     run_completed_ok = False  # True after finish_run(success); avoid overwriting to "error" if update_job_status("success") fails
 
     try:
@@ -198,7 +214,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
             return
         run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
 
-        target_conn, target_schema = load_service_file.get_target_connection(storage_connection_id)
+        target_conn, target_schema = etl_service.get_target_db_connection(storage_connection_id)
         # full 모드: DROP 대신 TRUNCATE로 테이블 구조 보존. 적재 실패 시 다음 주기 재시도 가능.
         if sync_mode == "full" and load_service_file.table_exists(target_conn, target_schema, target_table):
             cur_t = target_conn.cursor()
@@ -358,14 +374,13 @@ def run_db_batch_job(batch_job_id: int) -> None:
             else:
                 rows_dict = [dict(zip(col_names, r)) for r in batch]
             df = pd.DataFrame(rows_dict, columns=col_names)
-            # 소스에 헤더가 한 행으로 들어온 경우 제외: 첫 번째 컬럼 값이 해당 컬럼명과 동일한 행 제거
-            if col_names and len(df) > 0:
+            # 소스에 헤더가 한 행으로 들어온 경우 제외: 첫 번째 컬럼 값이 해당 컬럼명과 동일한 행 제거 (설정으로 비활성화 가능)
+            if SKIP_HEADER_LIKE_ROWS and col_names and len(df) > 0:
                 first_col = col_names[0]
                 first_series = df[first_col]
                 # NaN/None은 'nan' 등으로 변환되므로 컬럼명과 일치하지 않음 → 유지
                 header_like = first_series.astype(str).str.strip().str.lower() == str(first_col).strip().lower()
                 if header_like.any():
-                    n_before = len(df)
                     df = df.loc[~header_like].reset_index(drop=True)
                     logger.info(
                         "run_db_batch_job job_id=%s batch_offset=%s: 헤더 유사 행 %s건 제외 (컬럼 '%s' 값=컬럼명)",
@@ -437,11 +452,6 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     if batch_service.is_run_cancel_requested(run_id, conn=sys_conn):
                         break
 
-        try:
-            cur_src.close()
-        except Exception:
-            pass
-
         if batch_offset == 0:
             logger.warning(
                 "run_db_batch_job job_id=%s: 소스에서 조회된 행 없음. "
@@ -481,7 +491,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 sys_conn.rollback()
             except Exception:
                 pass
-        if run_id is not None:
+        if run_id is not None and not run_completed_ok:
             try:
                 batch_service.finish_run(
                     run_id,
@@ -504,6 +514,13 @@ def run_db_batch_job(batch_job_id: int) -> None:
             except Exception:
                 logger.exception("update_job_status 복구 실패")
     finally:
+        # MySQL SSCursor: 미소비 결과가 있으면 close 시 대기/타임아웃 가능. 먼저 소비 후 close.
+        if stype == "mysql" and cur_src is not None:
+            try:
+                while cur_src.fetchmany(1000):
+                    pass
+            except Exception:
+                pass
         # 커서 먼저 닫기 (SSCursor close 에러 방지)
         if cur_src is not None:
             try:
@@ -525,6 +542,13 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 src_conn.close()
             except Exception:
                 pass
+
+    # 실행 완료 시점 기준으로 다음 주기 리셋 (성공·실패 무관)
+    try:
+        from Backend.etl_server2 import scheduler_file as sched_mod
+        sched_mod.refresh_interval_after_run(batch_job_id)
+    except Exception:
+        pass
 
     # 정제 #5: run_id 여부와 무관하게 항상 호출. 연속 실패 시 자동 비활성화.
     try:

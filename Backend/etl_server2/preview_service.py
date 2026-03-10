@@ -38,6 +38,9 @@ import pandas as pd
 
 from Backend.etl_server2 import schema_infer
 from Backend.etl_server2 import service as etl_service
+
+# 첫 번째 컬럼 값=컬럼명인 행(헤더 유사) 제외 여부. False 시 실제 데이터가 컬럼명과 같을 때 제거될 위험 감소
+SKIP_HEADER_LIKE_ROWS = True
 from Backend.etl_server2.transform_engine import _parse_config as _parse_rule_config
 
 logger = logging.getLogger(__name__)
@@ -345,15 +348,7 @@ def _preview_db(row: dict) -> dict:
         else:
             rows = [dict(zip(select_cols, r)) for r in rows]
 
-        # 첫 번째 컬럼 값이 컬럼명과 동일한 행(헤더가 데이터로 들어간 행) 제외
-        if select_cols and rows:
-            first_col = select_cols[0]
-            def _is_header_like(r):
-                val = r.get(first_col)
-                if val is None:
-                    return False
-                return str(val).strip().lower() == first_col.strip().lower()
-            rows = [r for r in rows if not _is_header_like(r)]
+        # DB 소스에는 헤더 행이 없으므로 SKIP_HEADER_LIKE_ROWS 적용하지 않음(정상 데이터 삭제 방지)
         rows = rows[:10]
 
         if column_mapping and mapping_filtered:
@@ -509,14 +504,7 @@ def _get_source_df_db(row: dict, column_mapping_override: Any = None) -> tuple:
         else:
             rows = [dict(zip(select_cols, r)) for r in rows]
 
-        if select_cols and rows:
-            first_col = select_cols[0]
-            def _is_header_like(r):
-                val = r.get(first_col)
-                if val is None:
-                    return False
-                return str(val).strip().lower() == first_col.strip().lower()
-            rows = [r for r in rows if not _is_header_like(r)]
+        # DB 소스에는 헤더 행이 없으므로 SKIP_HEADER_LIKE_ROWS 적용하지 않음
         rows = rows[:10]
 
         return (pd.DataFrame(rows), mapping_filtered if column_mapping else [])
@@ -600,7 +588,7 @@ def _get_preview_with_transform(etl_table_id: int) -> dict:
         preview_columns = [m["target"] for m in mapping_dicts]
         records = df.replace({pd.NA: None}).to_dict("records")
         preview_rows = [
-            [_serialize_row(rec.get(m["source"])) for m in mapping_dicts]
+            [_serialize_row(rec.get(m["target"], rec.get(m["source"]))) for m in mapping_dicts]
             for rec in records
         ]
         columns_out = []

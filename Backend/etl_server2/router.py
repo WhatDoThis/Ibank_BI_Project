@@ -207,6 +207,8 @@ def _cleanup_expired_uploads(max_age_days: int = UPLOAD_FILE_RETENTION_DAYS) -> 
                 for p in f.rglob("*"):
                     if p.is_file():
                         max_mtime = max(max_mtime, os.path.getmtime(str(p)))
+                if max_mtime == 0:
+                    max_mtime = os.path.getmtime(str(f))
                 if max_mtime > 0 and max_mtime < cutoff:
                     shutil.rmtree(f)
                     deleted.append(str(f))
@@ -233,8 +235,7 @@ def _save_upload(file: UploadFile) -> tuple[str, str]:
     if not path.resolve().is_relative_to(UPLOAD_DIR.resolve()):
         raise ValueError("잘못된 파일명입니다.")
     with open(path, "wb") as f:
-        content = file.file.read()
-        f.write(content)
+        shutil.copyfileobj(file.file, f, length=65536)
         f.flush()
         try:
             os.fsync(f.fileno())
@@ -439,17 +440,17 @@ async def upload_file(
                 try:
                     cm = json.loads(column_mapping)
                     if not isinstance(cm, list):
-                        cm = None
-                except (ValueError, TypeError):
-                    cm = None
+                        raise ValueError("column_mapping must be a JSON array")
+                except (ValueError, TypeError) as e:
+                    raise HTTPException(status_code=400, detail=f"column_mapping JSON 파싱 실패: {e}")
             idx_def = None
             if index_definitions and str(index_definitions).strip():
                 try:
                     idx_def = json.loads(index_definitions)
                     if not isinstance(idx_def, list):
-                        idx_def = None
-                except (ValueError, TypeError):
-                    idx_def = None
+                        raise ValueError("index_definitions must be a JSON array")
+                except (ValueError, TypeError) as e:
+                    raise HTTPException(status_code=400, detail=f"index_definitions JSON 파싱 실패: {e}")
             conn_id = etl_service.get_or_create_file_connection(created_by)
             pk_cols = (pk_columns or "").strip() or None
             etl_table_id = etl_service.create_etl_table(
@@ -667,6 +668,11 @@ async def add_files_zip_to_table(
                         status_code=400,
                         detail=f"ZIP 압축 해제 예상 크기가 {max_zip_mb}MB를 초과합니다. (약 {total_uncompressed // (1024*1024)}MB)",
                     )
+            extract_resolved = extract_dir.resolve()
+            for member in zf.infolist():
+                member_path = (extract_dir / member.filename).resolve()
+                if not str(member_path).startswith(str(extract_resolved) + os.sep) and member_path != extract_resolved:
+                    raise HTTPException(status_code=400, detail="ZIP 파일에 위험한 경로가 포함되어 있습니다.")
             zf.extractall(extract_dir)
     except HTTPException:
         if extract_dir.is_dir():

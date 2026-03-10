@@ -66,8 +66,14 @@ def get_pending_files(
     - last_processed_ts가 빈 문자열/공백이면 None으로 간주(동일 파일이 매 주기 pending에 포함되는 것 방지).
     - max_ts 미지정 시 현재 시각(미래 파일 제외).
     """
-    if last_processed_ts is not None and (not isinstance(last_processed_ts, str) or not last_processed_ts.strip()):
-        last_processed_ts = None
+    # datetime 객체 또는 빈 문자열이면 14자리 문자열로 정규화 또는 None
+    if last_processed_ts is not None:
+        if hasattr(last_processed_ts, "strftime"):
+            last_processed_ts = last_processed_ts.strftime("%Y%m%d%H%M%S")
+        elif isinstance(last_processed_ts, str):
+            last_processed_ts = last_processed_ts.strip() or None
+        else:
+            last_processed_ts = None
     if max_ts is None:
         max_ts = datetime.now().strftime("%Y%m%d%H%M%S")
     matched: List[Tuple[str, str]] = []
