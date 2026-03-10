@@ -190,7 +190,6 @@ export function TransformDetailRow({
                         const orderNum = checked ? cols.indexOf(c.name) + 1 : null;
                         return (
                           <label key={c.name} className="etl-concat-checkbox">
-                            <span className="etl-concat-order-badge">{orderNum != null ? orderNum : ''}</span>
                             <input
                               type="checkbox"
                               checked={checked}
@@ -200,6 +199,7 @@ export function TransformDetailRow({
                               }}
                             />
                             <span className="etl-concat-checkbox-label">{c.name}</span>
+                            <span className="etl-concat-order-badge">{orderNum != null ? orderNum : ''}</span>
                           </label>
                         );
                       })}

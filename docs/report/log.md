@@ -1,3 +1,14 @@
+## 2026-03-10 컬럼 매핑 모달 — 합칠 컬럼 UI 순서 번호 위치 조정
+
+**목적:** 컬럼 결합(concat) UI에서 순서 뱃지(1, 2, 3…)가 체크박스·컬럼명 위에 있어 다음 컬럼을 밀어내 보기 흐려지던 문제 개선. 번호를 컬럼명 아래로 배치해 레이아웃 정리.
+
+**적용 항목:**
+- **TransformDetailRow.jsx**: `etl-concat-checkbox` 라벨 내 DOM 순서를 체크박스 → 컬럼명 → 순서 뱃지로 변경(기존: 뱃지 → 체크박스 → 컬럼명). flex-direction: column 유지로 화면에는 체크박스 / 컬럼명 / 번호 순으로 표시.
+
+**변경 파일:** Frontend/react-app/src/packages/etl2/components/TargetTableSelectModal/TransformDetailRow.jsx, docs/report/log.md.
+
+---
+
 ## 2026-03-10 ETL2 배치 즉시실행·재활성 동작 수정
 
 **목적:** 즉시실행 버튼/비활성→재활성 시 실행이 되지 않던 문제 해결. 마지막 실행 시각 갱신 및 다음 예상 실행이 "현재+주기"로 리셋되도록 함.
