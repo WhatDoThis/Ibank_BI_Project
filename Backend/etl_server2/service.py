@@ -1331,26 +1331,25 @@ def delete_etl_table(etl_table_id: int) -> dict:
     conn_sys = api_db.get_db_connection_system()
     cur_sys = conn_sys.cursor()
     try:
-        cur_sys.execute(
-            f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s AND add_file_path IS NOT NULL",
-            (etl_table_id,),
-        )
-        for r in cur_sys.fetchall():
-            try:
-                p = r.get("add_file_path") if hasattr(r, "get") else (r[0] if r else None)
-            except (KeyError, IndexError, TypeError):
-                p = None
-            p = (p or "").strip() if isinstance(p, str) else ""
-            if p:
-                add_file_paths.append(p)
-    except Exception as e:
-        if psycopg2 and isinstance(e, psycopg2.ProgrammingError):
-            conn_sys.rollback()
-        else:
-            cur_sys.close()
-            conn_sys.close()
-            raise
-    try:
+        try:
+            cur_sys.execute(
+                f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s AND add_file_path IS NOT NULL",
+                (etl_table_id,),
+            )
+            for r in cur_sys.fetchall():
+                try:
+                    p = r.get("add_file_path") if hasattr(r, "get") else (r[0] if r else None)
+                except (KeyError, IndexError, TypeError):
+                    p = None
+                p = (p or "").strip() if isinstance(p, str) else ""
+                if p:
+                    add_file_paths.append(p)
+        except Exception as e:
+            if psycopg2 and isinstance(e, psycopg2.ProgrammingError):
+                conn_sys.rollback()
+            else:
+                raise
+
         # 동일 target_table을 쓰는 다른 ETL이 있으면 DROP 하지 않음(다른 연결에서 같은 테이블로 적재 중일 수 있음).
         if target_table and re.match(r"^[a-zA-Z0-9_]+$", target_table):
             cur_sys.execute(

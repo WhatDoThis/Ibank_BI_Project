@@ -19,8 +19,8 @@ get_primary_key_columns: 테이블 PK 컬럼명 목록 (허용 테이블만)
 table_exists_in_schema: 테이블 스키마 내 존재 여부 (allowed_tables 미검사)
 get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사, 커넥션 1회)
 get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사, 커넥션 1회)
-get_db_connection: 메인 DB 연결 생성 (UTF-8 인코딩)
-get_db_connection_system: 시스템 DB 연결 생성 (ETL 메타·세션 등용)
+get_db_connection: 메인 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback.
+get_db_connection_system: 시스템 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback. ETL 메타·세션 등용.
 format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
 validate_table_name: 허용 패턴·허용 테이블 검증
 validate_column_name: 컬럼명 허용 패턴 검증
@@ -32,10 +32,62 @@ validate_column_name: 컬럼명 허용 패턴 검증
 """
 
 import re
+import threading
 from datetime import datetime, date
 
 import psycopg2
+from psycopg2 import pool as psycopg2_pool
 from psycopg2.extras import RealDictCursor
+
+# 시스템/메인 DB 연결 풀: 동시 연결 수 제한으로 PostgreSQL max_connections 초과 방지
+_SYSTEM_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
+_MAIN_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
+_POOL_MIN = 1
+_POOL_MAX = 20
+_system_pool_lock = threading.Lock()
+_main_pool_lock = threading.Lock()
+
+
+class _PooledConnection:
+    """풀에서 빌린 연결. close() 시 실제 TCP 종료 대신 putconn()으로 풀에 반환. 기존 conn.close() 호출 패턴과 호환."""
+
+    def __init__(self, pool: psycopg2_pool.ThreadedConnectionPool, conn):
+        self._pool = pool
+        self._conn = conn
+
+    def cursor(self, *args, **kwargs):
+        return self._conn.cursor(*args, **kwargs)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def set_client_encoding(self, encoding):
+        return self._conn.set_client_encoding(encoding)
+
+    def close(self):
+        if self._conn is not None:
+            try:
+                self._pool.putconn(self._conn)
+            except Exception:
+                pass
+            self._conn = None
+
+    def __getattr__(self, name):
+        if name in ("_pool", "_conn"):
+            raise AttributeError(name)
+        if self._conn is None:
+            raise AttributeError(name)
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
 try:
     from Env import config
@@ -320,19 +372,43 @@ def get_primary_key_columns_for_etl_target(table_name: str):
 
 
 def get_db_connection():
-    """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
-    cfg = get_db_config()
-    conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
-    conn.set_client_encoding("UTF8")
-    return conn
+    """메인 DB 연결을 풀에서 반환. close() 시 풀에 반환. 풀 고갈 시 직접 연결 fallback(close 시 실제 종료)."""
+    global _MAIN_DB_POOL
+    with _main_pool_lock:
+        if _MAIN_DB_POOL is None:
+            cfg = {**get_db_config(), "cursor_factory": RealDictCursor}
+            _MAIN_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
+                _POOL_MIN, _POOL_MAX, **cfg
+            )
+    try:
+        raw = _MAIN_DB_POOL.getconn()
+        raw.set_client_encoding("UTF8")
+        return _PooledConnection(_MAIN_DB_POOL, raw)
+    except Exception:
+        cfg = get_db_config()
+        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+        conn.set_client_encoding("UTF8")
+        return conn
 
 
 def get_db_connection_system():
-    """시스템 DB 연결 생성. config.backend.system_db 사용. ETL 메타·로그인·세션 등 시스템 테이블용."""
-    cfg = get_system_db_config()
-    conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
-    conn.set_client_encoding("UTF8")
-    return conn
+    """시스템 DB 연결을 풀에서 반환. ETL 메타·로그인·세션 등용. close() 시 풀 반환. 풀 고갈 시 직접 연결 fallback(close 시 실제 종료)."""
+    global _SYSTEM_DB_POOL
+    with _system_pool_lock:
+        if _SYSTEM_DB_POOL is None:
+            cfg = {**get_system_db_config(), "cursor_factory": RealDictCursor}
+            _SYSTEM_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
+                _POOL_MIN, _POOL_MAX, **cfg
+            )
+    try:
+        raw = _SYSTEM_DB_POOL.getconn()
+        raw.set_client_encoding("UTF8")
+        return _PooledConnection(_SYSTEM_DB_POOL, raw)
+    except Exception:
+        cfg = get_system_db_config()
+        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+        conn.set_client_encoding("UTF8")
+        return conn
 
 
 def format_value(value):
