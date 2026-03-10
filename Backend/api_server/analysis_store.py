@@ -50,7 +50,8 @@ def save_analysis_result(allowed_tables, table_columns, relationships):
 def get_latest_analysis_result():
     """
     가장 최근 분석 결과 한 건 조회.
-    반환: {"id", "analyzed_at", "table_schema", "allowed_tables", "table_columns", "relationships"} 또는 None
+    반환: {"id", "analyzed_at", "table_schema", "allowed_tables", "table_columns", "relationships"} 또는 None.
+    allowlist_analysis 테이블이 없으면 None 반환(500 방지).
     """
     conn = db.get_db_connection()
     cur = conn.cursor()
@@ -67,6 +68,8 @@ def get_latest_analysis_result():
         if not row:
             return None
         return dict(row)
+    except Exception:
+        return None
     finally:
         cur.close()
         conn.close()

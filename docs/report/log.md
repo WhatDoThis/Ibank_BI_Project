@@ -1,3 +1,17 @@
+## 2026-03-10 리포트 페이지 describe-table / table-relationships 500 오류 수정
+
+**목적:** 리포트 페이지에서 테이블 로드 시 `/report_api/api/describe-table`, `/report_api/api/table-relationships?mode=all` 호출이 500 Internal Server Error로 실패하던 현상 해결.
+
+**적용 항목:**
+- **report.py**: `psycopg2.extras.RealDictCursor` import 추가. 모든 `conn.cursor()` 호출을 `conn.cursor(cursor_factory=RealDictCursor)`로 통일하여 fetch 결과를 컬럼명 키로 접근 가능하도록 함(list_tables, describe_table, _fetch_relationships, _ensure_queue_table, save_query_as_table, save_query_as_table_status, execute_query, get_column_values, query_stats, _save_table_worker 내 cursor).
+- **analysis_store.py**: `get_latest_analysis_result()`에서 예외 발생 시(예: allowlist_analysis 테이블 미존재) None을 반환하도록 처리하여 table-relationships 500 방지.
+
+**변경 파일:** Backend/api_server/routers/report.py, Backend/api_server/analysis_store.py, docs/report/log.md.
+
+**참고:** allowlist_analysis 테이블이 없으면 table-relationships는 캐시 없이 매번 관계를 계산합니다. 테이블 생성은 `python scripts/create_allowlist_analysis.py`로 수행 가능.
+
+---
+
 ## 2026-03-10 컬럼 매핑 모달 — 합칠 컬럼 UI 순서 번호 위치 조정
 
 **목적:** 컬럼 결합(concat) UI에서 순서 뱃지(1, 2, 3…)가 체크박스·컬럼명 위에 있어 다음 컬럼을 밀어내 보기 흐려지던 문제 개선. 번호를 컬럼명 아래로 배치해 레이아웃 정리.

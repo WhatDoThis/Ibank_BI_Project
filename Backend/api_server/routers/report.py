@@ -28,7 +28,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 [Dependencies]
 =========
 - Backend.api_server.db, dependencies.get_db, get_config, schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
-- fastapi, psycopg2, requests
+- fastapi, psycopg2, psycopg2.extras.RealDictCursor, requests
 """
 
 import json
@@ -44,6 +44,7 @@ from pathlib import Path
 
 import psycopg2
 from psycopg2 import sql as pg_sql
+from psycopg2.extras import RealDictCursor
 import requests
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
@@ -251,7 +252,7 @@ def _fetch_relationships(conn, mode="fk", table_columns=None):
     relationships = []
     if mode in ("fk", "all"):
         schema = db.get_table_schema()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             placeholders = ", ".join(["%s"] * len(allowed))
             sql = (
@@ -368,7 +369,7 @@ def list_tables(conn=Depends(get_db)):
         if not allowed:
             return {"tables": [], "count": 0}
         placeholders = ", ".join(["%s"] * len(allowed))
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
             SELECT
@@ -408,7 +409,7 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
     try:
         table_name = db.validate_table_name(body.table_name)
         schema = db.get_table_schema()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
             SELECT
@@ -575,7 +576,7 @@ _save_table_worker_conn_err_sleep_sec = 10
 def _ensure_queue_table(conn):
     """큐 테이블이 없으면 생성 (allowed_tables와 무관, 내부용)."""
     schema = db.get_table_schema()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
         cur.execute(
             pg_sql.SQL("""
@@ -608,7 +609,7 @@ def _save_table_worker():
             conn_sel = db.get_db_connection()
             _ensure_queue_table(conn_sel)
             schema = db.get_table_schema()
-            cur = conn_sel.cursor()
+            cur = conn_sel.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 pg_sql.SQL("""
                     SELECT id, table_name, query
@@ -628,7 +629,7 @@ def _save_table_worker():
             job_id = str(row["id"])
             table_name = row["table_name"]
             query = row["query"]
-            cur = conn_sel.cursor()
+            cur = conn_sel.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 pg_sql.SQL("UPDATE {schema_table} SET status = 'running', started_at = NOW() WHERE id = %s").format(
                     schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)
@@ -642,7 +643,7 @@ def _save_table_worker():
 
             timeout = int(getattr(env_config.backend, "query_timeout_seconds", None) or 120)
             conn_create = db.get_db_connection()
-            cur_create = conn_create.cursor()
+            cur_create = conn_create.cursor(cursor_factory=RealDictCursor)
             try:
                 cur_create.execute(f"SET statement_timeout = '{timeout}s'")
                 cur_create.execute(pg_sql.SQL("CREATE TABLE {} AS ({})").format(pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)))
@@ -660,7 +661,7 @@ def _save_table_worker():
                     except Exception:
                         pass
                 conn_up = db.get_db_connection()
-                cur_up = conn_up.cursor()
+                cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(
                     pg_sql.SQL("""
                         UPDATE {schema_table}
@@ -681,7 +682,7 @@ def _save_table_worker():
                         pass
                     conn_create = None
                 conn_up = db.get_db_connection()
-                cur_up = conn_up.cursor()
+                cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(
                     pg_sql.SQL("""
                         UPDATE {schema_table}
@@ -701,7 +702,7 @@ def _save_table_worker():
                     except Exception:
                         pass
                 conn_up = db.get_db_connection()
-                cur_up = conn_up.cursor()
+                cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(
                     pg_sql.SQL("""
                         UPDATE {schema_table}
@@ -781,7 +782,7 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
         _ensure_queue_table(conn)
         job_id = uuid.uuid4()
         schema = db.get_table_schema()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             cur.execute(
                 pg_sql.SQL("""
@@ -815,7 +816,7 @@ def save_query_as_table_status(job_id: str, conn=Depends(get_db)):
     try:
         _ensure_queue_table(conn)
         schema = db.get_table_schema()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             cur.execute(
                 pg_sql.SQL("""
@@ -863,7 +864,7 @@ def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(g
         timeout = int(timeout)
         if timeout < 60:
             timeout = 120
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(f"SET statement_timeout = '{timeout}s'")
         _t0 = __import__("time").perf_counter()
         cur.execute(query)
@@ -964,7 +965,7 @@ def get_column_values(body: GetColumnValuesRequest, conn=Depends(get_db)):
         table_name = db.validate_table_name(body.table_name)
         column_name = db.validate_column_name(body.column_name)
         limit = min(body.limit or 100, 1000)
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             f'SELECT DISTINCT "{column_name}" FROM {table_name} WHERE "{column_name}" IS NOT NULL ORDER BY "{column_name}" LIMIT %s',
             (limit,),
@@ -993,7 +994,7 @@ def query_stats(body: QueryStatsRequest, conn=Depends(get_db)):
         dangerous = _contains_dangerous_sql(query)
         if dangerous:
             return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT COUNT(*) as total FROM (" + query + ") as subquery")
         count_result = cur.fetchone()
         cur.execute("EXPLAIN " + query)
