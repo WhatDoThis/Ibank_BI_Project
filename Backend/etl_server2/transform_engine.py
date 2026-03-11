@@ -29,6 +29,16 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
 
+# 시간대 변환용 (timezone_convert operation)
+try:
+    import pytz
+    def _get_tz(name: str):
+        return pytz.timezone(name)
+except ImportError:
+    from zoneinfo import ZoneInfo
+    def _get_tz(name: str):
+        return ZoneInfo(name)
+
 logger = logging.getLogger(__name__)
 
 
@@ -481,7 +491,7 @@ def _apply_datetime_transform(
     series: pd.Series, config: Dict[str, Any], df: Optional[pd.DataFrame] = None
 ) -> pd.Series:
     """
-    operation: date_format, extract, date_diff, age, date_add.
+    operation: date_format, extract, date_diff, age, date_add, timezone_convert.
     dt는 date_format이 아닐 때만 계산(성능).
     """
     from datetime import date as date_type
@@ -530,6 +540,44 @@ def _apply_datetime_transform(
         if days or months or years:
             return (dt + pd.DateOffset(days=days, months=months, years=years)).dt.strftime("%Y-%m-%d")
         return series
+    if op == "timezone_convert":
+        source_tz_str = (config.get("source_timezone") or "").strip()
+        target_tz_str = (config.get("target_timezone") or "").strip()
+        if not source_tz_str or not target_tz_str:
+            logger.warning("timezone_convert: source_timezone 또는 target_timezone 미지정, 원본 유지")
+            return series
+        if source_tz_str == target_tz_str:
+            return series
+        try:
+            src_tz = _get_tz(source_tz_str)
+            tgt_tz = _get_tz(target_tz_str)
+        except Exception as e:
+            logger.warning("timezone_convert: 시간대 파싱 실패 (%s → %s): %s", source_tz_str, target_tz_str, e)
+            return series
+        # 텍스트 날짜 파싱 성공률 검증: 50% 미만이면 원본 유지
+        non_null_count = int(series.notna().sum())
+        if non_null_count > 0:
+            parsed_count = int(dt.notna().sum())
+            if parsed_count < non_null_count * 0.5:
+                logger.warning(
+                    "timezone_convert: 날짜 파싱 성공률 %.0f%% (%s/%s). "
+                    "텍스트 형식이 파싱되지 않을 수 있습니다. 원본 유지.",
+                    (parsed_count / non_null_count) * 100, parsed_count, non_null_count,
+                )
+                return series
+        try:
+            if dt.dt.tz is None:
+                try:
+                    localized = dt.dt.tz_localize(src_tz, ambiguous="NaT", nonexistent="NaT")
+                except TypeError:
+                    localized = dt.dt.tz_localize(src_tz)
+            else:
+                localized = dt.dt.tz_convert(src_tz)
+            converted = localized.dt.tz_convert(tgt_tz)
+            return converted.dt.tz_localize(None)
+        except Exception as e:
+            logger.warning("timezone_convert: 변환 실패 (%s → %s): %s. 원본 유지.", source_tz_str, target_tz_str, e)
+            return series
     return series
 
 

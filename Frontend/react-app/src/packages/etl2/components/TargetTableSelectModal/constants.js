@@ -69,7 +69,18 @@ export const TRANSFORM_OPTIONS = [
   { value: 'cleansing_and_type_cast', label: '정리+변환', hint: '공백 정리 후 타입 변환' },
   { value: 'code_map', label: '값 매핑', hint: '특정 값을 다른 값으로 치환 (M→남성)' },
   { value: 'string', label: '문자열', hint: '대소문자, 추출, 치환 등 문자열 가공' },
+  { value: 'datetime', label: '날짜/시간', hint: '날짜 포맷·추출·시간대 변환 등' },
   { value: 'masking', label: '마스킹', hint: '개인정보 비식별화 (비가역)' }
+];
+
+/** datetime 카테고리 내 operation (timezone_convert만 UI 지원, 나머지는 API/rule_config로 사용 가능) */
+export const DATETIME_OPERATION_OPTIONS = [
+  { value: 'date_format', label: '날짜 포맷' },
+  { value: 'extract', label: '부분 추출' },
+  { value: 'date_diff', label: '날짜 차이' },
+  { value: 'age', label: '나이 계산' },
+  { value: 'date_add', label: '날짜 더하기' },
+  { value: 'timezone_convert', label: '시간대 변환' }
 ];
 
 export const STRING_OPERATION_OPTIONS = [
@@ -119,6 +130,7 @@ export function buildEmptyTransformSettings() {
     stringConfig: {},
     maskingConfig: {},
     codeMapConfig: {},
+    datetimeConfig: {},
     mappingOnError: {}
   };
 }
@@ -129,6 +141,7 @@ export const TRANSFORM_OPTION_LABELS = {
   cleansing: '정리',
   type_cast: '타입 변환',
   cleansing_and_type_cast: '정리+변환',
+  datetime: '날짜/시간',
   code_map: '값 매핑',
   string: '문자열',
   masking: '마스킹'

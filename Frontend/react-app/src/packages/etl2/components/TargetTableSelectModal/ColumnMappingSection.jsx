@@ -55,6 +55,9 @@ export function ColumnMappingSection({
   setCodeMapEditorOpen,
   codeMapPopoverSource,
   setCodeMapPopoverSource,
+  datetimeConfig,
+  setDateTimeConfig,
+  timezones = [],
   displaySourcesForExisting,
   sourceToTarget,
   setMappingForSource,
@@ -198,6 +201,9 @@ export function ColumnMappingSection({
                           setCodeMapEditorOpen={setCodeMapEditorOpen}
                           codeMapPopoverSource={codeMapPopoverSource}
                           setCodeMapPopoverSource={setCodeMapPopoverSource}
+                          datetimeConfig={datetimeConfig}
+                          setDateTimeConfig={setDateTimeConfig}
+                          timezones={timezones}
                         />
                       )}
                       </React.Fragment>
@@ -328,6 +334,9 @@ export function ColumnMappingSection({
                         setCodeMapEditorOpen={setCodeMapEditorOpen}
                         codeMapPopoverSource={codeMapPopoverSource}
                         setCodeMapPopoverSource={setCodeMapPopoverSource}
+                        datetimeConfig={datetimeConfig}
+                        setDateTimeConfig={setDateTimeConfig}
+                        timezones={timezones}
                       />
                     )}
                     </React.Fragment>

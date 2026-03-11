@@ -15,7 +15,8 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 =========
 - Backend.etl_server2.service_file (get_batch_job, create_batch_run, finish_run, update_run_progress, update_job_status, update_last_synced_at_db_batch, check_consecutive_failures, is_run_cancel_requested)
 - Backend.etl_server2.scheduler_file (refresh_interval_after_run)
-- Backend.etl_server2.service (get_connection_for_etl, _connect_postgres, _connect_mysql, _connect_oracle, parse_source_table_parts, _validate_source_table, get_target_db_connection)
+- Backend.etl_server2.service (get_connection_for_etl, get_storage_connection, _connect_postgres, _connect_mysql, _connect_oracle, parse_source_table_parts, _validate_source_table, get_target_db_connection)
+- Backend.etl_server2.timezone_utils (needs_conversion, convert_timezone_columns, convert_single_datetime)
 - Backend.etl_server2.db_load_service (_get_source_connection, get_source_columns, _fetch_source_columns, _fetch_source_columns_mysql, _fetch_source_columns_oracle)
 - Backend.etl_server2.load_service_file (load_dataframe)
 - Backend.etl_server2.transform_engine (apply_mapping_type_cast)
@@ -113,6 +114,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
     from Backend.api_server import db as api_db
     from Backend.etl_server2 import service_file as batch_service
     from Backend.etl_server2 import service as etl_service
+    from Backend.etl_server2 import timezone_utils
     from Backend.etl_server2 import transform_engine
     from Backend.etl_server2 import transform_rules_service as transform_rules_svc
     from Backend.etl_server2 import db_load_service
@@ -214,6 +216,13 @@ def run_db_batch_job(batch_job_id: int) -> None:
             return
         run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
 
+        # 타겟 DB 시간대 조회
+        if storage_connection_id:
+            _sc = etl_service.get_storage_connection(storage_connection_id)
+            target_tz = (_sc.get("server_timezone") or "Asia/Seoul").strip() if _sc else "Asia/Seoul"
+        else:
+            target_tz = "Asia/Seoul"
+
         target_conn, target_schema = etl_service.get_target_db_connection(storage_connection_id)
         # full 모드: DROP 대신 TRUNCATE로 테이블 구조 보존. 적재 실패 시 다음 주기 재시도 가능.
         if sync_mode == "full" and load_service_file.table_exists(target_conn, target_schema, target_table):
@@ -227,9 +236,11 @@ def run_db_batch_job(batch_job_id: int) -> None:
         c = etl_service.get_connection_for_etl(connection_id)
         if not c:
             raise ValueError("연결을 찾을 수 없습니다.")
+        source_tz = (c.get("server_timezone") or "Asia/Seoul").strip()
         stype = (c.get("source_type") or "postgresql").strip().lower()
         if stype not in ("postgresql", "mysql", "oracle"):
             raise ValueError(f"DB 배치는 postgresql, mysql, oracle만 지원합니다. source_type={stype}")
+        _tz_convert_needed = timezone_utils.needs_conversion(source_tz, target_tz)
 
         # effective_batch_size: 정제 #3 MySQL 상한 10000, Oracle 0이면 10000
         effective_batch_size = batch_size if batch_size > 0 else 10000
@@ -312,7 +323,24 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     f" WHERE {_quote(incremental_column)} >= {bind_placeholder}"
                     f" AND {_quote(incremental_column)} IS NOT NULL"
                 )
-                params.append(last_synced_at)
+                # last_synced_at은 타겟(시스템) DB 시간대로 저장됨. 소스 DB 시간대로 변환해서 비교.
+                _synced_val = last_synced_at
+                if _tz_convert_needed and isinstance(last_synced_at, datetime):
+                    try:
+                        _synced_val = timezone_utils.convert_single_datetime(
+                            last_synced_at, from_tz=target_tz, to_tz=source_tz,
+                        )
+                        logger.info(
+                            "run_db_batch_job job_id=%s: last_synced_at 시간대 변환 %s(%s) → %s(%s)",
+                            batch_job_id, last_synced_at, target_tz, _synced_val, source_tz,
+                        )
+                    except Exception as tz_err:
+                        logger.warning(
+                            "run_db_batch_job job_id=%s: last_synced_at 시간대 변환 실패, 원본 사용: %s",
+                            batch_job_id, tz_err,
+                        )
+                        _synced_val = last_synced_at
+                params.append(_synced_val)
 
         select_sql = f"SELECT {select_list} FROM {quoted_src}{where_clause}"
         logger.info(
@@ -374,6 +402,17 @@ def run_db_batch_job(batch_job_id: int) -> None:
             else:
                 rows_dict = [dict(zip(col_names, r)) for r in batch]
             df = pd.DataFrame(rows_dict, columns=col_names)
+            # --- 시간대 변환 (소스 TZ → 타겟 TZ) ---
+            if _tz_convert_needed:
+                try:
+                    df = timezone_utils.convert_timezone_columns(
+                        df, columns, source_tz, target_tz,
+                    )
+                except Exception as tz_err:
+                    logger.warning(
+                        "run_db_batch_job job_id=%s: 시간대 변환 실패 (skip): %s",
+                        batch_job_id, tz_err,
+                    )
             # 소스에 헤더가 한 행으로 들어온 경우 제외: 첫 번째 컬럼 값이 해당 컬럼명과 동일한 행 제거 (설정으로 비활성화 가능)
             if SKIP_HEADER_LIKE_ROWS and col_names and len(df) > 0:
                 first_col = col_names[0]
@@ -462,6 +501,8 @@ def run_db_batch_job(batch_job_id: int) -> None:
         if last_synced_candidate is not None:
             if not isinstance(last_synced_candidate, datetime):
                 last_synced_candidate = pd.to_datetime(last_synced_candidate)
+            # convert_timezone_columns가 이미 df를 타겟 TZ로 변환했으므로
+            # df에서 꺼낸 max_val은 이미 타겟 TZ 기준. 추가 변환 불필요.
             batch_service.update_last_synced_at_db_batch(batch_job_id, last_synced_candidate, conn=sys_conn)
             # ETL 목록(etl_tables) 행도 동기화: postgres/mysql/oracle 공통, 기존 row에 갱신 반영
             if etl_table_id is not None:

@@ -21,7 +21,7 @@ FastAPI APIRouter. prefix /api/etl2. ETL2 페이지용 메타·업로드·연결
 - POST /upload, POST /infer-schema
 - POST /tables/{id}/add-file, POST /tables/{id}/add-files-zip
 - POST /cleanup-expired-uploads
-- GET/POST/DELETE /connections, POST /connections/test
+- GET /timezones, GET/POST/DELETE /connections, POST /connections/test
 - GET /connections/{id}/tables, GET /connections/{id}/source-columns, GET /connections/{id}/source-indexes
 - POST /connections/{id}/validate-incremental-column
 - GET /tables/{id}/transform-rules, POST /transform-rules, PUT/DELETE /transform-rules/{id}
@@ -74,6 +74,7 @@ class CreateConnectionBody(BaseModel):
     username: str = Field(..., description="사용자명")
     password: str = Field("", description="비밀번호")
     created_by: str = Field("user", description="등록자")
+    server_timezone: Optional[str] = Field("Asia/Seoul", description="소스 DB 서버 시간대 (IANA). 예: Asia/Seoul, UTC")
 
 
 class TestConnectionBody(BaseModel):
@@ -102,6 +103,7 @@ class CreateStorageConnectionBody(BaseModel):
     schema_name: Optional[str] = Field("public", description="스키마명")
     username: str = Field(..., description="사용자명")
     password: str = Field("", description="비밀번호")
+    server_timezone: Optional[str] = Field("Asia/Seoul", description="저장 DB 서버 시간대 (IANA). 예: Asia/Seoul, UTC")
 
 
 class UpdateStorageConnectionBody(BaseModel):
@@ -114,6 +116,7 @@ class UpdateStorageConnectionBody(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     is_active: Optional[bool] = None
+    server_timezone: Optional[str] = None
 
 
 class TestStorageConnectionBody(BaseModel):
@@ -762,6 +765,16 @@ async def add_files_zip_to_table(
     }
 
 
+@router.get("/timezones")
+def list_timezones():
+    """서버 시간대 마스터 목록. 셀렉트박스용."""
+    try:
+        rows = etl_service.list_timezones()
+        return {"timezones": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/cleanup-expired-uploads")
 def cleanup_expired_uploads():
     """
@@ -786,6 +799,7 @@ def create_connection(body: CreateConnectionBody):
             username=body.username,
             password=body.password or "",
             created_by=body.created_by,
+            server_timezone=body.server_timezone or "Asia/Seoul",
         )
         return {"connection_id": connection_id}
     except ValueError as e:
@@ -994,6 +1008,7 @@ def create_storage_connection(body: CreateStorageConnectionBody):
             schema_name=body.schema_name or "public",
             username=body.username,
             password=body.password or "",
+            server_timezone=body.server_timezone or "Asia/Seoul",
         )
         return {"storage_connection_id": storage_connection_id}
     except ValueError as e:
@@ -1016,6 +1031,7 @@ def update_storage_connection(storage_connection_id: int, body: UpdateStorageCon
             username=body.username,
             password=body.password,
             is_active=body.is_active,
+            server_timezone=body.server_timezone,
         )
         return {"message": "ok"}
     except ValueError as e:

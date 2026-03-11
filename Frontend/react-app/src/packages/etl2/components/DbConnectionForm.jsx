@@ -12,11 +12,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
+ * - React, @/shared/api/client (etl2ListTimezones, etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import {
+  etl2ListTimezones,
   etl2ListConnections,
   etl2CreateConnection,
   etl2TestConnection,
@@ -53,8 +54,10 @@ function DbConnectionForm({ onSuccess }) {
     username: '',
     password: '',
     created_by: 'user',
-    source_type: 'postgresql'
+    source_type: 'postgresql',
+    server_timezone: 'Asia/Seoul'
   });
+  const [timezones, setTimezones] = useState([]);
   const [testResult, setTestResult] = useState(null);
   const [testHint, setTestHint] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
@@ -76,7 +79,8 @@ function DbConnectionForm({ onSuccess }) {
     username: '',
     password: '',
     created_by: 'user',
-    source_type: 'postgresql'
+    source_type: 'postgresql',
+    server_timezone: 'Asia/Seoul'
   };
 
   function getDefaultPortForDb(dbType) {
@@ -222,6 +226,12 @@ function DbConnectionForm({ onSuccess }) {
     etl2ListStorageConnections().then((res) => setStorageConnections(res.storage_connections || [])).catch(() => setStorageConnections([]));
   }, []);
 
+  useEffect(() => {
+    etl2ListTimezones()
+      .then((res) => setTimezones(res.timezones || []))
+      .catch(() => setTimezones([]));
+  }, []);
+
   // DB 연결만 표시하므로, 선택된 ID가 파일 업로드 연결이면 선택 해제
   const dbConnections = (connections || []).filter(
     (c) => (c.source_type || '').toString().toLowerCase() !== 'file'
@@ -255,7 +265,8 @@ function DbConnectionForm({ onSuccess }) {
     try {
       await etl2CreateConnection({
         ...newConn,
-        source_type: newConn.source_type || 'postgresql'
+        source_type: newConn.source_type || 'postgresql',
+        server_timezone: newConn.server_timezone || 'Asia/Seoul'
       });
       loadConnections();
       setNewConn({ ...defaultConn });
@@ -358,6 +369,15 @@ function DbConnectionForm({ onSuccess }) {
           ruleConfig.n = parseInt(cfg.n, 10) || 4;
         }
         rules.push({ source_column: source, target_column: target, rule_type: 'masking', rule_config: ruleConfig, apply_order: baseOrder });
+      } else if (kind === 'datetime') {
+        const cfg = (settings.datetimeConfig && settings.datetimeConfig[source]) || {};
+        const op = cfg.operation || 'timezone_convert';
+        const ruleConfig = { operation: op };
+        if (op === 'timezone_convert') {
+          ruleConfig.source_timezone = (cfg.source_timezone || 'UTC').trim();
+          ruleConfig.target_timezone = (cfg.target_timezone || 'Asia/Seoul').trim();
+        }
+        rules.push({ source_column: source, target_column: target, rule_type: 'datetime', rule_config: ruleConfig, apply_order: baseOrder });
       }
     });
     return rules;
@@ -561,6 +581,23 @@ function DbConnectionForm({ onSuccess }) {
                 className="etl-db-form__input"
               />
             </div>
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">서버 시간대</label>
+              <select
+                value={newConn.server_timezone || 'Asia/Seoul'}
+                onChange={(e) => { setNewConn((c) => ({ ...c, server_timezone: e.target.value })); clearTestPassedOnChange(); }}
+                className="etl-db-form__select"
+              >
+                {timezones.map((tz) => (
+                  <option key={tz.timezone_id} value={tz.timezone_id}>
+                    {tz.display_name}
+                  </option>
+                ))}
+                {timezones.length === 0 && (
+                  <option value="Asia/Seoul">한국 표준시 (UTC+09:00)</option>
+                )}
+              </select>
+            </div>
           </div>
           <div className="etl-db-form__actions">
             <button
@@ -606,7 +643,12 @@ function DbConnectionForm({ onSuccess }) {
           <ul className="etl-db-form__conn-list">
             {dbConnections.map((c) => (
               <li key={c.connection_id} className="etl-db-form__conn-item">
-                <span className="etl-db-form__conn-info">{c.connection_name} — {c.host}:{c.port ?? '-'}/{c.database_name}</span>
+                <span className="etl-db-form__conn-info">
+                  {c.connection_name} — {c.host}:{c.port ?? '-'}/{c.database_name}
+                  {c.server_timezone && (
+                    <span className="etl-db-form__conn-tz"> · {c.server_timezone}</span>
+                  )}
+                </span>
                 <button
                   type="button"
                   className="etl-db-form__btn etl-db-form__btn--danger"

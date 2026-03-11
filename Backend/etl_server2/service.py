@@ -19,7 +19,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 
 [Connections]
 ===========
-- create_connection, list_connections, get_connection_for_etl, test_connection
+- list_timezones, create_connection, list_connections, get_connection_for_etl, test_connection
 - list_source_tables, get_or_create_file_connection, list_etl_tables_by_connection, delete_connection
 
 [ETL Tables]
@@ -415,6 +415,20 @@ def parse_source_table_parts(
     return (conn_schema or "public", st)
 
 
+def list_timezones() -> list:
+    """서버 시간대 마스터 목록. server_timezones 테이블 조회. ORDER BY sort_order ASC, utc_offset_min ASC."""
+    schema = _schema()
+    with _sys_cursor() as (cur, _):
+        cur.execute(
+            f"""
+            SELECT timezone_id, display_name, utc_offset_min, sort_order
+            FROM {_q(schema, "server_timezones")}
+            ORDER BY sort_order ASC, utc_offset_min ASC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
 def create_connection(
     connection_name: str,
     source_type: str,
@@ -425,6 +439,7 @@ def create_connection(
     schema_name: Optional[str] = None,
     username: Optional[str] = None,
     password: Optional[str] = None,
+    server_timezone: Optional[str] = "Asia/Seoul",
 ) -> int:
     """DB 연결 1건 등록. source_type=postgresql|mysql|oracle. 비밀번호는 encrypted_password에 저장(현재 평문)."""
     if not connection_name or not str(connection_name).strip():
@@ -435,6 +450,7 @@ def create_connection(
         raise ValueError("host, database_name, username가 필요합니다.")
     port = port or _DEFAULT_PORTS.get(source_type, 5432)
     schema_name = (schema_name or ("public" if source_type == "postgresql" else "")).strip()
+    tz = (server_timezone or "Asia/Seoul").strip()
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -443,11 +459,11 @@ def create_connection(
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_connections")}
-            (connection_name, source_type, host, port, database_name, schema_name, username, encrypted_password, is_active, created_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, NOW())
+            (connection_name, source_type, host, port, database_name, schema_name, username, encrypted_password, is_active, created_by, updated_at, server_timezone)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, NOW(), %s)
             RETURNING connection_id
             """,
-            (connection_name.strip(), source_type, host.strip(), int(port), database_name.strip(), schema_name, username.strip(), password or "", created_by),
+            (connection_name.strip(), source_type, host.strip(), int(port), database_name.strip(), schema_name, username.strip(), password or "", created_by, tz),
         )
         row = cur.fetchone()
         conn.commit()
@@ -467,7 +483,7 @@ def list_connections() -> list:
         cur.execute(
             f"""
             SELECT connection_id, connection_name, source_type, host, port, database_name, schema_name, username,
-                   is_active, created_by, created_at, updated_at
+                   is_active, created_by, created_at, updated_at, server_timezone
             FROM {_q(schema, "etl_connections")}
             ORDER BY created_at DESC
             """
@@ -488,7 +504,7 @@ def get_connection_for_etl(connection_id: int) -> Optional[dict]:
         cur.execute(
             f"""
             SELECT connection_id, connection_name, source_type, host, port, database_name, schema_name,
-                   username, encrypted_password
+                   username, encrypted_password, server_timezone
             FROM {_q(schema, "etl_connections")}
             WHERE connection_id = %s AND is_active = TRUE
             """,
@@ -513,7 +529,7 @@ def list_storage_connections() -> list:
         cur.execute(
             f"""
             SELECT storage_connection_id, connection_name, source_type, host, port, database_name, schema_name,
-                   username, is_active, created_at, updated_at
+                   username, is_active, created_at, updated_at, server_timezone
             FROM {_q(schema, "etl_storage_connections")}
             ORDER BY created_at DESC
             """
@@ -534,7 +550,7 @@ def get_storage_connection(storage_connection_id: int) -> Optional[dict]:
         cur.execute(
             f"""
             SELECT storage_connection_id, connection_name, source_type, host, port, database_name, schema_name,
-                   username, encrypted_password, is_active, created_at, updated_at
+                   username, encrypted_password, is_active, created_at, updated_at, server_timezone
             FROM {_q(schema, "etl_storage_connections")}
             WHERE storage_connection_id = %s AND is_active = TRUE
             """,
@@ -669,6 +685,7 @@ def create_storage_connection(
     username: str,
     password: Optional[str] = None,
     schema_name: Optional[str] = None,
+    server_timezone: Optional[str] = "Asia/Seoul",
 ) -> int:
     """저장 DB 연결 1건 등록. PostgreSQL 전용. 반환: storage_connection_id."""
     if not connection_name or not str(connection_name).strip():
@@ -677,6 +694,7 @@ def create_storage_connection(
         raise ValueError("host, database_name, username가 필요합니다.")
     port = int(port or 5432)
     schema_name = (schema_name or "public").strip() or "public"
+    tz = (server_timezone or "Asia/Seoul").strip()
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -685,11 +703,11 @@ def create_storage_connection(
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_storage_connections")}
-            (connection_name, source_type, host, port, database_name, schema_name, username, encrypted_password, is_active, updated_at)
-            VALUES (%s, 'postgresql', %s, %s, %s, %s, %s, %s, TRUE, NOW())
+            (connection_name, source_type, host, port, database_name, schema_name, username, encrypted_password, is_active, updated_at, server_timezone)
+            VALUES (%s, 'postgresql', %s, %s, %s, %s, %s, %s, TRUE, NOW(), %s)
             RETURNING storage_connection_id
             """,
-            (connection_name.strip(), host.strip(), port, database_name.strip(), schema_name, username.strip(), password or ""),
+            (connection_name.strip(), host.strip(), port, database_name.strip(), schema_name, username.strip(), password or "", tz),
         )
         row = cur.fetchone()
         conn.commit()
@@ -709,6 +727,7 @@ def update_storage_connection(
     username: Optional[str] = None,
     password: Optional[str] = None,
     is_active: Optional[bool] = None,
+    server_timezone: Optional[str] = None,
 ) -> None:
     """저장 DB 연결 1건 수정. None인 필드는 변경하지 않음."""
     api_db = _get_db()
@@ -742,6 +761,9 @@ def update_storage_connection(
         if is_active is not None:
             updates.append("is_active = %s")
             params.append(is_active)
+        if server_timezone is not None:
+            updates.append("server_timezone = %s")
+            params.append(server_timezone.strip())
         if not updates:
             return
         updates.append("updated_at = NOW()")

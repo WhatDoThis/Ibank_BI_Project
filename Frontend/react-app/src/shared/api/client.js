@@ -537,6 +537,11 @@ export async function etl2DeleteConnection(connectionId) {
   return request('DELETE', `/api/etl2/connections/${encodeURIComponent(connectionId)}`);
 }
 
+/** GET /api/etl2/timezones - 서버 시간대 마스터 목록(셀렉트박스용) */
+export async function etl2ListTimezones() {
+  return request('GET', '/api/etl2/timezones');
+}
+
 /** GET /api/etl2/connections */
 export async function etl2ListConnections() {
   return request('GET', '/api/etl2/connections');

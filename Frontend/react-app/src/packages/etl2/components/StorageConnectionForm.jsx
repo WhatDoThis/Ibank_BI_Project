@@ -11,11 +11,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2DeleteStorageConnection)
+ * - React, @/shared/api/client (etl2ListTimezones, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2DeleteStorageConnection)
  */
 
 import { useState, useEffect } from 'react';
 import {
+  etl2ListTimezones,
   etl2ListStorageConnections,
   etl2CreateStorageConnection,
   etl2TestStorageConnection,
@@ -33,8 +34,10 @@ function StorageConnectionForm({ onSuccess }) {
     database_name: '',
     schema_name: 'public',
     username: '',
-    password: ''
+    password: '',
+    server_timezone: 'Asia/Seoul'
   });
+  const [timezones, setTimezones] = useState([]);
   const [testResult, setTestResult] = useState(null);
   const [testHint, setTestHint] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
@@ -57,6 +60,12 @@ function StorageConnectionForm({ onSuccess }) {
 
   useEffect(() => {
     loadList();
+  }, []);
+
+  useEffect(() => {
+    etl2ListTimezones()
+      .then((res) => setTimezones(res.timezones || []))
+      .catch(() => setTimezones([]));
   }, []);
 
   async function handleTest() {
@@ -114,7 +123,8 @@ function StorageConnectionForm({ onSuccess }) {
         database_name: form.database_name.trim(),
         schema_name: (form.schema_name || 'public').trim() || 'public',
         username: form.username.trim(),
-        password: form.password || ''
+        password: form.password || '',
+        server_timezone: form.server_timezone || 'Asia/Seoul'
       });
       setForm({
         connection_name: '',
@@ -123,7 +133,8 @@ function StorageConnectionForm({ onSuccess }) {
         database_name: '',
         schema_name: 'public',
         username: '',
-        password: ''
+        password: '',
+        server_timezone: 'Asia/Seoul'
       });
       setTestResult(null);
       setTestPassed(false);
@@ -232,6 +243,23 @@ function StorageConnectionForm({ onSuccess }) {
                 autoComplete="off"
               />
             </div>
+            <div className="etl-db-form__field">
+              <label className="etl-db-form__label">서버 시간대</label>
+              <select
+                value={form.server_timezone || 'Asia/Seoul'}
+                onChange={(e) => setForm((f) => ({ ...f, server_timezone: e.target.value }))}
+                className="etl-db-form__select"
+              >
+                {timezones.map((tz) => (
+                  <option key={tz.timezone_id} value={tz.timezone_id}>
+                    {tz.display_name}
+                  </option>
+                ))}
+                {timezones.length === 0 && (
+                  <option value="Asia/Seoul">한국 표준시 (UTC+09:00)</option>
+                )}
+              </select>
+            </div>
           </div>
           <div className="etl-db-form__actions">
             <button type="button" onClick={handleTest} disabled={testLoading} className="etl-db-form__btn">
@@ -263,6 +291,9 @@ function StorageConnectionForm({ onSuccess }) {
                 <li key={c.storage_connection_id} className="etl-db-form__conn-item">
                   <span className="etl-db-form__conn-info">
                     {c.connection_name} — {c.host}:{c.port ?? '-'}/{c.database_name}
+                    {c.server_timezone && (
+                      <span className="etl-db-form__conn-tz"> · {c.server_timezone}</span>
+                    )}
                   </span>
                   <button
                     type="button"

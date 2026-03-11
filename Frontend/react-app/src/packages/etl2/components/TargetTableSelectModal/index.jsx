@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { etl2ListTargetTables, etl2ListTargetColumns, etl2ListTransformRules, etl2CreateTransformRule, etl2DeleteTransformRule, etl2TransformPreview } from '@/shared/api/client';
+import { etl2ListTargetTables, etl2ListTargetColumns, etl2ListTransformRules, etl2CreateTransformRule, etl2DeleteTransformRule, etl2TransformPreview, etl2ListTimezones } from '@/shared/api/client';
 import { normalizeStorageConnectionId } from '../../utils/storageDb.js';
 import { normalizeSourceCol, NEW_TABLE_VALUE, getOnErrorValue, inferredTypeToPg, parsePkColumns, isTypeCompatible } from './constants.js';
 import { TableSelector } from './TableSelector.jsx';
@@ -56,6 +56,8 @@ function TargetTableSelectModal({
   const [stringConfig, setStringConfig] = useState({});
   const [maskingConfig, setMaskingConfig] = useState({});
   const [typeCastConfig, setTypeCastConfig] = useState({});
+  const [datetimeConfig, setDateTimeConfig] = useState({});
+  const [timezones, setTimezones] = useState([]);
   const [showTransformHelpModal, setShowTransformHelpModal] = useState(false);
   const [customIndexDefinitions, setCustomIndexDefinitions] = useState([]);
   const [previewData, setPreviewData] = useState(null);
@@ -68,7 +70,7 @@ function TargetTableSelectModal({
   useEffect(() => {
     setPreviewData(null);
     setPreviewError(null);
-  }, [transformKind, stringConfig, maskingConfig, codeMapConfig, typeCastConfig]);
+  }, [transformKind, stringConfig, maskingConfig, codeMapConfig, typeCastConfig, datetimeConfig]);
 
   const prevSelectedTableRef = useRef(selectedTable);
   const pkSyncedForOpenRef = useRef(false);
@@ -416,6 +418,13 @@ function TargetTableSelectModal({
   }, [open, sourceIndexes.length, currentIndexDefinitions]);
 
   useEffect(() => {
+    if (!open) return;
+    etl2ListTimezones()
+      .then((res) => setTimezones(res.timezones || []))
+      .catch(() => setTimezones([]));
+  }, [open]);
+
+  useEffect(() => {
     if (!open || etlTableId == null || etlTableId === '') return;
     etl2ListTransformRules(etlTableId)
       .then(({ rules }) => {
@@ -424,6 +433,7 @@ function TargetTableSelectModal({
         const maskCfg = {};
         const codeCfg = {};
         const typeCastCfg = {};
+        const datetimeCfg = {};
         const onErrors = {};
         for (const r of rules || []) {
           const src = r.source_column;
@@ -448,6 +458,13 @@ function TargetTableSelectModal({
               unmapped: def === null ? 'null' : (def !== undefined && def !== '' ? 'default' : 'keep'),
               default_value: def != null ? String(def) : ''
             };
+          } else if (type === 'datetime') {
+            kinds[src] = 'datetime';
+            datetimeCfg[src] = {
+              operation: cfg.operation || 'timezone_convert',
+              source_timezone: cfg.source_timezone || 'UTC',
+              target_timezone: cfg.target_timezone || 'Asia/Seoul'
+            };
           }
           if (cfg.on_error) onErrors[src] = cfg.on_error;
         }
@@ -456,6 +473,7 @@ function TargetTableSelectModal({
         setMaskingConfig((prev) => ({ ...prev, ...maskCfg }));
         setCodeMapConfig((prev) => ({ ...prev, ...codeCfg }));
         setTypeCastConfig((prev) => ({ ...prev, ...typeCastCfg }));
+        setDateTimeConfig((prev) => ({ ...prev, ...datetimeCfg }));
         setMappingOnError((prev) => ({ ...prev, ...onErrors }));
       })
       .catch(() => {});
@@ -480,6 +498,9 @@ function TargetTableSelectModal({
     }
     if (s.codeMapConfig && Object.keys(s.codeMapConfig).length > 0) {
       setCodeMapConfig((prev) => ({ ...prev, ...s.codeMapConfig }));
+    }
+    if (s.datetimeConfig && Object.keys(s.datetimeConfig).length > 0) {
+      setDateTimeConfig((prev) => ({ ...prev, ...s.datetimeConfig }));
     }
     if (s.mappingOnError && Object.keys(s.mappingOnError).length > 0) {
       setMappingOnError((prev) => ({ ...prev, ...s.mappingOnError }));
@@ -556,10 +577,19 @@ function TargetTableSelectModal({
           ruleConfig.n = parseInt(cfg.n, 10) || 4;
         }
         rules.push({ source_column: src.name, target_column: targetName, rule_type: 'masking', rule_config: ruleConfig, apply_order: baseOrder });
+      } else if (kind === 'datetime') {
+        const cfg = datetimeConfig[src.name] || {};
+        const op = cfg.operation || 'timezone_convert';
+        const ruleConfig = { operation: op };
+        if (op === 'timezone_convert') {
+          ruleConfig.source_timezone = (cfg.source_timezone || 'UTC').trim();
+          ruleConfig.target_timezone = (cfg.target_timezone || 'Asia/Seoul').trim();
+        }
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'datetime', rule_config: ruleConfig, apply_order: baseOrder });
       }
     });
     return rules;
-  }, [selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, sourceToTarget, transformKind, mappingOnError, typeCastConfig, codeMapConfig, stringConfig, maskingConfig, targetColByName]);
+  }, [selectedTable, sourceColumns, newTableExcluded, newTableTargetNames, sourceToTarget, transformKind, mappingOnError, typeCastConfig, codeMapConfig, stringConfig, maskingConfig, datetimeConfig, targetColByName]);
 
   const getColumnMappingForPreview = useCallback(() => {
     if (selectedTable === NEW_TABLE_VALUE) {
@@ -686,6 +716,7 @@ function TargetTableSelectModal({
       stringConfig: { ...stringConfig },
       maskingConfig: { ...maskingConfig },
       codeMapConfig: { ...codeMapConfig },
+      datetimeConfig: { ...datetimeConfig },
       mappingOnError: { ...mappingOnError }
     };
     try {
@@ -846,6 +877,9 @@ function TargetTableSelectModal({
             setCodeMapEditorOpen={setCodeMapEditorOpen}
             codeMapPopoverSource={codeMapPopoverSource}
             setCodeMapPopoverSource={setCodeMapPopoverSource}
+            datetimeConfig={datetimeConfig}
+            setDateTimeConfig={setDateTimeConfig}
+            timezones={timezones}
             displaySourcesForExisting={displaySourcesForExisting}
             sourceToTarget={sourceToTarget}
             setMappingForSource={setMappingForSource}

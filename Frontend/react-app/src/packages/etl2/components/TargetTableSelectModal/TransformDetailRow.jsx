@@ -19,6 +19,7 @@ import {
   TYPE_CAST_TARGET_OPTIONS,
   STRING_OPERATION_OPTIONS,
   MASKING_OPERATION_OPTIONS,
+  DATETIME_OPERATION_OPTIONS,
   inferredTypeToPg
 } from './constants.js';
 import { CodeMapInlineEditor } from './CodeMapInlineEditor.jsx';
@@ -91,7 +92,10 @@ export function TransformDetailRow({
   codeMapEditorOpen,
   setCodeMapEditorOpen,
   codeMapPopoverSource,
-  setCodeMapPopoverSource
+  setCodeMapPopoverSource,
+  datetimeConfig,
+  setDateTimeConfig,
+  timezones = []
 }) {
   if (kind === 'none' || kind === 'cleansing') return null;
 
@@ -249,6 +253,58 @@ export function TransformDetailRow({
                 <>
                   <ParamInput label="가릴 자릿수" hint="숫자/문자열에서 가릴 개수" type="number" min={0} placeholder="4" value={maskingConfig[src.name]?.n ?? ''} onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), n: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
                   <ParamInput label="마스킹 문자" hint="대체할 문자 1개" type="text" maxLength={1} placeholder="*" value={maskingConfig[src.name]?.char ?? ''} onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), char: e.target.value } }))} className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                </>
+              )}
+            </div>
+          )}
+
+          {kind === 'datetime' && (
+            <div className="etl-detail__card">
+              {((datetimeConfig[src.name]?.operation) || 'timezone_convert') === 'timezone_convert' && (() => {
+                const srcTzId = datetimeConfig[src.name]?.source_timezone || 'UTC';
+                const tgtTzId = datetimeConfig[src.name]?.target_timezone || 'Asia/Seoul';
+                const srcLabel = timezones.find((z) => z.timezone_id === srcTzId)?.display_name || srcTzId;
+                const tgtLabel = timezones.find((z) => z.timezone_id === tgtTzId)?.display_name || tgtTzId;
+                return <p className="etl-target-select-modal__transform-detail-summary">시간대 변환 ({srcLabel} → {tgtLabel})</p>;
+              })()}
+              <div className="etl-target-select-modal__transform-detail-group">
+                <FieldLabel hint="날짜/시간에 적용할 연산">연산</FieldLabel>
+                <select
+                  value={datetimeConfig[src.name]?.operation || 'timezone_convert'}
+                  onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), operation: e.target.value } }))}
+                  className="etl-target-select-modal__select etl-target-select-modal__select--type-cast-target"
+                >
+                  {DATETIME_OPERATION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              {((datetimeConfig[src.name]?.operation) || 'timezone_convert') === 'timezone_convert' && (
+                <>
+                  <div className="etl-target-select-modal__transform-detail-group">
+                    <FieldLabel>원본 시간대 (소스 데이터 기준)</FieldLabel>
+                    <select
+                      value={datetimeConfig[src.name]?.source_timezone || 'UTC'}
+                      onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), source_timezone: e.target.value } }))}
+                      className="etl-target-select-modal__select etl-target-select-modal__select--type-cast-target"
+                    >
+                      {(timezones.length ? timezones : [{ timezone_id: 'UTC', display_name: 'UTC (협정 세계시)' }]).map((tz) => (
+                        <option key={tz.timezone_id} value={tz.timezone_id}>{tz.display_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="etl-target-select-modal__transform-detail-group">
+                    <FieldLabel>변환할 시간대</FieldLabel>
+                    <select
+                      value={datetimeConfig[src.name]?.target_timezone || 'Asia/Seoul'}
+                      onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), target_timezone: e.target.value } }))}
+                      className="etl-target-select-modal__select etl-target-select-modal__select--type-cast-target"
+                    >
+                      {(timezones.length ? timezones : [{ timezone_id: 'Asia/Seoul', display_name: '한국 표준시 (UTC+09:00)' }]).map((tz) => (
+                        <option key={tz.timezone_id} value={tz.timezone_id}>{tz.display_name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </>
               )}
             </div>

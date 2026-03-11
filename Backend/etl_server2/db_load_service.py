@@ -42,6 +42,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 from Backend.etl_server2 import service as etl_service
+from Backend.etl_server2 import timezone_utils
 from Backend.etl_server2 import transform_engine
 from Backend.etl_server2 import transform_rules_service as transform_rules_svc
 from Backend.etl_server2.etl_limits import get_etl_limits
@@ -896,9 +897,17 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
 
     try:
         c = etl_service.get_connection_for_etl(connection_id)
+        source_tz = (c.get("server_timezone") or "Asia/Seoul").strip()
         stype = (c.get("source_type") or "postgresql").strip().lower()
         if stype not in ("postgresql", "mysql", "oracle"):
             raise ValueError(f"DB 적재는 postgresql, mysql, oracle만 지원합니다. source_type={stype}")
+        _storage_conn_id = row.get("storage_connection_id")
+        if _storage_conn_id:
+            _sc = etl_service.get_storage_connection(_storage_conn_id)
+            target_tz = (_sc.get("server_timezone") or "Asia/Seoul").strip() if _sc else "Asia/Seoul"
+        else:
+            target_tz = "Asia/Seoul"
+        _tz_convert_needed = timezone_utils.needs_conversion(source_tz, target_tz)
 
         conn_schema_pg = (c.get("schema_name") or "public").strip()
         conn_db_mysql = (c.get("database_name") or "").strip()
@@ -993,20 +1002,28 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             last_synced = row.get("last_synced_at")
             if last_synced is not None:
                 where_clause = f" WHERE {_quote(incremental_column)} > {bind_placeholder}"
+                _synced_val = last_synced
+                if _tz_convert_needed and isinstance(last_synced, datetime):
+                    try:
+                        _synced_val = timezone_utils.convert_single_datetime(
+                            last_synced, from_tz=target_tz, to_tz=source_tz,
+                        )
+                    except Exception:
+                        _synced_val = last_synced
                 # Oracle DATE는 초 단위만 저장·비교. 바인드 시 마이크로초가 잘려 WHERE > 08:17:11 이 되어
                 # 같은 초(08:17:11.xxx)인 176건이 매번 다시 조회됨. last_synced+1초 기준으로 >= 사용해
                 # 해당 초 전체를 제외하고 다음 초(08:17:12)부터 포함.
                 if stype == "oracle":
-                    if isinstance(last_synced, datetime):
-                        bound_val = last_synced + timedelta(seconds=1)
-                    elif hasattr(last_synced, "to_pydatetime"):
-                        bound_val = last_synced.to_pydatetime() + timedelta(seconds=1)
+                    if isinstance(_synced_val, datetime):
+                        bound_val = _synced_val + timedelta(seconds=1)
+                    elif hasattr(_synced_val, "to_pydatetime"):
+                        bound_val = _synced_val.to_pydatetime() + timedelta(seconds=1)
                     else:
-                        bound_val = last_synced
+                        bound_val = _synced_val
                     where_clause = f" WHERE {_quote(incremental_column)} >= {bind_placeholder}"
                     params.append(bound_val)
                 else:
-                    params.append(last_synced)
+                    params.append(_synced_val)
         elif sync_mode == "incremental" and not incremental_column:
             logger.info(
                 "ETL db load etl_table_id=%s: 증분 모드이나 증분 컬럼 미지정 → 소스 전체 조회 후 업서트. "
@@ -1088,6 +1105,14 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     if max_rows_per_load > 0 and total_processed + len(batch) > max_rows_per_load:
                         batch = batch[: max_rows_per_load - total_processed]
                     df_batch = pd.DataFrame(batch, columns=col_names)
+                    if _tz_convert_needed:
+                        try:
+                            _col_meta = [{"column_name": cn, "data_type": dt} for cn, dt in columns]
+                            df_batch = timezone_utils.convert_timezone_columns(
+                                df_batch, _col_meta, source_tz, target_tz,
+                            )
+                        except Exception as tz_err:
+                            logger.warning("run_db_load tz convert failed (skip): %s", tz_err)
                     try:
                         df_batch = transform_engine.apply_rules(df_batch, rules)
                     except Exception:
@@ -1262,6 +1287,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     _cur_idx.close()
                     _conn_idx.close()
             if last_synced_candidate is not None:
+                # convert_timezone_columns가 이미 df를 타겟 TZ로 변환했으므로 추가 변환 불필요
                 etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
             if not row.get("storage_connection_id"):
                 from Env.config.loader import add_allowed_table
@@ -1301,6 +1327,14 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
 
         # Phase 4: 변환 룰 적용 + 매핑 기반 형변환
         df = pd.DataFrame(rows_data, columns=col_names)
+        if _tz_convert_needed:
+            try:
+                _col_meta = [{"column_name": cn, "data_type": dt} for cn, dt in columns]
+                df = timezone_utils.convert_timezone_columns(
+                    df, _col_meta, source_tz, target_tz,
+                )
+            except Exception as tz_err:
+                logger.warning("run_db_load tz convert failed (skip): %s", tz_err)
         try:
             rules = transform_rules_svc.list_transform_rules(etl_table_id)
             df = transform_engine.apply_rules(df, rules)
@@ -1372,6 +1406,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
                         if max_vals:
                             latest = max(max_vals) if isinstance(max_vals[0], datetime) else max(max_vals)
+                            # convert_timezone_columns가 이미 타겟 TZ로 변환했으므로 추가 변환 불필요
                             etl_service.update_last_synced_at(etl_table_id, latest)
                 else:
                     # incremental: Upsert. PK 필요.
@@ -1455,6 +1490,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                                 latest = max(max_vals)
                             else:
                                 latest = max(max_vals)
+                            # convert_timezone_columns가 이미 타겟 TZ로 변환했으므로 추가 변환 불필요
                             etl_service.update_last_synced_at(etl_table_id, latest)
                 idx_def = row.get("index_definitions")
                 if idx_def:

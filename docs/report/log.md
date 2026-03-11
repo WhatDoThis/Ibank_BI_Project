@@ -1,3 +1,53 @@
+## 2026-03-11 네비 UI 로고를 스타벅스 이미지로 적용
+
+**목적:** 네비게이션 상단 브랜드 영역의 "스타벅스 CRM" 텍스트를 업로드한 스타벅스 로고 이미지로 교체.
+
+**적용 항목:**
+- **Frontend/react-app/public/starbucks-logo.png**: 업로드한 스타벅스 로고 이미지를 public에 복사.
+- **Frontend/react-app/src/App.jsx**: `app-brand` 영역을 `<img>`로 변경, `src={ROUTER_BASENAME + '/starbucks-logo.png'}`, alt="스타벅스 CRM", height 28px, objectFit contain. 상단 주석에 로고 경로 명시.
+
+**변경·추가 파일:** Frontend/react-app/public/starbucks-logo.png (추가), Frontend/react-app/src/App.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-10 ETL2 타겟/소스 DB 연결에 서버 시간대(Timezone) 설정 및 적재 시 적용
+
+**목적:** ETL2에서 DB 연결 추가 시 해당 DB의 서버 지역 시간대를 설정할 수 있도록 하고, 데이터 적재 시 date/timestamp 컬럼에 시간대 변환을 적용.
+
+**Step 1 (참고·SQL은 사용자 적용 완료):** ibank_system_data에 `server_timezones` 테이블 및 마스터 데이터, `etl_connections`/`etl_storage_connections`에 `server_timezone` 컬럼 추가. 기본값 `Asia/Seoul`.
+
+**적용 항목 (Step 2~6):**
+- **Backend**
+  - **router.py**: GET `/api/etl2/timezones` 추가. CreateConnectionBody/CreateStorageConnectionBody/UpdateStorageConnectionBody에 `server_timezone` 필드 추가. create/update 호출 시 전달.
+  - **service.py**: `list_timezones()` 추가(server_timezones 조회). create_connection/list_connections/get_connection_for_etl, create_storage_connection/update_storage_connection/list_storage_connections/get_storage_connection에 server_timezone 컬럼 반영.
+  - **timezone_utils.py** (신규): needs_conversion, convert_timezone_columns, convert_single_datetime. pytz/zoneinfo fallback, date·timestamp 타입 컬럼만 변환.
+  - **batch_executor_db.py**: 소스/타겟 시간대 조회, _tz_convert_needed 시 DataFrame 시간대 변환, last_synced_at WHERE 절·last_synced_candidate 저장 시 시간대 변환.
+  - **db_load_service.py**: run_db_load에서 source_tz/target_tz 조회, 스트리밍/전체 fetch 경로에 시간대 변환, 증분 WHERE·update_last_synced_at 호출 시 변환 적용.
+- **Frontend**
+  - **client.js**: `etl2ListTimezones()` 추가 (GET /api/etl2/timezones).
+  - **StorageConnectionForm.jsx**: 서버 시간대 셀렉트박스 추가, 등록 시 server_timezone 전송, 목록에 시간대 표시.
+  - **DbConnectionForm.jsx** (etl2): 서버 시간대 셀렉트박스 추가, 등록 시 server_timezone 전송, 연결 목록에 시간대 표시.
+
+**변경·추가 파일:** Backend/etl_server2/router.py, service.py, timezone_utils.py (신규), batch_executor_db.py, db_load_service.py, Frontend/react-app/src/shared/api/client.js, packages/etl2/components/StorageConnectionForm.jsx, DbConnectionForm.jsx, docs/report/log.md.
+
+**참고:** 파일 기반 ETL·텍스트 날짜 컬럼 자동 변환·test_connection에 시간대 로직은 미적용. date/timestamp 타입 컬럼만 소스 TZ → 타겟 TZ 변환.
+
+---
+
+## 2026-03-10 백엔드 코드 파일 상단 설명 주석 정리
+
+**목적:** 백엔드 모듈 상단 docstring의 함수·엔드포인트 라인 번호 및 누락 항목을 실제 코드에 맞게 갱신.
+
+**적용 항목:**
+- **report.py**: [Helpers]/[Endpoints] 라인 번호 현행화, get_column_labels/save_column_labels(column-labels) 추가, api_join_order 경로 표기 수정(api-join-order → join-order).
+- **schemas.py**: [Pydantic Models] 라인 번호 현행화, ColumnLabelsRequest 추가, JoinOrderRequest 경로 표기 수정.
+- **analysis_store.py**: get_latest_analysis_result 설명에 "allowlist_analysis 테이블 없거나 예외 시 None 반환(500 방지)" 반영.
+- **health.py, dashboard.py, dashboard2.py, dependencies.py**: [Functions] 라인 번호를 현재 정의 위치에 맞게 수정.
+
+**변경 파일:** Backend/api_server/routers/report.py, schemas.py, analysis_store.py, routers/health.py, routers/dashboard.py, routers/dashboard2.py, dependencies.py, docs/report/log.md.
+
+---
+
 ## 2026-03-10 리포트 페이지 describe-table / table-relationships 500 오류 수정
 
 **목적:** 리포트 페이지에서 테이블 로드 시 `/report_api/api/describe-table`, `/report_api/api/table-relationships?mode=all` 호출이 500 Internal Server Error로 실패하던 현상 해결.
