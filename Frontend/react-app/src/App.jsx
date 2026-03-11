@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * - AppLayout: 네비(리포트/대시보드/대시보드2 링크) + Outlet
+ * - AppLayout: 네비(앱 브랜드 로고 public/starbucks-logo.png, 리포트/대시보드/대시보드2 링크) + Outlet
  * - Routes: / → /report 리다이렉트, /report, /dashboard, /dashboard2, /new-dashboard, /widgetboard, /etl, /etl2, 그 외 → /report
  *
  * [Endpoints/Classes/Functions]
@@ -35,7 +35,7 @@ function AppLayout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <nav className="app-nav" style={{ flexShrink: 0, padding: '14px 16px', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span className="app-brand" style={{ fontWeight: 600 }}>스타벅스 CRM</span>
+        <img src={`${ROUTER_BASENAME}/starbucks-logo.png`} alt="스타벅스 CRM" className="app-brand" style={{ height: 14, objectFit: 'contain', display: 'block' }} />
         <NavLink
           to="/report"
           className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}

@@ -5,8 +5,8 @@ allowlist_analysis 테이블에 분석 결과 저장/조회. report 라우터 �
 
 [Functions]
 ===========
-15 - save_analysis_result: allowed_tables, table_columns, relationships를 JSONB로 저장
-40 - get_latest_analysis_result: 가장 최근 분석 결과 1건 조회 (dict 또는 None)
+23 - save_analysis_result: allowed_tables, table_columns, relationships를 JSONB로 저장
+52 - get_latest_analysis_result: 가장 최근 분석 결과 1건 조회 (dict 또는 None). allowlist_analysis 테이블 없거나 예외 시 None 반환(500 방지)
 
 [Dependencies]
 =========

@@ -5,8 +5,8 @@ DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)�
 
 [Functions]
 ===========
-36 - get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
-45 - get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
+32 - get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
+41 - get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
 
 [Dependencies]
 =========

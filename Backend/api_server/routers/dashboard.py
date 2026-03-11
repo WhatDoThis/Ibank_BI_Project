@@ -5,12 +5,12 @@ FastAPI 라우터. prefix /api/dashboard. 대시보드1용 집계·필터 옵션
 
 [Functions]
 ===========
-35 - _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
-45 - dashboard_data: POST /api/dashboard/data (집계·KPI)
-69 - dashboard_filter_options: GET /api/dashboard/filter-options/{table_id}
-93 - dashboard_tables: GET /api/dashboard/tables
-103 - dashboard_required_columns: GET /api/dashboard/required-columns
-112 - dashboard_chart_data: POST /api/dashboard/chart-data (차트용 집계)
+32 - _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
+42 - dashboard_data: POST /api/dashboard/data (집계·KPI)
+66 - dashboard_filter_options: GET /api/dashboard/filter-options/{table_id}
+90 - dashboard_tables: GET /api/dashboard/tables
+100 - dashboard_required_columns: GET /api/dashboard/required-columns
+109 - dashboard_chart_data: POST /api/dashboard/chart-data (차트용 집계)
 
 [Dependencies]
 =========

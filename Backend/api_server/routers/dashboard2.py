@@ -5,12 +5,12 @@ FastAPI 라우터. prefix /api/dashboard2. 대시보드2(성과리포트) 전용
 
 [Functions]
 ===========
-36 - _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
-46 - dashboard2_data: POST /api/dashboard2/data (집계·KPI)
-70 - dashboard2_filter_options: GET /api/dashboard2/filter-options/{table_id}
-94 - dashboard2_tables: GET /api/dashboard2/tables
-104 - dashboard2_required_columns: GET /api/dashboard2/required-columns
-113 - dashboard2_chart_data: POST /api/dashboard2/chart-data (차트용 집계)
+32 - _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
+42 - dashboard2_data: POST /api/dashboard2/data (집계·KPI)
+66 - dashboard2_filter_options: GET /api/dashboard2/filter-options/{table_id}
+90 - dashboard2_tables: GET /api/dashboard2/tables
+100 - dashboard2_required_columns: GET /api/dashboard2/required-columns
+109 - dashboard2_chart_data: POST /api/dashboard2/chart-data (차트용 집계)
 
 [Dependencies]
 =========

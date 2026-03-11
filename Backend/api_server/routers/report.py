@@ -5,25 +5,27 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Helpers]
 ===========
-62 - _log: 디버그 로그 출력·파일 기록
-72 - _contains_dangerous_sql: 금지 SQL 키워드 검사
-112 - _fetch_relationships: FK/추론 관계 조회
-214 - _get_or_compute_relationships_all: 관계 캐시·추론
-384 - _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성
-409 - _save_table_worker: 쿼리 결과 저장 워커 (백그라운드)
+195 - _log: 디버그 로그 출력·파일 기록
+206 - _contains_dangerous_sql: 금지 SQL 키워드 검사
+246 - _fetch_relationships: FK/추론 관계 조회
+348 - _get_or_compute_relationships_all: 관계 캐시·추론
+578 - _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성
+603 - _save_table_worker: 쿼리 결과 저장 워커 (백그라운드)
 
 [Endpoints]
 ===========
-233 - list_tables: GET /api/list-tables (allowed_tables)
-266 - describe_table: POST /api/describe-table (테이블 구조)
-305 - table_relationships: GET /api/table-relationships (mode=fk|all)
-320 - api_join_order: POST /api/api-join-order (JOIN 순서)
-544 - save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
-605 - save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
-639 - execute_query: POST /api/execute-query (SELECT 실행)
-698 - explain_sql: POST /api/explain-sql (Claude 해석)
-754 - get_column_values: POST /api/get-column-values (컬럼 고유값)
-780 - query_stats: POST /api/query-stats (쿼리 통계)
+366 - list_tables: GET /api/list-tables (allowed_tables)
+409 - describe_table: POST /api/describe-table (테이블 구조)
+450 - get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
+463 - save_column_labels: POST /api/column-labels (라벨 저장)
+495 - table_relationships: GET /api/table-relationships (mode=fk|all)
+510 - api_join_order: POST /api/join-order (JOIN 순서)
+754 - save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
+815 - save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
+849 - execute_query: POST /api/execute-query (SELECT 실행)
+908 - explain_sql: POST /api/explain-sql (Claude 해석)
+964 - get_column_values: POST /api/get-column-values (컬럼 고유값)
+990 - query_stats: POST /api/query-stats (쿼리 통계)
 
 [Dependencies]
 =========
@@ -67,9 +69,11 @@ from Backend.api_server.schemas import (
     SaveQueryAsTableRequest,
 )
 
-_DEBUG_LOG_DIR = Path(__file__).resolve().parent.parent.parent / "Env" / "logs"
+# 프로젝트 루트: Backend/api_server/routers/report.py → 4단계 상위
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_DEBUG_LOG_DIR = _PROJECT_ROOT / "Env" / "logs"
 _DEBUG_LOG_PATH = _DEBUG_LOG_DIR / "execute_query_debug.log"
-_COLUMN_LABELS_PATH = Path(__file__).resolve().parent.parent.parent / "Env" / "config" / "column_labels.json"
+_COLUMN_LABELS_PATH = _PROJECT_ROOT / "Env" / "config" / "column_labels.json"
 
 # 기본 테이블 라벨 (사용자 저장값 없을 때 사용)
 DEFAULT_TABLE_LABELS = {
