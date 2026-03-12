@@ -1,3 +1,15 @@
+## 2026-03-12 ETL2 배치 즉시실행·재활성 버튼 동작 보강
+
+**목적:** 즉시실행 버튼 클릭 시 실제로 배치가 스케줄/실행되도록, 2026-03-10 적용분 보완.
+
+**원인·조치:**
+- **scheduler_file.run_now**: 1회용 잡에 `DateTrigger(run_date=datetime.now())` 사용 시, 스케줄러 처리 시점에 이미 "과거"로 간주되어 실행이 누락될 수 있음. `run_date=datetime.now()+2초`로 변경하여 확실히 미래 시점으로 스케줄.
+- **프론트**: 백엔드에서 제거된 `skipped_recent_run` 분기 제거(BatchJobListFile, BatchScheduleModal). 동작 변경 없음, 코드 정리.
+
+**변경 파일:** Backend/etl_server2/scheduler_file.py, Frontend/.../BatchJobListFile.jsx, BatchScheduleModal.jsx, docs/report/log.md.
+
+---
+
 ## 2026-03-11 네비 UI 로고를 스타벅스 이미지로 적용
 
 **목적:** 네비게이션 상단 브랜드 영역의 "스타벅스 CRM" 텍스트를 업로드한 스타벅스 로고 이미지로 교체.

@@ -211,9 +211,10 @@ def run_now(batch_job_id: int) -> dict:
         logger.debug("run_now: batch_%s interval reset skipped: %s", batch_job_id, e)
 
     one_shot_id = f"batch_{batch_job_id}_run_now_{uuid.uuid4().hex[:8]}"
+    run_at = datetime.now() + timedelta(seconds=2)
     sched.add_job(
         run_func,
-        trigger=DateTrigger(run_date=datetime.now()),
+        trigger=DateTrigger(run_date=run_at),
         id=one_shot_id,
         args=[batch_job_id],
         replace_existing=True,
