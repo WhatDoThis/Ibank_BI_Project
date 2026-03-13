@@ -6,11 +6,8 @@
  *
  * [Main Functions]
  * ===========
- * - Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. onColumnDragStart 데이터 전달
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - Sidebar (default export)
+ * 1. getTableFolder: 테이블명 → 폴더(I1/쿼리빌더/기타)
+ * 2. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. onColumnDragStart 데이터 전달
  *
  * [Dependencies]
  * =========
@@ -26,6 +23,7 @@ const FOLDER_OTHER = '기타'
 const PREFIX_I1 = 'I1_'
 const PREFIX_TEST_REPORT = 'test_report_'
 
+// 1.
 function getTableFolder(tableName) {
   if (!tableName) return FOLDER_OTHER
   const lower = tableName.toLowerCase()
@@ -36,25 +34,30 @@ function getTableFolder(tableName) {
 
 const FOLDER_ORDER = [FOLDER_I1, FOLDER_QUERY_BUILDER, FOLDER_OTHER]
 
+// 2.
 export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {}, onOpenColumnLabelsModal, onRefreshTables, onRefreshDbStatus }) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [folderExpanded, setFolderExpanded] = useState({ [FOLDER_I1]: true, [FOLDER_QUERY_BUILDER]: true, [FOLDER_OTHER]: true })
   const [searchKeyword, setSearchKeyword] = useState('')
 
+  // 3.
   function toggleTable(tableName) {
     setTableExpanded((prev) => ({ ...prev, [tableName]: !prev[tableName] }))
   }
 
+  // 4.
   function toggleFolder(folderName) {
     setFolderExpanded((prev) => ({ ...prev, [folderName]: !prev[folderName] }))
   }
 
+  // 5.
   function onColumnDragStart(e, tableName, column) {
     e.dataTransfer.setData('application/json', JSON.stringify({ table: tableName, column: column.name, type: column.type, label: column.label }))
     e.dataTransfer.effectAllowed = 'copy'
     e.target.classList.add('dragging')
   }
 
+  // 6.
   function onColumnDragEnd(e) {
     e.target.classList.remove('dragging')
   }
@@ -78,6 +81,7 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
     return map
   }, [filteredTables])
 
+  // 7.
   function renderTableGroup(t) {
     const expanded = !!tableExpanded[t.table_name]
     const cols = t.columns || []

@@ -3,12 +3,12 @@ Backend.api_server.join_metrics (JOIN 점수·파생 컬럼)
 ====================================================
 JOIN 경우의 수·정확도 점수, 파생 테이블(조인 결과) 컬럼 목록. report 라우터에서 사용.
 
-[Functions]
+[Main Functions]
 ===========
-15 - confidence_to_score: 단일 관계의 신뢰도 점수 (HIGH/MEDIUM/LOW, fk)
-27 - join_accuracy_score: join_order 내 엣지별 confidence 평균 (FK=1.0, 추론=0.7/0.5)
-69 - join_case_count: base 후보 수 / 유효 join_order 수
-91 - derived_table_columns: join_order + 테이블별 컬럼 → 파생 테이블 전체 컬럼 (table, alias, column, type)
+1. confidence_to_score: 단일 관계의 신뢰도 점수 (HIGH/MEDIUM/LOW, fk)
+2. join_accuracy_score: join_order 내 엣지별 confidence 평균 (FK=1.0, 추론=0.7/0.5)
+3. join_case_count: base 후보 수 / 유효 join_order 수
+4. derived_table_columns: join_order + 테이블별 컬럼 → 파생 테이블 전체 컬럼 (table, alias, column, type)
 
 [Dependencies]
 =========
@@ -19,6 +19,7 @@ JOIN 경우의 수·정확도 점수, 파생 테이블(조인 결과) 컬럼 목
 CONFIDENCE_SCORE = {"HIGH": 1.0, "MEDIUM": 0.7, "LOW": 0.5}
 
 
+# 1.
 def confidence_to_score(rel):
     """단일 관계의 신뢰도 점수. rel에 confidence 또는 source 있음."""
     if not rel:
@@ -31,6 +32,7 @@ def confidence_to_score(rel):
     return 0.5
 
 
+# 2.
 def join_accuracy_score(join_order, fk_list):
     """
     join_order에 포함된 각 엣지가 fk_list에 있으면 해당 confidence, 없으면 0.5.
@@ -73,6 +75,7 @@ def join_accuracy_score(join_order, fk_list):
     return round(sum(scores) / len(scores), 4)
 
 
+# 3.
 def join_case_count(allowed_tables, join_order_result_by_base):
     """
     경우의 수: base 후보 수 중 valid한 join_order를 가진 개수.
@@ -95,6 +98,7 @@ def join_case_count(allowed_tables, join_order_result_by_base):
     }
 
 
+# 4.
 def derived_table_columns(join_order, table_columns):
     """
     join_order와 테이블별 컬럼 정보로 파생 테이블(조인 결과) 컬럼 목록 생성.

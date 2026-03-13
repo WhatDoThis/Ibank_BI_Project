@@ -5,12 +5,13 @@
  *
  * [Main Functions]
  * ===========
- * - loadData: 기준 1회·비교 1회 getDashboard2Data. compareRange(주/월/일/연 비교 또는 전 주/전 월/전 일/전 연). formatRangeLabel(기준/비교)
- * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2ChartData. TargetContextSection·KPICards2(compareKpi)·EChartsChart(metricKey)
+ * 1. loadData: 기준 1회·비교 1회 getDashboard2Data. compareRange, formatRangeLabel
+ * 2. getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2ChartData
+ * 3. TargetContextSection, KPICards2(compareKpi), EChartsChart(metricKey), AggregatedBarChart2, AggregatedDataTable2
  *
- * [Endpoints/Classes/Functions]
- * =======================
- * - Dashboard2Page: Dashboard2Header, CollapsibleSection2, TargetContextSection, KPICards2, ChannelDonutCharts2, AggregatedBarChart2, AggregatedDataTable2, EChartsChart, PeriodLabel
+ * [Components]
+ * ===========
+ * 1. Dashboard2Page: Dashboard2Header, CollapsibleSection2, TargetContextSection, KPICards2, ChannelDonutCharts2, AggregatedBarChart2, AggregatedDataTable2, EChartsChart, PeriodLabel
  *
  * [Dependencies]
  * =========
@@ -34,6 +35,7 @@ import PeriodLabel from '@/shared/components/PeriodLabel'
 
 const TARGETS_STORAGE_KEY = 'dashboard2_targets'
 
+// 1.
 function loadTargetsFromStorage() {
   try {
     const raw = localStorage.getItem(TARGETS_STORAGE_KEY)
@@ -45,6 +47,7 @@ function loadTargetsFromStorage() {
   }
 }
 
+// 2.
 function saveTargetsToStorage(targets) {
   try {
     localStorage.setItem(TARGETS_STORAGE_KEY, JSON.stringify(targets))
@@ -53,6 +56,7 @@ function saveTargetsToStorage(targets) {
   }
 }
 
+// 3.
 /** 동일 기간+지표면 덮어쓰기, 아니면 추가 */
 function mergeTarget(list, one) {
   const key = (t) => `${t.periodType}|${t.metric}|${t.year}|${t.month ?? ''}|${t.rangeStart ?? ''}|${t.rangeEnd ?? ''}`
@@ -64,6 +68,7 @@ function mergeTarget(list, one) {
   return next
 }
 
+// 4.
 /** Phase 4: 목표가 현재 필터 기간과 일치하는지 */
 function targetMatchesPeriod(target, dateRange) {
   if (!dateRange?.length || dateRange.length < 2) return false
@@ -102,6 +107,7 @@ const METRIC_HIGHER_IS_BETTER = {
   click_rate: true
 }
 
+// 5.
 /** Phase 4: targets + dateRange + kpi → 지표별 목표 대비 status (달성/주의/미달) */
 function getTargetStatusByKey(targets, dateRange, kpi) {
   if (!targets?.length || !dateRange?.length || !kpi) return {}
@@ -136,6 +142,7 @@ const DIMENSION_FIELDS = [
   { key: 'channel_name', label: '채널' }
 ]
 
+// 6.
 function getAvailableDimensions(groupBy) {
   const order = [
     { g: 'date', key: 'delivery_date', label: '일자' },
@@ -166,6 +173,7 @@ const CHART_TYPES = [
 
 const defaultGroupBy = { campaign: false, date: true, workflow: false, channel: false }
 
+// 7.
 function sortAggregatedData(rows, sortOrder) {
   if (!rows?.length || !sortOrder?.length) return rows || []
   return [...rows].sort((a, b) => {
@@ -184,6 +192,7 @@ function sortAggregatedData(rows, sortOrder) {
   })
 }
 
+// 8.
 function getDefaultDateRange() {
   const now = new Date()
   const y = now.getFullYear()
@@ -192,6 +201,7 @@ function getDefaultDateRange() {
   return [`${y}-${m}-${d}`, `${y}-${m}-${d}`]
 }
 
+// 9.
 /** 집계 키에서 일자 제외 (캠페인/워크플로우/채널만). 비교 시 기간별 합산 후 매칭용 */
 function keyOfNoDate(r, groupBy) {
   const parts = []
@@ -201,6 +211,7 @@ function keyOfNoDate(r, groupBy) {
   return parts.join('\0')
 }
 
+// 10.
 /** 동일 키(일자 제외)로 행들을 합산한 맵 반환. value: { total_count, success_count, open_count, click_count, labelRow } */
 function aggregateByKeyNoDate(rows, groupBy) {
   const map = new Map()
@@ -225,6 +236,7 @@ function aggregateByKeyNoDate(rows, groupBy) {
   return { map, getLabel }
 }
 
+// 11.
 /** 비교 모드 시 B안: 디멘션별 기준/비교 나란히. 일자만이면 1일차~N일차, 캠페인/워크플로우/채널+일자면 일자 제외하고 기간별 합산 후 매칭 */
 function buildMergedCompareData(baseRows, compareRows, groupBy) {
   if (!baseRows?.length && !compareRows?.length) return []
@@ -383,6 +395,7 @@ function buildMergedCompareData(baseRows, compareRows, groupBy) {
   return rows
 }
 
+// 12.
 /** 차트 X축용: 복수 차원일 때 가장 분류가 많은 하나만 사용. base+compare 합쳐서 해당 차원 distinct 개수로 선택. 기간 비교 시 의미 유지를 위해 일자(date)는 후보에서 제외(캠페인/워크플로우/채널만) */
 function getPrimaryDimensionForChart(baseRows, compareRows, groupBy) {
   const combined = [...(baseRows || []), ...(compareRows || [])]
@@ -403,6 +416,7 @@ function getPrimaryDimensionForChart(baseRows, compareRows, groupBy) {
   return best
 }
 
+// 13.
 /** 단일 차원으로 합산 후 머지 (차트용 — X축 레이블 겹침 방지). primaryDim = getPrimaryDimensionForChart 반환값 */
 function buildMergedCompareDataSingleDimension(baseRows, compareRows, groupBy, primaryDim) {
   if (!primaryDim || !baseRows?.length && !compareRows?.length) return []
@@ -463,6 +477,7 @@ function buildMergedCompareDataSingleDimension(baseRows, compareRows, groupBy, p
   return rows
 }
 
+// 14.
 /** 비교 모드 시 A안: 기간 2행 요약(기준 합산, 비교 합산) */
 function buildSummaryCompareData(baseRows, compareRows) {
   const sum = (rows, key) => (rows || []).reduce((s, r) => s + (Number(r[key]) || 0), 0)
@@ -500,6 +515,7 @@ function buildSummaryCompareData(baseRows, compareRows) {
   ]
 }
 
+// 15.
 export default function Dashboard2Page() {
   const [tables, setTables] = useState([])
   const [tableId, setTableId] = useState('')

@@ -3,17 +3,13 @@
  * ============================================================
  * 테이블·보기 모드(일반/주간/월간)·기준 주·비교 주·기준 월·비교 월·집계·정렬·캠페인/워크플로우/채널 필터.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - view_mode, compare_base_week/day/month/year, compare_week/day/month/year. getWeekRange, getMonthRange, getYearRange, getPreviousDay로 date_range 계산. getDashboard2RequiredColumns 모달
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - Dashboard2Header (default export)
+ * 1. Dashboard2Header (default export): view_mode, compare_base_week/day/month/year, getWeekRange/getMonthRange/getYearRange/getPreviousDay, getDashboard2RequiredColumns 모달
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange), dashboard2/utils/periodCompare (getWeekRange, getMonthRange, getYearRange, getPreviousDay)
+ * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange), dashboard2/utils/periodCompare
  */
 
 import { useState, useEffect } from 'react'
@@ -29,6 +25,7 @@ const SORT_OPTIONS = [
   { key: 'click_count', label: '클릭수' }
 ]
 
+// 1.
 export default function Dashboard2Header({
   tables = [],
   tableId,

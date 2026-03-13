@@ -3,16 +3,16 @@ Backend.api_server.routers (FastAPI 라우터 패키지)
 ==================================================
 health·report·dashboard·dashboard2 라우터를 재export. main에서 include_router로 등록.
 
-[Main Functions]
+[Main]
 ===========
-- health_router, report_router, dashboard_router, dashboard2_router: 각 APIRouter 인스턴스
+1. health_router, report_router, dashboard_router, dashboard2_router: 각 APIRouter 인스턴스
 
-[Endpoints/Classes/Functions]
+[Endpoints]
 =======================
-- health: /health, /, /api, /api/
-- report: /api/* (list-tables, execute-query 등)
-- dashboard: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
-- dashboard2: /api/dashboard2/* (동일 엔드포인트)
+1. health: /health, /, /api, /api/
+2. report: /api/* (list-tables, execute-query 등)
+3. dashboard: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
+4. dashboard2: /api/dashboard2/* (동일 엔드포인트)
 
 [Dependencies]
 =========

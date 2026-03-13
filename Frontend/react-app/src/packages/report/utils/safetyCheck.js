@@ -5,29 +5,18 @@
  *
  * [Main Functions]
  * ===========
- * - getReachableTables: baseTable에서 tables 내 도달 가능한 테이블 집합 (relationshipOptions 기반)
- * - detectCircularReference: proposedPath 순환 참조 감지 (circular, duplicate, path, circularPart)
- * - detectManyToMany: 두 테이블 간 N:N 여부
- * - validateJoinPath: 추가 후 경로 유효성
- * - canAddTableSafely: 순환·N:N 검사 후 추가 허용 여부
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - getReachableTables, detectCircularReference, detectManyToMany, validateJoinPath, canAddTableSafely (export)
+ * 1. getReachableTables: baseTable에서 tables 내 도달 가능한 테이블 집합 (relationshipOptions 기반)
+ * 2. detectCircularReference: proposedPath 순환 참조 감지 (circular, duplicate, path, circularPart)
+ * 3. detectManyToMany: 두 테이블 간 N:N 여부
+ * 4. validateJoinPath: 추가 후 경로 유효성
+ * 5. canAddTableSafely: 순환·N:N 검사 후 추가 허용 여부
  *
  * [Dependencies]
  * =========
  * - 없음
  */
 
-/**
- * baseTable에서 출발해 tables 내 테이블만으로 도달 가능한 테이블 집합 반환.
- * relationshipOptions 키 "A||B" 로 A-B 연결 여부 판단.
- * @param {string} baseTable
- * @param {string[]} tables
- * @param {Object} relationshipOptions
- * @returns {string[]} 도달 가능한 테이블 목록 (순서 유지)
- */
+// 1. baseTable에서 출발해 tables 내 테이블만으로 도달 가능한 테이블 집합 반환. relationshipOptions 키 "A||B" 로 A-B 연결 여부 판단.
 export function getReachableTables(baseTable, tables, relationshipOptions) {
   const set = new Set(tables)
   if (!set.has(baseTable) || set.size <= 1) return tables
@@ -56,12 +45,7 @@ export function getReachableTables(baseTable, tables, relationshipOptions) {
   return tables.filter((t) => reachable.has(t))
 }
 
-/**
- * 순환 참조 감지
- *
- * @param {string[]} proposedPath - 제안된 테이블 경로
- * @returns {{ circular: boolean, duplicate?: string, path?: string[], circularPart?: string[] }}
- */
+// 2. 순환 참조 감지. proposedPath → { circular, duplicate?, path?, circularPart? }
 export function detectCircularReference(proposedPath) {
   const seen = new Set()
   const duplicates = []
@@ -93,14 +77,7 @@ export function detectCircularReference(proposedPath) {
   return { circular: false }
 }
 
-/**
- * N:N 관계 감지
- *
- * @param {string} table1
- * @param {string} table2
- * @param {Object} relationshipOptions
- * @returns {{ isManyToMany: boolean, reason?: string, suggestion?: string }}
- */
+// 3. N:N 관계 감지. table1, table2, relationshipOptions → { isManyToMany, reason?, suggestion? }
 export function detectManyToMany(table1, table2, relationshipOptions) {
   const key1 = `${table1}||${table2}`
   const key2 = `${table2}||${table1}`
@@ -134,15 +111,7 @@ export function detectManyToMany(table1, table2, relationshipOptions) {
   return { isManyToMany: false }
 }
 
-/**
- * 안전한 테이블 추가 검증
- *
- * @param {string[]} addedTables - 현재 추가된 테이블
- * @param {string} newTable - 추가하려는 테이블
- * @param {string|null} intermediateParent - 중간 부모 테이블
- * @param {Object} relationshipOptions
- * @returns {{ ok: boolean, reason?: string, detail?: string, suggestion?: string, severity?: string }}
- */
+// 4. 안전한 테이블 추가 검증. addedTables, newTable, intermediateParent, relationshipOptions → { ok, reason?, detail?, suggestion?, severity? }
 export function canAddTableSafely(
   addedTables,
   newTable,
@@ -211,14 +180,7 @@ export function canAddTableSafely(
   return { ok: true }
 }
 
-/**
- * 전체 경로 검증
- *
- * @param {string[]} addedTables
- * @param {Object} relationshipOptions
- * @param {{ join_order?: Array<{ from_table: string, table: string }> }} opts - join_order 있으면 해당 쌍만 검사 (A→B, A→C 브랜치)
- * @returns {{ valid: boolean, issues: Array }}
- */
+// 5. 전체 경로 검증. addedTables, relationshipOptions, opts(join_order) → { valid, issues }
 export function validateJoinPath(addedTables, relationshipOptions, opts = {}) {
   const issues = []
   const joinOrder = opts.join_order || opts.joinOrder

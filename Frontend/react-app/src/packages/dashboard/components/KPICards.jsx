@@ -5,11 +5,11 @@
  *
  * [Main Functions]
  * ===========
- * - KPICards: kpi, targetStatusByKey, storageKey. ALL_KPI_KEYS 순서·CARD_CONFIG. rate 00.00% 포맷·목표 대비 신호등(달성/주의/미달)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - KPICards (default export)
+ * 1. loadVisibleKeys: localStorage에서 표시할 지표 키 목록 로드
+ * 2. saveVisibleKeys: 표시 지표 키 목록 저장
+ * 3. formatNum, formatRateDisplay, formatRatioPct: 숫자·비율 포맷
+ * 4. getComparePct: 비교 KPI 전비(%) 또는 증감
+ * 5. KPICards: kpi, targetStatusByKey, storageKey. CARD_CONFIG·목표 대비 신호등(달성/주의/미달)
  *
  * [Dependencies]
  * =========
@@ -25,6 +25,7 @@ const ALL_KPI_KEYS = [
   'total_open', 'total_click', 'open_rate', 'click_rate'
 ]
 
+// 1.
 function loadVisibleKeys(storageKey) {
   try {
     const raw = localStorage.getItem(storageKey)
@@ -38,6 +39,7 @@ function loadVisibleKeys(storageKey) {
   }
 }
 
+// 2.
 function saveVisibleKeys(storageKey, keys) {
   try {
     localStorage.setItem(storageKey, JSON.stringify(keys))
@@ -46,11 +48,13 @@ function saveVisibleKeys(storageKey, keys) {
   }
 }
 
+// 3.
 function formatNum(n) {
   if (n == null) return '0'
   return new Intl.NumberFormat('ko-KR').format(n)
 }
 
+// 3.
 /** rate 지표(성공률·실패률·오픈률·클릭률): 소수점 둘째 자리 반올림, 정수여도 00.00% 형식 */
 function formatRateDisplay(n) {
   if (n == null || Number.isNaN(Number(n))) return '0.00'
@@ -58,6 +62,8 @@ function formatRateDisplay(n) {
   return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)
 }
 
+// 4.
+// 4.
 /** 신호등 달성률: 소수점 첫째 자리까지 반올림 */
 function formatRatioPct(n) {
   if (n == null || Number.isNaN(Number(n))) return '0.0'
@@ -72,6 +78,7 @@ const STATUS_STYLE = {
   fail: { border: '#dc2626', bg: '#fee2e2', label: '미달' }
 }
 
+// 5.
 /** 비교 KPI가 있을 때 전비(%) 또는 증감 표시. rate 지표는 전비(%) = (현재-비교)/비교*100, 건수는 (현재/비교)*100-100 */
 function getComparePct(current, previous, valueKey) {
   const c = Number(current)
@@ -98,6 +105,7 @@ const CARD_CONFIG = [
   { label: '클릭률', valueKey: 'click_rate', unit: '%', icon: '🎯', bg: '#fffbeb', color: '#d97706' }
 ]
 
+// 6.
 export default function KPICards({ kpi, compareKpi, targetStatusByKey = {}, storageKey = 'dashboard_kpi_visible', children }) {
   const [visibleKeys, setVisibleKeys] = useState(() => loadVisibleKeys(storageKey))
   const [selectorOpen, setSelectorOpen] = useState(false)

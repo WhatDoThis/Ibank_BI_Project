@@ -1,12 +1,12 @@
 """
-Backend.etl_server (ETL 전용 백엔드 패키지)
-===========================================
-ETL 메타·파일 업로드·DB 연동·Job 큐 등 ETL API 제공. prefix /api/etl.
-시스템 DB(ibank_system_data)의 etl_* 테이블 사용.
+Backend.etl_server (ETL 백엔드 패키지)
+========================================
+ETL 페이지 전용 API. prefix /api/etl. 저장 DB·컬럼 매핑·폴더/DB 배치·변환 룰·Job 큐.
+router(메인) + router_file(배치) 포함 → /api/etl, /api/etl/batch.
 
 [Exports]
 ===========
-17 - router: FastAPI APIRouter. main에서 include_router로 등록.
+1. router: FastAPI APIRouter (api_server.main에서 include_router). router_file은 router 내부에서 include.
 
 [Dependencies]
 =========

@@ -5,11 +5,11 @@
  *
  * [Main Functions]
  * ===========
- * - AggregatedBarChart: data, groupBy. buildXLabel로 X축 라벨(일자+캠페인+워크플로우+채널 순). total_count·success_count 막대
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - AggregatedBarChart (default export)
+ * 1. getCompositeXLabel: groupBy 기준 X축 라벨(일자+캠페인+워크플로우+채널 순)
+ * 2. getPrimaryDimensionForChart: 복수 차원일 때 X축용 단일 차원 선택
+ * 3. aggregateByPrimaryDimension: 단일 차원으로 행 합산
+ * 4. BarChartBlock, MergedBarChart, SummaryBarChart: 차트 블록/병합/요약
+ * 5. AggregatedBarChart: data, compareData, groupBy, compareView
  *
  * [Dependencies]
  * =========
@@ -30,6 +30,7 @@ import {
 
 const formatNum = (n) => (n != null ? new Intl.NumberFormat('ko-KR').format(n) : '0')
 
+// 1.
 /** groupBy에 적용된 컬럼만 조합해 중복 없는 X축 라벨 생성 (일자+캠페인+워크플로우+채널 순) */
 function getCompositeXLabel(row, groupBy) {
   const parts = []
@@ -53,6 +54,7 @@ function getCompositeXLabel(row, groupBy) {
   return parts.join(' / ')
 }
 
+// 2.
 /** 복수 차원일 때 X축용 단일 차원 선택 (가장 분류가 많은 하나). 기간 비교 시 의미 유지를 위해 일자(date)는 후보에서 제외 */
 function getPrimaryDimensionForChart(data, groupBy) {
   const dims = []
@@ -72,6 +74,7 @@ function getPrimaryDimensionForChart(data, groupBy) {
   return best
 }
 
+// 3.
 /** 단일 차원으로 행 합산 (차트용). primaryDim = getPrimaryDimensionForChart 반환값 */
 function aggregateByPrimaryDimension(rows, primaryDim) {
   if (!primaryDim || !rows?.length) return rows
@@ -136,6 +139,7 @@ function XAxisTickMultiline({ x, y, payload }) {
   )
 }
 
+// 4.
 function BarChartBlock({ data, groupBy, periodLabel }) {
   if (!data.length) return null
   const dimCount = ['date', 'campaign', 'workflow', 'channel'].filter((k) => groupBy[k]).length
@@ -202,6 +206,7 @@ function BarChartBlock({ data, groupBy, periodLabel }) {
   )
 }
 
+// 5.
 /** B안: 디멘션별 기준/비교 한 차트. chartData = [{ name, 기준_발송요청, 비교_발송요청, 기준_발송성공, 비교_발송성공 }, ...] */
 function MergedBarChart({ chartData }) {
   if (!chartData?.length) return null
@@ -225,6 +230,7 @@ function MergedBarChart({ chartData }) {
   )
 }
 
+// 6.
 /** A안: 기간 2막대 요약. chartData = [{ name: '기준', 발송요청, 발송성공 }, { name: '비교', ... }] */
 function SummaryBarChart({ chartData }) {
   if (!chartData?.length) return null
@@ -245,6 +251,7 @@ function SummaryBarChart({ chartData }) {
   )
 }
 
+// 7.
 export default function AggregatedBarChart({
   data = [],
   compareData = [],

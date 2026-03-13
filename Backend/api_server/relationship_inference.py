@@ -3,11 +3,11 @@ Backend.api_server.relationship_inference (관계 추론)
 =====================================================
 DB 허용 테이블 + 컬럼 정보로 관계 추론 (pluralize + 확장: 복수형이 테이블명 일부). report 라우터에서 infer_relationships 사용.
 
-[Functions]
+[Main Functions]
 ===========
-11 - _table_has_id: 테이블에 id 컬럼 존재 여부
-21 - find_parent_table_extended: _id 컬럼명→부모 테이블 (delivery_id→test_deliveries_data 등)
-42 - infer_relationships: 전체 추론 관계 목록 (report API 형식, source/reason 포함)
+1. _table_has_id: 테이블에 id 컬럼 존재 여부
+2. find_parent_table_extended: _id 컬럼명→부모 테이블 (delivery_id→test_deliveries_data 등)
+3. infer_relationships: 전체 추론 관계 목록 (report API 형식, source/reason 포함)
 
 [Dependencies]
 =========
@@ -17,6 +17,7 @@ DB 허용 테이블 + 컬럼 정보로 관계 추론 (pluralize + 확장: 복수
 from Backend.api_server.pluralize import find_parent_table as _find_parent_table, pluralize
 
 
+# 1.
 def _table_has_id(table_columns, tbl):
     """테이블에 id 컬럼 있는지."""
     cols = table_columns.get(tbl) or []
@@ -27,6 +28,7 @@ def _table_has_id(table_columns, tbl):
     return any((c or {}).get("column_name") == "id" for c in cols)
 
 
+# 2.
 def find_parent_table_extended(column_name, from_table, allowed_tables, table_columns):
     """
     find_parent_table 실패 시: 복수형이 테이블명 일부인 경우 매칭.
@@ -48,6 +50,7 @@ def find_parent_table_extended(column_name, from_table, allowed_tables, table_co
     return candidates[0]
 
 
+# 3.
 def infer_relationships(allowed_tables, table_columns, existing_keys=None):
     """
     _id 컬럼 기준 관계 추론 (pluralize + 확장).

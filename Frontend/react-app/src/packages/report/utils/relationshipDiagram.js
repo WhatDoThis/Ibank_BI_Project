@@ -5,24 +5,15 @@
  *
  * [Main Functions]
  * ===========
- * - buildRelationshipTree: joinOrder, addedTables → { lines, baseTable } (트리 라인 배열)
- * - buildRelationshipMermaid: joinOrder, addedTables → Mermaid ER 텍스트
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - buildRelationshipTree, buildRelationshipMermaid (export)
+ * 1. buildRelationshipTree: joinOrder, addedTables → { lines, baseTable } (트리 라인 배열)
+ * 2. buildRelationshipMermaid: joinOrder, addedTables → Mermaid ER 텍스트
  *
  * [Dependencies]
  * =========
  * - 없음
  */
 
-/**
- * joinOrder 기준으로 부모→자식 트리 라인 생성 (해당 테이블 기준 관계도)
- * @param {Array<{ table: string, from_table?: string, to_table?: string, from_column?: string, to_column?: string }>} joinOrder
- * @param {string[]} addedTables
- * @returns {{ lines: string[], baseTable: string|null }}
- */
+// 1. joinOrder 기준 부모→자식 트리 라인 생성 (해당 테이블 기준 관계도)
 export function buildRelationshipTree(joinOrder, addedTables) {
   const lines = []
   if (!addedTables?.length) {
@@ -61,12 +52,7 @@ export function buildRelationshipTree(joinOrder, addedTables) {
   return { lines, baseTable: base }
 }
 
-/**
- * Mermaid ER 스타일 관계도 문자열 생성 (복사용)
- * @param {Array<{ table: string, from_table?: string, to_table?: string }>} joinOrder
- * @param {string[]} addedTables
- * @returns {string}
- */
+// 2. Mermaid ER 스타일 관계도 문자열 생성 (복사용)
 export function buildRelationshipMermaid(joinOrder, addedTables) {
   if (!addedTables?.length) return ''
   const edges = []

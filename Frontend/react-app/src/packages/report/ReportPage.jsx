@@ -5,12 +5,9 @@
  *
  * [Main Functions]
  * ===========
- * - 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination
- * - runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - ReportPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
+ * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination
+ * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출
+ * 3. ReportPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
  *
  * [Dependencies]
  * =========
@@ -30,10 +27,12 @@ import MainArea from './components/MainArea'
 
 const DEFAULT_PAGE_SIZE = 100
 
+// 1.
 function isGroupByColumn(groupBy, table, column) {
   return groupBy.some((g) => g.table === table && g.column === column)
 }
 
+// 2.
 export default function ReportPage() {
   const { dbStatus, setDbStatus, tables, setTables, loading, loadHealth, loadTables, refreshAll } = useReportData()
 

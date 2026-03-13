@@ -1,15 +1,17 @@
 /**
- * dateUtils.js — 날짜/주차 변환 유틸
- * SummaryHeader, TrendLineChart 등에서 공통 사용.
- * 주차: 월요일 시작, 목요일 포함 기준(ISO 8601·마케팅 관례). 표시는 "M월 N주차".
+ * dateUtils (날짜/주차 변환 유틸)
+ * ===============================
+ * SummaryHeader, TrendLineChart 등에서 공통 사용. 주차: 월요일 시작, 목요일 포함(ISO 8601). 표시 "M월 N주차".
  *
  * [Main Functions]
- * - getISOWeekNumber: ISO 연간 주차(1~53)
- * - getMonthWeekLabel: YYYY-MM-DD → "M월 N주차" (매월 1주차 = 1일이 월~목 포함된 주, 금~일이면 다음 주 월요일부터 1주차)
- * - dateToWeekValue, weekValueToDate: input type="week" 용
- * - toLocalDateString: Date → YYYY-MM-DD (UTC 비틀림 방지)
+ * 1. getISOWeekNumber: ISO 연간 주차(1~53)
+ * 2. getMonthWeekLabel: YYYY-MM-DD → "M월 N주차"
+ * 3. toLocalDateString: Date → YYYY-MM-DD (UTC 비틀림 방지)
+ * 4. dateToWeekValue: 날짜 → input type="week" 값
+ * 5. weekValueToDate: YYYY-Www → 해당 주 월요일 YYYY-MM-DD
  */
 
+// 1.
 /** ISO 연간 주차 (1~53). 목요일 포함 주 기준. */
 export function getISOWeekNumber(dateStr) {
   if (!dateStr || dateStr.length < 10) return 0
@@ -19,6 +21,7 @@ export function getISOWeekNumber(dateStr) {
   return Math.ceil(((d - yearStart) / 86400000 + 1) / 7)
 }
 
+// 2.
 /**
  * 월별 N주차 계산 후 "M월 N주차" 라벨 반환.
  * 1주차: 1일이 월~목에 있으면 그 주가 1주차, 1일이 금~일이면 다음 주 월요일부터 1주차.
@@ -44,6 +47,7 @@ export function getMonthWeekLabel(dateStr) {
   return `${m + 1}월 ${weekNum}주차`
 }
 
+// 3.
 /** Date → YYYY-MM-DD (로컬 기준, UTC 비틀림 방지) */
 export function toLocalDateString(d) {
   if (!d || !(d instanceof Date)) return ''
@@ -53,6 +57,7 @@ export function toLocalDateString(d) {
   return `${y}-${mm}-${dd}`
 }
 
+// 4.
 /** 날짜 → input type="week" 값 (YYYY-Www) */
 export function dateToWeekValue(dateStr) {
   if (!dateStr || dateStr.length < 10) return ''
@@ -61,6 +66,7 @@ export function dateToWeekValue(dateStr) {
   return `${y}-W${String(w).padStart(2, '0')}`
 }
 
+// 5.
 /** YYYY-Www → 해당 주 월요일 YYYY-MM-DD */
 export function weekValueToDate(weekStr) {
   if (!weekStr || !/^\d{4}-W\d{2}$/.test(weekStr)) return null

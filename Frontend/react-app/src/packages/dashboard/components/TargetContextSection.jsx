@@ -5,11 +5,10 @@
  *
  * [Main Functions]
  * ===========
- * - TargetContextSection: periodType, metric, year, month, rangeStart, rangeEnd, targetValue 입력·저장. 저장된 목표 테이블·삭제 버튼
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - TargetContextSection (default export)
+ * 1. getTargetPeriodLabel: 목표 1건 기간 라벨 문자열
+ * 2. getTargetMetricLabel: 목표 지표 라벨
+ * 3. parseTargetValue: 입력값 숫자 파싱
+ * 4. TargetContextSection: periodType, metric, year, month, rangeStart, rangeEnd, targetValue 입력·저장, 저장된 목표 테이블·삭제
  *
  * [Dependencies]
  * =========
@@ -39,6 +38,7 @@ const TARGET_METRIC_OPTIONS = [
   { value: 'click_rate', label: '클릭률(%)' }
 ]
 
+// 1.
 /** 목표 1건에 대한 기간 라벨 문자열 */
 export function getTargetPeriodLabel(t) {
   if (!t) return '-'
@@ -55,17 +55,20 @@ export function getTargetPeriodLabel(t) {
   return '-'
 }
 
+// 2.
 /** 목표 지표 라벨 */
 export function getTargetMetricLabel(metricKey) {
   return TARGET_METRIC_OPTIONS.find((m) => m.value === metricKey)?.label ?? metricKey
 }
 
+// 3.
 function parseTargetValue(str) {
   if (str == null || String(str).trim() === '') return null
   const n = Number(String(str).trim().replace(/,/g, ''))
   return Number.isNaN(n) ? null : n
 }
 
+// 4.
 export default function TargetContextSection({ dateRange = [], targets = [], onSave, onDelete }) {
   const [periodType, setPeriodType] = useState('month')
   const [metric, setMetric] = useState('total_success')

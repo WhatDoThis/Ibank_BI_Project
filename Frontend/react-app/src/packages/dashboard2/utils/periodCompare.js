@@ -5,23 +5,20 @@
  *
  * [Main Functions]
  * ===========
- * - getPreviousDay(anchorDate): 전일 [date, date] (YYYY-MM-DD)
- * - getWeekRange(anchorDate): 해당 주 월요일~일요일 [start, end]
- * - getPreviousWeekRange(anchorDate): 이전 주 [start, end]
- * - getMonthRange(year, month): 해당 월 1일~말일 [start, end]
- * - getPreviousMonthRange(year, month): 이전 월 [start, end]
- * - getYearRange(year): 해당 연도 1/1~12/31 [start, end]
- * - getPreviousYearRange(year): 전년 [start, end]
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - getPreviousDay, getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange, getYearRange, getPreviousYearRange (export)
+ * 1. getPreviousDay(anchorDate): 전일 [date, date] (YYYY-MM-DD)
+ * 2. getWeekRange(anchorDate): 해당 주 월요일~일요일 [start, end]
+ * 3. getPreviousWeekRange(anchorDate): 이전 주 [start, end]
+ * 4. getMonthRange(year, month): 해당 월 1일~말일 [start, end]
+ * 5. getPreviousMonthRange(year, month): 이전 월 [start, end]
+ * 6. getYearRange(year): 해당 연도 1/1~12/31 [start, end]
+ * 7. getPreviousYearRange(year): 전년 [start, end]
  *
  * [Dependencies]
  * =========
  * - 없음 (표준 Date)
  */
 
+// 1.
 /** YYYY-MM-DD 문자열로 포맷 (로컬 날짜) */
 function toDateString(d) {
   const y = d.getFullYear()
@@ -30,6 +27,7 @@ function toDateString(d) {
   return `${y}-${m}-${day}`
 }
 
+// 2.
 /**
  * 주어진 날짜가 속한 주의 월요일 00:00 (Date). ISO 8601 (월=1, 일=7).
  * @param {Date} d
@@ -44,6 +42,7 @@ function getMondayOfWeek(d) {
   return date
 }
 
+// 3.
 /**
  * 해당 주(월요일~일요일)의 [시작일, 종료일]을 YYYY-MM-DD 배열로 반환.
  * @param {string|Date} anchorDate - 해당 주에 속한 아무 날짜 (YYYY-MM-DD 또는 Date)
@@ -58,6 +57,7 @@ export function getWeekRange(anchorDate) {
   return [toDateString(mon), toDateString(sun)]
 }
 
+// 4.
 /**
  * anchorDate가 속한 주의 바로 이전 주 [시작일, 종료일].
  * @param {string|Date} anchorDate
@@ -74,6 +74,7 @@ export function getPreviousWeekRange(anchorDate) {
   return [toDateString(prevMon), toDateString(prevSun)]
 }
 
+// 5.
 /**
  * 해당 월 1일~말일 [시작일, 종료일].
  * @param {number} year - 연도
@@ -89,6 +90,7 @@ export function getMonthRange(year, month) {
   return [toDateString(first), toDateString(last)]
 }
 
+// 6.
 /**
  * 해당 월의 이전 월 [시작일, 종료일].
  * @param {number} year - 연도
@@ -103,6 +105,7 @@ export function getPreviousMonthRange(year, month) {
   return getMonthRange(y, m - 1)
 }
 
+// 7.
 /**
  * anchorDate의 전일 [날짜, 날짜] (단일일).
  * @param {string|Date} anchorDate - YYYY-MM-DD 또는 Date
@@ -117,6 +120,7 @@ export function getPreviousDay(anchorDate) {
   return [s, s]
 }
 
+// 8.
 /**
  * 해당 연도 1월 1일~12월 31일 [시작일, 종료일].
  * @param {number} year - 연도 (예: 2026)
@@ -130,6 +134,7 @@ export function getYearRange(year) {
   return [toDateString(first), toDateString(last)]
 }
 
+// 9.
 /**
  * 해당 연도의 전년 [시작일, 종료일].
  * @param {number} year - 연도

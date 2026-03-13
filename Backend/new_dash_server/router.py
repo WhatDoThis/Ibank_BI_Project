@@ -35,6 +35,7 @@ from Backend.api_server.dashboard_service import CHANNEL_MAPPING
 router = APIRouter(prefix="/api/new-dashboard", tags=["new-dashboard"])
 
 
+# 1.
 def _calc_date_range(target_date: str, period: str) -> list:
     """period에 따라 date_range [start, end] 계산."""
     dt = datetime.strptime(target_date, "%Y-%m-%d").date()
@@ -51,6 +52,7 @@ def _calc_date_range(target_date: str, period: str) -> list:
     return [target_date, target_date]
 
 
+# 2.
 def _calc_previous_range(date_range: list, period: str) -> list:
     """직전 동일 기간 [start, end] 계산."""
     start = datetime.strptime(date_range[0], "%Y-%m-%d").date()
@@ -66,6 +68,7 @@ def _calc_previous_range(date_range: list, period: str) -> list:
     return [prev.isoformat(), prev.isoformat()]
 
 
+# 3.
 def _calc_change_pct(current, previous):
     """이전 대비 증감률 %. previous 0/None이면 None."""
     if previous is None or previous == 0:
@@ -73,6 +76,7 @@ def _calc_change_pct(current, previous):
     return round((current - previous) / previous * 100, 2)
 
 
+# 4.
 @router.get("/summary")
 def summary(
     table_id: str = Query(..., description="테이블 ID"),
@@ -118,6 +122,7 @@ def summary(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# 5.
 @router.get("/trend")
 def trend(
     table_id: str = Query(..., description="테이블 ID"),
@@ -148,16 +153,19 @@ def trend(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# 6.
 def _week_start(dt):
     """해당 일이 속한 주의 월요일."""
     return dt - timedelta(days=dt.weekday())
 
 
+# 7.
 def _month_start(dt):
     """해당 일이 속한 월의 1일."""
     return dt.replace(day=1)
 
 
+# 8.
 def _trend_multi_range(end_dt, period, days, count):
     """period별 시작일·date 표현식·group 표현식 반환. (start_dt, date_expr, group_expr)."""
     if period == "monthly":
@@ -178,6 +186,7 @@ def _trend_multi_range(end_dt, period, days, count):
     return start_dt, date_expr, group_expr
 
 
+# 9.
 def _build_trend_multi_query(full_table, date_expr, group_expr, by_channel):
     """trend-multi 쿼리 생성. by_channel 여부만 SELECT/GROUP BY/ORDER BY에 반영."""
     channel_select = ", delivery_channel" if by_channel else ""
@@ -196,6 +205,7 @@ def _build_trend_multi_query(full_table, date_expr, group_expr, by_channel):
     """
 
 
+# 10.
 @router.get("/trend-multi")
 def trend_multi(
     table_id: str = Query(..., description="테이블 ID"),
@@ -250,6 +260,7 @@ def trend_multi(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# 11.
 @router.get("/tables")
 def new_dashboard_tables():
     """집계 가능 테이블 목록."""

@@ -3,11 +3,11 @@ Backend.api_server.routers.health (헬스·루트·API 안내)
 =====================================================
 FastAPI 라우터. DB 연결 확인·루트·API 엔드포인트 목록 안내. tags=["health"].
 
-[Functions]
+[Main Functions]
 ===========
-28 - health_check: GET /health (DB SELECT 1 포함)
-47 - index: GET / (루트 안내)
-59 - api_index: GET /api, GET /api/ (엔드포인트 목록 JSON)
+1. health_check: GET /health (DB SELECT 1 포함)
+2. index: GET / (루트 안내)
+3. api_index: GET /api, GET /api/ (엔드포인트 목록 JSON)
 
 [Dependencies]
 =========
@@ -24,6 +24,7 @@ from Backend.api_server.dependencies import get_db
 router = APIRouter(tags=["health"])
 
 
+# 1.
 @router.get("/health")
 def health_check(conn=Depends(get_db)):
     """DB 연결 확인 포함 헬스체크."""
@@ -43,6 +44,7 @@ def health_check(conn=Depends(get_db)):
         )
 
 
+# 2.
 @router.get("/")
 def index():
     """루트: API 안내."""
@@ -54,6 +56,7 @@ def index():
     }
 
 
+# 3.
 @router.get("/api")
 @router.get("/api/")
 def api_index():

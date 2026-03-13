@@ -5,23 +5,22 @@
  *
  * [Main Functions]
  * ===========
- * - getPreviousDay(anchorDate): 전일 [date, date] (YYYY-MM-DD)
- * - getWeekRange(anchorDate): 해당 주 월요일~일요일 [start, end]
- * - getPreviousWeekRange(anchorDate): 이전 주 [start, end]
- * - getMonthRange(year, month): 해당 월 1일~말일 [start, end]
- * - getPreviousMonthRange(year, month): 이전 월 [start, end]
- * - getYearRange(year): 해당 연도 1/1~12/31 [start, end]
- * - getPreviousYearRange(year): 전년 [start, end]
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - getPreviousDay, getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange, getYearRange, getPreviousYearRange (export)
+ * 1. toDateString: YYYY-MM-DD 문자열 (로컬)
+ * 2. getMondayOfWeek: 해당 주 월요일 Date
+ * 3. getWeekRange: 해당 주 [start, end]
+ * 4. getPreviousWeekRange: 이전 주 [start, end]
+ * 5. getMonthRange: 해당 월 1일~말일
+ * 6. getPreviousMonthRange: 이전 월
+ * 7. getPreviousDay: 전일 [date, date]
+ * 8. getYearRange: 해당 연도 1/1~12/31
+ * 9. getPreviousYearRange: 전년
  *
  * [Dependencies]
  * =========
  * - 없음 (표준 Date)
  */
 
+// 1.
 /** YYYY-MM-DD 문자열로 포맷 (로컬 날짜) */
 function toDateString(d) {
   const y = d.getFullYear()
@@ -30,6 +29,7 @@ function toDateString(d) {
   return `${y}-${m}-${day}`
 }
 
+// 2.
 function getMondayOfWeek(d) {
   const date = new Date(d)
   const day = date.getDay()
@@ -39,6 +39,7 @@ function getMondayOfWeek(d) {
   return date
 }
 
+// 3.
 export function getWeekRange(anchorDate) {
   const d = typeof anchorDate === 'string' ? new Date(anchorDate + 'T12:00:00') : new Date(anchorDate)
   if (Number.isNaN(d.getTime())) return ['', '']
@@ -48,6 +49,7 @@ export function getWeekRange(anchorDate) {
   return [toDateString(mon), toDateString(sun)]
 }
 
+// 4.
 export function getPreviousWeekRange(anchorDate) {
   const d = typeof anchorDate === 'string' ? new Date(anchorDate + 'T12:00:00') : new Date(anchorDate)
   if (Number.isNaN(d.getTime())) return ['', '']
@@ -59,6 +61,7 @@ export function getPreviousWeekRange(anchorDate) {
   return [toDateString(prevMon), toDateString(prevSun)]
 }
 
+// 5.
 export function getMonthRange(year, month) {
   const y = Number(year)
   const m = Number(month)
@@ -68,6 +71,7 @@ export function getMonthRange(year, month) {
   return [toDateString(first), toDateString(last)]
 }
 
+// 6.
 export function getPreviousMonthRange(year, month) {
   const y = Number(year)
   const m = Number(month)
@@ -76,6 +80,7 @@ export function getPreviousMonthRange(year, month) {
   return getMonthRange(y, m - 1)
 }
 
+// 7.
 export function getPreviousDay(anchorDate) {
   const d = typeof anchorDate === 'string' ? new Date(anchorDate + 'T12:00:00') : new Date(anchorDate)
   if (Number.isNaN(d.getTime())) return ['', '']
@@ -85,6 +90,7 @@ export function getPreviousDay(anchorDate) {
   return [s, s]
 }
 
+// 8.
 export function getYearRange(year) {
   const y = Number(year)
   if (!Number.isFinite(y)) return ['', '']
@@ -93,6 +99,7 @@ export function getYearRange(year) {
   return [toDateString(first), toDateString(last)]
 }
 
+// 9.
 export function getPreviousYearRange(year) {
   const y = Number(year)
   if (!Number.isFinite(y)) return ['', '']

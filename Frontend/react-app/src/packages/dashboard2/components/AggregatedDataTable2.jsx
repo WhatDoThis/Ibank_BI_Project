@@ -2,16 +2,13 @@
  * dashboard2/components/AggregatedDataTable2.jsx (집계 데이터 테이블)
  * ===================================================================
  * 대시보드2 집계 테이블. 페이징·검색·필터. 컬럼 순서 발송요청→발송성공→성공률→오픈→클릭→오픈률→클릭률. rate 셀 채우기 막대·내부 테두리.
- * 비교 모드: CompareMergedTable(B안)에 기준/비교 오픈률·클릭률 컬럼 포함, rate 셀 채우기 적용. CompareSummaryTable(A안)에도 rate 셀 채우기 적용. 비교 모드에서도 정렬 행·필터 툴바 노출, getMergedColumnOptions/getSummaryColumnOptions·getCellValueMerged/Summary·rowMatchesFiltersWithGetCell로 필터 적용.
+ * 비교 모드: CompareMergedTable(B안), CompareSummaryTable(A안). 정렬·필터 툴바, getMergedColumnOptions/getSummaryColumnOptions·rowMatchesFiltersWithGetCell.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - getColumnOptions, getCellValue, rowMatchesFilters. ThWithDef(TABLE_HEADER_DEFINITIONS 툴팁), formatNum, formatRate. 정렬·페이징·필터
- * - rate 컬럼: cell-fill-wrap·cell-fill(width: value%)·cell-fill-text (일반/merged/summary 공통)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - AggregatedDataTable2 (default export), CompareMergedTable, CompareSummaryTable
+ * 1. ThWithDef, formatNum, formatRate, getColumnOptions, getCellValue, rowMatchesFilters
+ * 2. getCellValueMerged, getCellValueSummary, getMergedColumnOptions, getSummaryColumnOptions
+ * 3. CompareMergedTable, CompareSummaryTable, AggregatedDataTable2 (default export)
  *
  * [Dependencies]
  * =========
@@ -55,6 +52,7 @@ const TABLE_HEADER_DEFINITIONS = {
   click_rate: '(클릭 / 발송 성공) × 100'
 }
 
+// 1.
 function ThWithDef({ children, defKey, align = 'left', className }) {
   const definition = defKey ? TABLE_HEADER_DEFINITIONS[defKey] : null
   return (
@@ -75,16 +73,19 @@ function ThWithDef({ children, defKey, align = 'left', className }) {
   )
 }
 
+// 2.
 function formatNum(num) {
   if (num == null) return '0'
   return new Intl.NumberFormat('ko-KR').format(num)
 }
 
+// 3.
 function formatRate(num) {
   if (num == null || Number.isNaN(Number(num))) return '0.00'
   return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(num))
 }
 
+// 4.
 function getColumnCount(groupBy) {
   let n = 7
   if (groupBy.campaign) n += 1
@@ -94,6 +95,7 @@ function getColumnCount(groupBy) {
   return n
 }
 
+// 5.
 function getColumnOptions(groupBy) {
   const list = []
   if (groupBy.campaign) list.push({ key: 'campaign_label', label: '캠페인', type: 'text' })
@@ -112,6 +114,7 @@ function getColumnOptions(groupBy) {
   return list
 }
 
+// 6.
 function getCellValue(row, columnKey) {
   switch (columnKey) {
     case 'campaign_label':
@@ -127,6 +130,7 @@ function getCellValue(row, columnKey) {
   }
 }
 
+// 7.
 function matchOne(row, columnKey, operator, value, columnOptions) {
   const cell = getCellValue(row, columnKey)
   const col = columnOptions.find((c) => c.key === columnKey)
@@ -163,6 +167,7 @@ function matchOne(row, columnKey, operator, value, columnOptions) {
   return true
 }
 
+// 8.
 function isFilterConditionEmpty(f) {
   if (!f || !f.columnKey || String(f.columnKey).trim() === '') return true
   const v = f.value
@@ -171,6 +176,7 @@ function isFilterConditionEmpty(f) {
   return false
 }
 
+// 9.
 function rowMatchesFilters(row, filters, columnOptions) {
   if (!filters?.length) return true
   return filters.every((f) => {
@@ -179,16 +185,19 @@ function rowMatchesFilters(row, filters, columnOptions) {
   })
 }
 
+// 10.
 /** merged(디멘션별 비교) 행용 셀 값. row[key] */
 function getCellValueMerged(row, columnKey) {
   return row[columnKey]
 }
 
+// 11.
 /** summary(요약 보기) 행용 셀 값. row[key] */
 function getCellValueSummary(row, columnKey) {
   return row[columnKey]
 }
 
+// 12.
 function matchOneWithGetCell(row, columnKey, operator, value, columnOptions, getCell) {
   const cell = getCell(row, columnKey)
   const col = columnOptions.find((c) => c.key === columnKey)
@@ -225,6 +234,7 @@ function matchOneWithGetCell(row, columnKey, operator, value, columnOptions, get
   return true
 }
 
+// 13.
 function rowMatchesFiltersWithGetCell(row, filters, columnOptions, getCell) {
   if (!filters?.length) return true
   return filters.every((f) => {
@@ -233,6 +243,7 @@ function rowMatchesFiltersWithGetCell(row, filters, columnOptions, getCell) {
   })
 }
 
+// 14.
 /** 디멘션별 비교(merged) 테이블 필터용 컬럼 목록 */
 function getMergedColumnOptions() {
   return [
@@ -254,6 +265,7 @@ function getMergedColumnOptions() {
   ]
 }
 
+// 15.
 /** 요약 보기(summary) 테이블 필터용 컬럼 목록 */
 function getSummaryColumnOptions() {
   return [
@@ -270,6 +282,7 @@ function getSummaryColumnOptions() {
 
 const defaultFilterRow = () => ({ id: `f-${Date.now()}-${Math.random().toString(36).slice(2)}`, columnKey: '', operator: 'contains', value: '' })
 
+// 16.
 /** B안: 디멘션 + 기준/비교 컬럼 한 테이블 */
 function CompareMergedTable({ data = [], formatNum, formatRate }) {
   if (!data.length) return null
@@ -351,6 +364,7 @@ function CompareMergedTable({ data = [], formatNum, formatRate }) {
   )
 }
 
+// 17.
 /** A안: 기간 2행 요약 테이블 */
 function CompareSummaryTable({ data = [], formatNum, formatRate }) {
   if (!data.length) return null
@@ -403,6 +417,7 @@ function CompareSummaryTable({ data = [], formatNum, formatRate }) {
   )
 }
 
+// 18.
 export default function AggregatedDataTable2({
   data = [],
   groupBy = {},

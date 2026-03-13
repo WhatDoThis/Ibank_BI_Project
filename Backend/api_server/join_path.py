@@ -3,13 +3,13 @@ Backend.api_server.join_path (JOIN 경로·순서)
 =============================================
 JOIN 자동 생성: 경로 탐색(BFS), 직접 관계, JOIN 순서 결정. report 라우터에서 determine_join_order, validate_join_order 사용.
 
-[Functions]
+[Main Functions]
 ===========
-12 - _normalize_rel: 관계를 want_from→want_to 방향으로 정규화
-22 - find_direct_relationship: 두 테이블 간 직접 FK 관계
-34 - find_join_path: BFS로 from_table→to_table 최단 경로 (간접 관계)
-70 - determine_join_order: base_table 기준 required_tables의 JOIN 순서 + 엣지 정보
-139 - validate_join_order: join_order 유효성 검사 (max_depth 등)
+1. _normalize_rel: 관계를 want_from→want_to 방향으로 정규화
+2. find_direct_relationship: 두 테이블 간 직접 FK 관계
+3. find_join_path: BFS로 from_table→to_table 최단 경로 (간접 관계)
+4. determine_join_order: base_table 기준 required_tables의 JOIN 순서 + 엣지 정보
+5. validate_join_order: join_order 유효성 검사 (max_depth 등)
 
 [Dependencies]
 =========
@@ -18,7 +18,8 @@ JOIN 자동 생성: 경로 탐색(BFS), 직접 관계, JOIN 순서 결정. repor
 
 from collections import deque
 
-# 관계 한 건: from_table.from_column -> to_table.to_column (N:1, 부모.id = 자식.xxx_id)
+
+# 1.
 def _normalize_rel(r, want_from, want_to):
     """관계를 want_from -> want_to 방향으로 정규화. JOIN ON: want_from.from_column = want_to.to_column."""
     if r["from_table"] == want_from and r["to_table"] == want_to:
@@ -29,6 +30,7 @@ def _normalize_rel(r, want_from, want_to):
     return None
 
 
+# 2.
 def find_direct_relationship(table1, table2, fk_list):
     """
     두 테이블 간 직접 FK 관계 반환.
@@ -41,6 +43,7 @@ def find_direct_relationship(table1, table2, fk_list):
     return None
 
 
+# 3.
 def find_join_path(from_table, to_table, fk_list, max_depth=3):
     """
     BFS로 from_table -> to_table 최단 경로 찾기.
@@ -77,6 +80,7 @@ def find_join_path(from_table, to_table, fk_list, max_depth=3):
     return None
 
 
+# 4.
 def determine_join_order(base_table, required_tables, fk_list):
     """
     base_table을 기준으로 required_tables의 JOIN 순서 결정.
@@ -146,6 +150,7 @@ def determine_join_order(base_table, required_tables, fk_list):
     return ordered
 
 
+# 5.
 def validate_join_order(join_order, max_depth=4):
     """
     명세 10: 순환/깊이 검증.

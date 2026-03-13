@@ -1,6 +1,19 @@
 /**
- * TrendLineChart — trend-multi 기반 추이 그래프
+ * TrendLineChart (trend-multi 기반 추이 그래프)
+ * =============================================
  * 메트릭 탭(6개) + 채널별 라인 또는 전체 합산 단일 라인.
+ *
+ * [Main Functions]
+ * 1. getFullDateRange
+ * 2. getFullWeekRange
+ * 3. getFullMonthRange
+ * 4. formatDateLabel
+ * 5. calcRate
+ * 6. getChannelMetricValue
+ * 7. pivotByChannel
+ * 8. buildTotalChartData
+ * 9. TrendTooltipContent
+ * 10. TrendLineChart (default export)
  */
 import { useState, useMemo, useEffect } from 'react'
 import {
@@ -24,6 +37,7 @@ const METRIC_TABS = [
 ]
 const RATE_KEYS = new Set(['open_rate', 'click_rate'])
 
+// 1.
 /** endDate 포함 이전 days일의 날짜 배열 (YYYY-MM-DD, 로컬 기준) */
 function getFullDateRange(endDateStr, days) {
   if (!endDateStr || days < 1) return []
@@ -37,6 +51,7 @@ function getFullDateRange(endDateStr, days) {
   return out
 }
 
+// 2.
 /** endDate가 속한 주(월요일 시작) 포함 이전 count주, 각 주 월요일 YYYY-MM-DD (로컬 기준) */
 function getFullWeekRange(endDateStr, count) {
   if (!endDateStr || count < 1) return []
@@ -53,6 +68,7 @@ function getFullWeekRange(endDateStr, count) {
   return out
 }
 
+// 3.
 /** endDate가 속한 월 포함 이전 count개월 (각월 1일 YYYY-MM-DD) */
 function getFullMonthRange(endDateStr, count) {
   if (!endDateStr || count < 1) return []
@@ -70,6 +86,7 @@ function getFullMonthRange(endDateStr, count) {
   return out
 }
 
+// 4.
 function formatDateLabel(ymd, period) {
   if (!ymd) return ymd
   if (period === 'monthly') return `${ymd.slice(0, 4)}/${ymd.slice(5, 7)}`
@@ -77,11 +94,13 @@ function formatDateLabel(ymd, period) {
   return ymd.length >= 10 ? `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}` : ymd
 }
 
+// 5.
 /** 비율 계산 공통 (성공수 기준 %, 소수 둘째자리) */
 function calcRate(numerator, denominator) {
   return denominator > 0 ? Math.round((numerator / denominator) * 10000) / 100 : 0
 }
 
+// 6.
 /** 채널 행에서 메트릭 값 (rate는 calcRate 사용) */
 function getChannelMetricValue(r, metric) {
   if (metric === 'open_rate') return calcRate(r.open_count ?? 0, r.success_count ?? 0)
@@ -89,6 +108,7 @@ function getChannelMetricValue(r, metric) {
   return r[metric] ?? 0
 }
 
+// 7.
 /** channelRows를 피벗. fullDates가 있으면 해당 구간 전부 채우고, 없는 날은 0. period로 날짜 라벨. */
 function pivotByChannel(rows, metric, fullDates, period) {
   const dateMap = {}
@@ -113,6 +133,7 @@ function pivotByChannel(rows, metric, fullDates, period) {
   return { chartData, channels: channelList }
 }
 
+// 8.
 /** 전체 합산 rows. fullDates가 있으면 해당 구간 전부 채우고, 없는 날은 0. byDate 구성 시 한 번만 계산. */
 function buildTotalChartData(rows, fullDates, period) {
   const byDate = {}
@@ -143,6 +164,7 @@ function buildTotalChartData(rows, fullDates, period) {
   })
 }
 
+// 9.
 /** 호버 시 해당 데이터 행을 상위로 전달 (범례에 호버된 날짜 값 표시) */
 function TrendTooltipContent({ active, payload, setActiveRow, isRate }) {
   useEffect(() => {
@@ -168,6 +190,7 @@ function TrendTooltipContent({ active, payload, setActiveRow, isRate }) {
   )
 }
 
+// 10.
 export default function TrendLineChart({ data, byChannel, period = 'daily', endDate, days = 10, count = 10 }) {
   const [selectedMetric, setSelectedMetric] = useState('total_count')
   const [activeRow, setActiveRow] = useState(null)

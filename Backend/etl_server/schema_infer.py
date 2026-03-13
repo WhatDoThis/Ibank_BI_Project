@@ -1,12 +1,12 @@
 """
 Backend.etl_server.schema_infer (파일 스키마 추론)
-==================================================
+===================================================
 CSV/Excel/Parquet 샘플 기반 컬럼명·타입 추론. 업로드 직후 스키마 표시 및 ETL 메타 등록 시 사용.
 
-[Functions]
+[Main Functions]
 ===========
-23 - _dtype_to_inferred: pandas dtype → 문서/UI용 타입명(integer, float, boolean, datetime, text)
-35 - infer_schema: file_path, file_type, max_rows → [{ name, inferred_type }, ...]
+1. _dtype_to_inferred: pandas dtype → 문서/UI용 타입명(integer, float, boolean, datetime, text)
+2. infer_schema: file_path, file_type, max_rows → [{ name, inferred_type }, ...]
 
 [Dependencies]
 =========
@@ -20,6 +20,7 @@ import pandas as pd
 
 
 # pandas dtype -> 문서/UI용 타입명
+# 1.
 def _dtype_to_inferred(dtype) -> str:
     if pd.api.types.is_integer_dtype(dtype):
         return "integer"
@@ -32,6 +33,7 @@ def _dtype_to_inferred(dtype) -> str:
     return "text"
 
 
+# 2.
 def infer_schema(file_path: str, file_type: str, max_rows: int = 1000) -> List[dict]:
     """
     파일에서 컬럼명·타입 추론.
@@ -45,7 +47,8 @@ def infer_schema(file_path: str, file_type: str, max_rows: int = 1000) -> List[d
 
     ft = (file_type or "").strip().lower()
     if ft == "csv":
-        df = pd.read_csv(file_path, nrows=max_rows, encoding="utf-8")
+        from Backend.etl_server import csv_reader
+        df, _, _ = csv_reader.read_csv_robust(file_path, nrows=max_rows)
     elif ft in ("excel", "xlsx", "xls"):
         df = pd.read_excel(file_path, nrows=max_rows)
     elif ft == "parquet":

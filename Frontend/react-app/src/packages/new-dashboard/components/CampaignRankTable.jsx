@@ -1,6 +1,14 @@
 /**
- * CampaignRankTable — 캠페인 발송 순위
+ * CampaignRankTable (캠페인 발송 순위 테이블)
+ * ==========================================
  * 탭(전체/캠페인별/워크플로우별), 모든 탭 정렬 가능, 고정 컬럼 폭, 페이지네이션 10건.
+ *
+ * [Main Functions]
+ * 1. round2
+ * 2. aggregateBy
+ * 3. compareBySortKeys
+ * 4. formatCell
+ * 5. CampaignRankTable (default export)
  */
 import { useState, useMemo, useCallback } from 'react'
 
@@ -23,11 +31,13 @@ const VIEW_TABS = [
   { key: 'workflow', label: '워크플로우별' },
 ]
 
+// 1.
 function round2(n, d) {
   const f = 10 ** d
   return Math.round(n * f) / f
 }
 
+// 2.
 /** campaign 또는 workflow 기준 집계 (groupKey로 분기) */
 function aggregateBy(data, groupKey) {
   const idKey = `${groupKey}_id`
@@ -63,6 +73,7 @@ function aggregateBy(data, groupKey) {
   }))
 }
 
+// 3.
 function compareBySortKeys(sortKeys) {
   return (a, b) => {
     for (const { key, order } of sortKeys) {
@@ -76,11 +87,13 @@ function compareBySortKeys(sortKeys) {
   }
 }
 
+// 4.
 function formatCell(value, format) {
   if (format === 'rate') return `${(value ?? 0).toFixed(2)}%`
   return (value ?? 0).toLocaleString()
 }
 
+// 5.
 export default function CampaignRankTable({ data }) {
   const [page, setPage] = useState(0)
   const [view, setView] = useState('all')

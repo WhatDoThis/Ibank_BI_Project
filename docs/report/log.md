@@ -1,3 +1,490 @@
+## 2026-03-13 docs/main·README 현재 구조 반영 (ETL 단일화·뉴 대시보드 2종)
+
+**목적:** log.md 및 코드 구조 기준으로 개발 문서(docs/main)·README를 현재 시스템에 맞게 개편. ETL1 제거·ETL2 단일 ETL로 통일, 뉴 대시보드 2종(뉴 대시보드·마케팅 대시보드) 반영.
+
+**적용 내용:**
+1. **00_PRD.md**: §1.2 ETL2 제거·ETL 단일(저장 DB·배치·폴더)·뉴 대시보드·마케팅 대시보드 추가. §2.1 패키지/백엔드 구조(etl_server 단일, new_dash_server, new_dash_server2). §2.2 접속 경로에서 /etl2 제거, /new-dashboard·/new-dashboard2 추가. §4·§5.2 API 목록. §6.3·§6.3.1 단일 ETL로 통합, §6.3.2 뉴 대시보드·마케팅 대시보드 요약. §8 변경 이력 추가.
+2. **01_FRONTEND_GUIDE.md**: §1.1·§1.2 패키지·접속 경로(etl 단일, new-dashboard, new-dashboard2). §3 디렉터리 트리(etl2 제거, new-dashboard·new-dashboard2·etl 단일). §4.5 ETL 단일·§4.5.2 new-dashboard·§4.5.3 new-dashboard2. §4.6 shared client.js API 목록. 변경 이력 추가.
+3. **02_BACKEND_GUIDE.md**: 구현 위치에 new_dash_server·new_dash_server2. §2 아키텍처 트리(etl_server2 제거, etl_server 단일에 router_file·batch·저장 DB 등 통합, new_dash_server·new_dash_server2 추가). 라우터 등록 순서 etl2_router 제거·new_dashboard_router·new_dash2_router 추가. §4.6 ETL prefix /api/etl·/api/etl/batch, §4.7 뉴 대시보드·§4.8 마케팅 대시보드 API 표. §5.1 main.py 라우터. §6.7 "etl_server (단일 ETL)". 변경 이력 추가.
+4. **README.md**: ETL2 섹션 제거·뉴 대시보드·마케팅 대시보드 섹션 추가. ETL 단일(저장 DB·배치·폴더) 설명. 접속 경로·사용 흐름·프로젝트 구조 트리(etl2 제거, new-dashboard·new-dashboard2·etl 단일). docs/main 최종 반영 일자 2026-03-13.
+
+**변경 파일:** docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, README.md, docs/report/log.md.
+
+---
+
+## 2026-03-13 Frontend/packages 주석 설명 정리 (서브에이전트 분산 적용)
+
+**목적:** Backend와 동일 규칙으로 Frontend/react-app/src/packages 내 각 패키지의 상단 docstring 및 함수/컴포넌트 위 순번 주석(// 1. // 2. …) 적용. 파일 수가 많아 fe-impl 서브에이전트로 패키지별 분산 처리.
+
+**적용 내용:**
+1. **report**: 상단 [Main Functions]/[Components] 번호 목록화, 함수/컴포넌트 위 // 1.~N. 추가. (ReportPage, Sidebar, MainArea, utils/*, hooks/useReportData 등 11개 파일)
+2. **dashboard**: 상단 번호 목록화, periodCompare·DashboardPage·컴포넌트별 순번 주석. AggregatedDataTable.jsx에 isFilterConditionEmpty 위 // 7. 추가(유니코드 이슈로 서브에이전트에서 누락된 부분 메인에서 보완). (12개 파일)
+3. **dashboard2**: 상단 번호 목록화, 11개 파일 전체 함수/컴포넌트 순번 주석.
+4. **widgetboard**: index.jsx, Dashboard3Page.jsx, utils/dataUtils.js 상단·순번 주석. (3개 파일)
+5. **etl**: ETLPage, index, utils/storageDb, components 28개 파일 상단·순번 주석.
+6. **new-dashboard**: index, NewDashboardPage, KPISummaryCards, SummaryHeader, TrendLineChart, CampaignRankTable, dateUtils, FunnelSection 등 8개 파일.
+7. **new-dashboard2**: index, NewDashboard2Page, hooks/useNewDash2Data, utils, components 19개 파일.
+
+**규칙:** 기존 파일은 StrReplace만 사용, 5~30줄 단위 소규모 수정. __tests__ 제외.
+
+**변경 파일:** Frontend/react-app/src/packages/{report,dashboard,dashboard2,widgetboard,etl,new-dashboard,new-dashboard2} 내 .js/.jsx 소스 파일 전체, docs/report/log.md.
+
+---
+
+## 2026-03-13 Backend/new_dash_server, new_dash_server2 주석 설명 정리
+
+**목적:** api_server·etl_server와 동일 규칙으로 new_dash_server·new_dash_server2 패키지 상단 docstring 및 함수/클래스 위 순번 주석(# 1. # 2. …) 적용.
+
+**적용 내용:**
+1. **new_dash_server**: __init__.py Exports 1. / router.py 함수별 # 1.~# 11. (_calc_date_range, _calc_previous_range, _calc_change_pct, summary, trend, _week_start, _month_start, _trend_multi_range, _build_trend_multi_query, trend_multi, new_dashboard_tables). 상단 [Helpers]/[Endpoints]는 기존 유지(문자 인코딩 이슈로 번호 목록만 수정 시도).
+2. **new_dash_server2**: __init__.py Exports 1. / router.py [Main Functions] 번호화 + handle_errors, _today, overview~product_master에 # 1.~# 10. / service.py [Main Functions] 번호화 + # 1.~# 13. / mappings.py # 1.~# 3. / star_db.py # 1.~# 4.
+
+**변경 파일:** Backend/new_dash_server/__init__.py, Backend/new_dash_server/router.py, Backend/new_dash_server2/__init__.py, router.py, service.py, mappings.py, star_db.py, docs/report/log.md.
+
+---
+
+## 2026-03-13 Backend/etl_server 주석 설명 정리
+
+**목적:** api_server와 동일한 규칙으로 etl_server 패키지 내 코드 파일 상단 docstring 정리 및 함수/클래스 위 순번 주석(# 1. # 2. …) 적용.
+
+**적용 내용:**
+1. **상단 주석**: 기능별 순번(1. 2. 3. …)으로 통일. [Main Functions] / [Helpers] / [Endpoints] 등에 번호 부여.
+2. **함수/클래스 위 주석**: 각 def/class 정의 바로 위에 # 1., # 2. 형식으로 위에서부터 순서대로 번호 기입.
+3. **대상 파일:** __init__.py, etl_limits.py, schema_infer.py, csv_reader.py, queue_worker.py, scheduler_file.py, timezone_utils.py, folder_adapter_file.py, transform_rules_service.py, transform_upsert_verification.py, load_service.py, preview_service.py, router.py, router_file.py, service.py, db_load_service.py (상단 주석만). router·router_file·service·db_load_service는 상단 번호 목록 적용, router에는 첫 클래스에 # 1. 적용, router_file에는 첫 클래스에 # 1. 적용.
+
+**변경 파일:** Backend/etl_server/*.py, docs/report/log.md.
+
+---
+
+## 2026-03-13 ETL 라우팅·UI 문구 etl2 → etl 통일 (디렉터리명 변경 반영)
+
+**목적:** etl_server2 → etl_server, packages/etl2 → packages/etl 로 디렉터리명 변경한 뒤, 라우팅 경로와 UI 문구를 etl2 → etl 로 수정.
+
+**적용 내용:**
+1. **Backend main.py**: Backend.etl_server2 → Backend.etl_server, etl2_router → etl_router, lifespan·주석 ETL2 → ETL.
+2. **Backend etl_server**: router prefix /api/etl2 → /api/etl, tags ["etl2"] → ["etl"]. 패키지 내 모든 Backend.etl_server2 → Backend.etl_server, 주석·엔드포인트 목록 /api/etl2 → /api/etl.
+3. **Frontend client.js**: 모든 /api/etl2 → /api/etl, baseUrlForEtl2 → baseUrlForEtl, ETL2 Batch → ETL Batch 등 주석 정리.
+4. **Frontend App.jsx**: import './packages/etl2' → './packages/etl', ETL2Page → ETLPage, 주석 packages/etl2 → packages/etl.
+5. **Frontend packages/etl**: 페이지 타이틀 "ETL2" → "ETL", 패키지·컴포넌트 주석 packages/etl2·ETL2 → packages/etl·ETL, /api/etl2 → /api/etl.
+
+**변경 파일:** Backend/api_server/main.py, Backend/etl_server/*.py, Frontend/.../App.jsx, shared/api/client.js, Frontend/.../packages/etl (주석·UI), docs/report/log.md.
+
+---
+
+## 2026-03-13 ETL1 제거 및 ETL2 단일 ETL로 통합
+
+**목적:** ETL1 시스템 제거, ETL2만 단일 ETL로 사용. 백엔드·프론트엔드 전반 정리.
+
+**적용 내용:**
+1. **Backend**: main.py에서 etl_router·ETL1 queue_worker 제거. Backend/etl_server 디렉터리 전체 삭제.
+2. **Frontend**: App.jsx에서 packages/etl import·/etl2 라우트·네비 제거. /etl 경로에 ETL2Page( packages/etl2 ) 단일 연결. NAV는 "ETL" 한 항목만 유지.
+3. **client.js**: baseUrlForEtl 및 모든 etl* API 함수( /api/etl/* ) 제거. ETL2( etl2*·batch* )만 유지, 섹션 주석 "ETL (단일, /api/etl2)"로 정리.
+4. **Frontend**: packages/etl 디렉터리 전체 삭제.
+5. **검증**: ETL2가 ETL1 경유 없음 확인. 프론트 빌드 성공. etl2 패키지 내 일부 파일 주석에 "packages/etl" 언급만 잔존(코드 참조 아님).
+
+**변경/삭제 파일:** Backend/api_server/main.py, Backend/etl_server(삭제), Frontend/.../App.jsx, shared/api/client.js, Frontend/.../packages/etl(삭제), docs/report/log.md.
+
+---
+
+## 2026-03-13 dashboard2 라우터 문법 오류 수정
+
+**목적:** Backend/api_server/routers/dashboard2.py 내 문법 오류 제거.
+
+**수정 내용:**
+- `dashboard2_filter_options` 함수(88행): `return JSONResponse(...)}))` → `return JSONResponse(...)})` 로 수정. 닫는 괄호 `)` 하나 제거하여 문법 오류 해결.
+
+**변경 파일:** Backend/api_server/routers/dashboard2.py, docs/report/log.md.
+
+---
+
+## 2026-03-13 Backend/api_server 주석 설명 정리
+
+**목적:** api_server 내 모든 코드 파일 상단 docstring을 점검·정리하고, 함수/클래스 위에 순번 주석(# 1. # 2. …) 적용.
+
+**적용 내용:**
+1. **상단 주석**: 코드라인 번호(예: `23 -`, `366 -`) 제거 후 기능별 순번(1. 2. 3. …)으로 통일. [Main Functions] / [Helpers] / [Endpoints] 등 섹션에 번호 부여.
+2. **함수/클래스 위 주석**: 각 `def`/`class` 정의 바로 위에 `# 1.`, `# 2.` 형식으로 위에서부터 순서대로 번호 기입.
+3. **대상 파일:** `__init__.py`, `main.py`, `dependencies.py`, `analysis_store.py`, `pluralize.py`, `db.py`, `join_metrics.py`, `dashboard_service.py`, `relationship_inference.py`, `schemas.py`, `join_path.py`, `routers/__init__.py`, `routers/health.py`, `routers/dashboard.py`, `routers/dashboard2.py`, `routers/report.py`.
+
+**변경 파일:** Backend/api_server/*.py, Backend/api_server/routers/*.py, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 추이 기간 통일 및 별·프리퀀시·쿠폰 섹션 추이 그래프 추가
+
+**목적:** 종합현황 추이를 30일로 통일, 별/프리퀀시/쿠폰 탭에 섹션별 추이 그래프 추가(한 그래프에 다중 메트릭 라인, 뉴대시보드1 채널 추이 패턴).
+
+**구현 내용:**
+1. **추이 기간 통일**: useNewDash2Data fetchOverview의 trend 요청을 days: 14 → 30으로 변경. NewDashboard2Page에서 메트릭 변경 시 별도 trend 재요청 제거 — 항상 data?.trend(30일·4메트릭) 사용, OverviewTrendChart에 loading={loading} 전달.
+2. **SectionTrendChart.jsx** (신규): trend.rows + metrics[{ key, label, color }] 기반 한 LineChart에 여러 Line 렌더. getMonthWeekLabel 등 날짜 라벨·Y축 K 단위·Legend·Tooltip. SectionBlock title "추이", nd2-trend-chart__chart 스타일 재사용.
+3. **useNewDash2Data.js**: star/frequency/coupon 탭 fetch 시 해당 테이블 trend API 병렬 호출 후 data에 trend 병합. star_analyze_overall(star_issue_cnt, star_send_cnt, star_first_issue_cnt), frequency_analyze_overall(frequency_complete_cnt), coupon_analyze_overall(coupon_issue_cnt, coupon_use_cnt, order_cnt). trendParams: daily 30일, 비 daily count 12.
+4. **StarSection.jsx**: SectionTrendChart 추가(별 발급수·선물수·최초 별 발급수 3메트릭 한 그래프). STAR_TREND_METRICS 상수.
+5. **FrequencySection.jsx**: SectionTrendChart 추가(프리퀀시 달성 건수 1메트릭). FREQUENCY_TREND_METRICS.
+6. **CouponSection.jsx**: SectionTrendChart 추가(쿠폰 발급수·사용수·주문건수 3메트릭 한 그래프). COUPON_TREND_METRICS.
+
+**변경/추가 파일:** hooks/useNewDash2Data.js, NewDashboard2Page.jsx, components/SectionTrendChart.jsx(신규), StarSection.jsx, FrequencySection.jsx, CouponSection.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 종합현황·쿠폰 기여도 재설계 완료
+
+**목적:** 부문별 요약 캐시 의존 제거(overview 진입 시 전 탭 병렬 fetch), 쿠폰 기여도 추정 로직 추가, ScoreCardGrid/라벨 개선.
+
+**구현 내용:**
+1. **useNewDash2Data.js**: fetchAllSummaries(targetDate, period, cacheRef) — Promise.allSettled로 star/frequency/coupon/campaign/store 5개 API 병렬 호출, 성공분만 캐시 저장. overview 탭 시 fetchOverview + fetchAllSummaries 병렬 실행 또는 캐시 히트 시에도 fetchAllSummaries로 요약 갱신. summaryLoading state 추가. extractSummaryFromCache에 campaign totalOrders, 쿠폰 기여도(contributionRatio, estimatedCouponOrders, couponWorkflowCount, totalWorkflowCount) 반영; 쿠폰 워크플로우 식별은 coupon_use_cnt > 0. getCachedData(tabName) 반환 추가. refresh 시 overview면 6탭 캐시 전부 삭제 후 재요청.
+2. **ScoreCardGrid.jsx**: metrics에 changePct, description 지원. loading 시 스켈레톤 5장(nd2-score-card--skeleton). CSS: __change, __change--up/down, __desc, --skeleton, @keyframes nd2-pulse.
+3. **OverviewSection.jsx**: getKpiSpec(summary) — read_cnt 없으면 두 번째 KPI를 '발송 성공'(send_success_cnt)으로 표시. buildScoreItems 개편(스타 매출 비중, 빈도 description, 쿠폰 추정 기여 주문/description, 캠페인 총 주문, 매장 1위/총매출). 부문별 요약 SectionBlock 항상 렌더, subtitle=dateLabel ?? '선택 기간 기준'. ScoreCardGrid에 loading={summaryLoading} 전달.
+4. **NewDashboard2Page.jsx**: summaryLoading, getCachedData 구조분해. OverviewSection에 summaryLoading 전달. CouponSection에 campaignSegments={getCachedData('campaign')?.segments}, overviewOrderCnt 전달.
+5. **CouponSection.jsx**: campaignSegments, overviewOrderCnt props. computeContribution(campaignSegments, couponOrderCnt, overviewOrderCnt) — 쿠폰 워크플로우( coupon_use_cnt>0 ) 발송성공 비중·추정 기여 주문. nd2-coupon-contribution 영역(쿠폰 워크플로우 N/M개, 발송성공 비중, 추정 기여 주문) 및 안내 문구. 캠페인 미조회 시 "캠페인 세그먼트 탭을 조회하면 기여도 추정이 표시됩니다."
+6. **new-dashboard2.css**: .nd2-coupon-contribution, __card, __label, __value (기여도 카드 스타일).
+
+**변경/추가 파일:** hooks/useNewDash2Data.js, components/ScoreCardGrid.jsx, OverviewSection.jsx, CouponSection.jsx, NewDashboard2Page.jsx, new-dashboard2.css, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 Executive Scorecard 업그레이드 완료
+
+**목적:** 종합현황 탭을 전광판(Scorecard) 형태로 재설계. 퍼널 제거·KPI 4카드(발송/열람/주문/주문전환률)·부문별 스코어카드 그리드·쿠폰 탭 안내 문구 반영.
+
+**구현 내용:**
+1. **OverviewSection.jsx**: 주문 퍼널 SectionBlock 및 FunnelBar 제거. 핵심 지표를 4개 카드로 변경(발송 건수, 열람 건수=send_success_cnt, 주문 건수, 주문전환률 compute). 전기대비 ChangePct에 suffix 지원(주문전환률은 pp, prevSummary 있으면 pp 표시). buildScoreItems(summaryData)로 부문별 요약 카드 데이터 생성, ScoreCardGrid 연동. 조회한 탭만 부문별 요약에 표시.
+2. **ScoreCardGrid.jsx** (신규): 부문별 스코어카드 3열 그리드. items: [{ title, metrics: [{ label, value, unit?, signal? }] }]. title별 좌측 컬러 바(스타/빈도/쿠폰/캠페인/매장). signal에 따른 value 색상(good/warn/poor). 반응형 768px→2열, 480px→1열.
+3. **useNewDash2Data.js**: summaryData state 추가. overview 탭 활성 시 캐시에서 star/frequency/coupon/campaign/store 요약 추출(extractSummaryFromCache). 반환 객체에 summaryData 포함.
+4. **NewDashboard2Page.jsx**: useNewDash2Data에서 summaryData 구조분해, OverviewSection에 summaryData 전달.
+5. **CouponSection.jsx**: 쿠폰 전환 퍼널 subtitle을 "쿠폰이 포함된 워크플로우만 집계 · 발급 → 사용 → 주문 전환"으로 변경. 퍼널 상단에 .nd2-info-note 안내 문구 추가.
+6. **new-dashboard2.css**: .nd2-score-card-grid, .nd2-score-card, .nd2-score-card__title/metric/label/value, .nd2-info-note 추가. .nd2-funnel__guide 없음(삭제 대상 없음), .nd2-funnel 스타일은 CouponSection에서 사용하므로 유지.
+
+**변경/추가 파일:** components/OverviewSection.jsx, components/ScoreCardGrid.jsx(신규), components/CouponSection.jsx, hooks/useNewDash2Data.js, NewDashboard2Page.jsx, new-dashboard2.css, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 Phase 9 (StoreSection) 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.7·§9 기준 StoreSection 구현 및 매장 분석 탭 연동.
+
+**구현 내용:**
+- **StoreSection.jsx**: data(S6 store_ranking, first_total_sales, total_sales_cnt, period, date_range_actual), dateRangeActual, period. 기간 라벨(주간/월간 시 formatDateRangeLabel). period !== 'daily' 시 "매장 분석은 일간 데이터만 제공됩니다" 안내(.nd2-store-section__notice). 총 매출(.nd2-store-total): total_sales_cnt ≥ 1e8이면 "N억", 미만이면 toLocaleString()+"원". 3테이블(.nd2-store-grid): 매장(연령대/1위 매장(메뉴명)), 음료(1위 음료), 음식(1위 음식); st_name null 시 "—". 하단 3카드(.nd2-store-summary): 1위 매장, 1위 연령대, 1위 성별(first_total_sales.store?.st_name, age_range, gender). 빈 데이터 시 "매장 분석 데이터가 없습니다." 표시.
+- **NewDashboard2Page.jsx**: StoreSection import, activeTab==='store' 시 nd2-store-tab에 로딩 플레이스홀더 또는 StoreSection 렌더. PLACEHOLDER_TABS에서 store 제거(빈 객체로 변경).
+- **new-dashboard2.css**: .nd2-store-section, .nd2-store-section__date-label, .nd2-store-section__notice, .nd2-store-section__empty, .nd2-store-total, .nd2-store-grid, .nd2-store-grid__col, .nd2-store-grid__title, .nd2-store-table, .nd2-store-summary, .nd2-store-summary__card/label/value, .nd2-store-tab. 반응형 1024px 이하 3열→1열.
+
+**변경/추가 파일:** components/StoreSection.jsx(신규), NewDashboard2Page.jsx, new-dashboard2.css, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 Phase 7 (CouponSection) 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.5 기준 CouponSection 구현 및 쿠폰 탭 연동.
+
+**구현 내용:**
+- **CouponSection.jsx**: data(S4 get_coupon_analyze), dateRangeActual, period. 기간 라벨(주간/월간 시 formatDateRangeLabel). 스칼라 3카드(.nd2-scalar-row): 주문건수, 쿠폰 발급수, 쿠폰 사용수. 3단계 퍼널(FunnelBar 로컬 정의): 쿠폰 발급→쿠폰 사용→주문(#7c5cfc, #22c55e, #ef4444). 우측 가이드(.nd2-coupon-guide): 사용률(≥60% 양호/≥40% 주의/미달), 주문전환율(≥80% 양호/≥50% 주의/미달) 신호(✅🔶🔴). 발급 연령·성별 / 사용 연령·성별 행(.nd2-section-row): AgeGenderBarChart + DemographicDonut(발급 #7c5cfc, 사용 #22c55e). FunnelBar·normalizeAgeDistribution·mapGenderToDonut 사용.
+- **NewDashboard2Page.jsx**: CouponSection import, activeTab==='coupon' 시 nd2-coupon-tab에 로딩 또는 CouponSection 렌더. PLACEHOLDER_TABS에서 coupon 제거.
+- **new-dashboard2.css**: .nd2-coupon-section, .nd2-coupon-section__date-label, .nd2-coupon-guide, .nd2-coupon-guide__item, .nd2-coupon-tab.
+
+**변경/추가 파일:** components/CouponSection.jsx(신규), NewDashboard2Page.jsx, new-dashboard2.css, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 추가 검수 반영 (now 버그·FunnelBar·CouponSection·ChangePct)
+
+**목적:** 검수 이슈 8건 반영. 기존 동작·API 유지.
+
+**적용 항목:**
+1. **높음** Backend/new_dash_server2/service.py: `get_product_master`에서 `now` 미정의 버그 수정 — 함수 시작에 `global _product_master_cache_time`, `now = time.time()` 추가, 캐시 hit 조건에 TTL 검사 적용.
+2. **중간** FunnelBar 공용화: components/FunnelBar.jsx 신규 생성, OverviewSection·CouponSection에서 로컬 FunnelBar 제거 후 import.
+3. **중간** CouponSection: `normalizeAgeDistribution` 삭제, 연령/성별 데이터를 StarSection·FrequencySection과 동일 패턴(Array.isArray ? data.xxx : [], mapGenderToDonut 직접 호출)으로 통일.
+4. **중간** CouponSection: `useRateSignal` → `getRateSignal`, `orderConversionSignal` → `getOrderConversionSignal` (Hook 오인 방지), 호출부 변수명 `rateSig`/`orderSig`.
+5. **중간** CouponSection: 신호등 기준값 상수화 — `RATE_THRESHOLD`, `ORDER_CONVERSION_THRESHOLD` 파일 상단 정의.
+6. **낮음** OverviewSection: ChangePct에서 `n === 0`일 때 "— 0%" 표시 (▼ 0.0% 대신).
+7. **낮음** CSS: nd2-coupon-section, nd2-coupon-guide, nd2-coupon-tab 등 이미 정의되어 있어 추가 없음.
+
+**변경/추가 파일:** service.py, components/FunnelBar.jsx(신규), OverviewSection.jsx, CouponSection.jsx, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 리팩토링(검수 반영) 완료
+
+**목적:** 타 AI 코드 검수에서 제안된 9개 개선 포인트 적용. 기존 동작·API 응답 형태 유지.
+
+**적용 항목:**
+1. **높음** NewDashboard2Page.jsx: overviewTrendMetric 변경 시 trend fetch useEffect에 `let cancelled = false` 클린업 패턴 적용(race condition 제거).
+2. **높음** formatDateRangeLabel 3곳 중복 제거 → utils/dateUtils.js에 export 추가, OverviewSection·StarSection·FrequencySection에서 import 사용.
+3. **중간** mapGenderToDonut 2곳 중복 제거 → utils/chartHelpers.js 신규 생성 후 StarSection·FrequencySection에서 import.
+4. **중간** useNewDash2Data.js: targetDate/period 변경 시 캐시 클리어를 별도 useEffect가 아닌 fetchTab 시작부에서 수행하도록 통합(캐시 타이밍 안정화).
+5. **중간** NewDashboard2Page.jsx: todayStr/moveDate 내 날짜 포맷을 dateUtils.toLocalDateString 사용으로 통일.
+6. **중간** NewDashboard2Page.jsx: coupon/campaign/store placeholder를 PLACEHOLDER_TABS 상수로 통합.
+7. **낮음** Backend/new_dash_server2/router.py: 8개 엔드포인트 공통 try/except를 handle_errors 데코레이터로 통합.
+8. **낮음** Backend/new_dash_server2/service.py: get_product_master 캐시에 TTL 1시간(_product_master_cache_time, _PRODUCT_MASTER_TTL) 추가.
+9. **낮음** Backend/new_dash_server2/service.py: get_trend_data에 ALLOWED_TABLES 검사 추가, 모듈 상단에 ALLOWED_METRICS.keys() <= ALLOWED_TABLES assert 추가(SQL 안전성 보강).
+
+**변경/추가 파일:** NewDashboard2Page.jsx, utils/dateUtils.js, utils/chartHelpers.js(신규), OverviewSection.jsx, StarSection.jsx, FrequencySection.jsx, hooks/useNewDash2Data.js, Backend/new_dash_server2/router.py, Backend/new_dash_server2/service.py, docs/report/log.md.
+
+---
+
+## 2026-03-13 New Dashboard 2 Phase 6 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.3·§8.4 기준 StarSection, FrequencySection 구현.
+
+**구현 내용:**
+- **StarSection.jsx**: data(S2 응답), dateRangeActual, period. 기간 라벨(주간/월간 시 getMonthWeekLabel). 4 스칼라 카드(.nd2-scalar-row): 주문건수, 별 발급수, 최초 별 발급수, 별 발송수. 비교 바 차트(.nd2-star-comparison, 퍼널 아님): 별 발급/별 발송/최초 별 발급 3개 가로 바 동일 스케일. 발급 연령·성별 / 발송 연령·성별 행(.nd2-section-row): AgeGenderBarChart(issue_age_distribution, send_age_distribution), DemographicDonut(issue_gender_distribution→{label,value}, send_gender_distribution).
+- **FrequencySection.jsx**: data(S3 응답), dateRangeActual, period. 기간 라벨 동일. 1 스칼라: 프리퀀시 달성 건수. 한 행: 달성 연령대 AgeGenderBarChart + 달성 성별 DemographicDonut.
+- **NewDashboard2Page.jsx**: activeTab==='star' 시 StarSection, activeTab==='frequency' 시 FrequencySection 렌더, data/dateRangeActual/period 전달.
+- **new-dashboard2.css**: .nd2-scalar-row, .nd2-section-row, .nd2-star-comparison, .nd2-star-section, .nd2-frequency-section, .nd2-star-tab, .nd2-frequency-tab.
+
+**변경/추가 파일:** components/StarSection.jsx·FrequencySection.jsx(신규), NewDashboard2Page.jsx·new-dashboard2.css(수정), docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 12 검증 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §11 기준 API·프론트 연동 검증.
+
+**검증 결과 (전항목 통과):**
+1. API 경로: client.js getNewDash2* 경로와 router.py prefix·라우트 일치.
+2. Overview API: get_dashboard_overall 응답에 KPI·*_change_pct·period·date_range_actual 존재.
+3. Trend API: 응답 형태 { rows, period, table_name }, get_trend_data 반환 일치.
+4. 프론트 데이터 흐름: useNewDash2Data → overview(summary, trend), campaign(segments), store(store_ranking, first_total_sales, total_sales_cnt) 컴포넌트 Props 매칭.
+5. StoreSection: S6 응답 키·period≠daily 시 "매장 분석은 일간 데이터만 제공됩니다" 노출 확인.
+6. 데이터 없음: 백엔드 0/빈 반환·500 미발생, 프론트 "데이터가 없습니다" 등 표시.
+7. Trend 메트릭 화이트리스트: ALLOWED_METRICS 검증·ValueError 시 400 반환.
+
+**변경 파일:** 없음 (검증만 수행).
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 10·11 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §9·§10 기준 CSS 정리 및 App.jsx 라우팅·메뉴 등록.
+
+**Phase 10:** new-dashboard2.css는 Phase 5~9에서 .nd2- 접두사·컴포넌트별 클래스·반응형(1024px 4열→2열, 3열→1열) 적용 완료. 추가 보완 없이 현행 유지.
+
+**Phase 11 — App.jsx:**
+- import NewDashboard2Page from './packages/new-dashboard2' 추가.
+- NavLink to="/new-dashboard2" 라벨 "마케팅 대시보드" 추가(뉴 대시보드 다음).
+- Route path="/new-dashboard2" element={<NewDashboard2Page />} 추가.
+- 상단 주석 [Routes], [Route path], [Dependencies]에 new-dashboard2 반영.
+
+**변경 파일:** Frontend/react-app/src/App.jsx.
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 9 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.7 기준 StoreSection 구현.
+
+**구현 내용:**
+- **StoreSection.jsx**: S6 응답(store_ranking, first_total_sales, total_sales_cnt). 기간 라벨, period≠daily 시 "매장 분석은 일간 데이터만 제공됩니다" 안내. 총 매출(1억 이상 N억/미만 toLocaleString+원), .nd2-store-grid 3열(매장·음료·음식 연령대별 1위 st_name), 하단 3카드(1위 매장·연령대·성별).
+- **NewDashboard2Page.jsx**: store 탭에 StoreSection 렌더, PLACEHOLDER_TABS에서 store 제거(빈 객체로 정리).
+- **new-dashboard2.css**: .nd2-store-section, .nd2-store-total, .nd2-store-grid, .nd2-store-table, .nd2-store-summary, .nd2-store-tab, 1024px 반응형 1열.
+
+**변경/추가 파일:** components/StoreSection.jsx(신규), NewDashboard2Page.jsx·new-dashboard2.css(수정).
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 8 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.6 기준 CampaignSegmentTable 구현.
+
+**구현 내용:**
+- **CampaignSegmentTable.jsx**: segments(S5 응답 배열), dateRangeActual, period. 기간 라벨(주간/월간), 컬럼 12개(캠페인ID·워크플로우ID·타겟수·발송요청·발송성공·성공률·주문건수·쿠폰사용·주요연령대·주요성별·쿠폰주요연령·쿠폰주요성별). 성공률=send_success/send_request*100, first_* null 시 "—". 다중 정렬(Shift+클릭), 페이지네이션 10건/페이지, .nd2-rank-table-wrap·.nd2-rank-table.
+- **NewDashboard2Page.jsx**: campaign 탭에 CampaignSegmentTable 렌더, PLACEHOLDER_TABS에서 campaign 제거.
+- **new-dashboard2.css**: .nd2-campaign-tab, .nd2-campaign-segment, .nd2-rank-table-wrap·.nd2-rank-table 관련 스타일.
+
+**변경/추가 파일:** components/CampaignSegmentTable.jsx(신규), NewDashboard2Page.jsx·new-dashboard2.css(수정).
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 7 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.5 기준 CouponSection 구현.
+
+**구현 내용:**
+- **CouponSection.jsx**: S4 응답 기반. 기간 라벨, 스칼라 3개(주문건수·쿠폰 발급·쿠폰 사용), 3단계 퍼널(발급→사용→주문), 우측 가이드(사용률·주문전환율, ≥60%/≥40%·≥80%/≥50% 기준 신호등), 발급 연령/성별 BarChart+Donut(#7c5cfc), 사용 연령/성별 BarChart+Donut(#22c55e).
+- **NewDashboard2Page.jsx**: coupon 탭에 CouponSection 렌더, PLACEHOLDER_TABS에서 coupon 제거.
+- **new-dashboard2.css**: .nd2-coupon-section, .nd2-coupon-guide, .nd2-coupon-tab 추가.
+
+**변경/추가 파일:** components/CouponSection.jsx(신규), NewDashboard2Page.jsx·new-dashboard2.css(수정).
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 6 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.3·§8.4 기준 StarSection, FrequencySection 구현.
+
+**구현 내용:**
+- **StarSection.jsx**: S2 응답 기반. 기간 라벨(주간/월간), 스칼라 카드 4개(주문건수·별 발급·최초 별 발급·별 발송), 비교 바 차트 3개(퍼널 아님), 발급 연령/성별 BarChart+Donut, 발송 연령/성별 BarChart+Donut. AgeGenderBarChart·DemographicDonut 재사용.
+- **FrequencySection.jsx**: S3 응답 기반. 기간 라벨, 스칼라 1개(프리퀀시 달성 건수), 달성 연령대 BarChart + 달성 성별 Donut.
+- **NewDashboard2Page.jsx**: star·frequency 탭에 StarSection·FrequencySection 렌더, data·dateRangeActual·period 전달.
+- **new-dashboard2.css**: .nd2-scalar-row, .nd2-section-row, .nd2-star-comparison, .nd2-star-section, .nd2-frequency-section 등 추가.
+
+**변경/추가 파일:** components/StarSection.jsx·FrequencySection.jsx(신규), NewDashboard2Page.jsx·new-dashboard2.css(수정).
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 5 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §8.1·§8.2 기준 OverviewSection, OverviewTrendChart 구현.
+
+**구현 내용:**
+- **OverviewSection.jsx**: summary(S1 응답), dateRangeActual, period. 8 KPI 카드 2×4 그리드(.nd2-overview-grid), 카드별 3px 보더 색·증감률(▲▼/—), total_sales_cnt 억/원 표기. 4단계 퍼널(발송요청→발송성공→쿠폰발급→주문)+가이드(성공률·발급률·주문전환률).
+- **OverviewTrendChart.jsx**: trend.rows, period, selectedMetric, onMetricChange. 4 메트릭 탭(발송요청/발송성공/주문건수/총매출), Recharts LineChart, X축 period별 포맷, Y축 K 단위.
+- **NewDashboard2Page.jsx**: overview 탭에 OverviewSection·OverviewTrendChart 연동, overviewTrendMetric 상태 및 메트릭 변경 시 trend 재조회.
+- **new-dashboard2.css**: .nd2-overview-section, .nd2-overview-grid, .nd2-kpi-card, .nd2-funnel, .nd2-trend-chart 관련 스타일, 1024px 반응형 2열.
+
+**변경/추가 파일:** components/OverviewSection.jsx·OverviewTrendChart.jsx(신규), NewDashboard2Page.jsx·new-dashboard2.css(수정).
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 4 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md §7 기준 훅·헤더·메인 페이지 뼈대 구현.
+
+**구현 내용:**
+- **utils/dateUtils.js**: getISOWeekNumber, getMonthWeekLabel, toLocalDateString, dateToWeekValue, weekValueToDate (new-dashboard 미참조, 로직 복사).
+- **hooks/useNewDash2Data.js**: targetDate, period, activeTab → 탭별 API 호출, 캐시 키·초기화, 반환 { data, loading, error, refresh }. overview = summary + trend 병렬 호출.
+- **components/Dash2Header.jsx**: 테이블 셀렉트 없음, 날짜 네비(◀▶)+input(date/week/month)+주차 라벨, period 토글(일간/주간/월간), 새로고침. .nd2-header·.nd2-header__period-toggle 등.
+- **NewDashboard2Page.jsx**: targetDate/period/activeTab state, moveDate(period별), useNewDash2Data 연동, Dash2Header + 탭바(종합현황|별 분석|프리퀀시|쿠폰|캠페인 세그먼트|매장 분석) + 탭별 플레이스홀더.
+- **index.js**: export default NewDashboard2Page.
+- **new-dashboard2.css**: .nd2-page, .nd2-tab-bar, .nd2-tab, .nd2-tab--active, .nd2-header 레이아웃·스타일.
+
+**변경/추가 파일:** packages/new-dashboard2/utils/dateUtils.js, hooks/useNewDash2Data.js, components/Dash2Header.jsx, NewDashboard2Page.jsx, index.js, new-dashboard2.css(신규), docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 2·3 병렬 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md 기준 Phase 2(API 클라이언트 8개 함수)와 Phase 3(공통 컴포넌트 2개) 병렬 구현.
+
+**Phase 2 — client.js:**
+- getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store: targetDate, period 쿼리; fetch + res.json(), !res.ok 시 throw.
+- getNewDash2Trend(tableName, metrics, { endDate, days, period, count }): /api/new-dashboard2/trend 쿼리 파라미터.
+- getNewDash2ProductMaster(): GET /api/new-dashboard2/product-master.
+- baseUrlNewDashboard2() = getApiBase().replace(/\/$/, ''). 상단 [Main Functions]에 8개 함수명 반영.
+
+**Phase 3 — new-dashboard2/components/:**
+- AgeGenderBarChart.jsx: data([{range, count}]), title, color, height. Recharts BarChart vertical, LabelList toLocaleString, .nd2-age-bar-chart.
+- DemographicDonut.jsx: data([{label, value}]), title, colors. Recharts PieChart innerRadius 40 outerRadius 70, 범례(라벨+퍼센트+값), 중앙 합계, .nd2-demographic-donut.
+- new-dashboard 패키지 import 없음, recharts·react만 사용.
+
+**변경/추가 파일:** shared/api/client.js(수정), packages/new-dashboard2/components/AgeGenderBarChart.jsx·DemographicDonut.jsx(신규), docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 1·1-reg 백엔드 구현 완료
+
+**목적:** docs/report/13_New_Dashboard2_Develop_Plan.md 기준 Phase 1(Backend new_dash_server2) 및 Phase 1-reg(main.py 라우터 등록) 구현.
+
+**구현 내용:**
+- **Backend/new_dash_server2/** 패키지 신규 생성: `__init__.py`, `star_db.py`, `mappings.py`, `service.py`, `router.py`.
+- **star_db.py**: config.backend.star_db 전용 연결 풀, db.py 미import·자족 구현, _PooledConnection 복사, get_star_db_connection(풀+fallback).
+- **mappings.py**: GENDER_MAP, AGE_RANGE_MAP, STORE_CATEGORY_MAP, CHANNEL_MAP, age_range_columns(prefix), gender_columns(prefix), normalize_age_range_value(val).
+- **service.py**: S1~S8(get_dashboard_overall, get_star_analyze, get_frequency_analyze, get_coupon_analyze, get_campaign_segments, get_store_order_analyze, get_trend_data, get_product_master). period 지원, 화이트리스트 검증, 데이터 없음 시 500 미반환.
+- **router.py**: GET /api/new-dashboard2/overview, /star, /frequency, /coupon, /campaign-segments, /store, /trend, /product-master. /trend 응답 { rows, period, table_name }.
+- **Backend/api_server/main.py**: new_dash2_router import 및 include_router 등록.
+
+**검증:** `from Backend.new_dash_server2 import router` 성공, router.prefix `/api/new-dashboard2` 확인.
+
+**변경/추가 파일:** Backend/new_dash_server2/*.py(신규), Backend/api_server/main.py(수정), docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 개발 계획서 age_range 정규화·S6 반환 예시 추가 (13번 문서)
+
+**목적:** "30s"/"over_70s" → AGE_RANGE_MAP 키 미스매치 방지, S6 store_ranking 반환 스키마 명시.
+
+**적용 항목:**
+- §15 보완 8-B: **normalize_age_range_value(val)** 헬퍼 명시 — trailing 's' 제거 후 AGE_RANGE_MAP 조회. S5·S6 first_*_age_range 공통.
+- §15 보완 8-C: first_total_sales_cnt_age_range 변환 시 정규화 한 줄 추가; **S6 반환 구조 예시**(store_ranking.store/beverage/food, first_total_sales, total_sales_cnt, period, date_range_actual) 추가.
+- §3.3 mappings: normalize_age_range_value 참조. §3.4 S5: first_order_age_range/first_coupon_use_age_range에 normalize_age_range_value 적용 명시.
+- 보완 체크리스트 8번에 normalize·S6 반환 예시 반영.
+
+**변경 파일:** docs/report/13_New_Dashboard2_Develop_Plan.md, docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 개발 계획서 최종 검수 반영 (13번 문서, §15 보완 8)
+
+**목적:** 테이블-서비스 컬럼 호환성 검수 이슈 6건 반영. §15에 **보완 8**(8-A~8-E) 추가.
+
+**적용 항목:**
+- **8-A** 연령대·성별 prefix 테이블: S2~S5별 테이블·연령대 prefix·성별 prefix 표(issue_age_range, send_age_range, frequency_complete_age_range, issue/use_age_range, age_range 등).
+- **8-B** mappings.py **gender_columns(prefix)** 헬퍼 추가 명시: (prefix_male, "남자"), (prefix_female, "여자").
+- **8-C** S6 컬럼별 변환 분류: st_code→product_master dict / first_total_sales_cnt_age_range·gender→AGE_RANGE_MAP·GENDER_MAP / total_sales_cnt 숫자.
+- **8-D** StoreSection 총 매출: S6 total_sales_cnt 사용, period≠daily일 때도 마지막 일자 값 그대로(기간 합산 아님).
+- **8-E** trend ALLOWED_METRICS 전체 목록: 연령대/성별 개별 컬럼 **미포함**, 스칼라 지표만. dashboard_overall·star_analyze_overall·frequency_analyze_overall·coupon_analyze_overall·campaign_segment_overall 허용 컬럼 명시.
+- §3.3 mappings에 gender_columns·prefix 표 참조, §3.4 S6에 8-C·8-D, S7에 8-E 참조, §8.7 StoreSection에 8-D, Phase 1 체크리스트·§13-2에 보완 8 반영.
+
+**변경 파일:** docs/report/13_New_Dashboard2_Develop_Plan.md, docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 개발 계획서 보완 지시 반영 (13번 문서, §15 추가)
+
+**목적:** star_db.py 구현 디테일·trend count/응답·S1/S5 SQL·패키지 독립성 등 7항목을 §15 보완 지시로 통합 반영.
+
+**적용 항목:**
+1. **§15 보완 1** star_db.py: config 로딩(try/except+sys.path), get_star_db_config/get_star_schema, _PooledConnection 복사, ThreadedConnectionPool(min=1 max=5), get_star_db_connection(풀+fallback). **db.py import 금지**.
+2. **§15 보완 2·3** trend API: **count** 파라미터(ge=1 le=52), get_trend_data 시그니처에 count, start_date 계산(daily/weekly/monthly). **응답 형태** `{ rows, period, table_name }`, 프론트 trend.rows.
+3. **§15 보완 4** S1 참고 SQL: COALESCE+SUM+BETWEEN 템플릿 본문·§15에 명시.
+4. **§15 보완 5** S5 campaign_segment: 2단계 쿼리(숫자 GROUP BY SUM + DISTINCT ON first_* + Python merge).
+5. **§15 보완 6** OverviewTrendChart: period별 trendParams(daily→days=30, weekly/monthly→count=12), 코드 예시 명시.
+6. **§15 보완 7** 패키지 독립성: db.py·dashboard_service import 금지; new-dashboard 직접 import 금지. 주의 사항 11번에 반영.
+7. §3.2 star_db·§3.4 S1/S5/S7·§3.5 router·§5 client·§8.2·주의 사항·체크리스트·§13-2에 상호 참조 및 요약 반영.
+
+**변경 파일:** docs/report/13_New_Dashboard2_Develop_Plan.md, docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 개발 계획서 추가 개선 (13번 문서, 10항목 반영)
+
+**목적:** 서브에이전트가 문서만 보고 구현 시 막히거나 잘못 만들 수 있는 지점 10건 반영.
+
+**적용 항목:**
+1. **StarSection**: 퍼널 → **비교 바 차트** 권장(별 발급/발송/최초발급은 퍼널 관계 아님), §1-0·§8.3 반영.
+2. **campaign_segment first_***: weekly/monthly 시 **DISTINCT ON (campaign_id, workflow_id) ORDER BY base_date DESC** 또는 서브쿼리 MAX(base_date) 명시. MODE() 비권장.
+3. **store_order_analyze**: 컬럼별 의미(first_age_range_10_store 등), **Python dict 매핑** 권장(SQL 다중 JOIN 비권장).
+4. **증감률**: S1만 change_pct, **S2~S6는 증감률 반환하지 않음** 명시.
+5. **get_trend_data**: **metric_columns 테이블별 ALLOWED_METRICS 화이트리스트** 검증 필수.
+6. **useNewDash2Data**: 탭별 **data 스키마** 명시(overview: { summary, trend }, star: S2 그대로 등).
+7. **OverviewTrendChart**: period별 trend API **days/count 매핑**(daily 30일, weekly 12주, monthly 12개월).
+8. **Phase 11**: React Router v6, **direct import** 패턴 명시.
+9. **Phase 10 CSS**: **컴포넌트 → CSS 클래스 매핑** 테이블 추가.
+10. **데이터 없음**: 500 금지, KPI 0/정상 JSON, 프론트 "조회된 데이터가 없습니다" 처리.
+
+**추가:** §13-2 서브에이전트 구현 시 주의(점검) 체크리스트 10항목 표.
+
+**변경 파일:** docs/report/13_New_Dashboard2_Develop_Plan.md, docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 개발 계획서 보완 (13번 문서)
+
+**목적:** 13_New_Dashboard2_Develop_Plan.md에 period(일간/주간/월간) 지원·기존 UI 재활용 정리·퍼널 추가 반영.
+
+**적용 항목:**
+- **기존 대비 차이·UI 재활용 정리** 섹션(§1-0): KPISummaryCards→OverviewSection, TrendLineChart→OverviewTrendChart, FunnelSection→Overview/Coupon/Star 퍼널, CampaignRankTable→CampaignSegmentTable, SummaryHeader→Dash2Header, dateUtils 공유 표로 정리.
+- **Backend service.py**: 모든 조회 함수에 target_date + period, _calc_date_range/_calc_previous_range, WHERE base_date BETWEEN + SUM; get_store_order_analyze는 daily만 유효(주·월 시 마지막 일자 1행); get_campaign_segments 주·월 시 campaign_id·workflow_id GROUP BY.
+- **Router·Client**: 모든 엔드포인트·API 함수에 period 파라미터, 응답 period·date_range_actual.
+- **Dash2Header**: period 토글(일간/주간/월간) 복원, dateRangeActual·주차 라벨.
+- **NewDashboard2Page·useNewDash2Data**: period state, moveDate period별 ±1일/±7일/±1개월, period 변경 시 리셋·재조회.
+- **탭별 섹션**: 주간/월간 시 date_range_actual 라벨; OverviewSection 4단계 퍼널, CouponSection 3단계 퍼널+사용률·주문전환율 가이드, StarSection 3단계 퍼널; StoreSection "매장 분석은 일간 데이터만 제공됩니다" 안내.
+- **체크리스트·검증·주의사항**: period·퍼널·store 일간 제한 반영.
+
+**변경·추가 파일:** docs/report/13_New_Dashboard2_Develop_Plan.md, docs/report/log.md.
+
+---
+
+## 2026-03-12 New Dashboard 2 개발 계획서 작성 (13번 문서)
+
+**목적:** 마케팅 성과 분석 대시보드(New Dashboard 2) 제작을 위한 개발 계획서를 docs/report의 13번 문서로 작성. 서브에이전트가 문서만으로 Phase/Step 단위 구현이 가능하도록 상세 명세 포함.
+
+**적용 항목:**
+- **13_New_Dashboard2_Develop_Plan.md** 신규 작성: star_db(ibank_star_data) 전용 백엔드 new_dash_server2, 프론트 new-dashboard2 패키지. 6개 집계 테이블 + star_product_master, Phase 1(DB·service·router)～Phase 12(검증), Step 1～13 구현 순서, API·컴포넌트 Props·체크리스트·주의사항 정리.
+- **00_ReportIndex.md**: 13번 문서 목록 항목 추가.
+
+**변경·추가 파일:** docs/report/13_New_Dashboard2_Develop_Plan.md (신규), docs/report/00_ReportIndex.md, docs/report/log.md.
+
+---
+
 ## 2026-03-12 ETL2 배치 즉시실행·재활성 버튼 동작 보강
 
 **목적:** 즉시실행 버튼 클릭 시 실제로 배치가 스케줄/실행되도록, 2026-03-10 적용분 보완.
@@ -2043,3 +2530,26 @@ non_pk가 없으면 기존처럼 DO NOTHING만 사용하며 updated=0.
 - `packages/etl2/components/BatchJobFormFile.jsx`: 배치 Job 등록 폼. 폴더 연결·파일 패턴 선택(PatternSelectModalFile)·저장 DB·job_name·target_table·pk_columns·interval_minutes(10~1440)·is_active. 등록 시 `batchCreateJob` 호출 후 `onSuccess` 콜백.
 - `packages/etl2/components/BatchJobListFile.jsx`: 배치 Job 목록 테이블. `batchListJobs()` 조회, refreshKey 반영. 컬럼: job_name, 폴더, file_pattern, 저장 DB, 주기, 상태(활성/비활성), 마지막 상태·시각. 동작: 활성/비활성 토글, 즉시 실행, 이력(optional), 삭제(확인 후).
 - `packages/etl2/ETLPage.jsx`: `sourceType === 'folder'` 일 때 "배치 Job" 섹션에 `BatchJobFormFile`, `BatchJobListFile` 렌더. 목록 갱신은 기존 `handleRefresh`/`refreshKey` 사용.
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 4 (훅·헤더·페이지 뼈대)
+
+**구현 내용 (docs/report/13_New_Dashboard2_Develop_Plan.md §7):**
+- **packages/new-dashboard2/utils/dateUtils.js** (신규): getISOWeekNumber, getMonthWeekLabel, toLocalDateString, dateToWeekValue, weekValueToDate. new-dashboard 패키지 import 없이 동일 로직 복사.
+- **packages/new-dashboard2/hooks/useNewDash2Data.js** (신규): useNewDash2Data(targetDate, period, activeTab) → { data, loading, error, refresh }. overview → Promise.all(Overview + Trend) 병합, star/frequency/coupon/campaign/store → 각 API 단일 호출. 캐시 키 `${activeTab}-${targetDate}-${period}`, targetDate/period 변경 시 캐시 클리어. API는 @/shared/api/client 사용.
+- **packages/new-dashboard2/components/Dash2Header.jsx** (신규): targetDate, onDateChange, period, onPeriodChange, dateRangeActual, onPrev, onNext, onRefresh, loading. 테이블 셀렉트 없음. 좌측 빈 영역, 중앙 ◀+날짜표시+input(date|week|month)+▶+주간 시 N주차 라벨, 우측 period 토글(일간/주간/월간)+새로고침. 클래스 .nd2-header, .nd2-header__period-toggle, .nd2-header__period-btn, .nd2-header__period-btn--active.
+- **packages/new-dashboard2/NewDashboard2Page.jsx** (신규): state targetDate(오늘), period('daily'), activeTab('overview'). 탭 6개(종합현황|별 분석|프리퀀시|쿠폰 분석|캠페인 세그먼트|매장 분석). useNewDash2Data 연동, moveDate(delta) 일/주/월 단위 이동, dateRangeActual은 data?.summary?.date_range_actual(overview) 또는 data?.date_range_actual. Dash2Header + .nd2-tab-bar + 탭별 플레이스홀더만 표시(OverviewSection 등 미구현).
+- **packages/new-dashboard2/index.js** (신규): export { default } from './NewDashboard2Page'.
+- **packages/new-dashboard2/new-dashboard2.css** (신규): .nd2-page, .nd2-tab-bar, .nd2-tab, .nd2-tab--active, .nd2-header 및 period 토글·레이아웃 최소 스타일.
+**규칙:** new-dashboard 패키지 import 금지. shared/api/client, new-dashboard2 내부만 사용.
+
+---
+
+## 2026-03-12 New Dashboard 2 Phase 5 (OverviewSection, OverviewTrendChart)
+
+**구현 내용 (docs/report/13_New_Dashboard2_Develop_Plan.md §8.1, §8.2, §9):**
+- **packages/new-dashboard2/components/OverviewSection.jsx** (신규): summary(S1), dateRangeActual, period. 주간/월간 시 상단 기간 라벨( getMonthWeekLabel 활용). 8개 KPI 카드 2×4 그리드(.nd2-overview-grid), 카드별 상단 3px 보더 색상(발송요청 #7c5cfc 등). total_sales_cnt 1억 이상 "N억", 미만 toLocaleString+원. 증감률 green ▲ / red ▼ / "—". 4단계 퍼널(발송요청→발송성공→쿠폰발급→주문) FunnelBar 패턴, 가이드(성공률·발급률·주문전환률).
+- **packages/new-dashboard2/components/OverviewTrendChart.jsx** (신규): trend({ rows }), period, selectedMetric, onMetricChange, loading. 메트릭 탭 4개(발송요청/발송성공/주문건수/총매출). Recharts LineChart, X축 period별(MM/DD·주차·YYYY-MM), Y축 K 단위, dataKey=selectedMetric. API 호출 없음, 부모가 trend 전달·메트릭 변경 시 재조회.
+- **packages/new-dashboard2/NewDashboard2Page.jsx** (수정): overview 탭에 OverviewSection + OverviewTrendChart 배치. overviewTrendMetric 상태(기본 send_request_cnt), overviewTrendData·overviewTrendLoading. 메트릭 변경 시 getNewDash2Trend 호출 후 overviewTrendData 반영. trend prop은 기본 메트릭이면 data?.trend, 그 외 overviewTrendData.
+- **packages/new-dashboard2/new-dashboard2.css** (수정): .nd2-overview-section, .nd2-overview-grid, .nd2-kpi-card, .nd2-kpi-card__label/__value/__change(—up/—down), .nd2-funnel, .nd2-funnel-bar*, .nd2-trend-chart, .nd2-trend-chart__tabs/__tab/__loading/__chart. 반응형 1024px 이하 4열→2열.

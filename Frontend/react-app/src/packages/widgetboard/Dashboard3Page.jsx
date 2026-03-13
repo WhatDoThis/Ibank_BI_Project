@@ -6,7 +6,9 @@
  *
  * [Main Functions]
  * ===========
- * 레이아웃·위젯 설정 localStorage 저장. 위젯 타입(KPI/차트/테이블)·테이블·컬럼 선택. react-grid-layout 드래그/리사이즈.
+ * 1. 레이아웃·위젯 설정 localStorage 저장
+ * 2. 위젯 타입(KPI/차트/테이블)·테이블·컬럼 선택
+ * 3. react-grid-layout 드래그/리사이즈
  *
  * [Dependencies]
  * =========
@@ -83,6 +85,7 @@ const CHART_TYPES = [
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1']
 
+// 1.
 function loadLayout() {
   try {
     const raw = localStorage.getItem(LAYOUT_STORAGE_KEY)
@@ -94,6 +97,7 @@ function loadLayout() {
   }
 }
 
+// 2.
 function loadConfigs() {
   try {
     const raw = localStorage.getItem(CONFIGS_STORAGE_KEY)
@@ -105,6 +109,7 @@ function loadConfigs() {
   }
 }
 
+// 3.
 function saveLayout(layout) {
   try {
     if (layout?.length) localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout))
@@ -113,6 +118,7 @@ function saveLayout(layout) {
   }
 }
 
+// 4.
 function saveConfigs(configs) {
   try {
     localStorage.setItem(CONFIGS_STORAGE_KEY, JSON.stringify(configs))
@@ -121,6 +127,7 @@ function saveConfigs(configs) {
   }
 }
 
+// 5.
 /** SQL 식별자 이스케이프 (PostgreSQL: "name" 형태) */
 function escapeTableName(name) {
   if (name == null) return '""'
@@ -128,6 +135,7 @@ function escapeTableName(name) {
   return `"${s}"`
 }
 
+// 6.
 function EChartsRadarGauge({ chartData, chartType, metricKey }) {
   const chartRef = useRef(null)
   const instanceRef = useRef(null)
@@ -178,6 +186,7 @@ function EChartsRadarGauge({ chartData, chartType, metricKey }) {
   return <div ref={chartRef} className="widget-echarts" style={{ width: '100%', height: '100%', minHeight: 120 }} />
 }
 
+// 7.
 function WidgetBlock({
   id,
   config,
@@ -365,6 +374,7 @@ function WidgetBlock({
   )
 }
 
+// 8.
 export default function Dashboard3Page() {
   const [layout, setLayout] = useState(loadLayout)
   const [configs, setConfigs] = useState(loadConfigs)

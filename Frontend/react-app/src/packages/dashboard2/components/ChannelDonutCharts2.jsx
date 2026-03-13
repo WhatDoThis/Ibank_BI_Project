@@ -3,15 +3,11 @@
  * ==================================================================
  * 대시보드2 KPI channel_distribution 도넛. 발송 요청·발송 성공 채널별 비중. 기준/비교 기간 블록 배경·도넛 색상 구분. 비교 기간 데이터 없을 때 "해당 기간 데이터가 없습니다." 표시.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - getDistributionTotal: 기준/비교 데이터 유무 판별
- * - DonutBlock: variant(default|base|compare). default=CHART_COLORS_PALETTE(기존), base=연한색, compare=짙은색
- * - ChannelDonutCharts2: kpi, compareKpi. 기준 블록(--base), 비교 블록(--compare). 비교 합계 0이면 빈 메시지 노출
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - ChannelDonutCharts2 (default export)
+ * 1. getDistributionTotal: 기준/비교 데이터 유무 판별
+ * 2. DonutBlock: variant(default|base|compare). default=CHART_COLORS_PALETTE, base=연한색, compare=짙은색
+ * 3. ChannelDonutCharts2 (default export): kpi, compareKpi. 기준 블록(--base), 비교 블록(--compare)
  *
  * [Dependencies]
  * =========
@@ -27,11 +23,13 @@ const BASE_CHART_COLORS = ['#c4b5fd', '#93c5fd', '#6ee7b7', '#fcd34d', '#fca5a5'
 /** 비교 기간 도넛 색상 (위 팔레트의 짙은색) */
 const COMPARE_CHART_COLORS = ['#6d28d9', '#1d4ed8', '#047857', '#b45309', '#b91c1c', '#4338ca']
 
+// 1.
 function formatNum(n) {
   if (n == null) return '0'
   return new Intl.NumberFormat('ko-KR').format(n)
 }
 
+// 2.
 function getDistributionTotal(dist) {
   if (!dist) return 0
   const sendTotal = (dist.send || []).reduce((s, d) => s + (d.value || 0), 0)
@@ -39,6 +37,7 @@ function getDistributionTotal(dist) {
   return sendTotal + successTotal
 }
 
+// 3.
 function DonutBlock({ title, data, totalLabel, variant = 'default' }) {
   if (!data || data.length === 0) return null
   const total = data.reduce((s, d) => s + (d.value || 0), 0)
@@ -96,6 +95,7 @@ function DonutBlock({ title, data, totalLabel, variant = 'default' }) {
   )
 }
 
+// 4.
 export default function ChannelDonutCharts2({ kpi, compareKpi }) {
   const dist = kpi?.channel_distribution
   const compareDist = compareKpi?.channel_distribution

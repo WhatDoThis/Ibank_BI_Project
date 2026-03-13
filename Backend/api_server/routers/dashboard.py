@@ -3,14 +3,14 @@ Backend.api_server.routers.dashboard (대시보드1 API)
 ====================================================
 FastAPI 라우터. prefix /api/dashboard. 대시보드1용 집계·필터 옵션·테이블 목록·필수 컬럼·차트 데이터.
 
-[Functions]
+[Main Functions]
 ===========
-32 - _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
-42 - dashboard_data: POST /api/dashboard/data (집계·KPI)
-66 - dashboard_filter_options: GET /api/dashboard/filter-options/{table_id}
-90 - dashboard_tables: GET /api/dashboard/tables
-100 - dashboard_required_columns: GET /api/dashboard/required-columns
-109 - dashboard_chart_data: POST /api/dashboard/chart-data (차트용 집계)
+1. _parse_int_list: 쿼리 파라미터 campaign_ids/workflow_ids/channels 파싱
+2. dashboard_data: POST /api/dashboard/data (집계·KPI)
+3. dashboard_filter_options: GET /api/dashboard/filter-options/{table_id}
+4. dashboard_tables: GET /api/dashboard/tables
+5. dashboard_required_columns: GET /api/dashboard/required-columns
+6. dashboard_chart_data: POST /api/dashboard/chart-data (차트용 집계)
 
 [Dependencies]
 =========
@@ -29,6 +29,7 @@ from Backend.api_server.schemas import ChartDataRequest, DashboardDataRequest
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
+# 1.
 def _parse_int_list(value: Optional[str]):
     if not value or not str(value).strip():
         return None
@@ -38,6 +39,7 @@ def _parse_int_list(value: Optional[str]):
         return None
 
 
+# 2.
 @router.post("/data")
 def dashboard_data(body: DashboardDataRequest):
     try:
@@ -62,6 +64,7 @@ def dashboard_data(body: DashboardDataRequest):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "대시보드 데이터 조회 실패"})
 
 
+# 3.
 @router.get("/filter-options/{table_id}")
 def dashboard_filter_options(
     table_id: str,
@@ -86,6 +89,7 @@ def dashboard_filter_options(
         return JSONResponse(status_code=500, content={"error": str(e), "message": "필터 옵션 조회 실패"})
 
 
+# 4.
 @router.get("/tables")
 def dashboard_tables():
     try:
@@ -96,6 +100,7 @@ def dashboard_tables():
         return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 목록 조회 실패"})
 
 
+# 5.
 @router.get("/required-columns")
 def dashboard_required_columns():
     try:
@@ -105,6 +110,7 @@ def dashboard_required_columns():
         return JSONResponse(status_code=500, content={"error": str(e), "message": "필수 컬럼 조회 실패"})
 
 
+# 6.
 @router.post("/chart-data")
 def dashboard_chart_data(body: ChartDataRequest):
     try:

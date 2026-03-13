@@ -3,14 +3,10 @@
  * ===================================================================
  * aggregated_data 또는 customChartData를 ECharts로 시각화. 템플릿 bar/line·커스텀(위젯) Dimension/Metric/차트 유형. rate형 Y축·툴팁 소수점 둘째자리.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - buildOption: 템플릿 기반 xAxis/series. buildOptionFromCustom: chartData, metricLabel, chartType, metricKey. RATE_METRIC_KEYS 시 formatValue 소수 둘째자리
- * - X축 레이블 검색(카테고리 10건 초과): 찾기/다음 dataZoom. computeYAxisBounds, computeDataZoomRange
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - EChartsChart (default export). CHART_TEMPLATES (export)
+ * 1. getCompositeXLabel, niceAxisRange, computeYAxisBounds, buildOption, buildOptionFromCustom, computeDataZoomRange
+ * 2. EChartsChart (default export). CHART_TEMPLATES (export). X축 레이블 검색(찾기/다음 dataZoom)
  *
  * [Dependencies]
  * =========
@@ -20,6 +16,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import * as echarts from 'echarts'
 
+// 1.
 /**
  * groupBy에 따라 행의 X축 라벨 생성.
  * 복수 항목(일자 + 캠페인/워크플로우/채널)일 때는 "일자\n캠페인 / 워크플로우 / 채널" 로 줄바꿈해 오버플로우 시에도 일자·설명이 함께 보이도록 함.
@@ -65,6 +62,7 @@ const METRIC_LABELS = {
   click_count: '클릭'
 }
 
+// 2.
 /** 범위를 "nice"한 눈금으로 확장 (1, 2, 5, 10 계열) */
 function niceAxisRange(dataMin, dataMax, paddingRatio = 0.1) {
   const range = dataMax - dataMin
@@ -92,6 +90,7 @@ function niceAxisRange(dataMin, dataMax, paddingRatio = 0.1) {
 const NARROW_RATIO = 0.2
 const MIN_ABSOLUTE_RANGE = 1
 
+// 3.
 function computeYAxisBounds(rows, template) {
   if (!rows?.length || !template?.metricKeys?.length) return null
   if (template.chartType === 'bar') return null
@@ -130,6 +129,7 @@ function computeYAxisBounds(rows, template) {
   return { min, max }
 }
 
+// 4.
 /** ECharts option 생성 */
 function buildOption(rows, groupBy, template) {
   if (!rows?.length || !template) {
@@ -271,6 +271,7 @@ const RATE_METRIC_KEYS = ['success_rate', 'open_rate', 'click_rate', 'failed_rat
  * 단일 시리즈 차트 옵션 (Dimension·Metric·차트 유형 자유 선택 시 getChartData 연동).
  * chartData = [{ name, value }], metricLabel, chartType('bar'|'line'|'area'), metricKey(선택, rate형이면 Y축 소수점 둘째자리).
  */
+// 5.
 function buildOptionFromCustom(chartData, metricLabel, chartType, metricKey) {
   if (!chartData?.length) {
     return { title: { text: '데이터 없음', left: 'center', top: 'middle' } }
@@ -364,6 +365,7 @@ function buildOptionFromCustom(chartData, metricLabel, chartType, metricKey) {
   return option
 }
 
+// 6.
 /** dataZoom 구간 계산: 해당 인덱스가 보이도록 start/end 퍼센트 반환 */
 function computeDataZoomRange(index, total, windowPercent = 25) {
   if (total <= 0 || index < 0) return null
@@ -374,6 +376,7 @@ function computeDataZoomRange(index, total, windowPercent = 25) {
   return { start, end }
 }
 
+// 7.
 export default function EChartsChart({ data = [], groupBy = {}, templateId, customChartData, metricLabel, chartType, metricKey }) {
   const chartRef = useRef(null)
   const instanceRef = useRef(null)

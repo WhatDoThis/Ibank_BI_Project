@@ -2,11 +2,20 @@
  * report/hooks/useReportData.js (리포트 데이터 로딩 훅)
  * =====================================================
  * 테이블 목록·DB 상태 로딩 (병렬 describeTable), 새로고침 콜백.
+ *
+ * [Main Functions]
+ * ===========
+ * 1. useReportData: dbStatus, setDbStatus, tables, setTables, loading, loadHealth, loadTables, refreshAll 반환
+ *
+ * [Dependencies]
+ * =========
+ * - React, @/shared/config/api (getApiBase), @/shared/api/client (health, listTables, describeTable)
  */
 import { useState, useCallback } from 'react'
 import { getApiBase } from '@/shared/config/api'
 import { health, listTables, describeTable } from '@/shared/api/client'
 
+// 1.
 export function useReportData() {
   const [dbStatus, setDbStatus] = useState({ ok: null, message: '확인 중...' })
   const [tables, setTables] = useState([])

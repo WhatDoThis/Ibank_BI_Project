@@ -1,12 +1,21 @@
 /**
- * FunnelSection — 전체 발송 분석 4단계(발송요청→성공→오픈→클릭) + 현재 가이드, 이전 단계 대비 비율 표시
+ * FunnelSection (전체 발송 분석 퍼널)
+ * ===================================
+ * 4단계(발송요청→성공→오픈→클릭) + 현재 가이드, 이전 단계 대비 비율 표시.
+ *
+ * [Main Functions]
+ * 1. getSignal
+ * 2. FunnelBar
+ * 3. FunnelSection (default export)
  */
+// 1.
 function getSignal(value, thresholds) {
   if (value >= thresholds[0]) return { icon: '✅', label: '양호', cls: 'ok' }
   if (value >= thresholds[1]) return { icon: '🔶', label: '주의', cls: 'warning' }
   return { icon: '🔴', label: '미달', cls: 'fail' }
 }
 
+// 2.
 function FunnelBar({ label, value, maxValue, prevValue, color }) {
   const pctOfTotal = maxValue > 0 ? (value / maxValue) * 100 : 0
   const pctOfPrev = prevValue > 0 ? (value / prevValue) * 100 : null
@@ -22,6 +31,7 @@ function FunnelBar({ label, value, maxValue, prevValue, color }) {
   )
 }
 
+// 3.
 export default function FunnelSection({ kpi }) {
   if (!kpi) return null
   const {

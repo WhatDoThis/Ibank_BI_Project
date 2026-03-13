@@ -17,8 +17,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), **비교 모드**(일반/일간/주간/월간/연간)·**디멘션별 비교(B)/요약 보기(A)** 토글, KPI·채널 도넛·기준별 막대 차트(복수 차원 시 X축 단일 차원·**일자 제외** 캠페인/워크플로우/채널만)·집계 테이블·차트 생성 위젯·**위젯 생성 (beta)**. 주요 지표·채널별 분석 섹션 상단 **기간 표시**(PeriodLabel).
 - **대시보드2**(성과리포트): 보기 모드(일반/일간·주간·월간·연간 비교), 기준·비교 주/월/일/연 선택(비어두면 전 주/전 월/전일/전년), **디멘션별 비교(B)/요약 보기(A)** 토글, 기준별 발송 현황·집계 테이블 복수 차원 시 **X축 단일 차원(일자 제외)**. KPI 순서 통일, 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리), 위젯 rate형 Y축 소수점 둘째자리·info 버튼. 상세는 §6.2.1.
 - **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드 대시보드. 기존 대시보드 API·데이터 유틸 활용.
-- **ETL**(/etl): 파일 업로드·외부 DB 연동으로 우리 PostgreSQL에 적재. 소스: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle 목록·미리보기·PK·적재 모두 지원). Oracle 연결은 **Service Name**만 지원(SID 미지원). 동기화 모드: 전체(삭제 후 적재)/증분(last_synced_at 이후 Upsert). 등록된 연결 목록에 호스트:포트/DB명 표시. 배치 크기·배치 간 대기는 한 번 실행 시 적용. 실행은 수동(실행 버튼)만, 스케줄 미지원. 상세는 **01_FRONTEND_GUIDE.md §4.5**, **02_BACKEND_GUIDE.md §6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
-- **ETL2**(/etl2): 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 설정 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행. **DB 탭 배치**: etl_tables를 단일 출처로, 등록된 ETL 목록의 **배치설정** 버튼으로 주기 배치 등록(POST /jobs/from-etl-table). **배치설정 활성화**: ETL 테이블이 **status=done**(실행 완료)일 때만 버튼 활성; 미실행 시 비활성·툴팁 "먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다." 배치 등록 시 **etl_tables.last_synced_at**을 batch_jobs.last_synced_at 초기값으로 세팅해 증분 기준점 확보. **배치 파일별 에러 정책(on_file_error)**: `stop`(기본, 파일 1건 실패 시 run 중단) / `continue`(해당 파일만 error 기록 후 다음 파일 계속, run 종료 시 partial_error 가능). **인덱스 설정(index_definitions)**: 파일 업로드·배치·DB 연동 시 PK 외 타겟 테이블 인덱스 정의(JSONB)·자동 생성; DB 소스는 GET source-indexes로 소스 PK·인덱스 조회 후 매핑 모달에서 PK·INDEX 열(✓ 읽기 전용)로 통합 표시. **CSV 인코딩**: etl_server2 **csv_reader** 모듈로 통합(감지값→utf-8→cp949 등 순차 시도, chardet/charset_normalizer 지원). **배치 주기**: 대기 파일 없을 때 run 기록 미생성(해당 주기 건너뜀). **폴더 연결 목록**: 연결 정보 열(SFTP=host, S3=버킷/리전) 구분 표시. **실행 이력**: 삽입=신규 행 수·갱신=기존 행 업데이트 수(행 수 불변); run 상태 **partial_error** 시 "일부 실패 (N/M 성공)" 표기. **etl_batch_target_registry**: 배치로 생성된 타겟을 ETL 목록에 행으로 통합; 목록 삭제 시 배치 Job cascade·타겟 DROP. **동일 폴더·파일패턴·타겟·저장DB** 중복 Job 등록 방지. 매핑 모달 변환 룰·미리보기 API. upsert 시 **IS DISTINCT FROM**으로 실제 변경 행만 UPDATE. **DB 배치 적재**: 테이블 생성 직후에도 PK 있으면 _batch_upsert 사용(duplicate key 방지); pk_columns 미설정 시 실행 시점에 소스 DB에서 PK 자동 조회(_fetch_source_pk). API prefix **/api/etl2**, Backend **etl_server2**. 상세는 **01 §4.5.1**, **02 §6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
+- **뉴 대시보드**(/new-dashboard): 요약·추이·캠페인 순위 등 마케팅 요약용 대시보드(API: /api/new-dashboard). 상세는 **01_FRONTEND_GUIDE.md §4.5.2**, **02_BACKEND_GUIDE.md §4.7**.
+- **마케팅 대시보드**(/new-dashboard2): 별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이 등 마케팅 성과 분석용 대시보드(API: /api/new-dashboard2, Star DB 연동). 상세는 **01_FRONTEND_GUIDE.md §4.5.3**, **02_BACKEND_GUIDE.md §4.8**.
+- **ETL**(/etl, 단일): 파일·외부 DB → 우리 PostgreSQL 적재. **소스**: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle). **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN**(Full·Incremental). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행. **DB 탭 배치**: ETL 테이블 기반 **배치설정** 버튼으로 주기 배치 등록(status=done 시 활성). **배치 파일별 에러 정책**(on_file_error): stop/continue. **인덱스 설정**(index_definitions), **CSV 인코딩** 통합(csv_reader). API prefix **/api/etl**, Backend **etl_server**. 상세는 **01 §4.5**, **02 §6**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
 
@@ -29,9 +30,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(저장 DB·컬럼 매핑·설정 모달·COPY 적재), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **new-dashboard**(뉴 대시보드), **new-dashboard2**(마케팅 대시보드), **etl**(단일 ETL: 파일·DB·저장 DB·폴더/DB 배치), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·**dashboard2**), dashboard_service.py. **Backend/etl_server**: ETL 메타·업로드·DB 적재·Job 큐(router, service, load_service, db_load_service, preview_service, schema_infer 등). **Backend/etl_server2**: ETL2 전용 API·저장 DB·컬럼 매핑·COPY 적재·on_row_error·설정 모달. 상세는 **02_BACKEND_GUIDE.md** (§6 etl_server, §6.7 etl_server2 포함).
+- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·dashboard2), dashboard_service.py. **Backend/etl_server**: 단일 ETL API·메타·업로드·DB 적재·저장 DB·폴더/DB 배치·Job 큐(router, router_file, service, load_service, db_load_service, batch_executor_*, preview_service 등). **Backend/new_dash_server**, **Backend/new_dash_server2**: 뉴 대시보드·마케팅 대시보드 API. 상세는 **02_BACKEND_GUIDE.md** (§6 etl_server, §4.7·§4.8 new-dashboard API 포함).
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -40,8 +41,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - `python run.py serve`: 빌드 없이 정적 서버만 (report-front 서비스 기동용, 배포 시 502 방지)
 - **Linux 배포**: 실제 업데이트 배포 시 루트의 **deploy.sh** 사용 (빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md 참고.
 - **접속 경로**
-  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2(성과리포트) `.../dashboard2`, 위젯보드 `.../widgetboard`, ETL `.../etl`, ETL2 `.../etl2`
-  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`, `.../etl2`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
+  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2 `.../dashboard2`, 뉴 대시보드 `.../new-dashboard`, 마케팅 대시보드 `.../new-dashboard2`, 위젯보드 `.../widgetboard`, ETL `.../etl`
+  - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`, `.../new-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
 
 ---
 
@@ -90,7 +91,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ## 4. 프론트엔드 (Frontend)
 
-- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **etl**(파일·DB ETL). 공용 API·설정은 shared. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
+- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **new-dashboard**(뉴 대시보드), **new-dashboard2**(마케팅 대시보드), **etl**(단일 ETL). 공용 API·설정은 shared. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
 - 상세 구조·패키지·추가 기능(Claude 해석·페이지네이션)은 **01_FRONTEND_GUIDE.md** 참고.
 
 ---
@@ -98,11 +99,11 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ## 5. 백엔드 (Backend)
 
 ### 5.1 역할
-- **FastAPI** REST API: 리포트용(health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, save-query-as-table/status/{job_id}, execute-query, explain-sql, get-column-values, query-stats) + 대시보드1(dashboard/*) + 대시보드2(dashboard2/*) + **ETL**(/api/etl: connections, tables, jobs, preview, run, add-file, add-files-zip 등). 위젯보드는 별도 라우터 없이 기존 API 활용.
+- **FastAPI** REST API: 리포트용(health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, save-query-as-table/status/{job_id}, execute-query, explain-sql, get-column-values, query-stats) + 대시보드1(dashboard/*) + 대시보드2(dashboard2/*) + **뉴 대시보드**(/api/new-dashboard: summary, trend, trend-multi, tables) + **마케팅 대시보드**(/api/new-dashboard2: overview, star, frequency, coupon, campaign-segments, store, trend, product-master) + **ETL**(/api/etl: connections, tables, jobs, storage-connections, batch, preview, run, add-file, add-files-zip 등). 위젯보드는 별도 라우터 없이 기존 API 활용.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성
-- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, **save-query-as-table/status/{job_id}**, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, dashboard2/*, **api/etl/** (connections, tables, jobs, preview, run, add-file, add-files-zip 등), **api/etl2/** (tables, upload, infer-schema, target-tables, target-columns, storage-connections, connections, source-columns, validate-incremental-column, preview, run, jobs 등). 요청/응답·라우터 구분은 **02_BACKEND_GUIDE.md §4**. ETL 상세는 **02 §6**, ETL2는 **02 §6.7**, 운영·COPY·설정 모달은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, **save-query-as-table/status/{job_id}**, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, dashboard2/*, **api/new-dashboard/** (summary, trend, trend-multi, tables), **api/new-dashboard2/** (overview, star, frequency, coupon, campaign-segments, store, trend, product-master), **api/etl/** (connections, tables, jobs, storage-connections, batch, preview, run, add-file, add-files-zip, transform/preview 등). 요청/응답·라우터 구분은 **02_BACKEND_GUIDE.md §4**. ETL 상세는 **02 §6**, 뉴 대시보드 API는 **02 §4.7·§4.8**, 운영·COPY·설정 모달은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
 - main.py·db·routers·dependencies·schemas·dashboard_service 역할은 **02_BACKEND_GUIDE.md §5** 참고.
 
 ---
@@ -148,20 +149,21 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **목록 표시**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(크기/대기)·**동기화**(전체/증분)·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). 도움말(?)에 상태별 버튼 설명·배치·실행 시점 안내.
 - **파일 ETL**: 미리보기(10행)·PK 설정(체크박스)·실행(전체 교체)·데이터 추가(단일 파일 또는 ZIP 다중 파일, 건너뛴 파일 목록 표시). 데이터 추가 모달 ZIP 안내: ZIP 해제 시 CSV·Excel(.xlsx/.xls)·Parquet 확장자만 지원, 각 파일 최대 50MB(한도 초과 시 해당 파일 Skip), ZIP 파일 전체 최대 2GB(한도 초과 시 데이터 추가 실패). config의 max_zip_extract_total_mb로 ZIP 총량 상한 변경 가능. 파일 업로드용 연결은 삭제 불가(보호).
 - **Job 큐**: pending → running(동시 2건 제한), completed/failed/cancelled. Job 목록·실행 이력 패널.
-- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size). 미지정 시 etl_server2 기본값. 배치 미입력 시 1만 건 기본 상한. 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb). 미지정 시 etl_server 기본값. 배치 미입력 시 1만 건 기본 상한. 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 
-### 6.3.1 ETL2 (/etl2)
+### 6.3.1 ETL (단일) — 저장 DB·배치·설정·폴더
 
-- **목적**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table**을 다른 연결(다른 DB)에서 추가 적재할 수 있도록 등록 허용. PostgreSQL 적재 시 **COPY FROM STDIN** 사용(Full·Incremental, 증분 시 임시 테이블 COPY 후 INSERT...ON CONFLICT). **폴더 배치**(SFTP/S3): 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행·문제 파일·적재 롤백. **DB 탭 배치(ETL 테이블 기반)**: etl_tables를 소스→타겟 정의 단일 출처로 두고, 등록된 ETL 목록의 **배치설정** 버튼으로 주기 배치 등록(BatchScheduleModal, POST /jobs/from-etl-table). **배치설정 활성화 조건**: ETL 테이블 **status=done**(실행 완료)일 때만 버튼 활성; draft/error 시 비활성·툴팁 "먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다." 서버에서 status≠done이면 400. 배치 등록 시 **etl_tables.last_synced_at**을 batch_jobs.last_synced_at 초기값으로 세팅하여 증분 배치는 해당 시점 이후 데이터만 처리. **ETL 목록 통합**: etl_batch_target_registry로 배치 생성 타겟을 목록에 행으로 표시; 배치 행은 삭제만 가능(즉시실행·이력 없음). 목록에서 해당 행 삭제 시 연결된 배치 Job cascade 삭제 후 타겟 테이블 DROP. **동일 폴더·파일패턴·타겟·저장DB** 조합으로 Job 중복 등록 시 새 행 추가 없이 안내만. **DB 배치 적재 안정성**: 테이블 생성 직후에도 PK가 있으면 load_dataframe에서 _batch_upsert 사용(duplicate key 방지). pk_columns가 배치/ETL에 없으면 batch_executor_db에서 소스 DB PK 자동 조회(_fetch_source_pk) 후 upsert.
-- **탭 구성**: 파일 업로드 | DB 연결 | **폴더** | **저장 DB 등록** | ETL 이력. URL 쿼리 `?tab=file|db|folder|storage|history` 로 탭 유지. 폴더 탭: 폴더 연결·배치 Job 등록·배치 Job 목록(새로고침)·이력 모달.
-- **저장 DB**: 적재 대상 PostgreSQL 연결을 "저장 DB 등록" 탭에서 등록·테스트. 파일·DB·배치 폼에서 "저장할 DB"로 **기본 DB**(config ibank_db) 또는 등록한 저장 DB 선택 → `storage_connection_id`(NULL=기본) 저장. 기본 DB 정합성은 shared 규칙(storageDb.js)으로 통일.
-- **테이블선택 및 컬럼매핑**: 타겟 테이블명 옆 버튼으로 모달 오픈. 저장 DB 기준 테이블 목록·선택 테이블의 컬럼 조회. **소스 컬럼이 있으면**: 소스→타겟 매핑 테이블, **변환** 열(없음|정리|타입변환|정리+타입변환|값매핑)·값매핑 인라인 편집·**변환 미리보기** 패널(POST /api/etl2/transform/preview). 적용 시 column_mapping·변환 룰(transform_rules) 반영. 소스 없으면 타겟 컬럼 체크박스만.
-- **column_mapping**: etl_tables.column_mapping JSONB. 적재 직전 apply_mapping_type_cast·변환 룰(cleansing/type_cast/value_mapping) 적용. add_allowed_table은 `storage_connection_id` 없을 때만 호출.
-- **on_row_error**: etl_tables.on_row_error. `fail`(한 건이라도 적재 실패 시 Job 실패), `skip`(실패 행 제외 적재·실패 내역 Job notice). Incremental 모드에서만 적용.
-- **증분 컬럼**: DB 연동 시 증분 모드에서 셀렉트(날짜형 컬럼만 옵션)·직접 입력(커스텀) 가능. 비날짜 타입은 validate-incremental-column로 검증 후 실패 시 알럿.
-- **배치 실행·이력**: 첫 실행 시 등록 시점 이전 매칭 파일 전부 큐로 한 run에서 순차 처리. **대기 파일 없으면** 해당 주기 run 기록 미생성(건너뜀). run 진행 중 update_run_progress로 file_list·삽입/갱신 건수 실시간 반영; 이력·상세 2초 폴링. **삽입**=신규 행 수(테이블 총 행에 가산), **갱신**=기존 행 비PK만 갱신(행 수 불변). upsert 시 INSERT DO NOTHING + UPDATE FROM VALUES(실제 변경 행만 **IS DISTINCT FROM** 조건으로 UPDATE), 갱신 건수에서 기삽입 제외. **on_file_error=continue** 시 일부 파일 실패해도 run은 partial_error로 종료·이력에 "일부 실패 (N/M 성공)" 표기. CSV 컬럼 조회 시 원격 head만 다운로드(64KB). CSV 파싱은 **csv_reader.read_csv_robust**(인코딩 감지·순차 시도) 통합.
-- **UI 사용성**: 탭별 단계 안내, DB·폴더·저장 DB 섹션 **CollapsibleCardSection** 접기/펼치기. 등록된 ETL 목록·잡 이력·배치 Job 목록 **새로고침** 버튼. 목록 **설정**(DB 소스만)·**저장 DB**·**동기화**·**행 실패 시** 드롭다운. **매핑 모달**: PK·**INDEX** 열(소스 PK/인덱스 반영 시 ✓ 읽기 전용), 인덱스 추가 블록은 매핑 테이블 아래. **폴더 연결 목록** 연결 정보 열(SFTP=host, S3=버킷/리전). 배치 Job 목록 상단 여백·새로고침.
-- **API·구현**: prefix **/api/etl2**. **GET /api/etl2/connections/:id/source-indexes** (소스 테이블 PK·인덱스). **/api/etl2/batch/** (jobs, target-registry, validate-target, run/now, history, skipped-files, rollback 등). **POST /api/etl2/transform/preview**. Backend **etl_server2**(router, router_file, service, service_file, load_service, **load_service_file**, db_load_service, batch_executor_file, folder_adapter_file, parser_file, **csv_reader**, scheduler_file, preview_service, schema_infer, transform_engine 등). 상세는 **01 §4.5.1**, **02 §6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
+- **저장 DB**: 적재 대상 PostgreSQL을 "저장 DB 등록" 탭에서 등록·테스트. 파일·DB·배치 폼에서 **기본 DB**(config ibank_db) 또는 등록 저장 DB 선택 → `storage_connection_id`(NULL=기본). 기본 DB 정합성은 shared 규칙(storageDb.js)으로 통일.
+- **탭 구성**: 파일 업로드 | DB 연결 | **폴더** | **저장 DB 등록** | ETL 이력. URL 쿼리 `?tab=file|db|folder|storage|history` 로 탭 유지.
+- **테이블선택 및 컬럼매핑**: 타겟 테이블명 옆 버튼으로 모달. 저장 DB 기준 테이블·컬럼 조회. 소스 있으면 소스→타겟 매핑, **변환** 열(없음|정리|타입변환|값매핑)·**변환 미리보기**(POST /api/etl/transform/preview). **column_mapping**·변환 룰 적용. **on_row_error**(fail/skip). **증분 컬럼** 셀렉트·직접 입력, validate-incremental-column 검증.
+- **목록 설정**: **설정** 버튼으로 동기화 모드·증분 컬럼·배치·행 실패 시 동작 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 **COPY FROM STDIN**(Full·Incremental). **GET /api/etl/connections/:id/source-indexes**(소스 PK·인덱스). 매핑 모달: PK·**INDEX** 열(소스 반영 시 ✓ 읽기 전용), 인덱스 추가 블록.
+- **폴더 배치**(SFTP/S3): 폴더 연결·파일 패턴·주기·배치 Job 등록·이력·즉시 실행. **DB 탭 배치**: ETL 테이블 **status=done**일 때만 **배치설정** 버튼 활성; POST /api/etl/batch/jobs/from-etl-table, last_synced_at 초기 세팅. etl_batch_target_registry로 배치 생성 타겟을 목록에 행 표시; 배치 행 삭제 시 Job cascade·타겟 DROP. **동일 폴더·패턴·타겟·저장DB** 중복 Job 등록 방지.
+- **배치 실행·이력**: 대기 파일 없으면 run 미기록. 삽입/갱신 건수 구분, **on_file_error=continue** 시 partial_error·"일부 실패 (N/M 성공)". CSV **csv_reader.read_csv_robust** 통합. pk_columns 미설정 시 batch_executor_db에서 소스 PK 자동 조회(_fetch_source_pk). API prefix **/api/etl**, **/api/etl/batch/** . Backend **etl_server**(router, router_file, service, load_service, db_load_service, batch_executor_*, folder_adapter_file, csv_reader 등). 상세는 **01 §4.5**, **02 §6**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
+
+### 6.3.2 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
+
+- **뉴 대시보드**: 요약(summary)·추이(trend, trend-multi)·집계 가능 테이블(tables). API prefix /api/new-dashboard. Backend new_dash_server.
+- **마케팅 대시보드**: 종합현황(overview)·별(star)·프리퀀시(frequency)·쿠폰(coupon)·캠페인 세그먼트(campaign-segments)·매장(store)·추이(trend)·상품 마스터(product-master). API prefix /api/new-dashboard2. Backend new_dash_server2(Star DB 연동). 상세는 **01 §4.5.2·§4.5.3**, **02 §4.7·§4.8**.
 
 ### 6.4 공통
 - API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
@@ -207,3 +209,4 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (2026-02-27) | **docs/main 동기화(2026-02-27 log 기준)**: ETL 한도 config 미지정 시 etl_server2 기본값(§3.2). DB 적재 배치 미입력 시 기본 1만 건 상한(02 §3.3). etl_server db_load_service 취소 체크 견고화(_safe_is_job_cancelled) 반영. README 요약·최종 업데이트 일자 갱신. |
 | (2026-03-03) | **docs/main 최신화(log 2026-03-03·2026-02-23 반영)**: ETL2 §1.2·§6.3.1에 csv_reader(CSV 인코딩 통합), on_file_error(stop/continue), index_definitions(인덱스 설정·source-indexes), 배치 대기 파일 없으면 run 미기록, 폴더 연결 목록 연결정보 열, 실행 이력 partial_error·삽입/갱신 의미, 매핑 모달 PK·INDEX 열·인덱스 추가 테이블 아래, _batch_upsert IS DISTINCT FROM. 01 §4.5.1 인덱스 UI·BatchHistoryPanelFile partial_error·FolderConnectionListFile. 02 §2 csv_reader·§3.2 index_definitions·on_file_error·§4.6 source-indexes·§6.7 상세. README 요약 갱신. |
 | (2026-03-04) | **ETL2 DB 배치 통합·status=done·적재 안정성**: §1.2·§6.3.1에 DB 탭 배치(배치설정 버튼·from-etl-table), status=done 시에만 배치설정 활성·last_synced_at 초기 세팅, 테이블 생성 직후 PK 시 upsert·pk_columns 미설정 시 소스 PK 자동 조회(_fetch_source_pk). 01 BatchScheduleModal·ETLTableList 배치설정 disabled/툴팁. 02 from-etl-table·status 검증·last_synced_at·_fetch_source_pk·load_dataframe. README ETL2·배치 흐름 반영. |
+| (2026-03-13) | **docs/main 현재 구조 반영**: ETL 단일화(ETL1 제거·ETL2→단일 ETL, /etl, Backend etl_server만). 뉴 대시보드 2종 반영: **뉴 대시보드**(/new-dashboard, new_dash_server), **마케팅 대시보드**(/new-dashboard2, new_dash_server2). §1.2·§2.1·§2.2·§4·§5.2 접속 경로·패키지·API에서 etl2 제거, new-dashboard·new-dashboard2 추가. §6.3·§6.3.1을 단일 ETL(저장 DB·배치·폴더)로 통합, §6.3.2 뉴 대시보드·마케팅 대시보드 요약 추가. README·01·02 동기화. |

@@ -3,13 +3,9 @@
  * ================================================
  * KPI 카드. 캠페인/워크플로우/채널 수·발송·성공·실패·비율·오픈·클릭. compareKpi 시 한 줄: 00개(또는 00.00%) ±00.00% vs 비교기간. 표시 지표 선택(localStorage).
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - KPICards2: kpi, compareKpi, targetStatusByKey, storageKey. ALL_KPI_KEYS 순서(CARD_CONFIG). rate 포맷·전비(%) 계산
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - KPICards2 (default export)
+ * 1. KPICards2 (default export): kpi, compareKpi, targetStatusByKey, storageKey. ALL_KPI_KEYS(CARD_CONFIG). rate 포맷·전비(%) 계산
  *
  * [Dependencies]
  * =========
@@ -25,6 +21,7 @@ const ALL_KPI_KEYS = [
   'total_open', 'total_click', 'open_rate', 'click_rate'
 ]
 
+// 1.
 function loadVisibleKeys(storageKey) {
   try {
     const raw = localStorage.getItem(storageKey)
@@ -38,6 +35,7 @@ function loadVisibleKeys(storageKey) {
   }
 }
 
+// 2.
 function saveVisibleKeys(storageKey, keys) {
   try {
     localStorage.setItem(storageKey, JSON.stringify(keys))
@@ -46,11 +44,13 @@ function saveVisibleKeys(storageKey, keys) {
   }
 }
 
+// 3.
 function formatNum(n) {
   if (n == null) return '0'
   return new Intl.NumberFormat('ko-KR').format(n)
 }
 
+// 4.
 /** rate 지표(성공률·실패률·오픈률·클릭률) 표시: 소수점 둘째 자리 반올림, 정수여도 00.00% 형식 */
 function formatRateDisplay(n) {
   if (n == null || Number.isNaN(Number(n))) return '0.00'
@@ -58,6 +58,7 @@ function formatRateDisplay(n) {
   return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)
 }
 
+// 5.
 /** 신호등 달성률: 소수점 첫째 자리까지 반올림 */
 function formatRatioPct(n) {
   if (n == null || Number.isNaN(Number(n))) return '0.0'
@@ -87,6 +88,7 @@ const STATUS_STYLE = {
   fail: { border: '#dc2626', bg: '#fee2e2', label: '미달' }
 }
 
+// 6.
 /** 비교 KPI가 있을 때 전비(%) 또는 증감 표시. rate 지표는 전비(%) = (현재/비교)*100 - 100, 건수는 동일 */
 function getComparePct(current, previous, valueKey) {
   const c = Number(current)
@@ -101,6 +103,7 @@ function getComparePct(current, previous, valueKey) {
   return ((c / p) * 100 - 100)
 }
 
+// 7.
 export default function KPICards2({ kpi, compareKpi, targetStatusByKey = {}, storageKey = 'dashboard2_kpi_visible', children }) {
   const [visibleKeys, setVisibleKeys] = useState(() => loadVisibleKeys(storageKey))
   const [selectorOpen, setSelectorOpen] = useState(false)

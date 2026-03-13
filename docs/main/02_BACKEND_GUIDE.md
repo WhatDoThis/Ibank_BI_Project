@@ -1,6 +1,6 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`, `Backend/etl_server2`.  
+본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`, `Backend/new_dash_server`, `Backend/new_dash_server2`.  
 **목적**: 백엔드 구조·기술 스택·API·설정·모듈 역할을 정리한 가이드.  
 (Flask → FastAPI 전환 계획은 **부록 A**에 참고용으로 둠. 운영·COPY 적재·설정 모달 등은 **docs/report/08_ETL_Phase_Implement_Guide.md** 참조.)
 
@@ -10,7 +10,7 @@
 
 ### 1.1 역할
 
-- **FastAPI** 기반 REST API 서버. 리포트(쿼리 빌더)·대시보드1·대시보드2·**ETL** 용 API 제공.
+- **FastAPI** 기반 REST API 서버. 리포트(쿼리 빌더)·대시보드1·대시보드2·**뉴 대시보드**(new_dash_server)·**마케팅 대시보드**(new_dash_server2)·**ETL**(etl_server 단일) 용 API 제공.
 - **PostgreSQL** 연동: 비즈니스 DB(리포트·대시보드·allowed_tables), 선택 시 **시스템 DB**(ETL 메타·etl_connections, etl_tables, etl_jobs 등).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
@@ -48,40 +48,40 @@ Backend/
 │       ├── dashboard.py           # prefix /api/dashboard — data, filter-options, tables, required-columns, chart-data
 │       └── dashboard2.py           # prefix /api/dashboard2 — 동일
 │
-├── etl_server/                    # ETL API·메타·업로드·DB 적재·Job 큐 (/api/etl)
-│   ├── router.py                  # prefix /api/etl — connections, tables, jobs, preview, run, add-file, add-files-zip 등
-│   ├── service.py                 # 시스템 DB 메타 CRUD·Job 상태·list_source_tables(PostgreSQL/MySQL/Oracle)
-│   ├── load_service.py            # 파일 적재(파싱·변환·메인 DB DROP/CREATE/INSERT)
-│   ├── db_load_service.py         # DB 적재(PostgreSQL/MySQL/Oracle Full·Incremental)
-│   ├── preview_service.py         # 미리보기(파일·DB 10행)
-│   ├── queue_worker.py            # pending Job 선점·실행·동시 2건 제한
-│   ├── schema_infer.py            # 스키마 추론(pandas)
-│   ├── transform_engine.py        # 변환 룰 적용(pandas)
+├── etl_server/                    # ETL API (단일) — /api/etl, /api/etl/batch
+│   ├── router.py                  # prefix /api/etl — connections, tables, jobs, storage-connections, target-tables, infer-schema, source-columns, source-indexes, transform/preview, preview, run, add-file, add-files-zip 등
+│   ├── router_file.py             # prefix /api/etl/batch — jobs, target-registry, run/now, history, jobs/from-etl-table 등
+│   ├── service.py                 # 메타 CRUD·get_target_db_connection·list_storage_connections·on_row_error
+│   ├── service_file.py            # batch_jobs·batch_run_history·etl_batch_target_registry·create_batch_job·update_run_progress
+│   ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping
+│   ├── load_service_file.py       # 폴더 배치 적재·_batch_upsert(삽입/갱신 구분)
+│   ├── db_load_service.py         # DB 적재·COPY FROM STDIN·on_row_error
+│   ├── batch_executor_file.py     # run_batch_job·load_dataframe·update_run_progress
+│   ├── batch_executor_db.py       # run_db_batch_job·_fetch_source_pk
+│   ├── folder_adapter_file.py     # SFTP/S3·download_file_head
+│   ├── csv_reader.py              # read_csv_robust
+│   ├── parser_file.py             # get_pending_files
+│   ├── scheduler_file.py          # APScheduler
+│   ├── preview_service.py         # get_preview·_get_preview_with_transform
+│   ├── queue_worker.py            # pending Job·동시 2건 제한
+│   ├── schema_infer.py            # infer_schema
+│   ├── transform_engine.py        # 변환 룰 적용
 │   ├── transform_rules_service.py # etl_transform_rules CRUD
-│   └── etl_limits.py              # max_file_size_mb, max_rows_per_load, max_batch_size 적용
+│   ├── etl_limits.py              # get_etl_limits·get_max_zip_extract_total_mb
+│   └── transform_upsert_verification.py
 │
-└── etl_server2/                   # ETL2 API — 저장 DB·컬럼 매핑·COPY 적재·on_row_error·폴더 배치
-    ├── router.py                  # prefix /api/etl2 — tables, upload, infer-schema, target-tables, target-columns, storage-connections, transform/preview, run, jobs 등
-    ├── router_file.py             # prefix /api/etl2/batch — jobs, target-registry, validate-target, run/now, history, skipped-files, rollback 등
-    ├── service.py                 # 메타 CRUD·get_target_db_connection·list_target_tables·list_storage_connections·on_row_error
-    ├── service_file.py            # batch_jobs·batch_run_history·etl_batch_target_registry·list_batch_target_registry·delete_batch_target_registry_and_drop_table·create_batch_job(중복 검사)·update_run_progress
-    ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping
-    ├── load_service_file.py       # 폴더 배치 적재·_batch_upsert(삽입/갱신 건수 구분·갱신 rowcount에서 기삽입 제외)
-    ├── db_load_service.py         # DB 적재·COPY FROM STDIN·임시 테이블 Upsert·on_row_error
-    ├── batch_executor_file.py     # run_batch_job·파일별 다운로드·load_dataframe·update_run_progress·finish_run
-    ├── batch_executor_db.py       # run_db_batch_job·소스 연결·증분/전체 SELECT·load_dataframe·_fetch_source_pk(PK 미설정 시 자동 조회)
-    ├── folder_adapter_file.py     # SFTP/S3 어댑터·download_file_head(CSV head 64KB)
-    ├── csv_reader.py              # read_csv_robust(인코딩 감지·순차 시도)·load_service/parser_file에서 CSV 파싱 통합
-    ├── parser_file.py             # get_pending_files(첫 실행 시 대기 파일 전부 반환)·CSV 시 csv_reader 호출
-    ├── scheduler_file.py          # APScheduler·add_job·remove_job·reschedule_job
-    ├── preview_service.py         # get_preview·_get_preview_with_transform(변환 룰·타입 캐스트 적용 미리보기)
-    ├── schema_infer.py            # infer_schema(파일→컬럼·타입)
-    ├── etl_limits.py              # get_etl_limits·get_max_zip_extract_total_mb(ZIP 압축 해제 총량 상한)
-    └── transform_upsert_verification.py  # 변환 룰·엔진 출력과 load_dataframe/_batch_upsert 호환 검증
+├── new_dash_server/               # 뉴 대시보드 API (/api/new-dashboard)
+│   └── router.py                  # summary, trend, trend-multi, tables
+│
+└── new_dash_server2/              # 마케팅 대시보드 API (/api/new-dashboard2, Star DB)
+    ├── router.py                  # overview, star, frequency, coupon, campaign-segments, store, trend, product-master
+    ├── service.py                 # get_dashboard_overall, get_star_analyze, get_frequency_analyze, get_coupon_analyze, get_campaign_segments, get_store_order_analyze, get_trend_data, get_product_master
+    ├── mappings.py                # age_range_columns, gender_columns, normalize_age_range_value
+    └── star_db.py                 # Star DB 연결 풀
 ```
 
-- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **etl2_router**(Backend.etl_server2.router).
-- **etl_limits**: etl_server2에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size) 반환. config에 0을 넣으면 해당 항목 한도 없음.
+- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **new_dashboard_router**(Backend.new_dash_server.router) → **new_dash2_router**(Backend.new_dash_server2.router).
+- **etl_limits**: etl_server에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb) 반환. config에 0을 넣으면 해당 항목 한도 없음.
 
 ---
 
@@ -202,33 +202,55 @@ Backend/
 
 - 요청/응답 형식: JSON.
 
-### 4.6 ETL2 (prefix /api/etl2)
+### 4.6 ETL (prefix /api/etl, /api/etl/batch) — 단일
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
-| GET | /api/etl2/tables | ETL 테이블 목록 |
-| POST | /api/etl2/tables | ETL 테이블 1건 등록 |
-| POST | /api/etl2/upload | 파일 업로드(multipart)·target_table·column_mapping·storage_connection_id |
-| **POST** | **/api/etl2/infer-schema** | 파일만 업로드 → 스키마(컬럼·inferred_type) 반환, 메타 등록 없음 |
-| GET | /api/etl2/target-tables | 저장 DB 기준 테이블 목록 (query: storage_connection_id) |
-| GET | /api/etl2/target-columns | 저장 DB 지정 테이블 컬럼 목록 |
-| GET | /api/etl2/storage-connections | 저장 DB(적재 대상) 목록 |
-| POST | /api/etl2/storage-connections | 저장 DB 1건 등록 |
-| POST | /api/etl2/storage-connections/test | 저장 DB 연결 테스트 |
-| GET | /api/etl2/connections/{id}/source-columns | 소스 테이블 컬럼 목록 (query: source_table) |
-| **GET** | **/api/etl2/connections/{id}/source-indexes** | 소스 테이블 PK·인덱스 목록 (query: source_table, is_primary 구분) |
-| POST | /api/etl2/connections/{id}/validate-incremental-column | 증분 컬럼 날짜 검증 |
-| GET | /api/etl2/tables/{id}/preview | 미리보기(변환 룰·타입 캐스트 적용 후 저장될 모습) |
-| PATCH | /api/etl2/tables/{id} | ETL 테이블 설정 일부 갱신(sync_mode, on_row_error, incremental_column, batch_size, **clear_last_synced_at** 등) |
-| POST | /api/etl2/tables/{id}/run | 실행(대기열 등록) |
-| POST | /api/etl2/tables/{id}/add-files-zip | ZIP 다중 파일 추가 적재 |
-| GET | /api/etl2/jobs | Job 목록 |
-| GET | /api/etl2/jobs/{job_id} | Job 1건 조회 |
-| **POST** | **/api/etl2/transform/preview** | 변환 룰 적용 미리보기(before/after·column_changes) |
-| GET | /api/etl2/batch/target-registry | 배치 타겟 레지스트리 목록(ETL 목록용) |
-| DELETE | /api/etl2/batch/target-registry/{id} | 레지스트리 삭제·배치 Job cascade·타겟 테이블 DROP |
-| **POST** | **/api/etl2/batch/jobs/from-etl-table** | ETL 테이블 기반 DB 배치 등록. etl_table.status=done 검증(아니면 400). 등록 직후 etl_tables.last_synced_at → batch_jobs.last_synced_at 초기 세팅. |
-| (기타) | /api/etl2/batch/jobs, validate-target, run/now, history, skipped-files, rollback 등 | 배치 Job CRUD·즉시실행·이력·스킵 파일·롤백 |
+| GET | /api/etl/tables | ETL 테이블 목록 |
+| POST | /api/etl/tables | ETL 테이블 1건 등록 |
+| POST | /api/etl/upload | 파일 업로드(multipart)·target_table·column_mapping·storage_connection_id |
+| **POST** | **/api/etl/infer-schema** | 파일만 업로드 → 스키마(컬럼·inferred_type) 반환, 메타 등록 없음 |
+| GET | /api/etl/target-tables | 저장 DB 기준 테이블 목록 (query: storage_connection_id) |
+| GET | /api/etl/target-columns | 저장 DB 지정 테이블 컬럼 목록 |
+| GET | /api/etl/storage-connections | 저장 DB(적재 대상) 목록 |
+| POST | /api/etl/storage-connections | 저장 DB 1건 등록 |
+| POST | /api/etl/storage-connections/test | 저장 DB 연결 테스트 |
+| GET | /api/etl/connections/{id}/source-columns | 소스 테이블 컬럼 목록 (query: source_table) |
+| **GET** | **/api/etl/connections/{id}/source-indexes** | 소스 테이블 PK·인덱스 목록 (query: source_table, is_primary 구분) |
+| POST | /api/etl/connections/{id}/validate-incremental-column | 증분 컬럼 날짜 검증 |
+| GET | /api/etl/tables/{id}/preview | 미리보기(변환 룰·타입 캐스트 적용 후 저장될 모습) |
+| PATCH | /api/etl/tables/{id} | ETL 테이블 설정 일부 갱신(sync_mode, on_row_error, incremental_column, batch_size, **clear_last_synced_at** 등) |
+| POST | /api/etl/tables/{id}/run | 실행(대기열 등록) |
+| POST | /api/etl/tables/{id}/add-files-zip | ZIP 다중 파일 추가 적재 |
+| GET | /api/etl/jobs | Job 목록 |
+| GET | /api/etl/jobs/{job_id} | Job 1건 조회 |
+| **POST** | **/api/etl/transform/preview** | 변환 룰 적용 미리보기(before/after·column_changes) |
+| GET | /api/etl/batch/target-registry | 배치 타겟 레지스트리 목록(ETL 목록용) |
+| DELETE | /api/etl/batch/target-registry/{id} | 레지스트리 삭제·배치 Job cascade·타겟 테이블 DROP |
+| **POST** | **/api/etl/batch/jobs/from-etl-table** | ETL 테이블 기반 DB 배치 등록. etl_table.status=done 검증(아니면 400). 등록 직후 etl_tables.last_synced_at → batch_jobs.last_synced_at 초기 세팅. |
+| (기타) | /api/etl/batch/jobs, validate-target, run/now, history, skipped-files, rollback 등 | 배치 Job CRUD·즉시실행·이력·스킵 파일·롤백 |
+
+### 4.7 뉴 대시보드 (prefix /api/new-dashboard)
+
+| 메서드 | 경로 | 용도 |
+|--------|------|------|
+| GET | /api/new-dashboard/summary | 기간별 요약(KPI·증감률·aggregated_data) |
+| GET | /api/new-dashboard/trend | 단일 메트릭 추이 |
+| GET | /api/new-dashboard/trend-multi | 기간별 복수 메트릭(period: daily/weekly/monthly) |
+| GET | /api/new-dashboard/tables | 집계 가능 테이블 목록 |
+
+### 4.8 마케팅 대시보드 (prefix /api/new-dashboard2)
+
+| 메서드 | 경로 | 용도 |
+|--------|------|------|
+| GET | /api/new-dashboard2/overview | 종합 KPI·증감률 |
+| GET | /api/new-dashboard2/star | 별 분석 |
+| GET | /api/new-dashboard2/frequency | 프리퀀시 분석 |
+| GET | /api/new-dashboard2/coupon | 쿠폰 분석 |
+| GET | /api/new-dashboard2/campaign-segments | 캠페인 세그먼트 |
+| GET | /api/new-dashboard2/store | 매장 분석 |
+| GET | /api/new-dashboard2/trend | 추이(table_name, metrics, end_date, days, period) |
+| GET | /api/new-dashboard2/product-master | 상품 마스터 |
 
 - etl_tables에 storage_connection_id·column_mapping·on_row_error·**index_definitions** 저장. 적재 완료 후 index_definitions 있으면 **_create_indexes_on_target** 호출. **csv_reader.read_csv_robust**: CSV 인코딩 감지(chardet/charset_normalizer)·순차 시도(utf-8→cp949 등), load_service·parser_file에서 공용. **batch_jobs.on_file_error**: 'stop'(기본, 파일 실패 시 run 중단) / 'continue'(해당 파일만 error 기록·다음 파일 계속, run은 partial_error 가능). **load_service_file._batch_upsert**: INSERT DO NOTHING 후 **실제 값 변경 행만** UPDATE(AND t.col IS DISTINCT FROM v.col); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 run 기록 미생성(건너뜀); 파일별 commit 실패 시 명시 로그·finish_run(error); on_file_error=continue 시 해당 파일 rollback 후 계속. **run_db_load**: 커넥션 누수 방지(src_conn/conn_main 초기화·except/finally에서 close). **transform_engine._apply_type_cast_with_mask**: 벡터화(대량 행 시 성능). **claim_next_pending_job**: finally에서 close 전 rollback-safe. **etl_batch_target_registry**·**create_batch_job** 중복 검사·**update_run_progress**·**parser_file.get_pending_files** 첫 실행 전부 반환. 상세는 **§6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 
@@ -238,7 +260,7 @@ Backend/
 
 ### 5.1 main.py
 
-- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, report, dashboard, dashboard2, etl_router, **etl2_router**).
+- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, report, dashboard, dashboard2, etl_router, **new_dashboard_router**, **new_dash2_router**).
 - 예외: 404/500 → JSONResponse.
 - startup: ETL queue_worker.start_background_worker() 호출(실패 시 무시).
 - `__main__`: config.backend.api_host/api_port, uvicorn.run(app).
@@ -325,9 +347,9 @@ Backend/
 | 6 | transform_engine.py | 변환 룰 적용(pandas) |
 | 7 | schema_infer.py | 스키마 추론(pandas) |
 
-### 6.7 etl_server2
+### 6.7 etl_server (단일 ETL)
 
-- **역할**: ETL2 페이지 전용 API. prefix **/api/etl2**, **/api/etl2/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table** 다른 연결에서 추가 적재 허용. **GET tables/{id}/preview**: **변환 룰·타입 캐스트 적용** 후 저장될 모습으로 미리보기 반환(preview_service.get_preview → _get_preview_with_transform). **PATCH tables/{id}**: body에 **clear_last_synced_at: true** 시 증분 기준(last_synced_at) 초기화. **delete_etl_table**: 해당 etl_table_id를 참조하는 **batch_jobs** 및 batch_loaded_keys·batch_run_history 선삭제 후 etl_tables 삭제. **폴더 배치**: batch_jobs(**on_file_error** stop/continue, **index_definitions**)·batch_run_history·**etl_batch_target_registry**. **service_file.get_skipped_filenames_set**: 배치 이력에서 skipped/error 파일명 집합 반환; **batch_executor_file**에서 pending에서 제외해 매 주기 재다운로드·재시도 방지. 배치 타겟 목록 삭제 시 delete_batch_target_registry_and_drop_table. **create_batch_job** 중복 검사. **update_run_progress** 실시간 갱신. **load_service_file**: _batch_upsert에서 INSERT DO NOTHING 후 **실제 변경 행만** UPDATE(IS DISTINCT FROM); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 **run 기록 미생성**; on_file_error=continue 시 파일별 실패해도 다음 파일 계속·partial_error; commit 실패 시 명시 처리. **batch_executor_db**: etl_table_id 있을 때 **list_transform_rules** → **apply_rules** 적용 후 apply_mapping_type_cast·적재(run_file_load/run_db_load와 동일 순서). **csv_reader.read_csv_robust**: CSV 인코딩 감지·순차 시도, load_service·parser_file 공용. **parser_file.get_pending_files** 첫 실행 전부 반환. **folder_adapter_file.download_file_head** 64KB. **transform/preview** get_raw_sample·apply_rules. **db_load_service**: run_db_load 커넥션 누수 방지; 적재 후 **index_definitions** 있으면 _create_indexes_on_target; **get_source_indexes**(PostgreSQL/MySQL/Oracle). **transform_engine._apply_type_cast_with_mask** 벡터화. **transform_upsert_verification**: 변환 룰·엔진 출력과 load_dataframe/_batch_upsert 호환 검증(run_dry_run_pipeline, verify_transform_output_columns). **service.claim_next_pending_job** finally rollback-safe; **_sys_cursor** context manager. **load_service** run_file_load/run_file_upsert 변수 etl_row.
+- **역할**: ETL 페이지 전용 API(단일). prefix **/api/etl**, **/api/etl/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table** 다른 연결에서 추가 적재 허용. **GET tables/{id}/preview**: **변환 룰·타입 캐스트 적용** 후 저장될 모습으로 미리보기 반환(preview_service.get_preview → _get_preview_with_transform). **PATCH tables/{id}**: body에 **clear_last_synced_at: true** 시 증분 기준(last_synced_at) 초기화. **delete_etl_table**: 해당 etl_table_id를 참조하는 **batch_jobs** 및 batch_loaded_keys·batch_run_history 선삭제 후 etl_tables 삭제. **폴더 배치**: batch_jobs(**on_file_error** stop/continue, **index_definitions**)·batch_run_history·**etl_batch_target_registry**. **service_file.get_skipped_filenames_set**: 배치 이력에서 skipped/error 파일명 집합 반환; **batch_executor_file**에서 pending에서 제외해 매 주기 재다운로드·재시도 방지. 배치 타겟 목록 삭제 시 delete_batch_target_registry_and_drop_table. **create_batch_job** 중복 검사. **update_run_progress** 실시간 갱신. **load_service_file**: _batch_upsert에서 INSERT DO NOTHING 후 **실제 변경 행만** UPDATE(IS DISTINCT FROM); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 **run 기록 미생성**; on_file_error=continue 시 파일별 실패해도 다음 파일 계속·partial_error; commit 실패 시 명시 처리. **batch_executor_db**: etl_table_id 있을 때 **list_transform_rules** → **apply_rules** 적용 후 apply_mapping_type_cast·적재(run_file_load/run_db_load와 동일 순서). **csv_reader.read_csv_robust**: CSV 인코딩 감지·순차 시도, load_service·parser_file 공용. **parser_file.get_pending_files** 첫 실행 전부 반환. **folder_adapter_file.download_file_head** 64KB. **transform/preview** get_raw_sample·apply_rules. **db_load_service**: run_db_load 커넥션 누수 방지; 적재 후 **index_definitions** 있으면 _create_indexes_on_target; **get_source_indexes**(PostgreSQL/MySQL/Oracle). **transform_engine._apply_type_cast_with_mask** 벡터화. **transform_upsert_verification**: 변환 룰·엔진 출력과 load_dataframe/_batch_upsert 호환 검증(run_dry_run_pipeline, verify_transform_output_columns). **service.claim_next_pending_job** finally rollback-safe; **_sys_cursor** context manager. **load_service** run_file_load/run_file_upsert 변수 etl_row.
 - **주요 기능**: (1) **저장 DB**: etl_storage_connections, get_target_db_connection. (2) **테이블·컬럼·인덱스 조회**: list_target_tables, list_target_columns, **get_source_indexes**(connection_id, source_table) → PK·인덱스 목록(is_primary 구분). (3) **infer-schema**: 파일 업로드 → 스키마 반환. (4) **column_mapping·변환 룰**: apply_mapping_type_cast·transform_rules. (5) **on_row_error**: fail/skip, Incremental. (6) **COPY 적재** 후 **index_definitions** 있으면 **_create_indexes_on_target**. (7) **etl_batch_target_registry**: list/upsert/clear/delete_batch_target_registry. (8) **배치 실행**: run_batch_job, on_file_error·index_definitions 반영.
 - **router.py**: tables, upload, infer-schema, target-tables, target-columns, storage-connections, source-columns, **GET connections/:id/source-indexes**, validate-incremental-column, transform/preview, tables PATCH, jobs, preview, run, add-files-zip.
 - **router_file.py**: GET/POST /batch/jobs, **POST /batch/jobs/from-etl-table**(ETL 테이블 기반 배치 등록·etl_table.status=done 검증·last_synced_at 초기 세팅), target-registry, validate-target, run/now, history, get-run-detail, skipped-files, rollback. list_folder_columns 시 CSV는 download_file_head만.
@@ -359,6 +381,7 @@ Backend/
 - (2026-03-03) **ETL2 인덱스·on_file_error·csv_reader·배치·안정성 반영**: §2 csv_reader.py 추가. §3.2 etl_tables index_definitions, batch_jobs on_file_error·index_definitions. §4.6 GET source-indexes, etl_tables/batch_jobs index_definitions·csv_reader·on_file_error·_batch_upsert IS DISTINCT FROM·배치 대기 파일 없으면 run 미기록·run_db_load/commit/transform_engine/claim_next_pending_job. §6.7 전면 보강: csv_reader, on_file_error, index_definitions, get_source_indexes, _create_indexes_on_target, _batch_upsert 최적화, batch_executor 대기 파일·commit 실패·partial_error, db_load_service·load_service·service_file·load_service_file 상세. log 2026-03-03·2026-02-23 반영.
 - (2026-03-04) **from-etl-table·status=done·last_synced_at·적재 안정성**: §2 batch_executor_db.py 명시. §4.6 POST /jobs/from-etl-table·status=done 검증·last_synced_at 초기 세팅. §6.7 router_file from-etl-table, load_service_file 테이블 없음+PK 시 upsert, batch_executor_db _fetch_source_pk. log 2026-03-04 반영.
 - (2026-03-06) **ZIP 한도·미리보기·배치·삭제·검증 반영**: §3.3 etl_limits에 **max_zip_extract_total_mb**(기본 2GB, ZIP bomb 방지)·add-files-zip 압축 해제 전 총량 검사. §4.6 GET preview 변환 룰·타입 캐스트 적용, PATCH clear_last_synced_at, add-files-zip ZIP 총량. §6.7 GET preview _get_preview_with_transform, PATCH clear_last_synced_at, delete_etl_table batch_jobs 연쇄 삭제, get_skipped_filenames_set·배치 스킵/에러 파일 재시도 방지, batch_executor_db apply_rules(변환 룰), transform_upsert_verification. log 2026-03-06 반영.
+- (2026-03-13) **현재 구조 반영**: ETL 단일화(etl_server2 제거, etl_server만 유지·API /api/etl·/api/etl/batch). **new_dash_server**·**new_dash_server2** 추가(§2 트리·라우터 등록 순서). §4.6 ETL prefix /api/etl로 통일, §4.7 뉴 대시보드(/api/new-dashboard), §4.8 마케팅 대시보드(/api/new-dashboard2) API 표 추가. §5.1 라우터에 new_dashboard_router, new_dash2_router. §6.7 제목 "etl_server (단일 ETL)".
 
 ---
 

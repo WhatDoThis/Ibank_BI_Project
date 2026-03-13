@@ -3,19 +3,16 @@
  * ================================================================
  * 제목·토글 버튼으로 본문 접기/펼치기. 클래스명 dashboard2-collapsible*.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - CollapsibleSection2: title, open, onToggle, children props
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - CollapsibleSection2 (default export)
+ * 1. CollapsibleSection2: title, open, onToggle, children props (default export)
  *
  * [Dependencies]
  * =========
  * - React
  */
 
+// 1.
 export default function CollapsibleSection2({ title, open, onToggle, children }) {
   return (
     <section className="dashboard2-collapsible">

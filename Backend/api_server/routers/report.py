@@ -5,27 +5,30 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Helpers]
 ===========
-195 - _log: 디버그 로그 출력·파일 기록
-206 - _contains_dangerous_sql: 금지 SQL 키워드 검사
-246 - _fetch_relationships: FK/추론 관계 조회
-348 - _get_or_compute_relationships_all: 관계 캐시·추론
-578 - _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성
-603 - _save_table_worker: 쿼리 결과 저장 워커 (백그라운드)
+1. _load_labels_file, _save_labels_file: 컬럼/테이블 라벨 JSON 파일 로드·저장
+2. _get_table_label, _get_column_label: 테이블·컬럼 표시 라벨 조회
+3. _load_column_labels: 컬럼 라벨 전체 로드
+4. _log: 디버그 로그 출력·파일 기록
+5. _contains_dangerous_sql: 금지 SQL 키워드 검사
+6. _fetch_relationships: FK/추론 관계 조회
+7. _get_or_compute_relationships_all: 관계 캐시·추론
+8. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성
+9. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드)
 
 [Endpoints]
 ===========
-366 - list_tables: GET /api/list-tables (allowed_tables)
-409 - describe_table: POST /api/describe-table (테이블 구조)
-450 - get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
-463 - save_column_labels: POST /api/column-labels (라벨 저장)
-495 - table_relationships: GET /api/table-relationships (mode=fk|all)
-510 - api_join_order: POST /api/join-order (JOIN 순서)
-754 - save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
-815 - save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
-849 - execute_query: POST /api/execute-query (SELECT 실행)
-908 - explain_sql: POST /api/explain-sql (Claude 해석)
-964 - get_column_values: POST /api/get-column-values (컬럼 고유값)
-990 - query_stats: POST /api/query-stats (쿼리 통계)
+10. list_tables: GET /api/list-tables (allowed_tables)
+11. describe_table: POST /api/describe-table (테이블 구조)
+12. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
+13. save_column_labels: POST /api/column-labels (라벨 저장)
+14. table_relationships: GET /api/table-relationships (mode=fk|all)
+15. api_join_order: POST /api/join-order (JOIN 순서)
+16. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
+17. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
+18. execute_query: POST /api/execute-query (SELECT 실행)
+19. explain_sql: POST /api/explain-sql (Claude 해석)
+20. get_column_values: POST /api/get-column-values (컬럼 고유값)
+21. query_stats: POST /api/query-stats (쿼리 통계)
 
 [Dependencies]
 =========
@@ -145,6 +148,7 @@ DEFAULT_COLUMN_LABELS_BY_TABLE = {
 }
 
 
+# 1.
 def _load_labels_file():
     """Env/config/column_labels.json 읽기. 형식: { table_labels?: {}, column_labels?: { table: { col: label } } } 또는 구형 { table: { col: label } }"""
     if not _COLUMN_LABELS_PATH.exists():
@@ -160,6 +164,7 @@ def _load_labels_file():
     return {"table_labels": {}, "column_labels": data if isinstance(data, dict) else {}}
 
 
+# 2.
 def _save_labels_file(data):
     """table_labels + column_labels 저장."""
     _COLUMN_LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +172,7 @@ def _save_labels_file(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+# 3.
 def _get_table_label(table_name):
     """저장된 값 우선, 없으면 기본 라벨, 없으면 테이블명."""
     data = _load_labels_file()
@@ -176,6 +182,7 @@ def _get_table_label(table_name):
     return DEFAULT_TABLE_LABELS.get(table_name) or table_name
 
 
+# 4.
 def _get_column_label(table_name, column_name):
     """저장된 값 우선, 테이블별 기본값, 공통 기본값, 없으면 컬럼명."""
     data = _load_labels_file()
@@ -188,12 +195,14 @@ def _get_column_label(table_name, column_name):
     return COMMON_COLUMN_LABELS.get(column_name) or column_name
 
 
+# 5.
 def _load_column_labels():
     """구형 호환: column_labels만 반환 (table_name -> { col -> label })."""
     data = _load_labels_file()
     return data.get("column_labels") or {}
 
 
+# 6.
 def _log(msg, *args):
     line = f"[execute-query] {msg % args if args else msg}"
     print(line, flush=True)
@@ -205,6 +214,7 @@ def _log(msg, *args):
         pass
 
 
+# 7.
 def _contains_dangerous_sql(query):
     if not query or not query.strip():
         _log("dangerous_sql: query empty -> None")
@@ -245,6 +255,7 @@ def _contains_dangerous_sql(query):
 router = APIRouter(prefix="/api", tags=["report"])
 
 
+# 8.
 def _fetch_relationships(conn, mode="fk", table_columns=None):
     """관계 목록 반환 (dedup: 쌍당 한 방향). mode=all일 때 table_columns를 넘기면 컬럼 조회를 한 번만 수행."""
     allowed = list(db.get_allowed_tables())
@@ -347,6 +358,7 @@ def _fetch_relationships(conn, mode="fk", table_columns=None):
     return deduped
 
 
+# 9.
 def _get_or_compute_relationships_all(conn):
     """저장된 분석이 있고 allowlist가 같으면 그대로 반환, 없으면 분석 후 저장하고 반환. mode=all 기준."""
     current_allowed = set(db.get_allowed_tables())
@@ -365,6 +377,7 @@ def _get_or_compute_relationships_all(conn):
     return rels
 
 
+# 10.
 @router.get("/list-tables")
 def list_tables(conn=Depends(get_db)):
     try:
@@ -408,6 +421,7 @@ def list_tables(conn=Depends(get_db)):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 목록 조회 실패"})
 
 
+# 11.
 @router.post("/describe-table")
 def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
     try:
@@ -449,6 +463,7 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 구조 조회 실패"})
 
 
+# 12.
 @router.get("/column-labels")
 def get_column_labels(table_name: str = Query(..., description="테이블명")):
     """테이블별 컬럼 라벨·테이블 라벨 조회."""
@@ -462,6 +477,7 @@ def get_column_labels(table_name: str = Query(..., description="테이블명")):
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 
+# 13.
 @router.post("/column-labels")
 def save_column_labels(body: ColumnLabelsRequest):
     """테이블·컬럼 라벨 저장. 사용자가 수정한 라벨만 저장(기본값 덮어씀)."""
@@ -494,6 +510,7 @@ def save_column_labels(body: ColumnLabelsRequest):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "컬럼 라벨 저장 실패"})
 
 
+# 14.
 @router.get("/table-relationships")
 def table_relationships(conn=Depends(get_db), mode: str = Query("fk", description="fk=FK만(문서기본), all=FK+_id추론")):
     """개선된 관계 분석. mode=all이면 저장된 분석 결과가 있고 allowlist가 같으면 그대로 사용, 없으면 분석 후 저장."""
@@ -509,6 +526,7 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("fk", descriptio
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 관계 조회 실패"})
 
 
+# 15.
 @router.post("/join-order")
 def api_join_order(body: JoinOrderRequest, conn=Depends(get_db)):
     """
@@ -577,6 +595,7 @@ _save_table_worker_conn_err_interval_sec = 60
 _save_table_worker_conn_err_sleep_sec = 10
 
 
+# 16.
 def _ensure_queue_table(conn):
     """큐 테이블이 없으면 생성 (allowed_tables와 무관, 내부용)."""
     schema = db.get_table_schema()
@@ -602,6 +621,7 @@ def _ensure_queue_table(conn):
         cur.close()
 
 
+# 17.
 def _save_table_worker():
     """큐 테이블에서 status='queued'인 행을 확인해 하나씩 CREATE TABLE 실행."""
     global _save_table_worker_last_conn_err_log
@@ -753,6 +773,7 @@ _save_table_worker_thread = threading.Thread(target=_save_table_worker, daemon=T
 _save_table_worker_thread.start()
 
 
+# 18.
 @router.post("/save-query-as-table")
 def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg=Depends(get_config)):
     """
@@ -814,6 +835,7 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
         return JSONResponse(status_code=500, content={"error": str(e), "message": "저장 요청 실패"})
 
 
+# 19.
 @router.get("/save-query-as-table/status/{job_id}")
 def save_query_as_table_status(job_id: str, conn=Depends(get_db)):
     """백그라운드 저장 작업 상태 조회 (큐 테이블에서 조회)."""
@@ -848,6 +870,7 @@ def save_query_as_table_status(job_id: str, conn=Depends(get_db)):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "상태 조회 실패"})
 
 
+# 20.
 @router.post("/execute-query")
 def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(get_config)):
     try:
@@ -907,6 +930,7 @@ def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(g
         return JSONResponse(status_code=500, content={"error": str(e), "message": "쿼리 실행 실패"})
 
 
+# 21.
 @router.post("/explain-sql")
 def explain_sql(body: ExplainSqlRequest, cfg=Depends(get_config)):
     try:
@@ -963,6 +987,7 @@ def explain_sql(body: ExplainSqlRequest, cfg=Depends(get_config)):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "SQL 해석 실패"})
 
 
+# 22.
 @router.post("/get-column-values")
 def get_column_values(body: GetColumnValuesRequest, conn=Depends(get_db)):
     try:
@@ -989,6 +1014,7 @@ def get_column_values(body: GetColumnValuesRequest, conn=Depends(get_db)):
         return JSONResponse(status_code=500, content={"error": str(e), "message": "고유값 조회 실패"})
 
 
+# 23.
 @router.post("/query-stats")
 def query_stats(body: QueryStatsRequest, conn=Depends(get_db)):
     try:

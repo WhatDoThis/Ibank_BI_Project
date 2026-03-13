@@ -5,7 +5,7 @@ Backend.new_dash_server (뉴 대시보드 API 패키지)
 
 [Exports]
 =========
-- router: FastAPI APIRouter, prefix /api/new-dashboard
+1. router: FastAPI APIRouter, prefix /api/new-dashboard
 """
 
 from Backend.new_dash_server.router import router

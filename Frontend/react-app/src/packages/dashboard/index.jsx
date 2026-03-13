@@ -5,7 +5,7 @@
  *
  * [Main]
  * ===========
- * DashboardPage (default, named export)
+ * 1. DashboardPage (default, named export)
  *
  * [Dependencies]
  * =========

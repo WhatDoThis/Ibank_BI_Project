@@ -1,9 +1,15 @@
 /**
- * SummaryHeader — 뉴 대시보드 상단: 테이블 선택, 날짜 네비(클릭 시 네이티브 달력), 주간 N주차, period 토글, 새로고침
- * [Props] onDateChange: 날짜 직접 선택 시 호출
+ * SummaryHeader (뉴 대시보드 상단 헤더)
+ * =====================================
+ * 테이블 선택, 날짜 네비(클릭 시 네이티브 달력), 주간 N주차, period 토글, 새로고침.
+ * onDateChange: 날짜 직접 선택 시 호출.
+ *
+ * [Components]
+ * 1. SummaryHeader (default export)
  */
 import { getMonthWeekLabel, dateToWeekValue, weekValueToDate } from './dateUtils'
 
+// 1.
 export default function SummaryHeader({
   tables,
   tableId,

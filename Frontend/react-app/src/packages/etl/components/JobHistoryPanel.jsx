@@ -2,18 +2,19 @@
  * packages/etl/components/JobHistoryPanel.jsx (ETL Job 이력)
  * ==========================================================
  * 체크박스로 상태별 필터(완료/실패/취소/실행 중/대기 중) 후 테이블로 표시. 행별 삭제(DB 반영).
+ * [새로고침] 버튼으로 해당 이력 테이블만 다시 불러오기.
  *
  * [Main Functions]
  * ===========
- * JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 상태별 체크박스·로딩·삭제 중 비활성화
+ * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 상태별 체크박스·로딩·삭제 중 비활성화
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etlListJobs, etlDeleteJob)
+ * - React, @/shared/api/client (etl2ListJobs, etl2DeleteJob)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { etlListJobs, etlDeleteJob } from '@/shared/api/client';
+import { etl2ListJobs, etl2DeleteJob } from '@/shared/api/client';
 
 const STATUS_OPTIONS = [
   { value: 'completed', label: '완료' },
@@ -23,6 +24,7 @@ const STATUS_OPTIONS = [
   { value: 'pending', label: '대기 중' }
 ];
 
+// 1.
 function JobHistoryPanel() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -37,7 +39,7 @@ function JobHistoryPanel() {
     }
     setLoading(true);
     try {
-      const res = await etlListJobs(null, active.join(','));
+      const res = await etl2ListJobs(null, active.join(','));
       setJobs(res?.jobs || []);
     } catch {
       setJobs([]);
@@ -54,7 +56,7 @@ function JobHistoryPanel() {
     if (deletingId != null) return;
     setDeletingId(jobId);
     try {
-      await etlDeleteJob(jobId);
+      await etl2DeleteJob(jobId);
       setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
     } catch (_) {}
     finally {
@@ -68,13 +70,24 @@ function JobHistoryPanel() {
 
   return (
     <div className="etl-history">
-      <div className="etl-history__filters">
-        {STATUS_OPTIONS.map((o) => (
-          <label key={o.value} className="etl-history__check">
-            <input type="checkbox" checked={!!checks[o.value]} onChange={() => toggleCheck(o.value)} />
-            <span>{o.label}</span>
-          </label>
-        ))}
+      <div className="etl-history__bar">
+        <div className="etl-history__filters">
+          {STATUS_OPTIONS.map((o) => (
+            <label key={o.value} className="etl-history__check">
+              <input type="checkbox" checked={!!checks[o.value]} onChange={() => toggleCheck(o.value)} />
+              <span>{o.label}</span>
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="etl-history__refresh"
+          onClick={() => load()}
+          disabled={loading}
+          aria-label="이력 새로고침"
+        >
+          {loading ? '새로고침 중…' : '새로고침'}
+        </button>
       </div>
       {loading && <p className="etl-history__loading">조회 중…</p>}
       {!loading && jobs.length === 0 && <p className="etl-history__empty">선택한 상태의 이력이 없습니다.</p>}

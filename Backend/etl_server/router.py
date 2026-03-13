@@ -1,84 +1,63 @@
 """
 Backend.etl_server.router (ETL API 라우터)
 ==========================================
-FastAPI APIRouter. prefix /api/etl. 메타·업로드·연결·변환 룰·실행·Job API 제공.
+FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·실행·Job API. router_file(batch) include → /api/etl/batch/*.
 
 [Pydantic Models]
 ===========
-75 - CreateConnectionBody: POST /connections 요청
-88 - TestConnectionBody: POST /connections/test 요청
-98 - CreateTransformRuleBody: POST /transform-rules 요청
-109 - UpdateTransformRuleBody: PUT /transform-rules/{id} 요청
-212 - CreateTableBody: POST /tables 요청
-229 - UpdateTableBody: PATCH /tables/{id} 요청 (pk_columns 등)
+1. CreateConnectionBody, TestConnectionBody, ValidateIncrementalColumnBody
+2. CreateStorageConnectionBody, UpdateStorageConnectionBody, TestStorageConnectionBody
+3. CreateTransformRuleBody, UpdateTransformRuleBody, TransformPreviewBody
+4. CreateTableBody, UpdateTableBody (pk_columns 등)
 
 [Helpers]
 ===========
-124 - _ensure_upload_dir: 업로드 디렉터리 생성
-128 - _cleanup_expired_uploads: 보관 기간 초과 업로드·zip_* 디렉터리 삭제
-151 - _save_upload: 업로드 파일 저장 후 flush·fsync하여 워커가 즉시 읽을 수 있게 함, (절대경로, 파일유형) 반환
-356 - _natural_sort_key: 파일명 자연 정렬용 키(숫자 구간 인식)
-359 - _file_type_from_ext: 확장자 → csv|excel|parquet
-362 - _normalize_column_name_for_check: 컬럼명 정규화(중복 시 접미사)
+5. _ensure_upload_dir, _cleanup_expired_uploads, _save_upload
+6. _natural_sort_key, _file_type_from_ext
 
 [Endpoints]
 ===========
-172 - etl_index: GET / — 서비스 안내, upload_retention_days
-200 - list_tables: GET /tables — ETL 테이블 목록
-235 - update_table: PATCH /tables/{id} — pk_columns 등 설정 갱신
-246 - create_table: POST /tables — ETL 테이블 메타 등록
-271 - delete_table_row_only: DELETE /tables/{id}/row — 행·업로드 파일만 삭제(테이블 유지)
-283 - delete_table: DELETE /tables/{id} — ETL 테이블·타겟 DROP·파일 삭제
-303 - upload_file: POST /upload — 파일 업로드·스키마 추론·선택 시 메타 등록
-369 - add_file_to_table: POST /tables/{id}/add-file — 동일 테이블 추가 적재(업서트), PK 검증 후 Job 등록
-480 - add_files_zip_to_table: POST /tables/{id}/add-files-zip — ZIP 압축 해제 후 파일명 순 Job 등록, skipped_files 반환
-626 - cleanup_expired_uploads: POST /cleanup-expired-uploads — 만료 업로드 삭제(cron용, zip_* 포함)
-452 - create_connection: POST /connections — DB 연결 등록
-474 - list_connections: GET /connections — 연결 목록
-489 - test_connection: POST /connections/test — 연결 테스트
-506 - list_transform_rules: GET /tables/{id}/transform-rules — 변환 룰 목록
-521 - create_transform_rule: POST /transform-rules — 룰 등록
-541 - update_transform_rule: PUT /transform-rules/{id} — 룰 수정
-561 - delete_transform_rule: DELETE /transform-rules/{id} — 룰 삭제
-570 - list_connection_tables: GET /connections/{id}/tables — 소스 DB 테이블 목록
-582 - delete_connection: DELETE /connections/{id} — 연결 삭제
-591 - check_target_table_exists: GET /tables/{id}/target-exists — 타겟 테이블 메인 DB 존재 여부
-610 - preview_table: GET /tables/{id}/preview — 미리보기(컬럼·10행)
-624 - run_table_load: POST /tables/{id}/run — 파일 소스는 요청 프로세스에서 스레드로 즉시 실행, DB/추가적재는 대기열
-656 - list_jobs: GET /jobs — Job 목록(etl_table_id, statuses, limit)
-673 - get_job: GET /jobs/{id} — Job 1건(폴링용)
-693 - delete_job: DELETE /jobs/{id} — Job 1건 삭제(add_file_path 파일 삭제)
-707 - cancel_job: POST /jobs/{id}/cancel — 실행 중·대기 Job 취소
+7. GET / — 서비스 안내
+8. GET/POST/PATCH/DELETE /tables, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
+9. cleanup-expired-uploads, timezones, connections CRUD, connections test
+10. connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
+11. transform-rules CRUD, target-exists, target-tables, target-columns
+12. tables/{id}/preview, tables/{id}/run, jobs CRUD, jobs cancel, transform/preview
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server.service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service
+- fastapi, Backend.etl_server.service, db_load_service, preview_service, schema_infer, transform_rules_service, router_file (load_service는 _run_file_load_in_process 내부 lazy import)
 """
 
+import json
 import logging
 import os
 import re
 import shutil
+import threading
 import uuid
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from Backend.etl_server import db_load_service
-from Backend.etl_server import load_service
 from Backend.etl_server import preview_service
 from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_rules_service as transform_rules_svc
+from Backend.etl_server.load_service_file import normalize_column_name_for_sequence
+from Backend.etl_server.router_file import router as batch_router
 
 router = APIRouter(prefix="/api/etl", tags=["etl"])
+router.include_router(batch_router)
 
 
+# 1.
 class CreateConnectionBody(BaseModel):
     """POST /api/etl/connections 요청 body."""
     connection_name: str = Field(..., description="연결 이름")
@@ -90,6 +69,7 @@ class CreateConnectionBody(BaseModel):
     username: str = Field(..., description="사용자명")
     password: str = Field("", description="비밀번호")
     created_by: str = Field("user", description="등록자")
+    server_timezone: Optional[str] = Field("Asia/Seoul", description="소스 DB 서버 시간대 (IANA). 예: Asia/Seoul, UTC")
 
 
 class TestConnectionBody(BaseModel):
@@ -103,15 +83,70 @@ class TestConnectionBody(BaseModel):
     password: Optional[str] = None
 
 
+class ValidateIncrementalColumnBody(BaseModel):
+    """POST /api/etl/connections/{id}/validate-incremental-column 요청 body."""
+    source_table: str = Field(..., description="소스 테이블(schema.table 또는 table)")
+    column_name: str = Field(..., description="증분 컬럼명")
+
+
+class CreateStorageConnectionBody(BaseModel):
+    """POST /api/etl/storage-connections 요청 body. 저장 DB(적재 대상) 등록. PostgreSQL 전용."""
+    connection_name: str = Field(..., description="연결 이름")
+    host: str = Field(..., description="호스트")
+    port: int = Field(5432, description="포트")
+    database_name: str = Field(..., description="DB명")
+    schema_name: Optional[str] = Field("public", description="스키마명")
+    username: str = Field(..., description="사용자명")
+    password: str = Field("", description="비밀번호")
+    server_timezone: Optional[str] = Field("Asia/Seoul", description="저장 DB 서버 시간대 (IANA). 예: Asia/Seoul, UTC")
+
+
+class UpdateStorageConnectionBody(BaseModel):
+    """PATCH /api/etl/storage-connections/{id} 요청 body. 전달된 필드만 갱신."""
+    connection_name: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    database_name: Optional[str] = None
+    schema_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+    server_timezone: Optional[str] = None
+
+
+class TestStorageConnectionBody(BaseModel):
+    """POST /api/etl/storage-connections/test 요청 body. 접속+권한(CREATE/INSERT/DROP) 검증."""
+    host: str = Field(..., description="호스트")
+    port: int = Field(5432, description="포트")
+    database_name: str = Field(..., description="DB명")
+    schema_name: Optional[str] = Field("public", description="스키마명")
+    username: str = Field(..., description="사용자명")
+    password: str = Field("", description="비밀번호")
+
+
 class CreateTransformRuleBody(BaseModel):
     """POST /api/etl/transform-rules 요청 body."""
     etl_table_id: int = Field(..., description="ETL 테이블 ID")
     source_column: str = Field(..., description="소스 컬럼명")
-    rule_type: str = Field(..., description="cleansing | type_cast | code_map | derived | masking")
-    rule_config: Optional[dict] = Field(default_factory=dict, description="룰별 설정(JSON)")
+    rule_type: str = Field(
+        ...,
+        description="변환 룰 카테고리. cleansing | type_cast | string | code_map | derived | masking",
+        examples=["string"],
+    )
+    rule_config: Optional[dict] = Field(
+        default_factory=dict,
+        description=(
+            "룰 설정 JSON. 'operation' 키로 세부 동작 지정. "
+            "예) string: {\"operation\": \"uppercase\"}, "
+            "masking: {\"operation\": \"mask_phone\", \"char\": \"*\"}, "
+            "type_cast: {\"target_type\": \"boolean\", \"true_values\": [\"Y\",\"1\"]}"
+        ),
+    )
     target_column: Optional[str] = Field(None, description="타겟 컬럼명. 없으면 source_column과 동일")
     apply_order: int = Field(1, description="적용 순서")
     is_active: bool = Field(True, description="활성 여부")
+    rule_category: Optional[str] = Field(None, description="Phase 2. 없으면 rule_type 사용")
+    operation: Optional[str] = Field("default", description="Phase 2. 세부 오퍼레이션. 기본 default")
 
 
 class UpdateTransformRuleBody(BaseModel):
@@ -122,6 +157,19 @@ class UpdateTransformRuleBody(BaseModel):
     rule_config: Optional[dict] = None
     apply_order: Optional[int] = None
     is_active: Optional[bool] = None
+    rule_category: Optional[str] = None
+    operation: Optional[str] = None
+
+
+class TransformPreviewBody(BaseModel):
+    """POST /api/etl/transform/preview 요청 body. 변환 룰 적용 미리보기."""
+    etl_table_id: int = Field(..., description="ETL 테이블 ID")
+    rules: List[dict] = Field(..., description="변환 룰 배열. getAssembledRules() 형식.")
+    column_mapping: Optional[List[dict]] = Field(
+        None,
+        description="컬럼 매핑. 없으면 해당 ETL 테이블 저장값 사용.",
+    )
+
 
 # 업로드 파일 저장 디렉터리 (etl_server 기준 상대)
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
@@ -157,6 +205,8 @@ def _cleanup_expired_uploads(max_age_days: int = UPLOAD_FILE_RETENTION_DAYS) -> 
                 for p in f.rglob("*"):
                     if p.is_file():
                         max_mtime = max(max_mtime, os.path.getmtime(str(p)))
+                if max_mtime == 0:
+                    max_mtime = os.path.getmtime(str(f))
                 if max_mtime > 0 and max_mtime < cutoff:
                     shutil.rmtree(f)
                     deleted.append(str(f))
@@ -177,11 +227,13 @@ def _save_upload(file: UploadFile) -> tuple[str, str]:
         ft = "parquet"
     else:
         raise ValueError("지원 형식: .csv, .xlsx, .xls, .parquet")
-    name = f"{uuid.uuid4().hex}_{file.filename or 'file'}"
+    safe_name = re.sub(r"[^\w.\-]", "_", (file.filename or "file").strip())
+    name = f"{uuid.uuid4().hex}_{safe_name}"
     path = UPLOAD_DIR / name
+    if not path.resolve().is_relative_to(UPLOAD_DIR.resolve()):
+        raise ValueError("잘못된 파일명입니다.")
     with open(path, "wb") as f:
-        content = file.file.read()
-        f.write(content)
+        shutil.copyfileobj(file.file, f, length=65536)
         f.flush()
         try:
             os.fsync(f.fileno())
@@ -252,6 +304,10 @@ class CreateTableBody(BaseModel):
     sync_mode: Optional[str] = Field("incremental", description="full | incremental")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). NULL/0이면 전체 fetch. 고객 DB 여건에 따라 설정.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
+    storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB(ibank_db). Phase 2b에서 실제 적재 분기.")
+    column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...]. 적재 시 컬럼 매핑 반영.")
+    on_row_error: Optional[str] = Field("fail", description="행 적재 실패 시: fail=전체 실패, skip=실패 행 제외하고 적재·notice 기록.")
+    index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns: [str], is_unique: bool}]")
 
 
 class UpdateTableBody(BaseModel):
@@ -259,13 +315,32 @@ class UpdateTableBody(BaseModel):
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분). 비우면 PK 미설정. 파일 적재 시 CREATE TABLE에 반영.")
     sync_mode: Optional[str] = Field(None, description="full | incremental. DB 연동 ETL만 적용.")
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명(소스 테이블). 증분 모드에서 이 컬럼 > last_synced_at 조건으로 조회.")
+    storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB.")
+    column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...].")
+    on_row_error: Optional[str] = Field(None, description="행 적재 실패 시: fail | skip. null이면 변경 안 함.")
+    batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). null이면 변경 안 함.")
+    batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). null이면 변경 안 함.")
+    index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns, is_unique}]. null이면 변경 안 함.")
+    clear_last_synced_at: Optional[bool] = Field(None, description="True면 last_synced_at을 NULL로 초기화. 다음 실행 시 증분 조건 없이 전체 조회.")
 
 
 @router.patch("/tables/{etl_table_id}", status_code=204)
 def update_table(etl_table_id: int, body: UpdateTableBody):
-    """ETL 테이블 설정 일부 갱신. pk_columns, sync_mode 등."""
+    """ETL 테이블 설정 일부 갱신. pk_columns, sync_mode, storage_connection_id 등."""
     try:
-        etl_service.update_etl_table(etl_table_id, pk_columns=body.pk_columns, sync_mode=body.sync_mode, incremental_column=body.incremental_column)
+        etl_service.update_etl_table(
+            etl_table_id,
+            pk_columns=body.pk_columns,
+            sync_mode=body.sync_mode,
+            incremental_column=body.incremental_column,
+            storage_connection_id=body.storage_connection_id,
+            column_mapping=body.column_mapping,
+            on_row_error=body.on_row_error,
+            batch_size=body.batch_size,
+            batch_interval_seconds=body.batch_interval_seconds,
+            index_definitions=body.index_definitions,
+            clear_last_synced_at=body.clear_last_synced_at is True,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -289,6 +364,10 @@ def create_table(body: CreateTableBody):
             sync_mode=body.sync_mode,
             batch_size=body.batch_size,
             batch_interval_seconds=body.batch_interval_seconds,
+            storage_connection_id=body.storage_connection_id,
+            column_mapping=body.column_mapping,
+            on_row_error=body.on_row_error,
+            index_definitions=body.index_definitions,
         )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
@@ -317,6 +396,7 @@ def delete_table(etl_table_id: int):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("DELETE /tables/%s failed: %s", etl_table_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -327,11 +407,18 @@ async def upload_file(
     label_name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     created_by: str = Form("user"),
+    storage_connection_id: Optional[int] = Form(None),
+    column_mapping: Optional[str] = Form(None),
+    pk_columns: Optional[str] = Form(None),
+    index_definitions: Optional[str] = Form(None),
 ):
     """
     파일 업로드 → 저장 후 스키마 추론.
     target_table, description 이 있으면 파일용 connection + etl_tables 1건 생성 후 etl_table_id 반환.
     label_name은 추후 테이블 마스터에서 관리 예정, 당장은 수신만.
+    storage_connection_id: null=기본 DB. Phase 2b에서 적재 분기.
+    column_mapping: Phase 4. JSON 문자열 [{source, target, type}, ...].
+    pk_columns: PK 컬럼(쉼표 구분). 테이블선택·컬럼매핑 모달에서 설정한 값.
     """
     try:
         file_path, file_type = _save_upload(file)
@@ -347,7 +434,24 @@ async def upload_file(
 
     if target_table and str(target_table).strip():
         try:
+            cm = None
+            if column_mapping and str(column_mapping).strip():
+                try:
+                    cm = json.loads(column_mapping)
+                    if not isinstance(cm, list):
+                        raise ValueError("column_mapping must be a JSON array")
+                except (ValueError, TypeError) as e:
+                    raise HTTPException(status_code=400, detail=f"column_mapping JSON 파싱 실패: {e}")
+            idx_def = None
+            if index_definitions and str(index_definitions).strip():
+                try:
+                    idx_def = json.loads(index_definitions)
+                    if not isinstance(idx_def, list):
+                        raise ValueError("index_definitions must be a JSON array")
+                except (ValueError, TypeError) as e:
+                    raise HTTPException(status_code=400, detail=f"index_definitions JSON 파싱 실패: {e}")
             conn_id = etl_service.get_or_create_file_connection(created_by)
+            pk_cols = (pk_columns or "").strip() or None
             etl_table_id = etl_service.create_etl_table(
                 connection_id=conn_id,
                 target_table=target_table.strip(),
@@ -356,6 +460,10 @@ async def upload_file(
                 source_table=file.filename,
                 file_type=file_type,
                 file_path=file_path,
+                storage_connection_id=storage_connection_id,
+                column_mapping=cm,
+                pk_columns=pk_cols,
+                index_definitions=idx_def,
             )
             result["etl_table_id"] = etl_table_id
         except ValueError as e:
@@ -370,6 +478,33 @@ async def upload_file(
         pass
 
     return result
+
+
+@router.post("/infer-schema")
+async def infer_schema_from_file(file: UploadFile = File(...)):
+    """
+    업로드 파일만 받아 스키마(컬럼명·추론 타입)만 반환. 메타 등록·파일 보관 없음.
+    테이블선택 및 컬럼매핑 모달에서 소스 컬럼 제안용. 반환: { columns: [{ name, inferred_type }, ...] }.
+    """
+    try:
+        file_path, file_type = _save_upload(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        columns = schema_infer.infer_schema(file_path, file_type)
+    except Exception as e:
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"스키마 추론 실패: {e}")
+    try:
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
+    return {"columns": columns}
 
 
 def _natural_sort_key(name: str):
@@ -387,19 +522,6 @@ def _file_type_from_ext(ext: str) -> Optional[str]:
     if ext == ".parquet":
         return "parquet"
     return None
-
-
-def _normalize_column_name_for_check(name: str, used: set) -> str:
-    """load_service과 동일한 컬럼명 정규화(검증용)."""
-    base = (str(name).strip() or "unnamed").replace(" ", "_")
-    base = re.sub(r"[^a-zA-Z0-9_]", "_", base) or "col"
-    out = base
-    idx = 0
-    while out in used:
-        idx += 1
-        out = f"{base}_{idx}"
-    used.add(out)
-    return out
 
 
 @router.post("/tables/{etl_table_id}/add-file")
@@ -450,7 +572,7 @@ async def add_file_to_table(
 
     inferred = schema_infer.infer_schema(file_path, file_type)
     used = set()
-    file_cols = [_normalize_column_name_for_check(c.get("name") or "col", used) for c in inferred]
+    file_cols = [normalize_column_name_for_sequence(c.get("name") or "col", used) for c in inferred]
     file_col_set = set(file_cols)
     missing_pk = [p for p in pk_list if p not in file_col_set]
     if missing_pk:
@@ -486,7 +608,7 @@ async def add_files_zip_to_table(
     """
     from Backend.api_server import db as api_db
     from Backend.etl_server import queue_worker
-    from Backend.etl_server.etl_limits import get_etl_limits
+    from Backend.etl_server.etl_limits import get_etl_limits, get_max_zip_extract_total_mb
 
     row = etl_service.get_etl_table(etl_table_id)
     if not row:
@@ -537,7 +659,24 @@ async def add_files_zip_to_table(
     try:
         extract_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zip_path, "r") as zf:
+            max_zip_mb = get_max_zip_extract_total_mb()
+            if max_zip_mb > 0:
+                total_uncompressed = sum(info.file_size for info in zf.infolist())
+                if total_uncompressed > max_zip_mb * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"ZIP 압축 해제 예상 크기가 {max_zip_mb}MB를 초과합니다. (약 {total_uncompressed // (1024*1024)}MB)",
+                    )
+            extract_resolved = extract_dir.resolve()
+            for member in zf.infolist():
+                member_path = (extract_dir / member.filename).resolve()
+                if not str(member_path).startswith(str(extract_resolved) + os.sep) and member_path != extract_resolved:
+                    raise HTTPException(status_code=400, detail="ZIP 파일에 위험한 경로가 포함되어 있습니다.")
             zf.extractall(extract_dir)
+    except HTTPException:
+        if extract_dir.is_dir():
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        raise
     except zipfile.BadZipFile as e:
         if zip_path.is_file():
             zip_path.unlink(missing_ok=True)
@@ -583,7 +722,7 @@ async def add_files_zip_to_table(
             skipped_files.append({"filename": name, "reason": "schema_or_pk_failed"})
             continue
         used = set()
-        file_cols = [_normalize_column_name_for_check(c.get("name") or "col", used) for c in inferred]
+        file_cols = [normalize_column_name_for_sequence(c.get("name") or "col", used) for c in inferred]
         file_col_set = set(file_cols)
         missing_pk = [p for p in pk_list if p not in file_col_set]
         if missing_pk:
@@ -621,6 +760,16 @@ async def add_files_zip_to_table(
     }
 
 
+@router.get("/timezones")
+def list_timezones():
+    """서버 시간대 마스터 목록. 셀렉트박스용."""
+    try:
+        rows = etl_service.list_timezones()
+        return {"timezones": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/cleanup-expired-uploads")
 def cleanup_expired_uploads():
     """
@@ -645,6 +794,7 @@ def create_connection(body: CreateConnectionBody):
             username=body.username,
             password=body.password or "",
             created_by=body.created_by,
+            server_timezone=body.server_timezone or "Asia/Seoul",
         )
         return {"connection_id": connection_id}
     except ValueError as e:
@@ -719,6 +869,8 @@ def create_transform_rule(body: CreateTransformRuleBody):
             target_column=body.target_column,
             apply_order=body.apply_order,
             is_active=body.is_active,
+            rule_category=body.rule_category,
+            operation=body.operation or "default",
         )
         return {"rule_id": rule_id}
     except ValueError as e:
@@ -739,6 +891,8 @@ def update_transform_rule(rule_id: int, body: UpdateTransformRuleBody):
             rule_config=body.rule_config,
             apply_order=body.apply_order,
             is_active=body.is_active,
+            rule_category=body.rule_category,
+            operation=body.operation,
         )
         return {"message": "ok"}
     except ValueError as e:
@@ -768,6 +922,47 @@ def list_connection_tables(connection_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/connections/{connection_id}/source-columns")
+def list_source_columns(connection_id: int, source_table: str = Query(..., description="소스 테이블(schema.table 또는 table)")):
+    """소스 DB의 지정 테이블 컬럼 목록. 증분 컬럼 셀렉트 등에 사용."""
+    try:
+        columns = db_load_service.get_source_columns(connection_id, source_table)
+        return {"columns": columns}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/connections/{connection_id}/source-indexes")
+def list_source_indexes(
+    connection_id: int,
+    source_table: str = Query(..., description="소스 테이블(schema.table 또는 table)"),
+):
+    """소스 DB의 지정 테이블 인덱스 목록. PK 포함(is_primary로 구분). 프론트에서 PK·인덱스 한 번에 표시용."""
+    try:
+        indexes = db_load_service.get_source_indexes(connection_id, source_table)
+        return {"indexes": indexes}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/connections/{connection_id}/validate-incremental-column")
+def validate_incremental_column(connection_id: int, body: ValidateIncrementalColumnBody):
+    """증분 컬럼이 날짜(또는 날짜 파싱 가능)인지 검증. date/datetime 타입이면 통과, 그 외는 샘플 isdate 검사."""
+    try:
+        result = db_load_service.validate_incremental_column(
+            connection_id, body.source_table, body.column_name
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/connections/{connection_id}", status_code=204)
 def delete_connection(connection_id: int):
     """연결 해제. 해당 연결로 등록된 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤 연결·ETL 메타 삭제. 파일 업로드용 연결은 삭제 불가."""
@@ -779,20 +974,140 @@ def delete_connection(connection_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ---------- 저장 DB(적재 대상) Phase 1 ----------
+
+@router.get("/storage-connections")
+def list_storage_connections():
+    """저장 DB(적재 대상) 연결 목록. 비밀번호 제외."""
+    try:
+        rows = etl_service.list_storage_connections()
+        for r in rows:
+            if r.get("created_at") is not None:
+                r["created_at"] = r["created_at"].isoformat()
+            if r.get("updated_at") is not None:
+                r["updated_at"] = r["updated_at"].isoformat()
+        return {"storage_connections": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/storage-connections", status_code=201)
+def create_storage_connection(body: CreateStorageConnectionBody):
+    """저장 DB 연결 1건 등록. PostgreSQL 전용. 연결 테스트 통과 후 등록 권장."""
+    try:
+        storage_connection_id = etl_service.create_storage_connection(
+            connection_name=body.connection_name,
+            host=body.host,
+            port=body.port,
+            database_name=body.database_name,
+            schema_name=body.schema_name or "public",
+            username=body.username,
+            password=body.password or "",
+            server_timezone=body.server_timezone or "Asia/Seoul",
+        )
+        return {"storage_connection_id": storage_connection_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/storage-connections/{storage_connection_id}")
+def update_storage_connection(storage_connection_id: int, body: UpdateStorageConnectionBody):
+    """저장 DB 연결 1건 수정. 전달된 필드만 갱신."""
+    try:
+        etl_service.update_storage_connection(
+            storage_connection_id,
+            connection_name=body.connection_name,
+            host=body.host,
+            port=body.port,
+            database_name=body.database_name,
+            schema_name=body.schema_name,
+            username=body.username,
+            password=body.password,
+            is_active=body.is_active,
+            server_timezone=body.server_timezone,
+        )
+        return {"message": "ok"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/storage-connections/{storage_connection_id}", status_code=204)
+def delete_storage_connection(storage_connection_id: int):
+    """저장 DB 연결 1건 삭제."""
+    try:
+        etl_service.delete_storage_connection(storage_connection_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/storage-connections/test")
+def test_storage_connection(body: TestStorageConnectionBody):
+    """저장 DB 연결 테스트: 접속 + CREATE TABLE + INSERT + DROP TABLE 권한 검증."""
+    try:
+        result = etl_service.test_storage_connection(
+            host=body.host,
+            port=body.port,
+            database_name=body.database_name,
+            schema_name=body.schema_name or "public",
+            username=body.username,
+            password=body.password or "",
+        )
+        return result
+    except Exception as e:
+        logger.exception("저장 DB 연결 테스트 예외: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/target-tables")
+def list_target_tables(storage_connection_id: Optional[int] = None):
+    """Phase 3: 저장 DB(적재 대상)의 테이블 목록. storage_connection_id 없으면 기본 DB(ibank_db)."""
+    try:
+        tables = etl_service.list_target_tables(storage_connection_id)
+        return {"tables": tables}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("저장 DB 테이블 목록 조회 예외: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/target-columns")
+def list_target_columns(storage_connection_id: Optional[int] = None, table_name: Optional[str] = None):
+    """Phase 3: 저장 DB의 지정 테이블 컬럼 목록(컬럼명, 타입). table_name 필수."""
+    if not (table_name or "").strip():
+        raise HTTPException(status_code=400, detail="table_name이 필요합니다.")
+    try:
+        columns = etl_service.list_target_columns(storage_connection_id, table_name.strip())
+        return {"columns": columns}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("저장 DB 컬럼 목록 조회 예외: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/tables/{etl_table_id}/target-exists")
 def check_target_table_exists(etl_table_id: int):
-    """실행 전 확인용: 타겟 테이블이 메인 DB에 이미 존재하는지. sync_mode 반환(증분이면 기존 테이블 삭제 없이 업서트)."""
+    """실행 전 확인용: 타겟 테이블이 해당 저장 DB(기본 DB 또는 storage_connection_id)에 이미 존재하는지. sync_mode 반환."""
     try:
         row = etl_service.get_etl_table(etl_table_id)
         if not row:
             raise HTTPException(status_code=404, detail="ETL 테이블을 찾을 수 없습니다.")
         target_table = (row.get("target_table") or "").strip()
         if not target_table:
-            return {"target_table": None, "exists": False, "sync_mode": None}
+            return {"target_table": None, "exists": False, "sync_mode": None, "storage_connection_id": row.get("storage_connection_id")}
         sync_mode = etl_service.get_sync_mode_for_load(etl_table_id)
-        from Backend.api_server import db as api_db
-        exists = api_db.table_exists_in_schema(target_table)
-        return {"target_table": target_table, "exists": exists, "sync_mode": sync_mode}
+        exists = etl_service.target_table_exists(row.get("storage_connection_id"), target_table)
+        return {
+            "target_table": target_table,
+            "exists": exists,
+            "sync_mode": sync_mode,
+            "storage_connection_id": row.get("storage_connection_id"),
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -804,6 +1119,24 @@ def preview_table(etl_table_id: int):
     """미리보기: 컬럼별 저장 가능 여부 + 저장 후 테이블 모습 10행."""
     try:
         data = preview_service.get_preview(etl_table_id)
+        return data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/transform/preview")
+def transform_preview(body: TransformPreviewBody):
+    """변환 룰 적용 미리보기. preview_columns, preview_rows, row_count, transform_failed_count 반환."""
+    try:
+        data = preview_service.get_transform_preview(
+            body.etl_table_id,
+            body.rules,
+            body.column_mapping,
+        )
         return data
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -832,7 +1165,6 @@ def run_table_load(etl_table_id: int):
     - DB 소스·추가 적재: 대기열 등록 후 백그라운드 워커가 실행.
     반환: { job_id, status, message } — 완료 여부는 GET /api/etl/jobs/{job_id} 로 폴링.
     """
-    import threading
     try:
         row = etl_service.get_etl_table(etl_table_id)
         if not row:
@@ -947,3 +1279,5 @@ def cancel_job(job_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# 09_ETL_SFTP_Connection: 배치(폴더 연결·Job·이력) API는 router_file에서 prefix /batch 로 노출

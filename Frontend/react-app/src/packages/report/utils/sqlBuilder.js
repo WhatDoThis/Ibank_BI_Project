@@ -5,33 +5,24 @@
  *
  * [Main Functions]
  * ===========
- * - getJoinKey: tableRelationships에서 prevTable-currTable JOIN 키(prevColumn, currColumn) 반환
- * - generateSQL: 전체 SELECT 쿼리 (joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs)
- * - generateCountSQL: COUNT(*) 쿼리 (GROUP BY 시 서브쿼리)
- * - generateDistinctPivotSQL: 피벗 시 고유 건수용
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - getJoinKey, generateSQL, generateCountSQL, generateDistinctPivotSQL (export)
+ * 1. quoteIdent, dedupeConditions (내부). getJoinKey: tableRelationships에서 prevTable-currTable JOIN 키 반환
+ * 2. generateSQL: 전체 SELECT 쿼리 (joinConfigs, groupBy, dateGranularity, havings, pivot, pivotRowAggs)
+ * 3. generateCountSQL: COUNT(*) 쿼리 (GROUP BY 시 서브쿼리)
+ * 4. generateDistinctPivotSQL: 피벗 시 고유 건수용
  *
  * [Dependencies]
  * =========
  * - 없음
  */
 
-/**
- * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
- * @param {string} prevTable
- * @param {string} currTable
- */
-/** PostgreSQL 식별자 이스케이프. 숫자시작·하이픈·공백 등 특수문자 포함 시 "name" 형태로 감싸야 함 */
+// 1. PostgreSQL 식별자 이스케이프. 숫자시작·하이픈·공백 등 특수문자 포함 시 "name" 형태로 감싸야 함
 function quoteIdent(name) {
   if (name == null || name === '') return '""'
   const s = String(name).replace(/"/g, '""')
   return `"${s}"`
 }
 
-/** ON 조건 배열에서 (prevColumn, currColumn) 기준 중복 제거 → 중복 JOIN 조건 방지 */
+// 2. ON 조건 배열에서 (prevColumn, currColumn) 기준 중복 제거 → 중복 JOIN 조건 방지
 function dedupeConditions(conditions) {
   if (!conditions?.length) return []
   const seen = new Set()
@@ -43,6 +34,7 @@ function dedupeConditions(conditions) {
   })
 }
 
+// 3.
 export function getJoinKey(tableRelationships, prevTable, currTable) {
   const rel = tableRelationships[prevTable]?.[currTable]
   if (rel && rel.prevColumn != null && rel.currColumn != null) return rel
@@ -52,13 +44,14 @@ export function getJoinKey(tableRelationships, prevTable, currTable) {
   return null
 }
 
+// 4.
 function escapeValueForSql(val, operator) {
   if (operator === 'LIKE') return `'%${String(val).replace(/'/g, "''")}%'`
   if (!Number.isNaN(Number(val)) && String(val).trim() !== '') return val
   return `'${String(val).replace(/'/g, "''")}'`
 }
 
-/** 단일 값 SQL 이스케이프 (IN/BETWEEN용) */
+// 5. 단일 값 SQL 이스케이프 (IN/BETWEEN용)
 function escapeSingle(val) {
   const s = String(val).trim()
   if (s === '' || s.toLowerCase() === 'null') return 'NULL'
@@ -66,11 +59,7 @@ function escapeSingle(val) {
   return `'${String(s).replace(/'/g, "''")}'`
 }
 
-/**
- * 필터 하나에 대한 WHERE 절 조각 생성 (IS NULL, IN, BETWEEN 등 지원)
- * @param {{ table: string, column: string, operator: string, value: string }} f
- * @param {{ alias: string, column: string }} c
- */
+// 6. 필터 하나에 대한 WHERE 절 조각 생성 (IS NULL, IN, BETWEEN 등 지원)
 function buildOneWhereClause(f, c) {
   const colExpr = `${c.alias}.${quoteIdent(c.column)}`
   const op = f.operator || '='
@@ -95,24 +84,26 @@ function buildOneWhereClause(f, c) {
   return `${colExpr} ${op} ${val}`
 }
 
-/** WHERE 절 배열을 logicalOperator로 연결 (filters[i].logicalOperator = i번과 i+1번 사이 연결) */
+// 7. WHERE 절 배열을 logicalOperator로 연결 (filters[i].logicalOperator = i번과 i+1번 사이 연결)
 function joinWhereClauses(clauses, filters) {
   if (clauses.length === 0) return ''
   if (clauses.length === 1) return clauses[0]
   return clauses.reduce((acc, cl, i) => (i === 0 ? cl : `${acc} ${(filters[i - 1].logicalOperator || 'AND')} ${cl}`), '')
 }
 
+// 8.
 function getAlias(gridColumns, table) {
   const c = gridColumns.find((col) => col.table === table)
   return c ? c.alias : null
 }
 
+// 9.
 function isGroupByColumn(groupBy, table, column) {
   if (!groupBy || !groupBy.length) return false
   return groupBy.some((g) => g.table === table && g.column === column)
 }
 
-/** GROUP BY 절에 쓸 컬럼 표현식 (날짜 단위 적용) */
+// 10. GROUP BY 절에 쓸 컬럼 표현식 (날짜 단위 적용)
 function groupByExpression(alias, table, column, dateGranularity) {
   let expr = `${alias}.${quoteIdent(column)}`
   const key = `${table}.${column}`
@@ -123,7 +114,7 @@ function groupByExpression(alias, table, column, dateGranularity) {
   return expr
 }
 
-/** SELECT 절 단일 컬럼 표현식 (날짜 단위 + 집계) */
+// 11. SELECT 절 단일 컬럼 표현식 (날짜 단위 + 집계)
 function getSelectExpression(col, gridColumns, groupBy, dateGranularity) {
   const alias = col.alias
   let base = `${alias}.${quoteIdent(col.column)}`
@@ -142,7 +133,7 @@ function getSelectExpression(col, gridColumns, groupBy, dateGranularity) {
   return base
 }
 
-/** ORDER BY 절 표현식 (집계 시 agg 반영) */
+// 12. ORDER BY 절 표현식 (집계 시 agg 반영)
 function getOrderByExpression(ob, gridColumns, groupBy) {
   const c = gridColumns[ob.columnIndex]
   if (!c) return null
@@ -154,16 +145,7 @@ function getOrderByExpression(ob, gridColumns, groupBy) {
   return `${alias}.${quoteIdent(c.column)}`
 }
 
-/**
- * @param {{ table: string, column: string, alias: string, type?: string, aggFunc?: string }[]} gridColumns
- * @param {string[]} addedTables
- * @param {{ table: string, column: string, operator: string, value: string }[]} filters
- * @param {{ columnIndex: number, dir: string }[]} orderBy
- * @param {number} currentPage
- * @param {number} pageSize
- * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
- * @param {{ groupBy?: { table: string, column: string }[], dateGranularity?: Record<string, string>, havings?: { table: string, column: string, aggFunc: string, operator: string, value: string }[], pivot?: { table: string, column: string, values: unknown[] }, pivotRowAggs?: { table: string, column: string, aggFunc: string }[] }} options
- */
+// 13. 전체 SELECT 쿼리 생성 (gridColumns, addedTables, filters, orderBy, tableRelationships, options)
 export function generateSQL(
   gridColumns,
   addedTables,
@@ -301,13 +283,7 @@ export function generateSQL(
   return sql
 }
 
-/**
- * @param {{ table: string, column: string, alias: string, aggFunc?: string }[]} gridColumns
- * @param {string[]} addedTables
- * @param {{ table: string, column: string, operator: string, value: string }[]} filters
- * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
- * @param {{ groupBy?: { table: string, column: string }[], dateGranularity?: Record<string, string>, havings?: { table: string, column: string, aggFunc: string, operator: string, value: string }[] }} options
- */
+// 14. COUNT(*) 쿼리 생성 (GROUP BY 시 서브쿼리)
 export function generateCountSQL(
   gridColumns,
   addedTables,
@@ -389,24 +365,14 @@ export function generateCountSQL(
   return `SELECT COUNT(*) as total\nFROM ${quoteIdent(firstTable)} AS t1${joinClauses}${whereStr};`
 }
 
-/** 피벗축이 날짜 컬럼인지 (타입 기준) */
+// 15. 피벗축이 날짜 컬럼인지 (타입 기준)
 function isPivotColumnDateType(colType) {
   if (!colType) return false
   const t = String(colType).toLowerCase()
   return t.includes('date') || t.includes('timestamp') || t === 'datetime' || t === 'datetime2'
 }
 
-/**
- * 피벗 축 값 조회용 DISTINCT 쿼리 생성.
- * 날짜 컬럼인 경우 dateGranularity(연/연월/연월일)와 걸린 조건(filters)을 반영한다.
- * @param {string} table
- * @param {string} column
- * @param {{ table: string, column: string, alias: string, type?: string }[]} gridColumns
- * @param {string[]} addedTables
- * @param {{ table: string, column: string, operator: string, value: string }[]} filters
- * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
- * @param {{ joinConfigs?: object, dateGranularity?: Record<string, string> }} opts - joinConfigs 또는 { joinConfigs, dateGranularity }
- */
+// 16. 피벗 축 값 조회용 DISTINCT 쿼리 생성. 날짜 컬럼 시 dateGranularity·filters 반영
 export function generateDistinctPivotSQL(table, column, gridColumns, addedTables, filters, tableRelationships, joinConfigsOrOpts = {}) {
   const joinConfigs = joinConfigsOrOpts && typeof joinConfigsOrOpts.joinConfigs !== 'undefined'
     ? joinConfigsOrOpts.joinConfigs

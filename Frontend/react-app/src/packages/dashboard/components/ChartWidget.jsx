@@ -5,11 +5,9 @@
  *
  * [Main Functions]
  * ===========
- * - ChartWidget: tableId, filters, data. 위젯 추가/삭제, Dimension·Metric·차트 유형. Y축 고정·가로 스크롤·XAxisTickTruncate. X축 레이블 검색(10건 초과 시)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - ChartWidget (default export)
+ * 1. formatYAxisTick, parseChartNumber, niceNum, calculateYAxisScale, calculateYAxisScaleForLineArea, calculateYAxisScaleForBar, calculateYAxisScaleForRate, getAvailableDimensions
+ * 2. XAxisTickTruncate, SingleWidget: 위젯 1건. Dimension·Metric·차트 유형, Y축 고정·가로 스크롤, X축 레이블 검색
+ * 3. ChartWidget: tableId, filters, data, 위젯 추가/삭제 (default export)
  *
  * [Dependencies]
  * =========

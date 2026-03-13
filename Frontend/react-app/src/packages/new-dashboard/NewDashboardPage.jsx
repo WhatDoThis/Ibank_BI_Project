@@ -2,7 +2,10 @@
  * NewDashboardPage (뉴 대시보드 메인 페이지)
  * ===========================================
  * 일간/주간/월간 현황판. getNewDashboardSummary + getNewDashboardTrendMulti 연동.
- * [Main] loadData(Promise.all summary+trendMulti), moveDate, handleDateChange. 로딩은 새로고침 버튼 '조회 중...' 표시.
+ *
+ * [Main Functions]
+ * 1. todayStr
+ * 2. loadData (useCallback), moveDate, handleDateChange. 로딩은 새로고침 버튼 '조회 중...' 표시.
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -17,11 +20,13 @@ import TrendLineChart from './components/TrendLineChart'
 import CampaignRankTable from './components/CampaignRankTable'
 import FunnelSection from './components/FunnelSection'
 
+// 1.
 function todayStr() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 2.
 export default function NewDashboardPage() {
   const [tables, setTables] = useState([])
   const [tableId, setTableId] = useState('')

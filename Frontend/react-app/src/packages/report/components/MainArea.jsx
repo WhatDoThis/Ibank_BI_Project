@@ -5,11 +5,8 @@
  *
  * [Main Functions]
  * ===========
- * - MainArea: gridColumns, addedTables, joinOrder, relationshipOptions, joinConditions, joinTypes, resultData, executedSql, explanation, pagination 등 props. buildRelationshipTree, buildRelationshipMermaid(relationshipDiagram)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - MainArea (default export)
+ * 1. isGroupByColumn, joinOptionLabel, confidenceBadge, getColumnDisplayName (헬퍼)
+ * 2. MainArea: gridColumns, addedTables, joinOrder, relationshipOptions, joinConditions, joinTypes, resultData, executedSql, explanation, pagination 등 props. buildRelationshipTree, buildRelationshipMermaid(relationshipDiagram)
  *
  * [Dependencies]
  * =========
@@ -23,10 +20,12 @@ import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relati
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500]
 
+// 1.
 function isGroupByColumn(groupBy, table, column) {
   return groupBy.some((g) => g.table === table && g.column === column)
 }
 
+// 2.
 function joinOptionLabel(opt) {
   return opt ? `${opt.prevColumn} = ${opt.currColumn}` : ''
 }
@@ -37,6 +36,7 @@ const JOIN_TYPE_OPTIONS = [
   { value: 'RIGHT', label: 'RIGHT JOIN' }
 ]
 
+// 3.
 function confidenceBadge(confidence) {
   if (confidence === 'HIGH') return { char: '🟢', title: '높음 (FK)' }
   if (confidence === 'MEDIUM') return { char: '🟡', title: '중간 (동일 컬럼·타입)' }
@@ -44,7 +44,7 @@ function confidenceBadge(confidence) {
   return { char: '⚪', title: '' }
 }
 
-/** 라벨 우선, 없으면 컬럼명. 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시 */
+// 4. 라벨 우선, 없으면 컬럼명. 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시
 function getColumnDisplayName(col, gridColumns) {
   if (!col) return ''
   const g = gridColumns?.find((c) => c.table === col.table && c.column === col.column)
@@ -55,6 +55,7 @@ function getColumnDisplayName(col, gridColumns) {
   return sameNameCount > 1 ? `${alias || col.table}.${displayName}` : displayName
 }
 
+// 5.
 export default function MainArea({
   gridColumns = [],
   addedTables = [],
@@ -137,6 +138,7 @@ export default function MainArea({
     (c) => !(pivot && c.table === pivot.table && c.column === pivot.column)
   ).filter((c) => ['int', 'bigint', 'numeric', 'decimal', 'float', 'double'].some((t) => (c.type || '').toLowerCase().includes(t)))
 
+  // 6.
   function handleDragOver(e) {
     if (e.dataTransfer.types.includes('application/json')) {
       e.preventDefault()
@@ -144,9 +146,11 @@ export default function MainArea({
       setDropOverlayActive(true)
     }
   }
+  // 7.
   function handleDragLeave(e) {
     if (!e.currentTarget.contains(e.relatedTarget)) setDropOverlayActive(false)
   }
+  // 8.
   function handleDrop(e) {
     setDropOverlayActive(false)
     e.preventDefault()
@@ -158,6 +162,7 @@ export default function MainArea({
     } catch (_) {}
   }
 
+  // 9.
   function applyFilter() {
     if (addFilterColumnIndex == null || !gridColumns[addFilterColumnIndex]) return
     const val = (addFilterVal || '').trim()
@@ -168,6 +173,7 @@ export default function MainArea({
     setAddFilterColumnIndex(null)
     setAddFilterVal('')
   }
+  // 10.
   function applyOrderBy() {
     if (addOrderByColumnIndex == null || !gridColumns[addOrderByColumnIndex]) return
     onAddOrderBy?.({ columnIndex: addOrderByColumnIndex, dir: addOrderByDir })
@@ -180,6 +186,7 @@ export default function MainArea({
   const usedOrderByIndexes = new Set(orderBy.map((ob) => ob.columnIndex))
   const availableOrderByColumns = gridColumns.map((c, i) => ({ c, i })).filter(({ i }) => !usedOrderByIndexes.has(i))
 
+  // 11.
   function orderByLabel(ob) {
     const c = gridColumns[ob.columnIndex]
     if (!c) return ''

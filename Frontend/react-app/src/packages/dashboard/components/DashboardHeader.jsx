@@ -3,15 +3,9 @@
  * ==========================================================
  * 테이블 셀렉트·기간·조회·집계 기준·정렬·캠페인/워크플로우/채널 필터. 필수 컬럼 안내 모달.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - 1행: 테이블 셀렉트, info, 보기(일반/일간/주간/월간/연간 비교), 기준·비교 기간 입력, 조회
- * - 2행: 집계 기준 체크박스, 정렬 기준 버튼
- * - 3행: 캠페인·워크플로우·채널 멀티 셀렉트
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - DashboardHeader (default export)
+ * 1. DashboardHeader: 1행 테이블·보기·기간·조회, 2행 집계 기준·정렬, 3행 캠페인·워크플로우·채널 필터
  *
  * [Dependencies]
  * =========
@@ -31,6 +25,7 @@ const SORT_OPTIONS = [
   { key: 'click_count', label: '클릭수' }
 ]
 
+// 1.
 export default function DashboardHeader({
   tables = [],
   tableId,

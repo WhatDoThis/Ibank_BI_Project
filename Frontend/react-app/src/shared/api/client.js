@@ -10,7 +10,8 @@
  * - getDashboardTables, getDashboardFilterOptions, getDashboardData, getDashboardRequiredColumns, getChartData (대시보드1)
  * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2)
  * - getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti (뉴 대시보드)
- * - batchListJobs, batchCreateJob, batchUpdateJob, batchDeleteJob, batchRunJobNow, batchToggleJob, batchListJobHistory, batchGetJobHistoryDetail (ETL2 배치 Job)
+ * - getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster (뉴 대시보드2)
+ * - ETL: /api/etl 단일 사용 — etl2* (테이블·업로드·연결·Job), batch* (배치 Job·폴더연결)
  *
  * [Endpoints/Classes/Functions]
  * =======================
@@ -234,24 +235,100 @@ export async function getNewDashboardTrendMulti(tableId, { endDate = null, perio
   return res.json();
 }
 
-// ---------- ETL (Phase 5 UI) ----------
+// ---------- New Dashboard 2 (마케팅 성과 분석) ----------
+
+function baseUrlNewDashboard2() {
+  return getApiBase().replace(/\/$/, '');
+}
+
+/** GET /api/new-dashboard2/overview */
+export async function getNewDash2Overview(targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/overview?${params}`);
+  if (!res.ok) throw new Error(`Overview 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/star */
+export async function getNewDash2Star(targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/star?${params}`);
+  if (!res.ok) throw new Error(`Star 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/frequency */
+export async function getNewDash2Frequency(targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/frequency?${params}`);
+  if (!res.ok) throw new Error(`Frequency 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/coupon */
+export async function getNewDash2Coupon(targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/coupon?${params}`);
+  if (!res.ok) throw new Error(`Coupon 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/campaign-segments */
+export async function getNewDash2CampaignSegments(targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/campaign-segments?${params}`);
+  if (!res.ok) throw new Error(`Campaign segments 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/store */
+export async function getNewDash2Store(targetDate = null, period = 'daily') {
+  const params = new URLSearchParams({ period });
+  if (targetDate) params.set('target_date', targetDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/store?${params}`);
+  if (!res.ok) throw new Error(`Store 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/trend - table_name, metrics(comma-separated), end_date, days, period, count. Returns { rows, period, table_name } */
+export async function getNewDash2Trend(tableName, metrics, { endDate = null, days = 30, period = 'daily', count = 12 } = {}) {
+  const params = new URLSearchParams({ table_name: tableName, metrics, days: String(days), period, count: String(count) });
+  if (endDate) params.set('end_date', endDate);
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/trend?${params}`);
+  if (!res.ok) throw new Error(`Trend 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+/** GET /api/new-dashboard2/product-master - 상품 마스터 (쿼리 파라미터 없음) */
+export async function getNewDash2ProductMaster() {
+  const res = await fetch(`${baseUrlNewDashboard2()}/api/new-dashboard2/product-master`);
+  if (!res.ok) throw new Error(`Product master 조회 실패: ${res.status}`);
+  return res.json();
+}
+
+// ---------- ETL (단일, /api/etl) ----------
 
 function baseUrlForEtl() {
   return getApiBase().replace(/\/$/, '');
 }
 
 /** GET /api/etl/tables - ETL 테이블 목록 */
-export async function etlListTables() {
+export async function etl2ListTables() {
   return request('GET', '/api/etl/tables');
 }
 
 /** POST /api/etl/tables - ETL 테이블 1건 등록 */
-export async function etlCreateTable(body) {
+export async function etl2CreateTable(body) {
   return request('POST', '/api/etl/tables', body);
 }
 
-/** POST /api/etl/upload - 파일 업로드 (multipart). file: File, target_table?, description?, created_by? */
-export async function etlUploadFile(formData) {
+/** POST /api/etl/upload - 파일 업로드 (multipart) */
+export async function etl2UploadFile(formData) {
   const url = `${baseUrlForEtl()}/api/etl/upload`;
   const res = await fetch(url, { method: 'POST', body: formData });
   const data = await res.json().catch(() => ({}));
@@ -270,150 +347,9 @@ export async function etlUploadFile(formData) {
   return data;
 }
 
-/** DELETE /api/etl/tables/:id - ETL 테이블 1건 삭제 (타겟 테이블 DROP, 업로드 파일 삭제) */
-export async function etlDeleteTable(etlTableId) {
-  return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}`);
-}
-
-/** PATCH /api/etl/tables/:id - ETL 테이블 설정 일부 갱신 (pk_columns 등) */
-export async function etlUpdateTable(etlTableId, body) {
-  return request('PATCH', `/api/etl/tables/${encodeURIComponent(etlTableId)}`, body);
-}
-
-/** DELETE /api/etl/tables/:id/row - ETL 등록 행만 삭제(메인 DB 테이블 유지, 업로드 파일·해당 행 삭제) */
-export async function etlDeleteTableRow(etlTableId) {
-  return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}/row`);
-}
-
-/** GET /api/etl/tables/:id/preview - 미리보기: 컬럼 저장 가능 여부 + 10행 */
-export async function etlPreviewTable(etlTableId) {
-  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/preview`);
-}
-
-/** GET /api/etl/tables/:id/target-exists - 타겟 테이블이 메인 DB에 존재하는지. 실행 전 컨펌용 */
-export async function etlTargetExists(etlTableId) {
-  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/target-exists`);
-}
-
-/** POST /api/etl/tables/:id/run - ETL 테이블 1건 대기열 등록 (Phase 6). 반환 job_id로 폴링 */
-export async function etlRunTable(etlTableId) {
-  return request('POST', `/api/etl/tables/${encodeURIComponent(etlTableId)}/run`);
-}
-
-/** POST /api/etl/tables/:id/add-file - 동일 테이블에 추가 적재(업서트). file: File. 반환 job_id 등 */
-export async function etlAddFileToTable(etlTableId, file) {
-  const url = `${baseUrlForEtl()}/api/etl/tables/${encodeURIComponent(etlTableId)}/add-file`;
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch(url, { method: 'POST', body: formData });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-  return data;
-}
-
-/** POST /api/etl/tables/:id/add-files-zip - ZIP으로 여러 파일 추가 적재. file: File (.zip). 반환 job_ids, skipped_files 등 */
-export async function etlAddFilesZipToTable(etlTableId, file) {
-  const url = `${baseUrlForEtl()}/api/etl/tables/${encodeURIComponent(etlTableId)}/add-files-zip`;
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch(url, { method: 'POST', body: formData });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-  return data;
-}
-
-/** GET /api/etl/jobs - Job 목록. statuses=completed,failed 등 쉼표 구분 시 해당 상태만 */
-export async function etlListJobs(etlTableId = null, statuses = null) {
-  const params = new URLSearchParams({ limit: '500' });
-  if (etlTableId != null) params.set('etl_table_id', String(etlTableId));
-  if (statuses != null && statuses !== '') params.set('statuses', statuses);
-  return request('GET', `/api/etl/jobs?${params.toString()}`);
-}
-
-/** GET /api/etl/jobs/:job_id - Job 1건 조회 (폴링용). target_table, started_at 포함 */
-export async function etlGetJob(jobId) {
-  return request('GET', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
-}
-
-/** POST /api/etl/jobs/:job_id/cancel - 실행 중·대기 중 Job 취소 */
-export async function etlCancelJob(jobId) {
-  return request('POST', `/api/etl/jobs/${encodeURIComponent(jobId)}/cancel`);
-}
-
-/** DELETE /api/etl/jobs/:job_id - Job 1건 삭제 (etl_jobs에서 삭제) */
-export async function etlDeleteJob(jobId) {
-  return request('DELETE', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
-}
-
-/** DELETE /api/etl/connections/:id - 연결 해제 (해당 연결의 타겟 테이블 DROP 후 연결 삭제) */
-export async function etlDeleteConnection(connectionId) {
-  return request('DELETE', `/api/etl/connections/${encodeURIComponent(connectionId)}`);
-}
-
-/** GET /api/etl/connections - 연결 목록 */
-export async function etlListConnections() {
-  return request('GET', '/api/etl/connections');
-}
-
-/** POST /api/etl/connections - 연결 1건 등록 */
-export async function etlCreateConnection(body) {
-  return request('POST', '/api/etl/connections', body);
-}
-
-/** POST /api/etl/connections/test - 연결 테스트 (connection_id 또는 host/database_name/username/password) */
-export async function etlTestConnection(body) {
-  return request('POST', '/api/etl/connections/test', body);
-}
-
-/** GET /api/etl/connections/:id/tables - 소스 DB 테이블 목록 */
-export async function etlListConnectionTables(connectionId) {
-  return request('GET', `/api/etl/connections/${encodeURIComponent(connectionId)}/tables`);
-}
-
-/** GET /api/etl/tables/:id/transform-rules - 변환 룰 목록 */
-export async function etlListTransformRules(etlTableId) {
-  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/transform-rules`);
-}
-
-// ---------- ETL2 (09_ETL_Upgrade_Plan 페이지용, /api/etl2) ----------
-
-function baseUrlForEtl2() {
-  return getApiBase().replace(/\/$/, '');
-}
-
-/** GET /api/etl2/tables - ETL2 테이블 목록 */
-export async function etl2ListTables() {
-  return request('GET', '/api/etl2/tables');
-}
-
-/** POST /api/etl2/tables - ETL2 테이블 1건 등록 */
-export async function etl2CreateTable(body) {
-  return request('POST', '/api/etl2/tables', body);
-}
-
-/** POST /api/etl2/upload - 파일 업로드 (multipart) */
-export async function etl2UploadFile(formData) {
-  const url = `${baseUrlForEtl2()}/api/etl2/upload`;
-  const res = await fetch(url, { method: 'POST', body: formData });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg =
-      data.detail !== undefined && data.detail !== null
-        ? Array.isArray(data.detail)
-          ? data.detail.map((d) => (d.msg != null ? d.msg : (d.loc && d.loc.join('.')) || '')).filter(Boolean).join(', ') || `HTTP ${res.status}`
-          : String(data.detail)
-        : (data.error || data.message || `HTTP ${res.status}`);
-    const err = new Error(msg);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
-  return data;
-}
-
-/** POST /api/etl2/infer-schema - 파일만 업로드하여 스키마(컬럼·타입) 반환, 메타 등록 없음. 테이블선택 및 컬럼매핑용 */
+/** POST /api/etl/infer-schema - 파일만 업로드하여 스키마(컬럼·타입) 반환, 메타 등록 없음. 테이블선택 및 컬럼매핑용 */
 export async function etl2InferSchema(file) {
-  const url = `${baseUrlForEtl2()}/api/etl2/infer-schema`;
+  const url = `${baseUrlForEtl()}/api/etl/infer-schema`;
   const formData = new FormData();
   formData.append('file', file);
   const res = await fetch(url, { method: 'POST', body: formData });
@@ -425,43 +361,43 @@ export async function etl2InferSchema(file) {
   return data;
 }
 
-/** DELETE /api/etl2/tables/:id */
+/** DELETE /api/etl/tables/:id */
 export async function etl2DeleteTable(etlTableId) {
-  return request('DELETE', `/api/etl2/tables/${encodeURIComponent(etlTableId)}`);
+  return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}`);
 }
 
-/** PATCH /api/etl2/tables/:id */
+/** PATCH /api/etl/tables/:id */
 export async function etl2UpdateTable(etlTableId, body) {
-  return request('PATCH', `/api/etl2/tables/${encodeURIComponent(etlTableId)}`, body);
+  return request('PATCH', `/api/etl/tables/${encodeURIComponent(etlTableId)}`, body);
 }
 
-/** DELETE /api/etl2/tables/:id/row */
+/** DELETE /api/etl/tables/:id/row */
 export async function etl2DeleteTableRow(etlTableId) {
-  return request('DELETE', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/row`);
+  return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}/row`);
 }
 
-/** GET /api/etl2/tables/:id/preview */
+/** GET /api/etl/tables/:id/preview */
 export async function etl2PreviewTable(etlTableId) {
-  return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/preview`);
+  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/preview`);
 }
 
 /**
- * POST /api/etl2/transform/preview — 현재 설정한 변환 룰 적용 미리보기
+ * POST /api/etl/transform/preview — 현재 설정한 변환 룰 적용 미리보기
  * @param {{ etl_table_id: number, rules: Array<object>, column_mapping?: Array<object> }} body
  * @returns {Promise<{ preview_columns: string[], preview_rows: any[][], row_count: number, transform_failed_count?: number }>}
  */
 export async function etl2TransformPreview(body) {
-  return request('POST', '/api/etl2/transform/preview', body);
+  return request('POST', '/api/etl/transform/preview', body);
 }
 
-/** GET /api/etl2/tables/:id/target-exists */
+/** GET /api/etl/tables/:id/target-exists */
 export async function etl2TargetExists(etlTableId) {
-  return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/target-exists`);
+  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/target-exists`);
 }
 
-/** POST /api/etl2/tables/:id/run */
+/** POST /api/etl/tables/:id/run */
 export async function etl2RunTable(etlTableId) {
-  return request('POST', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/run`);
+  return request('POST', `/api/etl/tables/${encodeURIComponent(etlTableId)}/run`);
 }
 
 /** 업로드 요청 공통: 긴 타임아웃(5분) + 네트워크 오류 시 안내 메시지 */
@@ -487,9 +423,9 @@ async function fetchUploadWithTimeout(url, formData) {
   }
 }
 
-/** POST /api/etl2/tables/:id/add-file */
+/** POST /api/etl/tables/:id/add-file */
 export async function etl2AddFileToTable(etlTableId, file) {
-  const url = `${baseUrlForEtl2()}/api/etl2/tables/${encodeURIComponent(etlTableId)}/add-file`;
+  const url = `${baseUrlForEtl()}/api/etl/tables/${encodeURIComponent(etlTableId)}/add-file`;
   const formData = new FormData();
   formData.append('file', file);
   const res = await fetchUploadWithTimeout(url, formData);
@@ -498,9 +434,9 @@ export async function etl2AddFileToTable(etlTableId, file) {
   return data;
 }
 
-/** POST /api/etl2/tables/:id/add-files-zip */
+/** POST /api/etl/tables/:id/add-files-zip */
 export async function etl2AddFilesZipToTable(etlTableId, file) {
-  const url = `${baseUrlForEtl2()}/api/etl2/tables/${encodeURIComponent(etlTableId)}/add-files-zip`;
+  const url = `${baseUrlForEtl()}/api/etl/tables/${encodeURIComponent(etlTableId)}/add-files-zip`;
   const formData = new FormData();
   formData.append('file', file);
   const res = await fetchUploadWithTimeout(url, formData);
@@ -509,277 +445,277 @@ export async function etl2AddFilesZipToTable(etlTableId, file) {
   return data;
 }
 
-/** GET /api/etl2/jobs */
+/** GET /api/etl/jobs */
 export async function etl2ListJobs(etlTableId = null, statuses = null) {
   const params = new URLSearchParams({ limit: '500' });
   if (etlTableId != null) params.set('etl_table_id', String(etlTableId));
   if (statuses != null && statuses !== '') params.set('statuses', statuses);
-  return request('GET', `/api/etl2/jobs?${params.toString()}`);
+  return request('GET', `/api/etl/jobs?${params.toString()}`);
 }
 
-/** GET /api/etl2/jobs/:job_id */
+/** GET /api/etl/jobs/:job_id */
 export async function etl2GetJob(jobId) {
-  return request('GET', `/api/etl2/jobs/${encodeURIComponent(jobId)}`);
+  return request('GET', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
 }
 
-/** POST /api/etl2/jobs/:job_id/cancel */
+/** POST /api/etl/jobs/:job_id/cancel */
 export async function etl2CancelJob(jobId) {
-  return request('POST', `/api/etl2/jobs/${encodeURIComponent(jobId)}/cancel`);
+  return request('POST', `/api/etl/jobs/${encodeURIComponent(jobId)}/cancel`);
 }
 
-/** DELETE /api/etl2/jobs/:job_id */
+/** DELETE /api/etl/jobs/:job_id */
 export async function etl2DeleteJob(jobId) {
-  return request('DELETE', `/api/etl2/jobs/${encodeURIComponent(jobId)}`);
+  return request('DELETE', `/api/etl/jobs/${encodeURIComponent(jobId)}`);
 }
 
-/** DELETE /api/etl2/connections/:id */
+/** DELETE /api/etl/connections/:id */
 export async function etl2DeleteConnection(connectionId) {
-  return request('DELETE', `/api/etl2/connections/${encodeURIComponent(connectionId)}`);
+  return request('DELETE', `/api/etl/connections/${encodeURIComponent(connectionId)}`);
 }
 
-/** GET /api/etl2/timezones - 서버 시간대 마스터 목록(셀렉트박스용) */
+/** GET /api/etl/timezones - 서버 시간대 마스터 목록(셀렉트박스용) */
 export async function etl2ListTimezones() {
-  return request('GET', '/api/etl2/timezones');
+  return request('GET', '/api/etl/timezones');
 }
 
-/** GET /api/etl2/connections */
+/** GET /api/etl/connections */
 export async function etl2ListConnections() {
-  return request('GET', '/api/etl2/connections');
+  return request('GET', '/api/etl/connections');
 }
 
-/** POST /api/etl2/connections */
+/** POST /api/etl/connections */
 export async function etl2CreateConnection(body) {
-  return request('POST', '/api/etl2/connections', body);
+  return request('POST', '/api/etl/connections', body);
 }
 
-/** POST /api/etl2/connections/test */
+/** POST /api/etl/connections/test */
 export async function etl2TestConnection(body) {
-  return request('POST', '/api/etl2/connections/test', body);
+  return request('POST', '/api/etl/connections/test', body);
 }
 
-/** GET /api/etl2/connections/:id/tables */
+/** GET /api/etl/connections/:id/tables */
 export async function etl2ListConnectionTables(connectionId) {
-  return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/tables`);
+  return request('GET', `/api/etl/connections/${encodeURIComponent(connectionId)}/tables`);
 }
 
-/** GET /api/etl2/connections/:id/source-columns - 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용) */
+/** GET /api/etl/connections/:id/source-columns - 소스 테이블 컬럼 목록(증분 컬럼 셀렉트용) */
 export async function etl2GetSourceColumns(connectionId, sourceTable) {
   const params = new URLSearchParams({ source_table: sourceTable });
-  return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/source-columns?${params.toString()}`);
+  return request('GET', `/api/etl/connections/${encodeURIComponent(connectionId)}/source-columns?${params.toString()}`);
 }
 
-/** GET /api/etl2/connections/:id/source-indexes - 소스 테이블 인덱스 목록(PK 포함, is_primary 구분) */
+/** GET /api/etl/connections/:id/source-indexes - 소스 테이블 인덱스 목록(PK 포함, is_primary 구분) */
 export async function etl2GetSourceIndexes(connectionId, sourceTable) {
   const params = new URLSearchParams({ source_table: sourceTable });
-  return request('GET', `/api/etl2/connections/${encodeURIComponent(connectionId)}/source-indexes?${params.toString()}`);
+  return request('GET', `/api/etl/connections/${encodeURIComponent(connectionId)}/source-indexes?${params.toString()}`);
 }
 
-/** POST /api/etl2/connections/:id/validate-incremental-column - 증분 컬럼 날짜 검증(커스텀 입력 시) */
+/** POST /api/etl/connections/:id/validate-incremental-column - 증분 컬럼 날짜 검증(커스텀 입력 시) */
 export async function etl2ValidateIncrementalColumn(connectionId, sourceTable, columnName) {
-  return request('POST', `/api/etl2/connections/${encodeURIComponent(connectionId)}/validate-incremental-column`, {
+  return request('POST', `/api/etl/connections/${encodeURIComponent(connectionId)}/validate-incremental-column`, {
     source_table: sourceTable,
     column_name: columnName
   });
 }
 
-/** GET /api/etl2/tables/:id/transform-rules */
+/** GET /api/etl/tables/:id/transform-rules */
 export async function etl2ListTransformRules(etlTableId) {
-  return request('GET', `/api/etl2/tables/${encodeURIComponent(etlTableId)}/transform-rules`);
+  return request('GET', `/api/etl/tables/${encodeURIComponent(etlTableId)}/transform-rules`);
 }
 
-/** POST /api/etl2/transform-rules - 변환 룰 1건 등록 */
+/** POST /api/etl/transform-rules - 변환 룰 1건 등록 */
 export async function etl2CreateTransformRule(body) {
-  return request('POST', '/api/etl2/transform-rules', body);
+  return request('POST', '/api/etl/transform-rules', body);
 }
 
-/** PUT /api/etl2/transform-rules/:id - 변환 룰 수정 */
+/** PUT /api/etl/transform-rules/:id - 변환 룰 수정 */
 export async function etl2UpdateTransformRule(ruleId, body) {
-  return request('PUT', `/api/etl2/transform-rules/${encodeURIComponent(ruleId)}`, body);
+  return request('PUT', `/api/etl/transform-rules/${encodeURIComponent(ruleId)}`, body);
 }
 
-/** DELETE /api/etl2/transform-rules/:id - 변환 룰 삭제 */
+/** DELETE /api/etl/transform-rules/:id - 변환 룰 삭제 */
 export async function etl2DeleteTransformRule(ruleId) {
-  return request('DELETE', `/api/etl2/transform-rules/${encodeURIComponent(ruleId)}`);
+  return request('DELETE', `/api/etl/transform-rules/${encodeURIComponent(ruleId)}`);
 }
 
-/** GET /api/etl2/storage-connections - 저장 DB(적재 대상) 목록 */
+/** GET /api/etl/storage-connections - 저장 DB(적재 대상) 목록 */
 export async function etl2ListStorageConnections() {
-  return request('GET', '/api/etl2/storage-connections');
+  return request('GET', '/api/etl/storage-connections');
 }
 
-/** POST /api/etl2/storage-connections - 저장 DB 1건 등록 */
+/** POST /api/etl/storage-connections - 저장 DB 1건 등록 */
 export async function etl2CreateStorageConnection(body) {
-  return request('POST', '/api/etl2/storage-connections', body);
+  return request('POST', '/api/etl/storage-connections', body);
 }
 
-/** PATCH /api/etl2/storage-connections/:id */
+/** PATCH /api/etl/storage-connections/:id */
 export async function etl2UpdateStorageConnection(storageConnectionId, body) {
-  return request('PATCH', `/api/etl2/storage-connections/${encodeURIComponent(storageConnectionId)}`, body);
+  return request('PATCH', `/api/etl/storage-connections/${encodeURIComponent(storageConnectionId)}`, body);
 }
 
-/** DELETE /api/etl2/storage-connections/:id */
+/** DELETE /api/etl/storage-connections/:id */
 export async function etl2DeleteStorageConnection(storageConnectionId) {
-  return request('DELETE', `/api/etl2/storage-connections/${encodeURIComponent(storageConnectionId)}`);
+  return request('DELETE', `/api/etl/storage-connections/${encodeURIComponent(storageConnectionId)}`);
 }
 
-/** POST /api/etl2/storage-connections/test - 저장 DB 연결 테스트(접속+권한) */
+/** POST /api/etl/storage-connections/test - 저장 DB 연결 테스트(접속+권한) */
 export async function etl2TestStorageConnection(body) {
-  return request('POST', '/api/etl2/storage-connections/test', body);
+  return request('POST', '/api/etl/storage-connections/test', body);
 }
 
-/** GET /api/etl2/target-tables - Phase 3: 저장 DB(적재 대상) 테이블 목록. storage_connection_id 없으면 기본 DB */
+/** GET /api/etl/target-tables - Phase 3: 저장 DB(적재 대상) 테이블 목록. storage_connection_id 없으면 기본 DB */
 export async function etl2ListTargetTables(storageConnectionId = null) {
   const params = new URLSearchParams();
   if (storageConnectionId != null && storageConnectionId !== '') params.set('storage_connection_id', String(storageConnectionId));
   const q = params.toString() ? `?${params.toString()}` : '';
-  return request('GET', `/api/etl2/target-tables${q}`);
+  return request('GET', `/api/etl/target-tables${q}`);
 }
 
-/** GET /api/etl2/target-columns - Phase 3: 저장 DB 지정 테이블 컬럼 목록 */
+/** GET /api/etl/target-columns - Phase 3: 저장 DB 지정 테이블 컬럼 목록 */
 export async function etl2ListTargetColumns(storageConnectionId, tableName) {
   const params = new URLSearchParams({ table_name: tableName });
   if (storageConnectionId != null && storageConnectionId !== '') params.set('storage_connection_id', String(storageConnectionId));
-  return request('GET', `/api/etl2/target-columns?${params.toString()}`);
+  return request('GET', `/api/etl/target-columns?${params.toString()}`);
 }
 
-// ---------- ETL2 Batch (09_ETL_SFTP_Connection, /api/etl2/batch) ----------
+// ---------- ETL Batch (09_ETL_SFTP_Connection, /api/etl/batch) ----------
 
-/** GET /api/etl2/batch/folder-connections - 폴더 연결 목록 */
+/** GET /api/etl/batch/folder-connections - 폴더 연결 목록 */
 export async function batchListFolderConnections() {
-  return request('GET', '/api/etl2/batch/folder-connections');
+  return request('GET', '/api/etl/batch/folder-connections');
 }
 
-/** POST /api/etl2/batch/folder-connections - 폴더 연결 등록 */
+/** POST /api/etl/batch/folder-connections - 폴더 연결 등록 */
 export async function batchCreateFolderConnection(body) {
-  return request('POST', '/api/etl2/batch/folder-connections', body);
+  return request('POST', '/api/etl/batch/folder-connections', body);
 }
 
-/** PATCH /api/etl2/batch/folder-connections/:id */
+/** PATCH /api/etl/batch/folder-connections/:id */
 export async function batchUpdateFolderConnection(id, body) {
-  return request('PATCH', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}`, body);
+  return request('PATCH', `/api/etl/batch/folder-connections/${encodeURIComponent(id)}`, body);
 }
 
-/** DELETE /api/etl2/batch/folder-connections/:id */
+/** DELETE /api/etl/batch/folder-connections/:id */
 export async function batchDeleteFolderConnection(id) {
-  return request('DELETE', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}`);
+  return request('DELETE', `/api/etl/batch/folder-connections/${encodeURIComponent(id)}`);
 }
 
-/** POST /api/etl2/batch/folder-connections/test - 연결 테스트 */
+/** POST /api/etl/batch/folder-connections/test - 연결 테스트 */
 export async function batchTestFolderConnection(body) {
-  return request('POST', '/api/etl2/batch/folder-connections/test', body);
+  return request('POST', '/api/etl/batch/folder-connections/test', body);
 }
 
-/** GET /api/etl2/batch/folder-connections/:id/files - 폴더 내 파일 목록 */
+/** GET /api/etl/batch/folder-connections/:id/files - 폴더 내 파일 목록 */
 export async function batchListFolderFiles(id) {
-  return request('GET', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}/files`);
+  return request('GET', `/api/etl/batch/folder-connections/${encodeURIComponent(id)}/files`);
 }
 
-/** GET /api/etl2/batch/folder-connections/:id/patterns - 폴더 내 파일 패턴 목록. 반환: { patterns: [{ pattern, file_count, latest_ts, oldest_ts, extensions }] } */
+/** GET /api/etl/batch/folder-connections/:id/patterns - 폴더 내 파일 패턴 목록. 반환: { patterns: [{ pattern, file_count, latest_ts, oldest_ts, extensions }] } */
 export async function batchListFolderPatterns(id) {
-  return request('GET', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}/patterns`);
+  return request('GET', `/api/etl/batch/folder-connections/${encodeURIComponent(id)}/patterns`);
 }
 
-/** GET /api/etl2/batch/folder-connections/:id/columns?file_pattern=xxx - 패턴 일치 파일 중 가장 오래된 1건의 컬럼명 목록. 반환: { columns: string[] } */
+/** GET /api/etl/batch/folder-connections/:id/columns?file_pattern=xxx - 패턴 일치 파일 중 가장 오래된 1건의 컬럼명 목록. 반환: { columns: string[] } */
 export async function batchGetFolderColumns(id, filePattern) {
   const params = new URLSearchParams();
   params.set('file_pattern', filePattern || '');
-  return request('GET', `/api/etl2/batch/folder-connections/${encodeURIComponent(id)}/columns?${params.toString()}`);
+  return request('GET', `/api/etl/batch/folder-connections/${encodeURIComponent(id)}/columns?${params.toString()}`);
 }
 
-/** GET /api/etl2/batch/target-tables?storage_connection_id= - 저장 DB 테이블 목록. 반환: { tables: [{ table_name }] } */
+/** GET /api/etl/batch/target-tables?storage_connection_id= - 저장 DB 테이블 목록. 반환: { tables: [{ table_name }] } */
 export async function batchListTargetTables(storageConnectionId = null) {
   const params = new URLSearchParams();
   if (storageConnectionId != null) params.set('storage_connection_id', String(storageConnectionId));
   const qs = params.toString();
-  return request('GET', `/api/etl2/batch/target-tables${qs ? '?' + qs : ''}`);
+  return request('GET', `/api/etl/batch/target-tables${qs ? '?' + qs : ''}`);
 }
 
-/** POST /api/etl2/batch/jobs/validate-target - 기존 테이블 적재 가능 여부 검증. 반환: { valid: boolean, message: string } */
+/** POST /api/etl/batch/jobs/validate-target - 기존 테이블 적재 가능 여부 검증. 반환: { valid: boolean, message: string } */
 export async function batchValidateTarget(body) {
-  return request('POST', '/api/etl2/batch/jobs/validate-target', body);
+  return request('POST', '/api/etl/batch/jobs/validate-target', body);
 }
 
-/** GET /api/etl2/batch/target-registry - ETL 목록용 배치 타겟 등록 목록 (batch_job_id NULL 포함) */
+/** GET /api/etl/batch/target-registry - ETL 목록용 배치 타겟 등록 목록 (batch_job_id NULL 포함) */
 export async function etl2ListBatchTargetRegistry() {
-  return request('GET', '/api/etl2/batch/target-registry');
+  return request('GET', '/api/etl/batch/target-registry');
 }
 
-/** DELETE /api/etl2/batch/target-registry/:id - 배치 유래 행 삭제 + 타겟 테이블 DROP */
+/** DELETE /api/etl/batch/target-registry/:id - 배치 유래 행 삭제 + 타겟 테이블 DROP */
 export async function etl2DeleteBatchTargetRegistry(registryId) {
-  return request('DELETE', `/api/etl2/batch/target-registry/${encodeURIComponent(registryId)}`);
+  return request('DELETE', `/api/etl/batch/target-registry/${encodeURIComponent(registryId)}`);
 }
 
-/** GET /api/etl2/batch/jobs - 배치 Job 목록. folderConnectionId, isActive, jobType 쿼리 선택 */
+/** GET /api/etl/batch/jobs - 배치 Job 목록. folderConnectionId, isActive, jobType 쿼리 선택 */
 export async function batchListJobs(folderConnectionId = null, isActive = null, jobType = null) {
   const params = new URLSearchParams();
   if (folderConnectionId != null) params.set('folder_connection_id', String(folderConnectionId));
   if (isActive != null) params.set('is_active', isActive === true ? 'true' : 'false');
   if (jobType != null && String(jobType).trim()) params.set('job_type', String(jobType).trim());
   const qs = params.toString();
-  return request('GET', `/api/etl2/batch/jobs${qs ? '?' + qs : ''}`);
+  return request('GET', `/api/etl/batch/jobs${qs ? '?' + qs : ''}`);
 }
 
-/** GET /api/etl2/batch/jobs/:id/db-preview - DB 배치 Job 소스 테이블 10행 미리보기 */
+/** GET /api/etl/batch/jobs/:id/db-preview - DB 배치 Job 소스 테이블 10행 미리보기 */
 export async function batchGetJobDbPreview(batchJobId) {
-  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/db-preview`);
+  return request('GET', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/db-preview`);
 }
 
-/** POST /api/etl2/batch/jobs - 배치 Job 등록 */
+/** POST /api/etl/batch/jobs - 배치 Job 등록 */
 export async function batchCreateJob(body) {
-  return request('POST', '/api/etl2/batch/jobs', body);
+  return request('POST', '/api/etl/batch/jobs', body);
 }
 
-/** POST /api/etl2/batch/jobs/from-etl-table - ETL 테이블 기반 DB 배치 등록 */
+/** POST /api/etl/batch/jobs/from-etl-table - ETL 테이블 기반 DB 배치 등록 */
 export async function batchCreateJobFromEtlTable(body) {
-  return request('POST', '/api/etl2/batch/jobs/from-etl-table', body);
+  return request('POST', '/api/etl/batch/jobs/from-etl-table', body);
 }
 
-/** PATCH /api/etl2/batch/jobs/:id - 배치 Job 수정 */
+/** PATCH /api/etl/batch/jobs/:id - 배치 Job 수정 */
 export async function batchUpdateJob(id, body) {
-  return request('PATCH', `/api/etl2/batch/jobs/${encodeURIComponent(id)}`, body);
+  return request('PATCH', `/api/etl/batch/jobs/${encodeURIComponent(id)}`, body);
 }
 
-/** DELETE /api/etl2/batch/jobs/:id - 배치 Job 삭제 */
+/** DELETE /api/etl/batch/jobs/:id - 배치 Job 삭제 */
 export async function batchDeleteJob(id) {
-  return request('DELETE', `/api/etl2/batch/jobs/${encodeURIComponent(id)}`);
+  return request('DELETE', `/api/etl/batch/jobs/${encodeURIComponent(id)}`);
 }
 
-/** POST /api/etl2/batch/jobs/:id/run-now - 배치 Job 즉시 실행 */
+/** POST /api/etl/batch/jobs/:id/run-now - 배치 Job 즉시 실행 */
 export async function batchRunJobNow(id) {
-  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/run-now`);
+  return request('POST', `/api/etl/batch/jobs/${encodeURIComponent(id)}/run-now`);
 }
 
-/** POST /api/etl2/batch/jobs/:id/toggle - 배치 Job 활성/비활성 토글 */
+/** POST /api/etl/batch/jobs/:id/toggle - 배치 Job 활성/비활성 토글 */
 export async function batchToggleJob(id) {
-  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/toggle`);
+  return request('POST', `/api/etl/batch/jobs/${encodeURIComponent(id)}/toggle`);
 }
 
-/** GET /api/etl2/batch/jobs/:id/history - 배치 Job 실행 이력 목록 */
+/** GET /api/etl/batch/jobs/:id/history - 배치 Job 실행 이력 목록 */
 export async function batchListJobHistory(id) {
-  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/history`);
+  return request('GET', `/api/etl/batch/jobs/${encodeURIComponent(id)}/history`);
 }
 
-/** GET /api/etl2/batch/jobs/:id/history/:runId - 배치 Job 실행 이력 상세 */
+/** GET /api/etl/batch/jobs/:id/history/:runId - 배치 Job 실행 이력 상세 */
 export async function batchGetJobHistoryDetail(id, runId) {
-  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(id)}/history/${encodeURIComponent(runId)}`);
+  return request('GET', `/api/etl/batch/jobs/${encodeURIComponent(id)}/history/${encodeURIComponent(runId)}`);
 }
 
-/** POST /api/etl2/batch/jobs/:id/history/:runId/cancel - 실행 취소 요청(진행 중 롤백) */
+/** POST /api/etl/batch/jobs/:id/history/:runId/cancel - 실행 취소 요청(진행 중 롤백) */
 export async function batchCancelRun(batchJobId, runId) {
-  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/history/${encodeURIComponent(runId)}/cancel`);
+  return request('POST', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/history/${encodeURIComponent(runId)}/cancel`);
 }
 
-/** GET /api/etl2/batch/jobs/:id/skipped-files - 스킵/에러 파일 목록 */
+/** GET /api/etl/batch/jobs/:id/skipped-files - 스킵/에러 파일 목록 */
 export async function batchListSkippedFiles(batchJobId) {
-  return request('GET', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files`);
+  return request('GET', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files`);
 }
 
-/** POST /api/etl2/batch/jobs/:id/skipped-files/delete - 원격 문제 파일 삭제 */
+/** POST /api/etl/batch/jobs/:id/skipped-files/delete - 원격 문제 파일 삭제 */
 export async function batchDeleteSkippedFiles(batchJobId, filenames) {
-  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files/delete`, { filenames });
+  return request('POST', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files/delete`, { filenames });
 }
 
-/** POST /api/etl2/batch/jobs/:id/rollback-file - 해당 파일 적재 데이터만 타겟 테이블에서 DELETE (PK 기반) */
+/** POST /api/etl/batch/jobs/:id/rollback-file - 해당 파일 적재 데이터만 타겟 테이블에서 DELETE (PK 기반) */
 export async function batchRollbackFile(batchJobId, body) {
-  return request('POST', `/api/etl2/batch/jobs/${encodeURIComponent(batchJobId)}/rollback-file`, body);
+  return request('POST', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/rollback-file`, body);
 }

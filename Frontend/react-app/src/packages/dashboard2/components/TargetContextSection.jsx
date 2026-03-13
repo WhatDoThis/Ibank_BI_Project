@@ -3,13 +3,11 @@
  * ======================================================================
  * 기간 유형(연/월/기간)·지표·목표값 입력·저장. 저장된 목표 목록·삭제. targets/onSave/onDelete 상위(localStorage) 관리.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - TargetContextSection: periodType, metric, year, month, rangeStart, rangeEnd, targetValue. getTargetPeriodLabel, getTargetMetricLabel (export)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - TargetContextSection (default export), getTargetPeriodLabel, getTargetMetricLabel (export)
+ * 1. getTargetPeriodLabel, getTargetMetricLabel (export)
+ * 2. parseTargetValue
+ * 3. TargetContextSection (default export): periodType, metric, year, month, rangeStart, rangeEnd, targetValue
  *
  * [Dependencies]
  * =========
@@ -39,6 +37,7 @@ const TARGET_METRIC_OPTIONS = [
   { value: 'click_rate', label: '클릭률(%)' }
 ]
 
+// 1.
 /** 목표 1건에 대한 기간 라벨 문자열 */
 export function getTargetPeriodLabel(t) {
   if (!t) return '-'
@@ -55,11 +54,13 @@ export function getTargetPeriodLabel(t) {
   return '-'
 }
 
+// 2.
 /** 목표 지표 라벨 */
 export function getTargetMetricLabel(metricKey) {
   return TARGET_METRIC_OPTIONS.find((m) => m.value === metricKey)?.label ?? metricKey
 }
 
+// 3.
 /** targetValue 실수 파싱. 빈 문자열·잘못된 값이면 null */
 function parseTargetValue(str) {
   if (str == null || String(str).trim() === '') return null
@@ -67,6 +68,7 @@ function parseTargetValue(str) {
   return Number.isNaN(n) ? null : n
 }
 
+// 4.
 export default function TargetContextSection({ dateRange = [], targets = [], onSave, onDelete }) {
   const [periodType, setPeriodType] = useState('month')
   const [metric, setMetric] = useState('total_success')

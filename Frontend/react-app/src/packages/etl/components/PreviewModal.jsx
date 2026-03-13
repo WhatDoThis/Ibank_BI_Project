@@ -5,13 +5,14 @@
  *
  * [Components]
  * ===========
- * PreviewModal: open, onClose, data, loading props
+ * 1. PreviewModal: open, onClose, data, loading props
  *
  * [Dependencies]
  * =========
  * - React (없음, 순수 presentational)
  */
 
+// 1.
 function PreviewModal({ open, onClose, data, loading }) {
   if (!open) return null;
 
@@ -47,7 +48,16 @@ function PreviewModal({ open, onClose, data, loading }) {
                           <td>{col.name}</td>
                           <td>{col.inferred_type || '—'}</td>
                           <td>{col.can_save ? '가능' : '불가'}</td>
-                          <td className={col.can_save ? '' : 'etl-preview-modal__reason'}>{col.reason || '—'}</td>
+                          <td className={`etl-preview-modal__remark ${col.can_save ? '' : 'etl-preview-modal__reason'}`}>
+                            {(() => {
+                              const reason = col.reason || '';
+                              const transform = col.transform_remark || '';
+                              if (reason && transform) return <>저장 불가: {reason}. 변환: {transform}</>;
+                              if (reason) return reason;
+                              if (transform) return <>변환: {transform}</>;
+                              return '—';
+                            })()}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

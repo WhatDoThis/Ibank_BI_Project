@@ -29,17 +29,18 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 - 드래그 앤 드롭 위젯 그리드 대시보드. 레이아웃·위젯 설정 localStorage 저장. 기존 대시보드·리포트 API 활용.
 
-### ETL (/etl)
+### ETL (/etl, 단일)
 
-- **파일·외부 DB → 우리 PostgreSQL 적재.** 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. 업로드 파일 3일 보관 후 자동 삭제. (2) **DB** PostgreSQL·MySQL 적재 지원(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). Oracle은 테이블 목록·미리보기·PK 자동 조회만 지원(적재 Phase 3 예정). **Oracle 연결은 Service Name만 지원**(JDBC @호스트:1521/서비스명, SID 미지원). 등록된 연결·연결 선택에 **호스트:포트/DB명** 표시. 타겟 테이블명 중복 시 etl_tables·메인 DB 검사(증분 모드면 기존 테이블 허용). Oracle 테이블 목록: 스키마 미지정 시 접속 사용자 소유만(USER_TABLES).
-- **동기화 모드**: 전체(삭제 후 적재) / **증분**(last_synced_at 이후 Upsert, 기본값). 배치 크기·배치 간 대기는 한 번 실행 시 적용. **실행은 수동(실행 버튼)만**, 매일 자동 실행 스케줄 없음.
-- **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가 적재(각 파일 최대 50MB·ZIP 전체 최대 2GB, config로 변경 가능)·건너뛴 파일 목록 표시.
-- **ETL 사용 시** config에 backend.system_db(시스템 DB), backend.etl_limits(파일 크기·행 수·배치 상한·ZIP 압축 해제 총량 상한) 선택. 상세는 **docs/main/02_BACKEND_GUIDE.md §3·§6**.
+- **파일·외부 DB → 우리 PostgreSQL 적재.** **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑, 설정 모달(동기화 모드·증분 컬럼·배치·행 실패 시 동작). 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. (2) **DB** PostgreSQL·MySQL·Oracle(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). **Oracle 연결은 Service Name만 지원**. 등록된 연결에 **호스트:포트/DB명** 표시.
+- **동기화 모드**: 전체(삭제 후 적재) / 증분(last_synced_at 이후 Upsert). **폴더 배치**: SFTP/S3 연결·파일 패턴·주기·배치 Job 등록·이력. **DB 탭 배치**: ETL 테이블 실행(적재 완료) 후 **배치설정** 버튼으로 주기 배치 등록. **실행은 수동(실행 버튼)만**, 스케줄은 배치 설정으로 주기 실행.
+- **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가(각 파일 최대 50MB·ZIP 전체 최대 2GB)·건너뛴 파일 목록.
+- **ETL 사용 시** config에 backend.system_db, backend.etl_limits 선택. 상세는 **docs/main/00_PRD.md §6.3·§6.3.1**, **02_BACKEND_GUIDE.md §3·§6**.
 
-### ETL2 (/etl2)
+### 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **저장 DB·컬럼 매핑·폴더 배치·DB 탭 배치.** 탭: 파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력. **DB 탭**: ETL 테이블 등록 후 **실행(적재 완료)** 하면 **배치설정** 버튼 활성 → 주기 배치 등록(BatchScheduleModal). 미실행 시 배치설정 비활성·툴팁 "먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다." 배치 등록 시 마지막 적재 시점(last_synced_at)을 기준으로 증분 배치 적용. **폴더 배치**: SFTP/S3 연결·파일 패턴·주기·배치 Job 등록·이력·즉시 실행.
-- 상세는 **docs/main/00_PRD.md §6.3.1**, **01_FRONTEND_GUIDE.md §4.5.1**, **02_BACKEND_GUIDE.md §6.7**.
+- **뉴 대시보드**: 요약·추이·캠페인 순위 등 마케팅 요약. API /api/new-dashboard.
+- **마케팅 대시보드**: 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이·상품 마스터(Star DB). API /api/new-dashboard2.
+- 상세는 **docs/main/00_PRD.md §6.3.2**, **01_FRONTEND_GUIDE.md §4.5.2·§4.5.3**, **02_BACKEND_GUIDE.md §4.7·§4.8**.
 
 ### 공통
 
@@ -74,7 +75,7 @@ npm install
 `start.bat` 실행 시 API 서버·웹 서버가 각각 새 창에서 실행됩니다.
 
 - API: http://localhost:5001  
-- 웹: http://localhost:8080/ibank-bi/ (리포트 `/ibank-bi/report`, 대시보드 `/ibank-bi/dashboard`, 대시보드2 `/ibank-bi/dashboard2`, 위젯보드 `/ibank-bi/widgetboard`, ETL `/ibank-bi/etl`, **ETL2** `/ibank-bi/etl2`)
+- 웹: http://localhost:8080/ibank-bi/ (리포트 `/ibank-bi/report`, 대시보드 `/ibank-bi/dashboard`, 대시보드2 `/ibank-bi/dashboard2`, 뉴 대시보드 `/ibank-bi/new-dashboard`, 마케팅 대시보드 `/ibank-bi/new-dashboard2`, 위젯보드 `/ibank-bi/widgetboard`, ETL `/ibank-bi/etl`)
 
 **방법 B – 터미널에서 분리 실행**
 
@@ -124,14 +125,9 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   │   ├── schemas.py
 │   │   ├── dashboard_service.py
 │   │   └── routers/    # health, report, dashboard, dashboard2
-│   └── etl_server/     # ETL API·메타·업로드·DB 적재·Job 큐
-│       ├── router.py   # /api/etl
-│       ├── service.py
-│       ├── load_service.py
-│       ├── db_load_service.py
-│       ├── preview_service.py
-│       ├── queue_worker.py
-│       └── ...
+│   ├── etl_server/     # ETL API (단일)·메타·저장 DB·폴더/DB 배치·Job 큐 (/api/etl, /api/etl/batch)
+│   ├── new_dash_server/   # 뉴 대시보드 API (/api/new-dashboard)
+│   └── new_dash_server2/  # 마케팅 대시보드 API (/api/new-dashboard2)
 ├── Frontend/
 │   ├── react-app/      # React(Vite) 단일 앱, base /ibank-bi/
 │   │   ├── src/
@@ -141,8 +137,9 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   │   │       ├── dashboard/   # 대시보드1
 │   │   │       ├── dashboard2/  # 성과리포트
 │   │   │       ├── widgetboard/ # 위젯보드
-│   │   │       ├── etl/         # ETL (파일·DB 적재)
-│   │   │       ├── etl2/        # ETL2 (저장 DB·컬럼 매핑·폴더/DB 배치)
+│   │   │       ├── new-dashboard/   # 뉴 대시보드
+│   │   │       ├── new-dashboard2/  # 마케팅 대시보드
+│   │   │       ├── etl/         # ETL (단일: 파일·DB·저장 DB·폴더/DB 배치)
 │   │   │       └── shared/      # api/client.js, config, PeriodLabel 등
 │   │   ├── index.html
 │   │   └── dist/       # npm run build 결과 (정적 서버가 서빙)
@@ -173,8 +170,8 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 - **대시보드2**: `/ibank-bi/dashboard2` — 성과리포트, 주간/월간/일간/연간 비교, 디멘션별 비교/요약 토글  
 - **위젯보드**: `/ibank-bi/widgetboard` — 드래그 앤 드롭 위젯 그리드  
-- **ETL**: `/ibank-bi/etl` — 소스 유형(파일/DB) 선택 후 연결 등록·테이블 등록·실행·데이터 추가(ZIP 가능). Job 이력 패널에서 상태 확인.  
-- **ETL2**: `/ibank-bi/etl2` — 저장 DB·DB/폴더 탭. DB 탭: ETL 테이블 등록 → 실행(적재 완료) 후 **배치설정**으로 주기 배치 등록. 폴더 탭: SFTP/S3·파일 패턴·배치 Job·이력.  
+- **ETL**: `/ibank-bi/etl` — 탭(파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력). 저장 DB·테이블선택 및 컬럼매핑·설정 모달. DB 탭: ETL 테이블 등록 → 실행(적재 완료) 후 **배치설정**으로 주기 배치 등록. 폴더 탭: SFTP/S3·파일 패턴·배치 Job·이력.  
+- **뉴 대시보드**: `/ibank-bi/new-dashboard` — 요약·추이·캠페인 순위. **마케팅 대시보드**: `/ibank-bi/new-dashboard2` — 종합현황·별·프리퀀시·쿠폰·캠페인·매장·추이.  
 
 ---
 
@@ -182,5 +179,5 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-06 (ZIP 한도·미리보기 변환 룰·배치 스킵 재시도 방지·DB 배치 변환 룰·삭제 cascade·clear_last_synced_at·transform_upsert_verification). |
+| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-13 (ETL 단일화·뉴 대시보드 2종·현재 구조 반영). |
 | **docs/report/** | 배포·실행 로그 등 |

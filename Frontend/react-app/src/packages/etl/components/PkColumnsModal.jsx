@@ -6,22 +6,24 @@
  *
  * [Main Functions]
  * ===========
- * - open 시 etlPreviewTable(etl_table_id)로 컬럼 목록 로드
- * - 컬럼 체크박스로 PK 선택, PATCH /api/etl/tables/:id (pk_columns) → onSuccess
+ * 1. open 시 etl2PreviewTable(etl_table_id)로 컬럼 목록 로드
+ * 2. 컬럼 체크박스로 PK 선택, PATCH /api/etl/tables/:id (pk_columns) → onSuccess
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etlUpdateTable, etlPreviewTable)
+ * - React, @/shared/api/client (etl2UpdateTable, etl2PreviewTable)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { etlUpdateTable, etlPreviewTable } from '@/shared/api/client';
+import { etl2UpdateTable, etl2PreviewTable } from '@/shared/api/client';
 
+// 1.
 function parsePkColumns(str) {
   if (!str || typeof str !== 'string') return [];
   return str.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+// 2.
 function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColumns, onSuccess }) {
   const [columnNames, setColumnNames] = useState([]);
   const [selected, setSelected] = useState([]);
@@ -29,14 +31,13 @@ function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColum
   const [columnsError, setColumnsError] = useState('');
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [fallbackText, setFallbackText] = useState('');
 
   const loadColumns = useCallback(async () => {
     if (!etlTableId) return;
     setColumnsLoading(true);
     setColumnsError('');
     try {
-      const res = await etlPreviewTable(etlTableId);
+      const res = await etl2PreviewTable(etlTableId);
       const cols = (res.columns || []).map((c) => (c && c.name) ? String(c.name).trim() : '').filter(Boolean);
       setColumnNames(cols);
       if (cols.length === 0) {
@@ -54,7 +55,6 @@ function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColum
     if (open && etlTableId) {
       loadColumns();
       setSelected(parsePkColumns(currentPkColumns));
-      setFallbackText((currentPkColumns || '').trim());
       setSubmitError('');
     }
   }, [open, etlTableId, currentPkColumns, loadColumns]);
@@ -70,11 +70,10 @@ function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColum
   const canUseCheckboxes = columnNames.length > 0 && !columnsLoading;
   const valueToSubmit = canUseCheckboxes
     ? columnNames.filter((n) => selected.includes(n)).join(',').trim() || null
-    : (fallbackText.trim() || null);
+    : null;
 
   function handleReset() {
     setSelected([]);
-    setFallbackText('');
   }
 
   async function handleSubmit(e) {
@@ -82,7 +81,7 @@ function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColum
     setSubmitLoading(true);
     setSubmitError('');
     try {
-      await etlUpdateTable(etlTableId, { pk_columns: valueToSubmit ?? '' });
+      await etl2UpdateTable(etlTableId, { pk_columns: valueToSubmit ?? '' });
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
@@ -114,43 +113,37 @@ function PkColumnsModal({ open, onClose, etlTableId, targetTable, currentPkColum
           {canUseCheckboxes && (
             <>
               <span className="etl-pk-modal__label">PK로 사용할 컬럼 선택</span>
+              <p className="etl-pk-modal__pk-badge-hint">기존에 PK로 설정돼 있던 컬럼은 이름 앞에 [PK]로 표시됩니다.</p>
               <div className="etl-pk-modal__columns" role="group" aria-label="PK 컬럼 선택">
-                {columnNames.map((name) => (
-                  <label key={name} className="etl-pk-modal__checkbox-wrap">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(name)}
-                      onChange={() => toggleColumn(name)}
-                      className="etl-pk-modal__checkbox"
-                    />
-                    <span className="etl-pk-modal__checkbox-label">{name}</span>
-                  </label>
-                ))}
+                {columnNames.map((name) => {
+                  const wasPk = parsePkColumns(currentPkColumns).includes(name);
+                  return (
+                    <label key={name} className="etl-pk-modal__checkbox-wrap">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(name)}
+                        onChange={() => toggleColumn(name)}
+                        className="etl-pk-modal__checkbox"
+                      />
+                      {wasPk && <span className="etl-pk-modal__pk-badge">[PK]</span>}
+                      <span className="etl-pk-modal__checkbox-label">{name}</span>
+                    </label>
+                  );
+                })}
               </div>
               {selected.length > 0 && (
                 <p className="etl-pk-modal__selected-hint">선택: {columnNames.filter((n) => selected.includes(n)).join(', ')}</p>
               )}
             </>
           )}
-          {!columnsLoading && !canUseCheckboxes && (
-            <>
-              <p className="etl-pk-modal__selected-hint">컬럼 목록을 불러올 수 없을 때만 아래 입력을 사용하세요.</p>
-              <label className="etl-pk-modal__label">PK 컬럼 (쉼표 구분, 직접 입력)</label>
-              <input
-                type="text"
-                className="etl-pk-modal__input"
-                value={fallbackText}
-                onChange={(e) => setFallbackText(e.target.value)}
-                placeholder="예: id 또는 col1, col2"
-                autoComplete="off"
-              />
-            </>
+          {!columnsLoading && !canUseCheckboxes && !columnsError && (
+            <p className="etl-pk-modal__selected-hint">컬럼 목록을 불러오는 중이거나 없습니다. 미리보기가 가능한 ETL만 PK를 설정할 수 있습니다.</p>
           )}
           {submitError && <p className="etl-pk-modal__error">{submitError}</p>}
           <div className="etl-pk-modal__actions">
             <button type="button" className="etl-pk-modal__reset" onClick={handleReset}>초기화</button>
             <button type="button" className="etl-pk-modal__cancel" onClick={onClose}>취소</button>
-            <button type="submit" className="etl-pk-modal__submit" disabled={submitLoading}>
+            <button type="submit" className="etl-pk-modal__submit" disabled={submitLoading || !canUseCheckboxes}>
               {submitLoading ? '저장 중…' : '저장'}
             </button>
           </div>

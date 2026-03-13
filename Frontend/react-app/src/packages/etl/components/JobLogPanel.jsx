@@ -5,8 +5,8 @@
  *
  * [Main Functions]
  * ===========
- * - result: target_table, job_id, status, started_at, rows_processed, total_rows, error_message 표시. onCancel, onClose, onDeleteJob, cancelLoading 지원.
- * - running/pending 시 배경·테두리 구분(--running, --pending). 경과·예상 남은 시간·예상 완료 시각 계산.
+ * 1. result: target_table, job_id, status, started_at, rows_processed, total_rows, error_message 표시. onCancel, onClose, onDeleteJob, cancelLoading 지원.
+ * 2. running/pending 시 배경·테두리 구분(--running, --pending). 경과·예상 남은 시간·예상 완료 시각 계산.
  *
  * [Dependencies]
  * =========
@@ -15,11 +15,13 @@
 
 import { useState, useEffect } from 'react';
 
+// 1.
 function elapsedSeconds(startedAtIso) {
   if (!startedAtIso) return 0;
   return Math.floor((Date.now() - new Date(startedAtIso).getTime()) / 1000);
 }
 
+// 2.
 function formatElapsed(startedAtIso) {
   const sec = elapsedSeconds(startedAtIso);
   if (sec < 60) return `${sec}초`;
@@ -31,6 +33,7 @@ function formatElapsed(startedAtIso) {
   return `${h}시간 ${m}분 ${s}초`;
 }
 
+// 3.
 function formatRemaining(seconds) {
   if (seconds <= 0) return '0초';
   if (seconds < 60) return `${Math.round(seconds)}초`;
@@ -42,6 +45,7 @@ function formatRemaining(seconds) {
   return `${h}시간 ${m}분 ${s}초`;
 }
 
+// 4.
 function JobLogPanel({ result, onCancel, onClose, onDeleteJob, cancelLoading }) {
   const lastRunResult = result;
   const [elapsed, setElapsed] = useState(null);

@@ -3,13 +3,11 @@
  * ==============================================================
  * 대시보드2 aggregated_data 막대 차트. 기준별 발송 요청·발송 성공. 상위 10건(success_count). 클래스명 dashboard2-*.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - AggregatedBarChart2: data, groupBy. getCompositeXLabel, total_count·success_count 막대 (Recharts BarChart)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - AggregatedBarChart2 (default export)
+ * 1. getCompositeXLabel, getPrimaryDimensionForChart, aggregateByPrimaryDimension
+ * 2. truncateSegment, XAxisTickMultiline, BarChartBlock, MergedBarChart, SummaryBarChart
+ * 3. AggregatedBarChart2 (default export): data, groupBy, compareView, mergedChartData, summaryChartData
  *
  * [Dependencies]
  * =========
@@ -28,8 +26,10 @@ import {
   ResponsiveContainer
 } from 'recharts'
 
+// 1.
 const formatNum = (n) => (n != null ? new Intl.NumberFormat('ko-KR').format(n) : '0')
 
+// 2.
 function getCompositeXLabel(row, groupBy) {
   const parts = []
   if (groupBy.date) parts.push(row.delivery_date != null && row.delivery_date !== '' ? String(row.delivery_date) : '-')
@@ -40,6 +40,7 @@ function getCompositeXLabel(row, groupBy) {
   return parts.join(' / ')
 }
 
+// 3.
 /** 복수 차원일 때 X축용 단일 차원 선택 (가장 분류가 많은 하나). 기간 비교 시 의미 유지를 위해 일자(date)는 후보에서 제외 */
 function getPrimaryDimensionForChart(data, groupBy) {
   const dims = []
@@ -59,6 +60,7 @@ function getPrimaryDimensionForChart(data, groupBy) {
   return best
 }
 
+// 4.
 /** 단일 차원으로 행 합산 (차트용). primaryDim = getPrimaryDimensionForChart 반환값 */
 function aggregateByPrimaryDimension(rows, primaryDim) {
   if (!primaryDim || !rows?.length) return rows
@@ -94,11 +96,13 @@ const DATE_BAR_PALETTE = [
   { primary: '#6366f1', secondary: '#4f46e5' }
 ]
 
+// 5.
 function truncateSegment(str, maxChars = MAX_LABEL_CHARS) {
   const s = String(str || '').trim()
   return s.length <= maxChars ? s : s.slice(0, maxChars) + '...'
 }
 
+// 6.
 function XAxisTickMultiline({ x, y, payload }) {
   const label = payload?.value ?? ''
   const parts = String(label).split(' / ').filter(Boolean).map((p) => truncateSegment(p.trim()))
@@ -117,6 +121,7 @@ function XAxisTickMultiline({ x, y, payload }) {
   )
 }
 
+// 7.
 function BarChartBlock({ data, groupBy, periodLabel }) {
   if (!data.length) return null
   const dimCount = ['date', 'campaign', 'workflow', 'channel'].filter((k) => groupBy[k]).length
@@ -183,6 +188,7 @@ function BarChartBlock({ data, groupBy, periodLabel }) {
   )
 }
 
+// 8.
 /** B안: 디멘션별 기준/비교 한 차트. data = [{ name, 기준_발송요청, 비교_발송요청, 기준_발송성공, 비교_발송성공 }, ...] */
 function MergedBarChart({ chartData }) {
   if (!chartData?.length) return null
@@ -206,6 +212,7 @@ function MergedBarChart({ chartData }) {
   )
 }
 
+// 9.
 /** A안: 기간 2막대 요약. chartData = [{ name: '기준', 발송요청, 발송성공 }, { name: '비교', ... }] */
 function SummaryBarChart({ chartData }) {
   if (!chartData?.length) return null
@@ -226,6 +233,7 @@ function SummaryBarChart({ chartData }) {
   )
 }
 
+// 10.
 export default function AggregatedBarChart2({
   data = [],
   compareData = [],

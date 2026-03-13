@@ -1,7 +1,14 @@
 /**
- * KPISummaryCards — 2행 3열 KPI 카드
+ * KPISummaryCards (2행 3열 KPI 카드)
+ * ===================================
  * 상단: 캠페인 건수, 총 발송요청(채널 % 도넛), 총 발송성공(채널 % 도넛)
  * 하단: 워크플로우 건수, 총 오픈수(채널 % 도넛), 총 클릭수(채널 % 도넛)
+ *
+ * [Components]
+ * 1. formatNum
+ * 2. MiniStat
+ * 3. MiniDonutCard
+ * 4. KPISummaryCards (default export)
  */
 import { PieChart, Pie, Cell, Tooltip } from 'recharts'
 
@@ -14,11 +21,13 @@ const CHANNEL_COLORS = {
   Unknown: '#9ca3af',
 }
 
+// 1.
 function formatNum(n) {
   if (n == null) return '-'
   return Number(n).toLocaleString()
 }
 
+// 2.
 function MiniStat({ label, description, value, change, color }) {
   return (
     <div className="nd-kpi-card" style={{ borderTop: `3px solid ${color || '#7c5cfc'}` }}>
@@ -36,6 +45,7 @@ function MiniStat({ label, description, value, change, color }) {
   )
 }
 
+// 3.
 function MiniDonutCard({ label, description, value, change, items, color }) {
   const hasItems = items?.length > 0
   const data = hasItems ? items.map((i) => ({ name: i.channel, value: i.value || 0 })) : []
@@ -94,6 +104,7 @@ function MiniDonutCard({ label, description, value, change, items, color }) {
   )
 }
 
+// 4.
 export default function KPISummaryCards({ kpi, changePcts }) {
   if (!kpi) return null
   const dist = kpi.channel_distribution ?? {}

@@ -9,13 +9,13 @@
 ### 1.1 역할
 
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드·드래그 앤 드롭 그리드), **etl**(파일·DB ETL, Job 큐), **etl2**(저장 DB·컬럼 매핑·설정 모달·COPY 적재), shared(API·config). 공용 API·설정은 shared 에서 사용합니다.
+- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **new-dashboard**(뉴 대시보드), **new-dashboard2**(마케팅 대시보드), **etl**(단일 ETL: 파일·DB·저장 DB·폴더/DB 배치, Job 큐), shared(API·config). 공용 API·설정은 shared 에서 사용합니다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
 
-- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../widgetboard`, `.../etl`, `.../etl2`
-- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2, widgetboard, etl). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../new-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`
+- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2, new-dashboard, new-dashboard2, widgetboard, etl). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
 
 ### 1.3 프론트와 설정
 
@@ -45,7 +45,7 @@
 ```
 Frontend/react-app/
 ├── src/
-│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard, /dashboard2)
+│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard, /dashboard2, /new-dashboard, /new-dashboard2, /widgetboard, /etl)
 │   ├── main.jsx
 │   ├── index.css
 │   ├── packages/
@@ -107,22 +107,20 @@ Frontend/react-app/
 │   │   │   └── utils/
 │   │   │       └── dataUtils.js
 │   │   │
-│   │   ├── etl/               # ETL (파일·DB → 우리 PostgreSQL 적재)
-│   │   │   ├── ETLPage.jsx
+│   │   ├── new-dashboard/     # 뉴 대시보드 (요약·추이·캠페인 순위)
+│   │   │   ├── NewDashboardPage.jsx
 │   │   │   ├── index.jsx
-│   │   │   ├── etl.css
-│   │   │   └── components/
-│   │   │       ├── SourceTypeSelector.jsx  # 소스 유형(파일/DB) 선택
-│   │   │       ├── FileUploadForm.jsx      # 파일 업로드·etlUploadFile
-│   │   │       ├── DbConnectionForm.jsx    # DB 연결 등록·테스트·소스 테이블·etlCreateTable
-│   │   │       ├── ETLTableList.jsx        # 목록·실행/미리보기/데이터 추가/PK 설정/삭제·도움말
-│   │   │       ├── JobHistoryPanel.jsx     # Job 목록·실행 이력
-│   │   │       ├── JobLogPanel.jsx         # Job 로그
-│   │   │       ├── AddFileModal.jsx        # 단일 파일 추가 적재
-│   │   │       ├── PkColumnsModal.jsx      # PK 컬럼 설정
-│   │   │       └── PreviewModal.jsx        # 미리보기 10행
+│   │   │   └── components/    # KPISummaryCards, SummaryHeader, TrendLineChart, CampaignRankTable, FunnelSection, dateUtils
 │   │   │
-│   │   └── etl2/              # ETL2 — 저장 DB·컬럼 매핑·설정 모달·COPY 적재·폴더 배치
+│   │   ├── new-dashboard2/    # 마케팅 대시보드 (별·프리퀀시·쿠폰·캠페인·매장·추이)
+│   │   │   ├── NewDashboard2Page.jsx
+│   │   │   ├── index.js
+│   │   │   ├── new-dashboard2.css
+│   │   │   ├── hooks/useNewDash2Data.js
+│   │   │   ├── utils/dateUtils.js, chartHelpers.js
+│   │   │   └── components/    # Dash2Header, OverviewSection, StarSection, FrequencySection, CouponSection, CampaignSegmentTable, StoreSection, DemographicDonut, AgeGenderBarChart, FunnelBar, SectionBlock, ScoreCardGrid, OverviewTrendChart, SectionTrendChart
+│   │   │
+│   │   └── etl/               # ETL (단일) — 파일·DB·저장 DB·폴더/DB 배치
 │   │       ├── ETLPage.jsx
 │   │       ├── index.jsx
 │   │       ├── etl.css
@@ -130,7 +128,7 @@ Frontend/react-app/
 │   │       │   └── storageDb.js        # storage_connection_id 정규화(기본 DB null 통일)
 │   │       └── components/
 │   │           ├── SourceTypeSelector.jsx   # 탭: 파일|DB|폴더|저장 DB 등록|ETL 이력
-│   │           ├── FileUploadForm.jsx       # 단계 안내·etl2InferSchema·테이블선택 및 컬럼매핑
+│   │           ├── FileUploadForm.jsx       # 단계 안내·etlInferSchema·테이블선택 및 컬럼매핑
 │   │           ├── DbConnectionForm.jsx    # 저장 DB 선택·소스 컬럼·테이블선택 및 컬럼매핑·증분 컬럼·on_row_error
 │   │           ├── FolderConnectionFormFile.jsx   # 폴더(SFTP/S3) 연결 등록
 │   │           ├── FolderConnectionListFile.jsx   # 등록된 폴더 연결 목록·연결 정보 열(SFTP=host, S3=버킷/리전)
@@ -142,8 +140,8 @@ Frontend/react-app/
 │   │           ├── CollapsibleCardSection.jsx # DB·폴더·저장 DB 섹션 접기/펼치기
 │   │           ├── StorageConnectionForm.jsx # 저장 DB(적재 대상) 등록·테스트
 │   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·PK·INDEX 열(✓ 읽기 전용)·변환·값매핑·인덱스 추가(테이블 아래)·미리보기
-│   │           ├── TransformPreviewPanel.jsx # 변환 미리보기(before/after)·etl2TransformPreview
-│   │           ├── ETLTableList.jsx         # 목록(etl2ListTables+etl2ListBatchTargetRegistry)·배치 행 삭제=cascade·배치설정 버튼(status=done 시 활성)·새로고침
+│   │           ├── (TargetTableSelectModal 내) TransformPreviewPanel # 변환 미리보기(before/after)·POST /api/etl/transform/preview
+│   │           ├── ETLTableList.jsx         # 목록(etlListTables+배치 레지스트리)·배치 행 삭제=cascade·배치설정 버튼(status=done 시 활성)·새로고침
 │   │           ├── BatchScheduleModal.jsx  # ETL 테이블 기반 배치 등록/수정/토글/삭제/즉시실행(batchCreateJobFromEtlTable·batchListJobs db)
 │   │           ├── EtlTableSettingsModal.jsx # 설정 모달: 동기화 모드·증분 컬럼·배치·on_row_error
 │   │           ├── JobHistoryPanel.jsx      # ETL 이력·새로고침
@@ -237,9 +235,9 @@ Frontend/react-app/
 - **utils/dataUtils.js**: 위젯보드용 데이터 처리 유틸.
 - **widgetboard.css**: 위젯보드 전용 스타일(헤더·사이드바·캔버스·드래그 오버 등).
 
-### 4.5 etl (ETL)
+### 4.5 etl (ETL, 단일)
 
-- **ETLPage.jsx**: 소스 유형(파일/DB) 선택. SourceTypeSelector → FileUploadForm 또는 DbConnectionForm. ETLTableList·JobHistoryPanel. App.jsx에서 `/etl` 라우트.
+- **ETLPage.jsx**: 탭(파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력). SourceTypeSelector → FileUploadForm, DbConnectionForm, 폴더 연결·배치 Job, StorageConnectionForm, JobHistoryPanel. ETLTableList(etlListTables+배치 레지스트리)·배치설정(status=done 시 활성). App.jsx에서 `/etl` 라우트. API prefix **/api/etl**, **/api/etl/batch/**.
 - **SourceTypeSelector.jsx**: 소스 유형(파일 / PostgreSQL·MySQL·Oracle) 선택.
 - **FileUploadForm.jsx**: 파일 업로드(CSV/Excel/Parquet), etlUploadFile(multipart). target_table·description·created_by. 업로드 파일은 서버에서 **3일** 초과 시 자동 삭제되며, 3일 후 동일 ETL 재실행 시 파일 없음으로 실패할 수 있음.
 - **DbConnectionForm.jsx**: 연결 등록(이름·host·port·database·schema·username·password). **연결 테스트(etlTestConnection) 통과 후에만** 등록 가능. Oracle 선택 시 **서비스명(Service Name)** 라벨·안내(JDBC @호스트:1521/서비스명, SID 미지원)·placeholder 예: FREEPDB1. **등록된 연결** 목록·**ETL 테이블 등록** 연결 선택 옵션에 **호스트:포트/DB명** 형식 표시. 소스 테이블 목록(etlListConnectionTables)·타겟 테이블·설명·sync_mode(전체/증분)·batch_size·batch_interval_seconds·etlCreateTable. Oracle 소스 테이블 선택 시 **OWNER.TABLE_NAME**으로 저장(드롭다운 value·label). 2열 그리드·카드 섹션 UI. **DB 연결 실패 시**: 실제 연결은 브라우저가 아닌 Backend가 수행하므로, 외부 DB 방화벽에 **Backend가 실행 중인 호스트 IP**가 허용돼야 함.
@@ -252,30 +250,19 @@ Frontend/react-app/
 - **AddFileModal.jsx**: 단일 파일 추가 적재. **ZIP 다중 파일**: etlAddFilesZipToTable. 서버가 ZIP 압축 해제 후 지원 형식(.csv, .xlsx, .xls, .parquet)·용량 한도 이하 파일만 순서대로 Job 등록. **건너뛴 파일**이 있으면 API 응답 skipped_files(파일명·사유: file_too_large, unsupported_format, schema_or_pk_failed 등)로 전달되며, UI에서 "다음 파일은 건너뛰었습니다" 안내+파일명·사유 목록 표시.
 - **PreviewModal.jsx**: 미리보기 10행. **PkColumnsModal.jsx**: PK 컬럼 체크박스.
 - **etl.css**: ETL 목록·연결·배치·동기화 열 스타일.
-- **API**(shared/api/client.js): etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables 등.
+- **API**(shared/api/client.js): etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables, etlInferSchema, etlGetSourceColumns, etlGetSourceIndexes, etlValidateIncrementalColumn, etlTransformPreview, etlListStorageConnections, etlListTargetTables, etlListTargetColumns, **batch*** (batchListJobs, batchCreateJobFromEtlTable 등). 라우트 **/etl**, API prefix **/api/etl**, **/api/etl/batch/**.
 
-### 4.5.1 ETL2 (/etl2)
+### 4.5.2 new-dashboard (뉴 대시보드)
 
-- **역할**: 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환(on_error), 목록에서 설정 모달로 동기화 모드·증분 컬럼·배치·행 실패 시 동작(fail/skip) 수정. **폴더 탭**: SFTP/S3 폴더 연결·배치 Job 등록·목록(새로고침)·이력 모달. **ETL 목록**: etl2ListTables + **etl2ListBatchTargetRegistry** 통합; 배치 유래 행(type batch_target)은 삭제만(즉시실행·이력 없음), 삭제 시 **etl2DeleteBatchTargetRegistry** → 배치 Job cascade·타겟 테이블 DROP. **새로고침 버튼**: ETL 목록·잡 이력·배치 Job 목록 각각 해당 테이블만 재조회. **변환 룰**: 매핑 모달에 변환 열(없음|정리|타입변환|값매핑)·값매핑 인라인 편집·**TransformPreviewPanel**(POST /api/etl2/transform/preview). **storage_connection_id**: utils/storageDb.js로 기본 DB null 통일(파일·DB·배치 폼). 라우트 `/etl2`, API prefix `/api/etl2`. 상세·COPY 적재·폴더 배치는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md** 참조.
-- **ETLPage.jsx**: 탭(파일 업로드·DB 연결·**폴더**·저장 DB 등록·ETL 이력). 폴더 탭: FolderConnectionFormFile, FolderConnectionListFile, 배치 Job 섹션(패딩)·BatchJobFormFile, BatchJobListFile, 이력 모달(BatchHistoryPanelFile, BatchHistoryDetailFile). 탭별 단계 안내. 등록된 ETL 목록 섹션에 "실행을 누르면 적재됩니다" 설명.
-- **SourceTypeSelector.jsx**: 5탭 — 파일 업로드 | DB 연결 | **폴더** | 저장 DB 등록 | ETL 이력. URL `?tab=file|db|folder|storage|history` 유지.
-- **FileUploadForm.jsx**: 저장할 DB·타겟 테이블명·테이블선택 및 컬럼매핑·**indexDefinitions**. storageDb 정규화. etl2InferSchema 후 모달에 sourceColumns 전달. 모달 onSelect에서 indexDefinitions 반영, 업로드 FormData에 index_definitions JSON append.
-- **DbConnectionForm.jsx**: CollapsibleCardSection "연결 추가"·"등록된 연결"·"ETL 테이블 등록". 저장할 DB 선택(storageDb). on_row_error·증분 컬럼·**etl2GetSourceColumns**·**etl2GetSourceIndexes** 병렬 호출 후 매핑 모달에 **sourceIndexes**·**pkReadOnlyFromSource**·**currentIndexDefinitions** 전달. 등록 시 etl2CreateTable body에 **index_definitions** 포함.
-- **FolderConnectionFormFile.jsx / FolderConnectionListFile.jsx**: 폴더(SFTP/S3) 연결 등록·목록. CollapsibleCardSection. **목록 테이블 "연결 정보" 열**: SFTP → sftp_host, S3 → s3_bucket(및 s3_region).
-- **BatchJobFormFile.jsx**: 폴더·저장 DB·파일 패턴·타겟 테이블·PK·주기·Job명·**on_file_error**(stop/continue)·**index_definitions**(인덱스 명·컬럼·UNIQUE, 체크박스 선택). **동일 폴더·패턴·타겟·저장DB** 시 API 400+안내. storageDb 정규화.
-- **BatchJobListFile.jsx**: batchListJobs 목록. **새로고침** 버튼·툴바. 활성/비활성·주기 수정·즉시 실행·이력·문제 파일·삭제. 상단 섹션 여백(etl-batch-job-list__section).
-- **BatchHistoryPanelFile.jsx**: batchListJobHistory. **새로고침** 버튼. status===running 시 2초 폴링. **status===partial_error** 또는 (status==='error' && file_list에 ok·error 혼재) 시 상태 컬럼 **"일부 실패 (N/M 성공)"** 표기(etl-db-form__status--partial). 상세 클릭 시 BatchHistoryDetailFile 모달.
-- **BatchHistoryDetailFile.jsx**: 파일별 결과(filename, timestamp, status, rows, inserted, updated). 원격 삭제·적재 롤백. running 시 2초 폴링.
-- **StorageConnectionForm.jsx**: CollapsibleCardSection. 저장 DB 등록·테스트·목록·삭제.
-- **TargetTableSelectModal.jsx**: 소스→타겟 매핑 테이블에 **PK**·**INDEX** 열(소스 PK/인덱스 반영 시 ✓ 읽기 전용). DB 연동 시 소스 PK/인덱스 인라인 블록·nonPrimarySourceIndexes(반영 체크). **인덱스 추가** 블록은 매핑 테이블 **아래**. **변환** 열(없음|정리|타입변환|정리+타입변환|값매핑)·값매핑 CodeMapInlineEditor·**TransformPreviewPanel**(etl2TransformPreview). onSelect 4번째 인자 **indexDefinitions**. 적용 시 column_mapping·transform_rules·index_definitions 반영.
-- **ETLTableList.jsx**: 목록 소스 **etl2ListTables** + **etl2ListBatchTargetRegistry**. 배치 행(batch_target)은 삭제 버튼만; 삭제 시 etl2DeleteBatchTargetRegistry(id)·확인 문구(테이블 DROP·배치 Job cascade). DB 소스 행에 **배치설정** 버튼: **status=done**일 때만 활성, 미실행 시 `disabled`·툴팁 "먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다.", 활성 시 툴팁 "주기 자동 실행 설정". 클릭 시 BatchScheduleModal 오픈. **새로고침** 툴바(etl-table-list__refresh). 저장 DB·동기화·행 실패 시 열.
-- **BatchScheduleModal.jsx**: ETL 테이블 기반 배치 등록/수정/토글/삭제/즉시실행. 배치 없으면 등록 폼(job_name·interval_minutes·batch_size·batch_interval_seconds·on_row_error·is_active), 있으면 현재 설정 표시+액션. **batchCreateJobFromEtlTable**·batchListJobs(undefined, undefined, 'db')로 연결 배치 조회.
-- **EtlTableSettingsModal.jsx**: DB 소스 ETL용 설정 모달. 동기화 모드·증분 컬럼·배치·행 실패 시 동작 수정 후 PATCH.
-- **API**(shared/api/client.js): etl2ListTables, **etl2ListBatchTargetRegistry**, **etl2DeleteBatchTargetRegistry**, etl2CreateTable, etl2UploadFile, etl2InferSchema, etl2ListTargetTables, etl2ListTargetColumns, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2GetSourceColumns, **etl2GetSourceIndexes**(GET /connections/:id/source-indexes), etl2ValidateIncrementalColumn, **etl2TransformPreview**, etl2CreateTransformRule, etl2UpdateTransformRule, etl2DeleteTransformRule, etl2ListJobs, etl2RunTable, etl2UpdateTable, etl2AddFilesZip, **batchListJobs**, **batchCreateJob**, **batchCreateJobFromEtlTable**(POST /batch/jobs/from-etl-table), **batchUpdateJob**, **batchDeleteJob**, **batchRunJobNow**, **batchToggleJob**, **batchListJobHistory**, **batchGetJobHistoryDetail** 등. `/api/etl2/*`, `/api/etl2/batch/*` 호출.
+- **NewDashboardPage.jsx**: 요약(summary)·추이(trend, trend-multi)·캠페인 순위 등. **API**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti. 라우트 `/new-dashboard`. Backend new_dash_server (/api/new-dashboard).
+
+### 4.5.3 new-dashboard2 (마케팅 대시보드)
+
+- **NewDashboard2Page.jsx**: 종합현황(overview)·별(star)·프리퀀시(frequency)·쿠폰(coupon)·캠페인 세그먼트(campaign-segments)·매장(store)·추이(trend)·상품 마스터(product-master). **hooks/useNewDash2Data.js**: fetchOverview, fetchAllSummaries, fetchTab(star/frequency/coupon/campaign/store). **API**: getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster. 라우트 `/new-dashboard2`. Backend new_dash_server2 (/api/new-dashboard2, Star DB).
 
 ### 4.6 shared
 
-- **api/client.js**: health, listTables, describeTable, tableRelationships, joinOrder, saveQueryAsTable, saveQueryAsTableStatus, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData, **ETL**: etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables 등.
+- **api/client.js**: health, listTables, describeTable, tableRelationships, joinOrder, saveQueryAsTable, saveQueryAsTableStatus, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData, **뉴 대시보드**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **마케팅 대시보드**: getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster, **ETL**(/api/etl): etlListTables, etlCreateTable, etlUploadFile, etlInferSchema, etlListStorageConnections, etlListTargetTables, etlGetSourceColumns, etlGetSourceIndexes, etlTransformPreview, batchListJobs, batchCreateJobFromEtlTable 등.
 - **config/api.js**: API 베이스 URL (환경·api-config 주입 반영).
 
 ---
@@ -325,3 +312,4 @@ Frontend/react-app/
 - (2026-02-26) **ETL2 폴더·레지스트리·변환·새로고침 반영**: §3 etl2에 폴더 탭 컴포넌트(FolderConnectionFormFile, FolderConnectionListFile, BatchJobFormFile, BatchJobListFile, BatchHistoryPanelFile, BatchHistoryDetailFile, SkippedFilesPanelFile), CollapsibleCardSection, TransformPreviewPanel, utils/storageDb.js 추가. **§4.5.1 ETL2** 전면 갱신: 5탭(폴더 추가), ETL 목록 etl2ListBatchTargetRegistry·배치 행 삭제=cascade·새로고침, 배치 Job 목록·이력 새로고침·폴링, 변환 열·미리보기 패널·중복 Job 등록 안내, storageDb 정규화. log.md 2026-02-26 적용분 기준.
 - (2026-03-03) **ETL2 인덱스·on_file_error·UI 반영**: §3 FolderConnectionListFile 연결 정보 열, BatchJobFormFile index_definitions·on_file_error, BatchHistoryPanelFile partial_error, TargetTableSelectModal PK·INDEX 열·인덱스 추가 테이블 아래. §4.5.1 FileUploadForm/DbConnectionForm/BatchJobFormFile indexDefinitions·etl2GetSourceIndexes·sourceIndexes·pkReadOnlyFromSource, BatchHistoryPanelFile "일부 실패 (N/M 성공)", TargetTableSelectModal 소스 PK/인덱스 인라인·indexDefinitions onSelect. client.js etl2GetSourceIndexes. log 2026-03-03·2026-02-23 반영.
 - (2026-03-04) **ETL2 DB 배치설정·status=done 흐름**: §3 BatchScheduleModal.jsx 추가, ETLTableList.jsx 배치설정 버튼·BatchScheduleModal 연동. §4.5.1 ETLTableList 배치설정 disabled(statusLower!=='done')·툴팁(먼저 실행하여 적재 확인…/주기 자동 실행 설정), BatchScheduleModal·batchCreateJobFromEtlTable. client.js batchCreateJobFromEtlTable. log 2026-03-04 반영.
+- (2026-03-13) **현재 구조 반영**: ETL 단일화(etl2 제거, 패키지 etl 단일·라우트 /etl·API /api/etl). 뉴 대시보드 2종 추가: **new-dashboard**(/new-dashboard), **new-dashboard2**(마케팅 대시보드, /new-dashboard2). §1.1·§1.2·§3 패키지·접속 경로, §4.5 단일 ETL·§4.5.2 new-dashboard·§4.5.3 new-dashboard2, §4.6 client.js 뉴 대시보드·ETL API 목록.

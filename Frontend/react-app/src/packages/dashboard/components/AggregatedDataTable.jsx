@@ -5,12 +5,10 @@
  *
  * [Main Functions]
  * ===========
- * - getColumnOptions, getCellValue, matchOne, rowMatchesFilters, formatNum, formatRate. 정렬·페이징·필터 추가/삭제.
- * - rate 컬럼: cell-fill-wrap·cell-fill·cell-fill-text (값 비례 막대)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - AggregatedDataTable (default export)
+ * 1. formatNum, formatRate: 숫자·비율 포맷
+ * 2. getColumnOptions, getCellValue, matchOne, rowMatchesFilters: 컬럼·필터·매칭
+ * 3. CompareMergedTable, CompareSummaryTable: 비교 모드 테이블
+ * 4. AggregatedDataTable: data, groupBy, sortOrder, compareTableMode, 페이징·필터·정렬
  *
  * [Dependencies]
  * =========
@@ -40,17 +38,20 @@ const SORT_OPTIONS = [
   { key: 'click_count', label: '클릭수' }
 ]
 
+// 1.
 function formatNum(num) {
   if (num == null) return '0'
   return new Intl.NumberFormat('ko-KR').format(num)
 }
 
+// 2.
 /** rate(성공률·오픈률·클릭률): 항상 소수점 둘째 자리까지 (30 → 30.00, 30.1 → 30.10) */
 function formatRate(num) {
   if (num == null || Number.isNaN(Number(num))) return '0.00'
   return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(num))
 }
 
+// 3.
 function getColumnCount(groupBy) {
   let n = 7 // 발송요청·발송성공·성공률·오픈·클릭·오픈률·클릭률
   if (groupBy.campaign) n += 1
@@ -60,6 +61,7 @@ function getColumnCount(groupBy) {
   return n
 }
 
+// 4.
 /** groupBy 기준 사용 가능한 컬럼 목록 (key, label, type) */
 function getColumnOptions(groupBy) {
   const list = []
@@ -79,6 +81,7 @@ function getColumnOptions(groupBy) {
   return list
 }
 
+// 5.
 /** row에서 컬럼 표시값 추출 (key는 campaign_label, delivery_date, total_count 등) */
 function getCellValue(row, columnKey) {
   switch (columnKey) {
@@ -95,6 +98,7 @@ function getCellValue(row, columnKey) {
   }
 }
 
+// 6.
 /** 단일 조건 일치 여부 */
 function matchOne(row, columnKey, operator, value, columnOptions) {
   const cell = getCellValue(row, columnKey)
@@ -136,6 +140,7 @@ function matchOne(row, columnKey, operator, value, columnOptions) {
 }
 
 /** 해당 필터가 “조건 없음”(컬럼 미선택 또는 값 비어 있음)이면 true — 이 조건은 적용하지 않음 */
+// 7.
 function isFilterConditionEmpty(f) {
   if (!f || !f.columnKey || String(f.columnKey).trim() === '') return true
   const v = f.value
@@ -144,6 +149,7 @@ function isFilterConditionEmpty(f) {
   return false
 }
 
+// 8.
 /** 다중 필터 조건(AND) 적용. 비어 있는 조건은 무시 → 값 지우거나 행 삭제 시 원래 데이터로 복원 */
 function rowMatchesFilters(row, filters, columnOptions) {
   if (!filters?.length) return true
@@ -153,12 +159,15 @@ function rowMatchesFilters(row, filters, columnOptions) {
   })
 }
 
+// 9.
 function getCellValueMerged(row, columnKey) {
   return row[columnKey]
 }
+// 10.
 function getCellValueSummary(row, columnKey) {
   return row[columnKey]
 }
+// 11.
 function matchOneWithGetCell(row, columnKey, operator, value, columnOptions, getCell) {
   const cell = getCell(row, columnKey)
   const col = columnOptions.find((c) => c.key === columnKey)
@@ -194,6 +203,7 @@ function matchOneWithGetCell(row, columnKey, operator, value, columnOptions, get
   }
   return true
 }
+// 12.
 function rowMatchesFiltersWithGetCell(row, filters, columnOptions, getCell) {
   if (!filters?.length) return true
   return filters.every((f) => {
@@ -201,6 +211,7 @@ function rowMatchesFiltersWithGetCell(row, filters, columnOptions, getCell) {
     return matchOneWithGetCell(row, f.columnKey, f.operator || 'eq', f.value, columnOptions, getCell)
   })
 }
+// 13.
 function getMergedColumnOptions() {
   return [
     { key: 'dimensionLabel', label: '구분', type: 'text' },
@@ -220,6 +231,7 @@ function getMergedColumnOptions() {
     { key: '비교_click_rate', label: '비교 클릭률', type: 'number' }
   ]
 }
+// 14.
 function getSummaryColumnOptions() {
   return [
     { key: '기간', label: '기간', type: 'text' },
@@ -233,6 +245,7 @@ function getSummaryColumnOptions() {
   ]
 }
 
+// 15.
 function CompareMergedTable({ data = [], formatNum, formatRate }) {
   if (!data.length) return null
   return (
@@ -313,6 +326,7 @@ function CompareMergedTable({ data = [], formatNum, formatRate }) {
   )
 }
 
+// 16.
 function CompareSummaryTable({ data = [], formatNum, formatRate }) {
   if (!data.length) return null
   return (
@@ -364,8 +378,10 @@ function CompareSummaryTable({ data = [], formatNum, formatRate }) {
   )
 }
 
+// 17.
 const defaultFilterRow = () => ({ id: `f-${Date.now()}-${Math.random().toString(36).slice(2)}`, columnKey: '', operator: 'contains', value: '' })
 
+// 18.
 export default function AggregatedDataTable({
   data = [],
   groupBy = {},

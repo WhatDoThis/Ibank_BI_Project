@@ -5,20 +5,18 @@
  *
  * [Main Functions]
  * ===========
- * - canAddTableByColumn: addedTables, newTable, relationshipOptions → 새 테이블 추가 허용 여부 (직접 관계만)
- * - findIntermediateParent: lastTable, newTable, relationshipOptions → 끼워 넣을 부모 테이블명 (같은 부모_id)
- * - isTableAvailable: 테이블 단독 노출 여부 (직접 조인 가능한 경우만)
- * - isTableAvailableOrViaParent: addedTables 기준으로 직접 또는 같은 부모 경로로 노출 여부 (Sidebar용)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - canAddTableByColumn, findIntermediateParent, isTableAvailable, isTableAvailableOrViaParent (export)
+ * 1. getNeighborTables: 테이블의 이웃 테이블 집합 (내부)
+ * 2. findIntermediateParent: lastTable, newTable, relationshipOptions → 끼워 넣을 부모 테이블명
+ * 3. canAddTableByColumn: 새 테이블 추가 허용 여부 (직접 관계만)
+ * 4. isTableAvailable: 테이블 단독 노출 여부 (직접 조인 가능한 경우만)
+ * 5. isTableAvailableOrViaParent: addedTables 기준 직접 또는 같은 부모 경로로 노출 여부 (Sidebar용)
  *
  * [Dependencies]
  * =========
  * - 없음
  */
 
+// 1.
 function getNeighborTables(tableName, relationshipOptions) {
   const neighbors = new Set()
   for (const key of Object.keys(relationshipOptions)) {
@@ -30,14 +28,7 @@ function getNeighborTables(tableName, relationshipOptions) {
   return neighbors
 }
 
-/**
- * lastTable과 newTable이 직접 관계는 없지만, 같은 부모 P로 연결될 수 있으면 P 반환.
- * (같은 부모_id 쓰는 자식 둘 → 부모를 끼워 넣어서 lastTable → P → newTable 로 조인)
- * @param {string} lastTable
- * @param {string} newTable
- * @param {Record<string, { prevColumn: string, currColumn: string }[]>} relationshipOptions
- * @returns {string | null} 부모 테이블명 또는 null
- */
+// 2. lastTable과 newTable이 직접 관계는 없지만 같은 부모 P로 연결되면 P 반환 (같은 부모_id → lastTable→P→newTable 조인)
 export function findIntermediateParent(lastTable, newTable, relationshipOptions) {
   const lastNeighbors = getNeighborTables(lastTable, relationshipOptions)
   const newNeighbors = getNeighborTables(newTable, relationshipOptions)
@@ -47,12 +38,7 @@ export function findIntermediateParent(lastTable, newTable, relationshipOptions)
   return null
 }
 
-/**
- * @param {string[]} addedTables
- * @param {string} newTable
- * @param {Record<string, { prevColumn: string, currColumn: string }[]>} relationshipOptions
- * @returns {boolean} true면 새 테이블 자동 추가 허용
- */
+// 3. addedTables, newTable, relationshipOptions → 새 테이블 자동 추가 허용 여부
 export function canAddTableByColumn(addedTables, newTable, relationshipOptions) {
   if (addedTables.length === 0) return true
   if (addedTables.includes(newTable)) return true
@@ -64,12 +50,7 @@ export function canAddTableByColumn(addedTables, newTable, relationshipOptions) 
   return Boolean((optsA && optsA.length > 0) || (optsB && optsB.length > 0))
 }
 
-/**
- * @param {string} tableName
- * @param {string[]} addedTables
- * @param {Record<string, Record<string, { prevColumn: string, currColumn: string }>>} tableRelationships
- * @returns {boolean} true면 해당 테이블을 선택 가능(리스트에 노출)
- */
+// 4. tableName, addedTables, tableRelationships → 해당 테이블 선택 가능(리스트 노출) 여부
 export function isTableAvailable(tableName, addedTables, tableRelationships) {
   if (addedTables.length === 0) return true
   if (addedTables.includes(tableName)) return true
@@ -79,9 +60,7 @@ export function isTableAvailable(tableName, addedTables, tableRelationships) {
   return !!relLast[tableName] || !!relTable[last]
 }
 
-/**
- * 직접 조인 또는 같은 부모로 자동 조인 가능하면 true (사이드바 노출·활성화용)
- */
+// 5. 직접 조인 또는 같은 부모로 자동 조인 가능하면 true (사이드바 노출·활성화용)
 export function isTableAvailableOrViaParent(tableName, addedTables, tableRelationships, relationshipOptions) {
   if (isTableAvailable(tableName, addedTables, tableRelationships)) return true
   if (addedTables.length === 0) return true

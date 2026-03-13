@@ -3,25 +3,25 @@ Backend.api_server.main (FastAPI 앱 진입점)
 ===========================================
 FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 host/port 사용, uvicorn 기동.
 
-[Functions]
+[Main Functions]
 ===========
-lifespan: ETL Job 큐 워커·배치 스케줄러(etl_server2.scheduler_file) 기동
-not_found_handler: 404 예외 시 JSON 응답
-internal_error_handler: 500 예외 시 JSON 응답
+1. lifespan: ETL 배치 스케줄러(etl_server.scheduler_file) 기동
+2. not_found_handler: 404 예외 시 JSON 응답
+3. internal_error_handler: 500 예외 시 JSON 응답
 
 [라우터]
 ===========
-health_router: GET /health, GET /, GET /api, GET /api/
-report_router: /api/* (list-tables, describe-table, execute-query, explain-sql 등)
-dashboard_router: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
-dashboard2_router: /api/dashboard2/* (동일)
-etl_router: /api/etl/* (ETL 메타·업로드·연결 테스트·Job·add-file·add-files-zip 등)
-etl2_router: /api/etl2/* (ETL2 페이지용, 09_ETL_Upgrade_Plan 확장 예정)
-new_dashboard_router: /api/new-dashboard/* (summary, trend, trend-multi, tables)
+1. health_router: GET /health, GET /, GET /api, GET /api/
+2. report_router: /api/* (list-tables, describe-table, execute-query, explain-sql 등)
+3. dashboard_router: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
+4. dashboard2_router: /api/dashboard2/* (동일)
+5. etl_router: /api/etl/* (단일 ETL: 메타·업로드·연결·Job·배치 등)
+6. new_dashboard_router: /api/new-dashboard/* (summary, trend, trend-multi, tables)
+7. new_dash2_router: /api/new-dashboard2/* (overview, star, frequency, coupon, campaign-segments, store, trend, product-master)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router, Backend.etl_server2.router, Backend.new_dash_server
+- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router, Backend.new_dash_server, Backend.new_dash_server2
 - fastapi, uvicorn
 """
 
@@ -43,22 +43,18 @@ except ImportError:
 from Backend.api_server import db
 from Backend.api_server.routers import health_router, report_router, dashboard_router, dashboard2_router
 from Backend.etl_server import router as etl_router
-from Backend.etl_server2 import router as etl2_router
 from Backend.new_dash_server import router as new_dashboard_router
+from Backend.new_dash_server2 import router as new_dash2_router
 
 from contextlib import asynccontextmanager
 
 
+# 1.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """ETL Job 큐 워커·배치 스케줄러 기동. shutdown 시 yield 이후 정리 가능."""
+    """ETL 배치 스케줄러 기동. shutdown 시 yield 이후 정리 가능."""
     try:
-        from Backend.etl_server import queue_worker
-        queue_worker.start_background_worker()
-    except Exception:
-        pass
-    try:
-        from Backend.etl_server2 import scheduler_file
+        from Backend.etl_server import scheduler_file
         scheduler_file.start_scheduler()
         scheduler_file.load_active_batch_jobs()
     except Exception:
@@ -86,10 +82,11 @@ app.include_router(report_router)
 app.include_router(dashboard_router)
 app.include_router(dashboard2_router)
 app.include_router(etl_router)
-app.include_router(etl2_router)
 app.include_router(new_dashboard_router)
+app.include_router(new_dash2_router)
 
 
+# 2.
 @app.exception_handler(404)
 def not_found_handler(request: Request, exc):
     return JSONResponse(
@@ -101,6 +98,7 @@ def not_found_handler(request: Request, exc):
     )
 
 
+# 3.
 @app.exception_handler(500)
 def internal_error_handler(request: Request, exc):
     return JSONResponse(

@@ -1,37 +1,42 @@
 /**
  * packages/etl/components/ETLTableList.jsx (ETL 테이블 목록)
  * ========================================================
- * 등록된 ETL 목록, 행별 실행/대기 중/실행 중·삭제. 큐 상태 2초 폴링으로 행별 표시.
+ * 등록된 ETL 목록(파일·DB ETL + 폴더 배치 Job 통합), 행별 실행/즉시실행·삭제. 큐 상태 2초 폴링.
+ * 상단 [새로고침] 버튼으로 해당 목록만 다시 불러오기.
  *
  * [Main Functions]
  * ===========
- * - GET /api/etl/tables 목록(batch_size, batch_interval_seconds 포함). GET /api/etl/jobs로 실행 중·대기 중 Job 조회 후 행별 버튼 문구(실행|대기 중|실행 중)
- * - DB 소스(postgresql/mysql/oracle)인 경우 배치 열에 배치 크기·대기 시간, 연결 열에 connection_name(서버 구분), 동기화 열에 full/전체·incremental/증분 표시
- * - 실행 버튼: PK 미설정 시 confirm("PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?") 후 진행 여부 선택
- * - 동작 안내(?) 모달: 권장 순서 "업로드 → 미리보기 → PK 설정 → 실행" 및 상태별 버튼 설명
- * - ×(행만 삭제): 기본 비활성화, 동일 타겟 테이블명이 2건 이상일 때만 활성화
+ * 1. etl2ListTables + etl2ListBatchTargetRegistry 통합 로드. type 'table' | 'batch_target' 로 구분. 배치 유래 행은 삭제(타겟 DROP)만 표시.
+ * 2. 테이블 행: 실행/미리보기/데이터 추가/설정/삭제/×. 배치 행: 즉시 실행/이력/삭제.
+ * 3. 삭제: 테이블 → etl2DeleteTable(타겟 DROP). 배치 → batchDeleteJob(스케줄러 제거).
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etlListTables, etlListJobs, etlDeleteTable, etlDeleteTableRow)
+ * - React, @/shared/api/client (etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow)
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { etlListTables, etlListJobs, etlDeleteTable, etlDeleteTableRow } from '@/shared/api/client';
-import PkColumnsModal from './PkColumnsModal';
+import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs } from '@/shared/api/client';
+import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
+import BatchScheduleModal from './BatchScheduleModal.jsx';
 
-function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onDelete, queueStatusTrigger }) {
+// 1.
+function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistory, refreshing, runLoading, queueStatusTrigger }) {
   const [tables, setTables] = useState([]);
+  const [batchTargets, setBatchTargets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [queueStatus, setQueueStatus] = useState({});
-  const [pkModal, setPkModal] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsModalTable, setSettingsModalTable] = useState(null);
+  const [batchScheduleTarget, setBatchScheduleTarget] = useState(null);
+  const [dbBatchJobs, setDbBatchJobs] = useState([]);
+  const [batchRunLoadingId, setBatchRunLoadingId] = useState(null);
   const pollRef = useRef(null);
 
   async function loadQueueStatus() {
     try {
-      const res = await etlListJobs();
+      const res = await etl2ListJobs();
       const jobs = res.jobs || [];
       const byTable = {};
       for (const j of jobs) {
@@ -51,11 +56,19 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
     setLoading(true);
     setError('');
     try {
-      const res = await etlListTables();
-      setTables(res.tables || []);
+      const [tablesRes, registryRes, batchRes] = await Promise.all([
+        etl2ListTables(),
+        etl2ListBatchTargetRegistry(),
+        batchListJobs(undefined, undefined, 'db'),
+      ]);
+      setTables(tablesRes.tables || []);
+      setBatchTargets(registryRes.targets || []);
+      setDbBatchJobs(batchRes?.jobs || []);
     } catch (err) {
       setError(err.message || '목록 조회 실패');
       setTables([]);
+      setBatchTargets([]);
+      setDbBatchJobs([]);
     } finally {
       setLoading(false);
     }
@@ -66,18 +79,36 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
   }, [refreshing]);
 
   useEffect(() => {
-    if (tables.length === 0) return;
+    if (tables.length === 0 && batchTargets.length === 0) return;
     loadQueueStatus();
     pollRef.current = setInterval(loadQueueStatus, 2000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [tables.length, refreshing]);
+  }, [tables.length, batchTargets.length, refreshing]);
 
   useEffect(() => {
-    if (queueStatusTrigger == null || tables.length === 0) return;
+    if (queueStatusTrigger == null || (tables.length === 0 && batchTargets.length === 0)) return;
     loadQueueStatus();
   }, [queueStatusTrigger]);
+
+  const mergedRows = useMemo(() => {
+    const tableRows = (tables || []).map((t) => ({ ...t, type: 'table', _key: `table_${t.etl_table_id}` }));
+    const batchTargetRows = (batchTargets || []).map((r) => ({
+      ...r,
+      type: 'batch_target',
+      _key: `batch_target_${r.id}`,
+      target_table: r.target_table || '—',
+      description: r.job_name || '—',
+      source_type: 'folder',
+      connection_name: r.connection_name || '—',
+      file_pattern: '—',
+      interval_minutes: r.interval_minutes,
+      last_run_status: r.last_run_status,
+      storage_connection_name: (r.storage_connection_id == null || r.storage_connection_id === undefined) ? '기본 DB' : (r.storage_connection_name || '—'),
+    }));
+    return [...tableRows, ...batchTargetRows];
+  }, [tables, batchTargets]);
 
   const targetTableCounts = useMemo(() => {
     const m = {};
@@ -88,23 +119,72 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
     return m;
   }, [tables]);
 
-  if (loading) return <p className="etl-table-list__loading">목록 로딩 중…</p>;
-  if (error) return <p className="etl-table-list__error">{error}</p>;
-  if (tables.length === 0) return <p className="etl-table-list__empty">등록된 ETL이 없습니다. 위에서 파일을 업로드하거나 DB 연동 테이블을 등록하세요.</p>;
+  const batchJobByEtlTable = useMemo(() => {
+    const m = {};
+    (dbBatchJobs || []).forEach((j) => {
+      if (j.etl_table_id != null) m[j.etl_table_id] = j;
+    });
+    return m;
+  }, [dbBatchJobs]);
+
+  const refreshBtn = (
+    <button
+      type="button"
+      className="etl-table-list__refresh"
+      onClick={() => load()}
+      disabled={loading}
+      aria-label="목록 새로고침"
+    >
+      {loading ? '새로고침 중…' : '새로고침'}
+    </button>
+  );
+
+  if (loading && mergedRows.length === 0) {
+    return (
+      <div className="etl-table-list">
+        <div className="etl-table-list__toolbar">{refreshBtn}</div>
+        <p className="etl-table-list__loading">목록 로딩 중…</p>
+      </div>
+    );
+  }
+  if (error && mergedRows.length === 0) {
+    return (
+      <div className="etl-table-list">
+        <div className="etl-table-list__toolbar">{refreshBtn}</div>
+        <p className="etl-table-list__error">{error}</p>
+      </div>
+    );
+  }
+  if (mergedRows.length === 0) {
+    return (
+      <div className="etl-table-list">
+        <div className="etl-table-list__toolbar">{refreshBtn}</div>
+        <div className="etl-table-list__empty-wrap">
+          <p className="etl-table-list__empty">등록된 ETL이 없습니다.</p>
+          <p className="etl-table-list__empty-hint">
+            <strong>파일 업로드</strong> 탭에서 파일을 올리거나, <strong>DB 연결</strong> 탭에서 외부 DB 테이블을 등록하거나, <strong>폴더</strong> 탭에서 배치 Job을 등록해 주세요. 등록 후 이 목록에 나타나면 <strong>실행</strong> 버튼으로 DB에 적재할 수 있습니다.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="etl-table-list">
+      <div className="etl-table-list__toolbar">{refreshBtn}</div>
       <table className="etl-table-list__table">
         <thead>
           <tr>
             <th>타겟 테이블</th>
-            <th>설명</th>
+            <th className="etl-table-list__th-description">설명</th>
             <th>PK</th>
             <th>소스 유형</th>
             <th className="etl-table-list__th-connection">연결</th>
             <th>소스</th>
             <th className="etl-table-list__th-batch">배치</th>
             <th className="etl-table-list__th-sync">동기화</th>
+            <th className="etl-table-list__th-row-error">행 실패 시</th>
+            <th className="etl-table-list__th-storage">저장 DB</th>
             <th>상태</th>
             <th className="etl-table-list__th-actions">
               동작
@@ -121,7 +201,44 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
           </tr>
         </thead>
         <tbody>
-          {tables.map((t) => {
+          {mergedRows.map((t) => {
+            if (t.type === 'batch_target') {
+              const s = (t.last_run_status || '').toLowerCase();
+              const batchStatusText = s === 'success' ? '완료' : s === 'error' ? '오류' : s === 'running' ? '실행 중' : (t.batch_job_id ? '활성' : '—');
+              const batchStatusClass = s === 'success' ? 'etl-table-list__status--done' : s === 'error' ? 'etl-table-list__status--error' : s === 'running' ? 'etl-table-list__status--running' : undefined;
+              return (
+                <tr key={t._key}>
+                  <td>{t.target_table}</td>
+                  <td className="etl-table-list__cell-description" title={t.description}>{t.description}</td>
+                  <td className="etl-table-list__pk-cell">—</td>
+                  <td>{t.source_type}</td>
+                  <td className="etl-table-list__cell-connection">{t.connection_name}</td>
+                  <td>{t.file_pattern}</td>
+                  <td className="etl-table-list__cell-batch">{t.interval_minutes != null ? `${t.interval_minutes}분` : '—'}</td>
+                  <td className="etl-table-list__cell-sync">—</td>
+                  <td className="etl-table-list__cell-row-error">—</td>
+                  <td className="etl-table-list__cell-storage" title={t.storage_connection_name}>{t.storage_connection_name}</td>
+                  <td className={batchStatusClass}>{batchStatusText}</td>
+                  <td className="etl-table-list__cell-actions">
+                    <span className="etl-table-list__actions">
+                      <button
+                        type="button"
+                        className="etl-table-list__delete"
+                        onClick={() => {
+                          if (!window.confirm(`"${t.target_table}" 타겟 테이블을 메인 DB에서 DROP하고, 연결된 배치 Job이 있으면 함께 삭제한 뒤 이 목록에서 제거합니다. 계속할까요?`)) return;
+                          etl2DeleteBatchTargetRegistry(t.id)
+                            .then(() => { if (onDelete) onDelete(); load(); })
+                            .catch((err) => { setError(err.message || '삭제 실패'); load(); });
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              );
+            }
+
             const q = queueStatus[t.etl_table_id];
             const runLabel = q?.status === 'running' ? '실행 중' : q?.status === 'pending' ? '대기 중' : '실행';
             const runDisabled = q?.status === 'running' || q?.status === 'pending';
@@ -135,28 +252,35 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
               rowPending && 'etl-table-list__row--pending'
             ].filter(Boolean).join(' ');
             const isDbSource = (t.source_type || '').toLowerCase() === 'postgresql' || (t.source_type || '').toLowerCase() === 'mysql' || (t.source_type || '').toLowerCase() === 'oracle';
+            const linkedBatch = batchJobByEtlTable[t.etl_table_id];
             const batchSize = t.batch_size != null && t.batch_size > 0 ? Number(t.batch_size) : 0;
             const batchInterval = t.batch_interval_seconds != null && t.batch_interval_seconds > 0 ? Number(t.batch_interval_seconds) : 0;
-            const batchText = !isDbSource ? '—' : batchSize > 0 && batchInterval > 0
-              ? `${batchSize.toLocaleString()}행 / ${batchInterval}초`
-              : batchSize > 0
-                ? `${batchSize.toLocaleString()}행`
-                : batchInterval > 0
-                  ? `전체 / ${batchInterval}초`
-                  : '전체';
+            const batchText = !isDbSource ? '—' : linkedBatch
+              ? `${linkedBatch.interval_minutes ?? '—'}분 ${linkedBatch.is_active ? '●' : '○'}`
+              : batchSize > 0 && batchInterval > 0
+                ? `${batchSize.toLocaleString()}행 / ${batchInterval}초`
+                : batchSize > 0
+                  ? `${batchSize.toLocaleString()}행`
+                  : batchInterval > 0
+                    ? `1만 행(기본) / ${batchInterval}초`
+                    : '미설정';
             const connectionText = isDbSource ? (t.connection_name || '—') : '—';
             const syncMode = (t.sync_mode || '').toLowerCase();
             const syncText = !isDbSource ? '—' : syncMode === 'incremental' ? '증분' : '전체';
+            const onRowErrorVal = (t.on_row_error || 'fail').toLowerCase();
+            const onRowErrorText = !isDbSource ? '—' : onRowErrorVal === 'skip' ? '제외 적재' : '전체 실패';
             return (
-            <tr key={t.etl_table_id} className={rowClass || undefined}>
+            <tr key={t._key || t.etl_table_id} className={rowClass || undefined}>
               <td>{t.target_table}</td>
-              <td>{t.description || '—'}</td>
+              <td className="etl-table-list__cell-description" title={t.description ? String(t.description) : undefined}>{t.description || '—'}</td>
               <td className="etl-table-list__pk-cell">{(t.pk_columns || '').trim() ? <span className="etl-table-list__pk-check" aria-label="PK 설정됨">✓</span> : '—'}</td>
               <td>{t.source_type || '—'}</td>
               <td className="etl-table-list__cell-connection" title={isDbSource && t.connection_name ? `연결: ${t.connection_name}` : undefined}>{connectionText}</td>
               <td>{t.source_table || t.file_path || '—'}</td>
-              <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '전체 fetch'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
-              <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert' : '전체: DROP+CREATE+INSERT') : undefined}>{syncText}</td>
+              <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '1만 행(기본)'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
+              <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
+              <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
+              <td className="etl-table-list__cell-storage" title={t.storage_connection_name ? `저장 DB: ${t.storage_connection_name}` : '기본 DB (ibank_db)'}>{t.storage_connection_name ? t.storage_connection_name : '기본 DB'}</td>
               <td className={statusCellClass}>{statusText}</td>
               <td className="etl-table-list__cell-actions">
                 <span className="etl-table-list__actions">
@@ -178,14 +302,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                         className={`etl-table-list__run ${runDisabled ? 'etl-table-list__run--busy' : ''}`}
                         onClick={() => {
                           const hasPk = (t.pk_columns || '').trim().length > 0;
-                          if (!hasPk && !window.confirm('PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?\n(실행 후에는 타겟 테이블에 PK가 없어, 나중에 "데이터 추가" 시 오류가 날 수 있습니다.)')) return;
+                          if (!hasPk && !window.confirm('PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?\n(파일 ETL의 경우 나중에 "데이터 추가" 시 PK가 없으면 오류가 날 수 있습니다.)')) return;
                           onRun(t.etl_table_id);
                         }}
                         disabled={runDisabled}
                       >
                         {runLabel}
                       </button>
-                      {onAddFile && (
+                      {onAddFile && !isDbSource && (
                         <button
                           type="button"
                           className="etl-table-list__add-file"
@@ -195,15 +319,28 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                           데이터 추가
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="etl-table-list__pk-set"
-                        onClick={() => setPkModal({ etlTableId: t.etl_table_id, targetTable: t.target_table, currentPkColumns: t.pk_columns })}
-                        disabled={runDisabled}
-                        title="PK 컬럼 설정 (실행 시 테이블 생성에 반영)"
-                      >
-                        PK 설정
-                      </button>
+                      {isDbSource && (
+                        <button
+                          type="button"
+                          className="etl-table-list__settings"
+                          onClick={() => setSettingsModalTable(t)}
+                          disabled={runDisabled}
+                          title="동기화 모드, 증분 컬럼, 배치, 행 실패 시 동작 수정"
+                        >
+                          설정
+                        </button>
+                      )}
+                      {isDbSource && (
+                        <button
+                          type="button"
+                          className="etl-table-list__batch-schedule"
+                          onClick={() => setBatchScheduleTarget(t)}
+                          disabled={runDisabled || statusLower !== 'done'}
+                          title={statusLower !== 'done' ? '먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다.' : '주기 자동 실행 설정'}
+                        >
+                          배치설정
+                        </button>
+                      )}
                     </>
                   ) : (
                     '—'
@@ -214,7 +351,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                     onClick={() => {
                       const msg = `다음 ETL을 삭제합니다.\n· 타겟 테이블 "${t.target_table}"이(가) 메인 DB에서 DROP됩니다.\n· 파일 소스인 경우 업로드 파일도 삭제됩니다.\n계속할까요?`;
                       if (window.confirm(msg)) {
-                        etlDeleteTable(t.etl_table_id)
+                        etl2DeleteTable(t.etl_table_id)
                           .then(() => { if (onDelete) onDelete(); load(); })
                           .catch((err) => { setError(err.message || '삭제 실패'); load(); });
                       }
@@ -229,7 +366,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                     onClick={() => {
                       const msg = '해당 ETL 등록 건만 삭제합니다.\n업로드 파일은 삭제되며, 메인 DB의 타겟 테이블은 유지됩니다.\n진행할까요?';
                       if (window.confirm(msg)) {
-                        etlDeleteTableRow(t.etl_table_id)
+                        etl2DeleteTableRow(t.etl_table_id)
                           .then(() => { if (onDelete) onDelete(); load(); })
                           .catch((err) => { setError(err.message || '삭제 실패'); load(); });
                       }
@@ -247,16 +384,6 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
           })}
         </tbody>
       </table>
-      {pkModal && (
-        <PkColumnsModal
-          open={!!pkModal}
-          onClose={() => setPkModal(null)}
-          etlTableId={pkModal.etlTableId}
-          targetTable={pkModal.targetTable}
-          currentPkColumns={pkModal.currentPkColumns}
-          onSuccess={() => { if (onDelete) onDelete(); load(); }}
-        />
-      )}
       {helpOpen && (
         <div className="etl-help-modal" role="dialog" aria-modal="true" aria-labelledby="etl-help-modal-title">
           <div className="etl-help-modal__backdrop" onClick={() => setHelpOpen(false)} />
@@ -268,16 +395,17 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             <div className="etl-help-modal__body">
               <section className="etl-help-modal__section etl-help-modal__section--order">
                 <h4 className="etl-help-modal__section-title">권장 순서 (파일 ETL)</h4>
-                <p className="etl-help-modal__order">업로드 → 미리보기 → PK 설정 → 실행</p>
-                <p className="etl-help-modal__order-desc">PK를 설정하지 않고 실행하면, 테이블에 PK/UNIQUE가 없어 나중에 "데이터 추가" 시 오류가 발생할 수 있습니다.</p>
+                <p className="etl-help-modal__order">업로드 → 테이블선택·컬럼매핑에서 PK 선택 → 미리보기 → 실행</p>
+                <p className="etl-help-modal__order-desc">테이블선택·컬럼매핑에서 PK를 체크해 두지 않으면, 나중에 &quot;데이터 추가&quot; 시 오류가 날 수 있습니다.</p>
               </section>
               <section className="etl-help-modal__section">
                 <h4 className="etl-help-modal__section-title">draft (아직 실행 안 함)</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 적재 대기열 등록 후 실행.</li>
                   <li><strong>미리보기</strong> — 컬럼·상위 10행 미리보기.</li>
-                  <li><strong>데이터 추가</strong> — DB 연동: 마지막 동기화 시각 이후 데이터를 가져와 업서트. 파일: 업로드한 파일로 같은 테이블에 추가 적재(업서트).</li>
-                  <li><strong>PK 설정</strong> — PK 컬럼 선택. 첫 실행 시 CREATE TABLE에 반영.</li>
+                  <li><strong>데이터 추가</strong> — 파일 소스만 표시. 업로드한 파일로 같은 테이블에 추가 적재(업서트). DB 연결은 <strong>설정</strong> 버튼에서 동기화·배치 등을 수정.</li>
+                  <li><strong>설정</strong> — DB 소스만 표시. 동기화 모드(전체/증분), 증분 컬럼(증분 시 필수), 배치 크기·대기, 행 실패 시 동작을 모달에서 수정.</li>
+                  <li><strong>PK</strong> — 테이블선택·컬럼매핑 모달에서 행별 PK 체크로 설정. 첫 실행 시 CREATE TABLE에 반영.</li>
                   <li><strong>삭제</strong> — ETL 삭제 + 타겟 테이블 DROP.</li>
                   <li><strong>×</strong> — 비활성. 동일 타겟 2건 이상일 때만 활성.</li>
                 </ul>
@@ -286,14 +414,14 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <h4 className="etl-help-modal__section-title">error (실패 후)</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 재시도(대기열 등록).</li>
-                  <li><strong>미리보기</strong> · <strong>데이터 추가</strong> · <strong>PK 설정</strong> · <strong>삭제</strong> · <strong>×</strong> — draft와 동일.</li>
+                  <li><strong>미리보기</strong> · <strong>데이터 추가</strong> · <strong>삭제</strong> · <strong>×</strong> — draft와 동일.</li>
                 </ul>
               </section>
               <section className="etl-help-modal__section">
                 <h4 className="etl-help-modal__section-title">done (적재 완료)</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>실행</strong> — 다시 실행 시 DROP+CREATE 후 적재(파일) 또는 full/incremental(DB).</li>
-                  <li><strong>PK 설정</strong> — 변경 시 다음 실행·추가 적재부터 반영. 이미 만들어진 테이블 PK는 메인 DB에서 직접 변경.</li>
+                  <li><strong>PK 변경</strong> — 테이블선택·컬럼매핑에서 수정 후 적용하면 다음 실행부터 반영. 이미 만들어진 테이블 PK는 메인 DB에서 직접 변경.</li>
                   <li><strong>미리보기</strong> · <strong>데이터 추가</strong> · <strong>삭제</strong> · <strong>×</strong> — draft와 동일.</li>
                 </ul>
               </section>
@@ -301,13 +429,15 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
                 <h4 className="etl-help-modal__section-title">실행 중 / 대기 중</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>미리보기</strong> — 사용 가능.</li>
-                  <li><strong>실행</strong> · <strong>데이터 추가</strong> · <strong>PK 설정</strong> · <strong>삭제</strong> · <strong>×</strong> — 모두 비활성.</li>
+                  <li><strong>실행</strong> · <strong>데이터 추가</strong> · <strong>삭제</strong> · <strong>×</strong> — 모두 비활성.</li>
                 </ul>
               </section>
               <section className="etl-help-modal__section etl-help-modal__section--batch">
                 <h4 className="etl-help-modal__section-title">배치·실행 시점 안내</h4>
                 <ul className="etl-help-modal__list">
                   <li><strong>배치 크기 / 대기 시간</strong> — 한 번 실행할 때만 적용됩니다. (몇 행씩 가져올지, 배치 간 몇 초 쉴지)</li>
+                  <li><strong>배치 크기 0</strong> — 1만 행 단위로 조회·적재(PostgreSQL/MySQL/Oracle 공통). 양수 입력 시 해당 크기로 스트리밍.</li>
+                  <li><strong>예상 행 수</strong> — PostgreSQL 소스만 표시. MySQL·Oracle은 진행률만 표시됩니다.</li>
                   <li><strong>매일 몇 시 자동 실행</strong> — 현재 없습니다. 스케줄(예: 매일 02시) 기능은 미지원입니다.</li>
                   <li><strong>실행</strong> — “실행” 버튼을 눌렀을 때만 대기열에 들어가고 워커가 처리합니다.</li>
                   <li><strong>draft 상태</strong> — draft로 두어도 해당 시간에 자동으로 증분이 돌지 않습니다. 증분 적재를 하려면 직접 “실행”을 눌러야 합니다.</li>
@@ -316,6 +446,22 @@ function ETLTableList({ onRun, onPreview, onAddFile, refreshing, runLoading, onD
             </div>
           </div>
         </div>
+      )}
+      {settingsModalTable && (
+        <EtlTableSettingsModal
+          open={!!settingsModalTable}
+          onClose={() => setSettingsModalTable(null)}
+          table={settingsModalTable}
+          onSuccess={() => load()}
+        />
+      )}
+      {batchScheduleTarget && (
+        <BatchScheduleModal
+          open={!!batchScheduleTarget}
+          onClose={() => setBatchScheduleTarget(null)}
+          etlTable={batchScheduleTarget}
+          onSuccess={() => { load(); setBatchScheduleTarget(null); }}
+        />
       )}
     </div>
   );

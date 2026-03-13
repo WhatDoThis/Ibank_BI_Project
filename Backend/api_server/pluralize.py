@@ -3,10 +3,10 @@ Backend.api_server.pluralize (단수/복수 변환·부모 테이블 찾기)
 =============================================================
 리포트·쿼리 빌더에서 테이블명·컬럼명 처리. report 라우터에서 find_parent_table 사용.
 
-[Functions]
+[Main Functions]
 ===========
-21 - pluralize: 단수 → 복수 변환 (workflow→workflows, 자음+y→ies 규칙)
-44 - find_parent_table: _id 컬럼명과 allowed_tables로 부모 테이블명 추론 (relationshipOptions용)
+1. pluralize: 단수 → 복수 변환 (workflow→workflows, 자음+y→ies 규칙)
+2. find_parent_table: _id 컬럼명과 allowed_tables로 부모 테이블명 추론 (relationshipOptions용)
 
 [Dependencies]
 =========
@@ -14,6 +14,7 @@ Backend.api_server.pluralize (단수/복수 변환·부모 테이블 찾기)
 """
 
 
+# 1.
 def pluralize(word):
     """
     단수 → 복수 변환
@@ -37,6 +38,7 @@ def pluralize(word):
     return word + "s"
 
 
+# 2.
 def find_parent_table(column_name, allowed_tables):
     """
     _id 컬럼명에서 부모 테이블 찾기

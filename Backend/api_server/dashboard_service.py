@@ -3,19 +3,19 @@ Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
 =============================================================
 캠페인/일자/워크플로우/채널별 GROUP BY 집계·KPI·필터 옵션·차트 데이터 조회. dashboard·dashboard2 라우터에서 공통 호출.
 
-[Functions]
+[Main Functions]
 ===========
-54 - get_required_columns: DASHBOARD_REQUIRED_COLUMNS 기반 필수 컬럼 목록 (API·안내용)
-62 - get_aggregatable_tables: 필수 컬럼·타입 만족 테이블만 반환 (대시보드 셀렉트용)
-96 - _full_table_name: table_id → schema.table
-103 - _build_group_by_clause: group_by 설정 → GROUP BY 절
-128 - _build_where_clause: campaign/workflow/channel 필터 → WHERE 절
-148 - _row_to_aggregated: raw 행 → 집계 행 포맷
-169 - get_dashboard_data: 필터·group_by 기준 집계 데이터·KPI 반환
-219 - _calculate_kpi: KPI 집계 (성공률 등)
-298 - _build_filter_linked_where: 캠페인·워크플로우·채널 필터 조건·파라미터
-326 - get_filter_options: 캠페인·워크플로우·채널 목록 (테이블·필터 조건 기반)
-381 - get_chart_data: 단일 dimension·metric 집계 (차트 전용)
+1. get_required_columns: DASHBOARD_REQUIRED_COLUMNS 기반 필수 컬럼 목록 (API·안내용)
+2. get_aggregatable_tables: 필수 컬럼·타입 만족 테이블만 반환 (대시보드 셀렉트용)
+3. _full_table_name: table_id → schema.table
+4. _build_group_by_clause: group_by 설정 → GROUP BY 절
+5. _build_where_clause: campaign/workflow/channel 필터 → WHERE 절
+6. _row_to_aggregated: raw 행 → 집계 행 포맷
+7. get_dashboard_data: 필터·group_by 기준 집계 데이터·KPI 반환
+8. _calculate_kpi: KPI 집계 (성공률 등)
+9. _build_filter_linked_where: 캠페인·워크플로우·채널 필터 조건·파라미터
+10. get_filter_options: 캠페인·워크플로우·채널 목록 (테이블·필터 조건 기반)
+11. get_chart_data: 단일 dimension·metric 집계 (차트 전용)
 
 [Dependencies]
 =========
@@ -53,6 +53,7 @@ CHANNEL_MAPPING = {
 }
 
 
+# 1.
 def get_required_columns():
     """대시보드 조회를 위해 테이블에 필요한 컬럼·타입 목록 반환 (API·안내용). [{ name, allowed_types }, ...]"""
     return [
@@ -61,6 +62,7 @@ def get_required_columns():
     ]
 
 
+# 2.
 def get_aggregatable_tables():
     """allowed_tables 중 필수 컬럼을 모두 가지고, 각 컬럼 타입이 허용 타입인 테이블만 반환 (대시보드 셀렉트용)."""
     allowed = db.get_allowed_tables()
@@ -95,6 +97,7 @@ def get_aggregatable_tables():
     return result
 
 
+# 3.
 def _full_table_name(table_id):
     """검증된 테이블 ID로 스키마.테이블명 반환."""
     table_name = db.validate_table_name(table_id)
@@ -102,6 +105,7 @@ def _full_table_name(table_id):
     return f'"{schema}"."{table_name}"'
 
 
+# 4.
 def _build_group_by_clause(group_by):
     """
     GROUP BY 절용 SELECT·GROUP BY 컬럼 생성.
@@ -127,6 +131,7 @@ def _build_group_by_clause(group_by):
     return select_clause, group_by_clause
 
 
+# 5.
 def _build_where_clause(req):
     """
     WHERE 절 및 파라미터 리스트 생성.
@@ -147,6 +152,7 @@ def _build_where_clause(req):
     return " AND ".join(conditions), params
 
 
+# 6.
 def _row_to_aggregated(row):
     """DB 행을 집계 행 dict로 변환."""
     return {
@@ -168,6 +174,7 @@ def _row_to_aggregated(row):
     }
 
 
+# 7.
 def get_dashboard_data(req):
     """
     대시보드 집계 데이터·KPI 조회.
@@ -218,6 +225,7 @@ def get_dashboard_data(req):
         conn.close()
 
 
+# 8.
 def _calculate_kpi(cur, full_table, where_sql, params, req):
     """KPI 및 채널별 분포 계산."""
     kpi_query = f"""
@@ -313,6 +321,7 @@ def _calculate_kpi(cur, full_table, where_sql, params, req):
     }
 
 
+# 9.
 def _build_filter_linked_where(campaign_ids=None, workflow_ids=None, channels=None, for_campaigns=False, for_workflows=False, for_channels=False):
     """연동 필터: 캠페인 목록은 워크플로우·채널 기준, 워크플로우는 캠페인·채널 기준, 채널은 캠페인·워크플로우 기준."""
     conditions = []
@@ -341,6 +350,7 @@ def _build_filter_linked_where(campaign_ids=None, workflow_ids=None, channels=No
     return (" AND ".join(conditions) if conditions else "1=1", params)
 
 
+# 10.
 def get_filter_options(table_id, campaign_ids=None, workflow_ids=None, channels=None):
     """
     대시보드 필터 옵션(캠페인·워크플로우·채널 목록) 조회.
@@ -396,6 +406,7 @@ CHART_METRIC_KEYS = (
 )
 
 
+# 11.
 def get_chart_data(req):
     """
     차트 생성 전용 데이터: 단일 디멘션·단일 메트릭으로 집계해 반환.

@@ -3,10 +3,10 @@ Backend.api_server.analysis_store (분석 결과 저장/조회)
 ======================================================
 allowlist_analysis 테이블에 분석 결과 저장/조회. report 라우터 등에서 사용.
 
-[Functions]
+[Main Functions]
 ===========
-23 - save_analysis_result: allowed_tables, table_columns, relationships를 JSONB로 저장
-52 - get_latest_analysis_result: 가장 최근 분석 결과 1건 조회 (dict 또는 None). allowlist_analysis 테이블 없거나 예외 시 None 반환(500 방지)
+1. save_analysis_result: allowed_tables, table_columns, relationships를 JSONB로 저장
+2. get_latest_analysis_result: 가장 최근 분석 결과 1건 조회 (dict 또는 None). allowlist_analysis 테이블 없거나 예외 시 None 반환(500 방지)
 
 [Dependencies]
 =========
@@ -19,6 +19,7 @@ import json
 from Backend.api_server import db
 
 
+# 1.
 def save_analysis_result(allowed_tables, table_columns, relationships):
     """
     allowlist_analysis 테이블에 분석 스냅샷 한 건 저장.
@@ -47,6 +48,7 @@ def save_analysis_result(allowed_tables, table_columns, relationships):
         conn.close()
 
 
+# 2.
 def get_latest_analysis_result():
     """
     가장 최근 분석 결과 한 건 조회.

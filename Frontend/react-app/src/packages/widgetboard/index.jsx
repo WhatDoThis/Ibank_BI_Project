@@ -5,7 +5,7 @@
  *
  * [Main]
  * ===========
- * WidgetboardPage / default: Dashboard3Page
+ * 1. WidgetboardPage (default: Dashboard3Page)
  *
  * [Dependencies]
  * =========

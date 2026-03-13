@@ -5,15 +5,15 @@
  *
  * [Main Functions]
  * ===========
- * - 단일 파일: add-file. ZIP: add-files-zip → job_ids, skipped_files 반환. 건너뛴 파일 목록 표시·복사·다운로드.
+ * 1. 단일 파일: add-file. ZIP: add-files-zip → job_ids, skipped_files 반환. 건너뛴 파일 목록 표시·복사·다운로드.
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etlAddFileToTable, etlAddFilesZipToTable)
+ * - React, @/shared/api/client (etl2AddFileToTable, etl2AddFilesZipToTable)
  */
 
 import { useState, useRef } from 'react';
-import { etlAddFileToTable, etlAddFilesZipToTable } from '@/shared/api/client';
+import { etl2AddFileToTable, etl2AddFilesZipToTable } from '@/shared/api/client';
 
 const ACCEPT_SINGLE = '.csv,.xlsx,.xls,.parquet';
 const ACCEPT_ZIP = '.zip';
@@ -24,6 +24,7 @@ const REASON_LABELS = {
   schema_or_pk_failed: '스키마/PK 검증 실패',
 };
 
+// 1.
 function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess }) {
   const [mode, setMode] = useState('single'); // 'single' | 'zip'
   const [file, setFile] = useState(null);
@@ -103,7 +104,7 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
     setZipResult(null);
     try {
       if (mode === 'zip') {
-        const result = await etlAddFilesZipToTable(etlTableId, file);
+        const result = await etl2AddFilesZipToTable(etlTableId, file);
         if (onSuccess) onSuccess(result);
         setZipResult({
           message: result.message,
@@ -111,12 +112,13 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
           skipped_files: result.skipped_files ?? [],
         });
       } else {
-        const result = await etlAddFileToTable(etlTableId, file);
+        const result = await etl2AddFileToTable(etlTableId, file);
         if (onSuccess) onSuccess(result);
         onClose();
       }
     } catch (err) {
-      setError(err.message || '추가 적재 등록 실패');
+      const msg = err?.message || '추가 적재 등록 실패';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -218,7 +220,7 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
             </div>
             <p className="etl-add-file-modal__accept">
               {mode === 'zip'
-                ? 'ZIP 내부: CSV, Excel(.xlsx/.xls), Parquet. 각 파일이 용량 한도(설정값) 이하여야 합니다.'
+                ? 'ZIP 해제 시 CSV, Excel(.xlsx/.xls), Parquet 확장자만 지원. 각 파일 최대 50MB(한도 초과 시 해당 파일 Skip), ZIP 파일 최대 2GB(한도 초과 시 데이터 추가 실패)'
                 : '지원 형식: CSV, Excel(.xlsx/.xls), Parquet / 최대 50MB'}
             </p>
 

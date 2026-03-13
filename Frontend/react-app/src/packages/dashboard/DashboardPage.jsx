@@ -5,12 +5,9 @@
  *
  * [Main Functions]
  * ===========
- * - 상태: tableId, filters(date_range, view_mode, compare_*), compareData, widgetPeriodChoice, sortOrder, data, targets, sectionOpen
- * - loadData: 기준 1회·비교 1회 getDashboardData(비교 모드 시). compareRange(주/월/일/연), formatRangeLabel. KPICards(compareKpi), ChannelDonutCharts·AggregatedBarChart(기준/비교 블록), 집계 테이블 2개(비교 시), 위젯은 기준/비교 기간 선택 셀렉트로 하나만 표시
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - DashboardPage: DashboardHeader, CollapsibleSection, TargetContextSection, KPICards, ChannelDonutCharts, AggregatedBarChart, AggregatedDataTable, ChartWidget, ChartWidget2, PeriodLabel
+ * 1. loadTargetsFromStorage, saveTargetsToStorage, mergeTarget, targetMatchesPeriod, getTargetStatusByKey
+ * 2. keyOfNoDate, aggregateByKeyNoDate, buildMergedCompareData, getPrimaryDimensionForChart, buildMergedCompareDataSingleDimension, buildSummaryCompareData, sortAggregatedData, getDefaultDateRange
+ * 3. DashboardPage: tableId, filters, loadData, compareRange, formatRangeLabel. 헤더·목표·KPI·채널 도넛·막대·집계 테이블·위젯
  *
  * [Dependencies]
  * =========
@@ -35,6 +32,7 @@ import PeriodLabel from '@/shared/components/PeriodLabel'
 
 const TARGETS_STORAGE_KEY = 'dashboard_targets'
 
+// 1.
 function loadTargetsFromStorage() {
   try {
     const raw = localStorage.getItem(TARGETS_STORAGE_KEY)
@@ -46,6 +44,7 @@ function loadTargetsFromStorage() {
   }
 }
 
+// 2.
 function saveTargetsToStorage(targets) {
   try {
     localStorage.setItem(TARGETS_STORAGE_KEY, JSON.stringify(targets))
@@ -54,6 +53,7 @@ function saveTargetsToStorage(targets) {
   }
 }
 
+// 3.
 function mergeTarget(list, one) {
   const key = (t) => `${t.periodType}|${t.metric}|${t.year}|${t.month ?? ''}|${t.rangeStart ?? ''}|${t.rangeEnd ?? ''}`
   const oneKey = key(one)
@@ -64,6 +64,7 @@ function mergeTarget(list, one) {
   return next
 }
 
+// 4.
 function targetMatchesPeriod(target, dateRange) {
   if (!dateRange?.length || dateRange.length < 2) return false
   const start = String(dateRange[0]).trim()
@@ -96,6 +97,7 @@ const METRIC_HIGHER_IS_BETTER = {
   click_rate: true
 }
 
+// 5.
 function getTargetStatusByKey(targets, dateRange, kpi) {
   if (!targets?.length || !dateRange?.length || !kpi) return {}
   const result = {}
@@ -125,6 +127,7 @@ function getTargetStatusByKey(targets, dateRange, kpi) {
 // 최초 대시보드 진입 시(세션 미유지) 집계 기준: 일자별만 적용
 const defaultGroupBy = { campaign: false, date: true, workflow: false, channel: false }
 
+// 6.
 /** 집계 키에서 일자 제외 (캠페인/워크플로우/채널만). 비교 시 기간별 합산 후 매칭용 */
 function keyOfNoDate(r, groupBy) {
   const parts = []
@@ -134,6 +137,7 @@ function keyOfNoDate(r, groupBy) {
   return parts.join('\0')
 }
 
+// 7.
 /** 동일 키(일자 제외)로 행들을 합산한 맵 반환 */
 function aggregateByKeyNoDate(rows, groupBy) {
   const map = new Map()
@@ -158,6 +162,7 @@ function aggregateByKeyNoDate(rows, groupBy) {
   return { map, getLabel }
 }
 
+// 8.
 /** 비교 모드 시 B안: 디멘션별 기준/비교 나란히. 캠페인/워크플로우/채널+일자면 일자 제외하고 기간별 합산 후 매칭 */
 function buildMergedCompareData(baseRows, compareRows, groupBy) {
   if (!baseRows?.length && !compareRows?.length) return []
@@ -311,6 +316,7 @@ function buildMergedCompareData(baseRows, compareRows, groupBy) {
   return rows
 }
 
+// 9.
 /** 차트 X축용: 복수 차원일 때 가장 분류가 많은 하나만 사용. 기간 비교 시 의미 유지를 위해 일자(date)는 후보에서 제외(캠페인/워크플로우/채널만) */
 function getPrimaryDimensionForChart(baseRows, compareRows, groupBy) {
   const combined = [...(baseRows || []), ...(compareRows || [])]
@@ -331,6 +337,7 @@ function getPrimaryDimensionForChart(baseRows, compareRows, groupBy) {
   return best
 }
 
+// 10.
 /** 단일 차원으로 합산 후 머지 (차트용). primaryDim = getPrimaryDimensionForChart 반환값 */
 function buildMergedCompareDataSingleDimension(baseRows, compareRows, groupBy, primaryDim) {
   if (!primaryDim || (!baseRows?.length && !compareRows?.length)) return []
@@ -363,6 +370,7 @@ function buildMergedCompareDataSingleDimension(baseRows, compareRows, groupBy, p
   })
 }
 
+// 11.
 /** 비교 모드 시 A안: 기간 2행 요약(기준 합산, 비교 합산) */
 function buildSummaryCompareData(baseRows, compareRows) {
   const sum = (rows, key) => (rows || []).reduce((s, r) => s + (Number(r[key]) || 0), 0)
@@ -382,6 +390,7 @@ function buildSummaryCompareData(baseRows, compareRows) {
   ]
 }
 
+// 12.
 /** 집계 데이터 정렬: sortOrder = [{ key, order: 'asc'|'desc' }, ...], 먼저 누른 것이 1순위 */
 function sortAggregatedData(rows, sortOrder) {
   if (!rows?.length || !sortOrder?.length) return rows || []
@@ -401,6 +410,7 @@ function sortAggregatedData(rows, sortOrder) {
   })
 }
 
+// 13.
 function getDefaultDateRange() {
   const now = new Date()
   const y = now.getFullYear()
@@ -410,6 +420,7 @@ function getDefaultDateRange() {
   return [today, today]
 }
 
+// 14.
 export default function DashboardPage() {
   const [tables, setTables] = useState([])
   const [tableId, setTableId] = useState('')

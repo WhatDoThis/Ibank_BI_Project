@@ -3,13 +3,10 @@
  * =================================================
  * WHERE/HAVING 연산자 한글 라벨(OPERATOR_LABELS), 집계 함수 목록(AGG_FUNCTIONS).
  *
- * [Main Functions]
+ * [Main]
  * ===========
- * - (상수만 export, 함수 없음)
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - OPERATOR_LABELS, AGG_FUNCTIONS (export)
+ * 1. OPERATOR_LABELS (export)
+ * 2. AGG_FUNCTIONS (export)
  *
  * [Dependencies]
  * =========

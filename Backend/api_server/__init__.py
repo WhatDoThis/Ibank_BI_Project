@@ -5,7 +5,7 @@ Backend.api_server (FastAPI API 서버 패키지)
 
 [Main]
 ===========
-app: FastAPI 앱 인스턴스 (main에서 생성, health·report·dashboard·dashboard2·etl 라우터 등록·uvicorn 기동용)
+1. app: FastAPI 앱 인스턴스 (main에서 생성, health·report·dashboard·dashboard2·etl 라우터 등록·uvicorn 기동용)
 
 [Dependencies]
 =========

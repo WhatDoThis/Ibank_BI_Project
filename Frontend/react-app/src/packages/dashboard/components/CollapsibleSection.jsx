@@ -3,19 +3,16 @@
  * ==============================================================
  * 제목·토글 버튼으로 본문 접기/펼치기.
  *
- * [Main Functions]
+ * [Components]
  * ===========
- * - CollapsibleSection: title, open, onToggle, children props
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - CollapsibleSection (default export)
+ * 1. CollapsibleSection: title, open, onToggle, children props
  *
  * [Dependencies]
  * =========
  * - React
  */
 
+// 1.
 export default function CollapsibleSection({ title, open, onToggle, children }) {
   return (
     <section className="dashboard-collapsible">

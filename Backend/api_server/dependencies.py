@@ -3,10 +3,10 @@ Backend.api_server.dependencies (FastAPI 의존성 주입)
 =====================================================
 DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)로 사용.
 
-[Functions]
+[Main Functions]
 ===========
-32 - get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
-41 - get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
+1. get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
+2. get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
 
 [Dependencies]
 =========
@@ -28,6 +28,7 @@ except ImportError:
     from Env import config
 
 
+# 1.
 def get_db() -> Generator:
     """요청 단위 DB 연결. 사용 후 자동 close."""
     conn = db.get_db_connection()
@@ -37,6 +38,7 @@ def get_db() -> Generator:
         conn.close()
 
 
+# 2.
 def get_config():
     """config.backend (Env/config/config.json)."""
     return config.backend

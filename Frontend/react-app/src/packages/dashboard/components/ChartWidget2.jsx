@@ -5,11 +5,9 @@
  *
  * [Main Functions]
  * ===========
- * - ChartWidget2: 위젯 추가/삭제/편집, Dimension·Metric·차트 유형. 막대/선/영역: Y축 고정·가로 스크롤. 파이/도넛/레이더/산점도. 레이더: domain·내부 링만 수치·각도 분산
- *
- * [Endpoints/Classes/Functions]
- * =======================
- * - ChartWidget2 (default export)
+ * 1. formatYAxisTick, parseChartNumber, niceNum, calculateYAxisScale, calculateYAxisScaleForBar, calculateYAxisScaleForRate, getAvailableDimensions
+ * 2. PieTooltipContent, RadarTooltipContent, RadarChartWithCenter, ScatterTooltipContent, XAxisTickTruncate, SingleWidget
+ * 3. ChartWidget2: 위젯 추가/삭제/편집 (default export)
  *
  * [Dependencies]
  * =========
