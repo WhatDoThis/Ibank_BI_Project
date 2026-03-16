@@ -117,18 +117,22 @@ def run_batch_job(batch_job_id: int) -> None:
     run_completed_ok = False  # True after finish_run(success/partial_error); avoid overwriting to "error" if update_job_status("success") fails
 
     try:
+        from Backend.api_server import db as api_db
+        sys_conn = api_db.get_db_connection_system()
+        fresh_lp = batch_service.get_last_processed_ts(batch_job_id, conn=sys_conn)
+
         adapter = _connect_with_retry(job["folder_connection_id"])
         all_files = adapter.list_files()
         pending = parser_file.get_pending_files(
             all_files,
             job.get("file_pattern") or "",
             job.get("file_extensions") or "csv,xlsx,xls,parquet",
-            job.get("last_processed_ts"),
+            fresh_lp,
         )
 
         if not pending:
             logger.debug("run_batch_job job_id=%s: no pending files", batch_job_id)
-            batch_service.update_job_status(batch_job_id, "success")
+            batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
             try:
                 from Backend.etl_server import scheduler_file as sched_mod
                 sched_mod.refresh_interval_after_run(batch_job_id)
@@ -137,15 +141,9 @@ def run_batch_job(batch_job_id: int) -> None:
             return
 
         # 이력에 이미 skipped/error로 기록된 파일은 매 주기 재시도하지 않음 (§7.7). run 생성 전에 제외해, 실제 처리할 파일이 없으면 run 기록 없이 return.
-        from Backend.api_server import db as api_db
-        sys_conn = api_db.get_db_connection_system()
         skipped_filenames = batch_service.get_skipped_filenames_set(batch_job_id, conn=sys_conn)
         if skipped_filenames:
             pending = [(f, ts) for f, ts in pending if f not in skipped_filenames]
-        # last_processed_ts를 DB에서 재조회해 한 번 더 필터(동일 파일이 매 주기 pending에 남는 현상 방지)
-        fresh_lp = batch_service.get_last_processed_ts(batch_job_id, conn=sys_conn)
-        if fresh_lp:
-            pending = [(f, t) for f, t in pending if t > fresh_lp]
         if not pending:
             logger.debug("run_batch_job job_id=%s: all pending filtered out (skipped/error or ts<=last_processed_ts)", batch_job_id)
             batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
