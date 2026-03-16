@@ -9,7 +9,7 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 [Main Functions]
 ===========
 - _fetch_source_pk(conn, stype, schema, table_name): 소스 DB에서 PK 컬럼 목록 조회(postgresql/mysql/oracle). pk_columns 미설정 시 자동 감지용.
-- run_db_batch_job(batch_job_id): DB 배치 1건 실행 (소스 SELECT → chunk 적재 → last_synced_at 갱신). pk_columns 없으면 소스에서 자동 조회 후 upsert.
+- run_db_batch_job(batch_job_id): DB 배치 1건 실행. sync_mode=diff면 _run_diff_sync(is_batch=True); full/incremental면 소스 SELECT → chunk 적재 → last_synced_at 갱신. pk_columns 없으면 소스에서 자동 조회 후 upsert.
 
 [Dependencies]
 =========
@@ -17,7 +17,7 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 - Backend.etl_server.scheduler_file (refresh_interval_after_run)
 - Backend.etl_server.service (get_connection_for_etl, get_storage_connection, _connect_postgres, _connect_mysql, _connect_oracle, parse_source_table_parts, _validate_source_table, get_target_db_connection)
 - Backend.etl_server.timezone_utils (needs_conversion, convert_timezone_columns, convert_single_datetime)
-- Backend.etl_server.db_load_service (_get_source_connection, get_source_columns, _fetch_source_columns, _fetch_source_columns_mysql, _fetch_source_columns_oracle)
+- Backend.etl_server.db_load_service (_get_source_connection, get_source_columns, _run_diff_sync, _pg_type_from_*)
 - Backend.etl_server.load_service_file (load_dataframe)
 - Backend.etl_server.transform_engine (apply_mapping_type_cast)
 - Backend.etl_server.transform_rules_service (list_transform_rules)
@@ -156,7 +156,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 column_mapping = None
         incremental_column = (etl_def.get("incremental_column") or "").strip() or None
         sync_mode = (etl_def.get("sync_mode") or "incremental").strip().lower()
-        if sync_mode not in ("full", "incremental"):
+        if sync_mode not in ("full", "incremental", "diff"):
             sync_mode = "incremental"
         pk_columns_str = (etl_def.get("pk_columns") or "").strip() or None
         index_definitions = etl_def.get("index_definitions")
@@ -174,7 +174,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 column_mapping = None
         incremental_column = (job.get("incremental_column") or "").strip() or None
         sync_mode = (job.get("sync_mode") or "incremental").strip().lower()
-        if sync_mode not in ("full", "incremental"):
+        if sync_mode not in ("full", "incremental", "diff"):
             sync_mode = "incremental"
         pk_columns_str = (job.get("pk_columns") or "").strip() or None
         index_definitions = job.get("index_definitions")
@@ -377,6 +377,70 @@ def run_db_batch_job(batch_job_id: int) -> None:
                         "type": (m.get("type") or "TEXT").strip().upper() or "TEXT",
                         "on_error": (m.get("on_error") or "null").strip().lower() or "null",
                     })
+
+        if sync_mode == "diff":
+            pk_list_diff = [x.strip() for x in (pk_columns_str or "").split(",") if x.strip()]
+            if not pk_list_diff:
+                raise ValueError("diff 모드는 pk_columns가 필요합니다.")
+            diff_delete = (
+                etl_def.get("diff_delete_orphans", False) if etl_table_id else job.get("diff_delete_orphans", False)
+            )
+            row_diff = {"diff_delete_orphans": bool(diff_delete)}
+            col_names_diff = [m["source"] for m in mapping_used] if mapping_used else col_names
+            columns_tuples = [
+                (c["column_name"], c["data_type"])
+                for c in columns
+                if c["column_name"] in col_names_diff
+            ]
+            if not columns_tuples:
+                columns_tuples = [(c["column_name"], c["data_type"]) for c in columns]
+            if stype == "mysql":
+                type_mapper = db_load_service._pg_type_from_mysql
+            elif stype == "oracle":
+                type_mapper = db_load_service._pg_type_from_oracle
+            else:
+                type_mapper = db_load_service._pg_type_from_info_schema
+            select_list_diff = (
+                ", ".join(_quote(m["source"]) for m in mapping_used)
+                if mapping_used
+                else select_list
+            )
+            result = db_load_service._run_diff_sync(
+                etl_table_id or 0,
+                0,
+                row_diff,
+                src_conn,
+                target_conn,
+                target_schema,
+                target_table,
+                stype,
+                columns_tuples,
+                col_names_diff,
+                quoted_src,
+                _quote,
+                type_mapper,
+                mapping_used,
+                pk_list_diff,
+                source_tz,
+                target_tz,
+                _tz_convert_needed,
+                select_list_diff,
+                is_batch=True,
+            )
+            batch_service.finish_run(
+                run_id,
+                "success",
+                rows_inserted=result["rows_inserted"],
+                rows_updated=0,
+                conn=sys_conn,
+            )
+            run_completed_ok = True
+            batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
+            logger.info(
+                "run_db_batch_job job_id=%s diff completed rows_inserted=%s rows_deleted=%s",
+                batch_job_id, result["rows_inserted"], result.get("rows_deleted", 0),
+            )
+            return
 
         if stype == "mysql":
             try:

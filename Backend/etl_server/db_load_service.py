@@ -8,11 +8,12 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 1. _get_source_connection: connection_id로 소스 DB 연결(PostgreSQL 전용)
 2. _is_date_type, validate_incremental_column: 증분 컬럼 날짜 검증
 3. get_source_columns, get_source_indexes: 소스 컬럼·인덱스 조회
-4. _fetch_source_columns(_pg|_mysql|_oracle), _fetch_source_pk_columns
+4. _fetch_source_columns(_pg|_mysql|_oracle), _fetch_source_pk_columns, _fetch_pk_values_from_source, _fetch_pk_values_from_target
 5. _create_indexes_on_target, _pg_type_from_*: 타겟 인덱스 생성·타입 변환
 6. _serialize_value, _copy_buf, _copy_insert_batch, _copy_upsert_batch, _copy_upsert_batch_safe
 7. _ensure_unique_constraint, _get_target_column_list
-8. run_db_load: etl_table_id 기준 소스 SELECT → 변환 → 저장 DB CREATE+INSERT 또는 Upsert (full/incremental)
+8. _run_diff_sync: sync_mode=diff 시 소스/타겟 PK diff → 신규 INSERT·삭제 DELETE
+9. run_db_load: etl_table_id 기준 소스 SELECT → 변환 → 저장 DB CREATE+INSERT 또는 Upsert (full/incremental)
 
 [Dependencies]
 =========
@@ -30,7 +31,7 @@ import time
 import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -475,6 +476,108 @@ def _fetch_source_pk_columns(conn, schema: str, table: str) -> List[str]:
         cur.close()
 
 
+_DIFF_PK_FETCH_BATCH = 10000
+
+
+def _normalize_pk_for_diff(val: Any) -> Any:
+    """
+    소스/타겟 PK set 비교 시 타입 통일. Oracle Decimal('1') vs PostgreSQL 1 → 동일 키로 취급.
+    반환값은 hashable 유지(set 요소·WHERE 바인드용).
+    """
+    if val is None:
+        return None
+    if isinstance(val, (list, tuple)):
+        return tuple(_normalize_pk_for_diff(v) for v in val)
+    if isinstance(val, Decimal):
+        try:
+            if val % 1 == 0:
+                return int(val)
+            return float(val)
+        except Exception:
+            return val
+    if isinstance(val, float) and not math.isnan(val) and not math.isinf(val) and val == int(val):
+        return int(val)
+    if isinstance(val, (datetime, date)) and hasattr(val, "isoformat"):
+        return val.isoformat()
+    return val
+
+
+def _row_to_pk_key(row: Any, pk_columns: List[str], single: bool) -> Any:
+    """SELECT로 읽은 행에서 PK 값(단일이면 스칼라, 복합이면 튜플) 추출. row는 tuple 또는 dict."""
+    if isinstance(row, (list, tuple)):
+        return row[0] if single else tuple(row[i] for i in range(len(pk_columns)))
+
+    def _get_cell(r, col: str):
+        for key in (col, getattr(col, "upper", lambda: col)(), getattr(col, "lower", lambda: col)()):
+            if key in r:
+                return r[key]
+        return None
+
+    if single:
+        return _get_cell(row, pk_columns[0])
+    return tuple(_get_cell(row, pk_columns[i]) for i in range(len(pk_columns)))
+
+
+def _fetch_pk_values_from_source(
+    conn,
+    quoted_table: str,
+    pk_columns: List[str],
+    quote_fn,
+    source_type: str,
+) -> Set[Any]:
+    """
+    소스 테이블에서 PK 값 집합 조회. 복합 PK면 튜플의 set, 단일 PK면 스칼라의 set.
+    quoted_table: 이미 인용된 전체 테이블명. quote_fn: 컬럼 인용 함수. source_type: postgresql|mysql|oracle.
+    """
+    if not pk_columns:
+        return set()
+    select_list = ", ".join(quote_fn(c) for c in pk_columns)
+    sql = f"SELECT {select_list} FROM {quoted_table}"
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+        out: Set[Any] = set()
+        single = len(pk_columns) == 1
+        while True:
+            rows = cur.fetchmany(_DIFF_PK_FETCH_BATCH)
+            if not rows:
+                break
+            for row in rows:
+                k = _row_to_pk_key(row, pk_columns, single)
+                out.add(_normalize_pk_for_diff(k))
+        return out
+    finally:
+        cur.close()
+
+
+def _fetch_pk_values_from_target(
+    conn, schema: str, table_name: str, pk_columns: List[str]
+) -> Set[Any]:
+    """
+    타겟(PostgreSQL) 테이블에서 PK 값 집합 조회. 복합 PK면 튜플의 set, 단일 PK면 스칼라의 set.
+    """
+    if not pk_columns:
+        return set()
+    pk_quoted = ", ".join(f'"{c}"' for c in pk_columns)
+    full_name = f'"{schema}"."{table_name}"'
+    sql = f"SELECT {pk_quoted} FROM {full_name}"
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+        out: Set[Any] = set()
+        single = len(pk_columns) == 1
+        while True:
+            rows = cur.fetchmany(_DIFF_PK_FETCH_BATCH)
+            if not rows:
+                break
+            for row in rows:
+                k = _row_to_pk_key(row, pk_columns, single)
+                out.add(_normalize_pk_for_diff(k))
+        return out
+    finally:
+        cur.close()
+
+
 def _ensure_unique_constraint(
     cur, conn, main_schema: str, target_table: str, pk_list: List[str]
 ) -> Optional[str]:
@@ -829,6 +932,184 @@ def _copy_upsert_batch_safe(
         return _row_fallback(cur, conn, full_name, cols, pk_list, rows_tuples, job_id, batch_offset)
 
 
+MAX_DIFF_PK_COUNT = 10_000_000
+_DIFF_PK_SELECT_BATCH = 1000
+
+
+def _run_diff_sync(
+    etl_table_id: int,
+    job_id: Optional[int],
+    row: dict,
+    src_conn,
+    conn_main,
+    main_schema: str,
+    target_table: str,
+    stype: str,
+    columns: List[Tuple[str, str]],
+    col_names: List[str],
+    quoted_src: str,
+    quote_fn,
+    type_mapper,
+    mapping_used: List[dict],
+    pk_list: List[str],
+    source_tz: str,
+    target_tz: str,
+    tz_convert_needed: bool,
+    select_list: str,
+    is_batch: bool = False,
+) -> dict:
+    """
+    sync_mode=diff: 소스·타겟 PK 집합 비교 후 신규 행만 INSERT, (선택) 삭제된 PK는 타겟에서 DELETE.
+    반환: {"rows_inserted": int, "rows_deleted": int}. is_batch=True면 set_job_total_rows/update_job_progress/is_job_cancelled 생략.
+    """
+    target_pk_list = (
+        [m["target"] for m in mapping_used if m["source"] in pk_list]
+        if mapping_used
+        else list(pk_list)
+    )
+    source_pks = _fetch_pk_values_from_source(src_conn, quoted_src, pk_list, quote_fn, stype)
+    target_pks = _fetch_pk_values_from_target(conn_main, main_schema, target_table, target_pk_list)
+
+    if len(source_pks) > MAX_DIFF_PK_COUNT:
+        raise ValueError(
+            "소스 PK 수({:,})가 diff 모드 상한({:,})을 초과합니다. full 모드를 사용하거나 증분 컬럼을 설정하세요.".format(
+                len(source_pks), MAX_DIFF_PK_COUNT
+            )
+        )
+    new_pks = source_pks - target_pks
+    if len(new_pks) > MAX_DIFF_PK_COUNT:
+        raise ValueError(
+            "신규 PK 수({:,})가 diff 모드 상한({:,})을 초과합니다. full 모드를 사용하거나 증분 컬럼을 설정하세요.".format(
+                len(new_pks), MAX_DIFF_PK_COUNT
+            )
+        )
+    diff_delete_orphans = bool(row.get("diff_delete_orphans", False))
+    deleted_pks = (target_pks - source_pks) if diff_delete_orphans else set()
+
+    if not is_batch and job_id:
+        etl_service.set_job_total_rows(job_id, len(new_pks))
+
+    full_name = f'"{main_schema}"."{target_table}"'
+    bind_placeholder = ":1" if stype == "oracle" else "%s"
+    single_pk = len(pk_list) == 1
+    oracle_composite = stype == "oracle" and not single_pk
+
+    rules = []
+    try:
+        rules = transform_rules_svc.list_transform_rules(etl_table_id)
+    except Exception:
+        pass
+    _col_meta = [{"column_name": c[0], "data_type": c[1]} for c in columns]
+    cols_insert = [m["target"] for m in mapping_used] if mapping_used else list(col_names)
+    total_inserted = 0
+    cur_main = conn_main.cursor()
+    try:
+        new_pks_list = list(new_pks)
+        for offset in range(0, len(new_pks_list), _DIFF_PK_SELECT_BATCH):
+            if not is_batch and job_id and etl_service.is_job_cancelled(job_id):
+                conn_main.rollback()
+                return {"rows_inserted": total_inserted, "rows_deleted": 0}
+            batch_pks = new_pks_list[offset : offset + _DIFF_PK_SELECT_BATCH]
+            if not batch_pks:
+                continue
+            if oracle_composite:
+                where_parts = []
+                params_list: List[Any] = []
+                for i, pk_tuple in enumerate(batch_pks):
+                    tup = (pk_tuple,) if single_pk else pk_tuple
+                    param_start = 1 + i * len(pk_list)
+                    part = " AND ".join(
+                        f"{quote_fn(pk_list[j])} = :{param_start + j}"
+                        for j in range(len(pk_list))
+                    )
+                    where_parts.append(f"({part})")
+                    params_list.extend(tup if isinstance(tup, tuple) else (tup,))
+                where_clause = " OR ".join(where_parts)
+                sql = f"SELECT {select_list} FROM {quoted_src} WHERE {where_clause}"
+                params = params_list
+            else:
+                if single_pk:
+                    if stype == "oracle":
+                        ph = ", ".join(":" + str(i + 1) for i in range(len(batch_pks)))
+                    else:
+                        ph = ", ".join([bind_placeholder] * len(batch_pks))
+                    where_clause = f"{quote_fn(pk_list[0])} IN ({ph})"
+                    params = list(batch_pks)
+                else:
+                    ph = ", ".join(
+                        "(" + ", ".join([bind_placeholder] * len(pk_list)) + ")"
+                        for _ in batch_pks
+                    )
+                    where_clause = f"({', '.join(quote_fn(c) for c in pk_list)}) IN ({ph})"
+                    params = [v for t in batch_pks for v in (t if isinstance(t, tuple) else (t,))]
+                sql = f"SELECT {select_list} FROM {quoted_src} WHERE {where_clause}"
+
+            cur_src = src_conn.cursor()
+            try:
+                cur_src.execute(sql, params)
+                rows_raw = cur_src.fetchall()
+            finally:
+                cur_src.close()
+
+            if not rows_raw:
+                continue
+            row_type = "dict" if stype == "postgresql" and hasattr(rows_raw[0], "keys") else "tuple"
+            if row_type == "tuple":
+                batch_dicts = [dict(zip(col_names, r)) for r in rows_raw]
+            else:
+                batch_dicts = [dict(r) for r in rows_raw]
+            df_batch = pd.DataFrame(batch_dicts, columns=col_names)
+            if tz_convert_needed:
+                try:
+                    df_batch = timezone_utils.convert_timezone_columns(
+                        df_batch, _col_meta, source_tz, target_tz,
+                    )
+                except Exception as tz_err:
+                    logger.warning("_run_diff_sync tz convert failed (skip): %s", tz_err)
+            try:
+                df_batch = transform_engine.apply_rules(df_batch, rules)
+            except Exception:
+                pass
+            if mapping_used:
+                try:
+                    df_batch = transform_engine.apply_mapping_type_cast(
+                        df_batch, mapping_used, default_on_error="null"
+                    )
+                except ValueError as cast_err:
+                    raise cast_err
+            rows_batch = df_batch.replace({pd.NA: None}).to_dict("records")
+            rows_tuples = [tuple(r.get(c) for c in cols_insert) for r in rows_batch]
+            _copy_insert_batch(cur_main, full_name, cols_insert, rows_tuples)
+            conn_main.commit()
+            total_inserted += len(rows_tuples)
+            if not is_batch and job_id:
+                etl_service.update_job_progress(job_id, total_inserted)
+        rows_deleted = 0
+        if deleted_pks:
+            deleted_list = list(deleted_pks)
+            pk_quoted = ", ".join(f'"{c}"' for c in target_pk_list)
+            for d_offset in range(0, len(deleted_list), _DIFF_PK_SELECT_BATCH):
+                d_batch = deleted_list[d_offset : d_offset + _DIFF_PK_SELECT_BATCH]
+                if len(target_pk_list) == 1:
+                    ph = ", ".join(["%s"] * len(d_batch))
+                    delete_sql = f'DELETE FROM {full_name} WHERE "{target_pk_list[0]}" IN ({ph})'
+                    delete_params = list(d_batch)
+                else:
+                    values_ph = ", ".join(
+                        "(" + ", ".join(["%s"] * len(target_pk_list)) + ")"
+                        for _ in d_batch
+                    )
+                    delete_sql = f"DELETE FROM {full_name} WHERE ({pk_quoted}) IN (VALUES {values_ph})"
+                    delete_params = [v for t in d_batch for v in (t if isinstance(t, tuple) else (t,))]
+                cur_main.execute(delete_sql, delete_params)
+                rows_deleted += cur_main.rowcount
+            conn_main.commit()
+    finally:
+        cur_main.close()
+
+    return {"rows_inserted": total_inserted, "rows_deleted": rows_deleted}
+
+
 def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     """
     ETL 테이블(DB 연동) 1건에 대해 추출·적재 실행.
@@ -990,6 +1271,123 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 col_names = select_sources
         else:
             select_list = ", ".join(_quote(c) for c in col_names)
+
+        if sync_mode == "diff":
+            conn_main_diff = None
+            try:
+                if not pk_columns or not (pk_columns or "").strip():
+                    etl_service.update_job(
+                        job_id, "failed",
+                        error_message="diff 모드는 pk_columns가 필요합니다.",
+                    )
+                    etl_service.update_etl_table_status(etl_table_id, "error")
+                    return {
+                        "job_id": job_id,
+                        "status": "failed",
+                        "rows_processed": 0,
+                        "error_message": "diff 모드는 pk_columns가 필요합니다.",
+                        "suggested_action": "ETL 테이블 설정에서 pk_columns를 지정하세요.",
+                    }
+                conn_main_diff, main_schema = etl_service.get_target_db_connection(row.get("storage_connection_id"))
+                cur_check = conn_main_diff.cursor()
+                try:
+                    cur_check.execute(f'SELECT 1 FROM "{main_schema}"."{target_table}" LIMIT 1')
+                    cur_check.fetchone()
+                except Exception:
+                    conn_main_diff.rollback()
+                    etl_service.update_job(
+                        job_id, "failed",
+                        error_message="diff 모드는 타겟 테이블이 이미 존재해야 합니다. 먼저 full 모드로 최초 적재한 뒤 diff 모드로 전환하세요.",
+                    )
+                    etl_service.update_etl_table_status(etl_table_id, "error")
+                    try:
+                        conn_main_diff.close()
+                    except Exception:
+                        pass
+                    try:
+                        src_conn.close()
+                    except Exception:
+                        pass
+                    conn_main_diff = None
+                    src_conn = None
+                    return {
+                        "job_id": job_id,
+                        "status": "failed",
+                        "rows_processed": 0,
+                        "error_message": "diff 모드는 타겟 테이블이 이미 존재해야 합니다.",
+                        "suggested_action": "sync_mode를 full로 설정하여 최초 적재를 먼저 실행하세요.",
+                    }
+                finally:
+                    cur_check.close()
+                pk_list_diff = [x.strip() for x in (pk_columns or "").split(",") if x.strip()]
+                for pk in pk_list_diff:
+                    etl_service._validate_identifier(pk, "pk_columns")
+                result = _run_diff_sync(
+                    etl_table_id,
+                    job_id,
+                    row,
+                    src_conn,
+                    conn_main_diff,
+                    main_schema,
+                    target_table,
+                    stype,
+                    columns,
+                    col_names,
+                    quoted_src,
+                    _quote,
+                    type_mapper,
+                    mapping_used,
+                    pk_list_diff,
+                    source_tz,
+                    target_tz,
+                    _tz_convert_needed,
+                    select_list,
+                    is_batch=False,
+                )
+                etl_service.update_job(
+                    job_id, "completed",
+                    rows_processed=result["rows_inserted"],
+                    notice=f"diff: INSERT {result['rows_inserted']}, DELETE {result['rows_deleted']}" if result.get("rows_deleted", 0) else None,
+                )
+                etl_service.update_etl_table_status(etl_table_id, "done")
+                try:
+                    conn_main_diff.close()
+                except Exception:
+                    pass
+                try:
+                    src_conn.close()
+                except Exception:
+                    pass
+                conn_main_diff = None
+                src_conn = None
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "rows_processed": result["rows_inserted"],
+                }
+            except Exception as e:
+                etl_service.update_job(job_id, "failed", error_message=str(e))
+                etl_service.update_etl_table_status(etl_table_id, "error")
+                suggested = "sync_mode를 full로 설정하여 최초 적재를 먼저 실행하세요." if "타겟 테이블" in str(e) or "존재" in str(e) else None
+                return {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "rows_processed": 0,
+                    "error_message": str(e),
+                    **({"suggested_action": suggested} if suggested else {}),
+                }
+            finally:
+                if conn_main_diff is not None:
+                    try:
+                        conn_main_diff.close()
+                    except Exception:
+                        pass
+                if src_conn is not None:
+                    try:
+                        src_conn.close()
+                    except Exception:
+                        pass
+
         where_clause = ""
         params = []
         if sync_mode == "incremental" and incremental_column:

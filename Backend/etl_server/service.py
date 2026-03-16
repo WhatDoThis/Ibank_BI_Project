@@ -14,7 +14,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 7. list_timezones, create_connection, list_connections, get_connection_for_etl, test_connection
 8. list_storage_connections, get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
-10. list_etl_tables, create_etl_table, get_etl_table, get_sync_mode_for_load, delete_etl_table, delete_etl_table_row_only, update_last_synced_at, update_etl_table
+10. list_etl_tables, create_etl_table, get_etl_table, get_sync_mode_for_load(full|incremental|diff), delete_etl_table, delete_etl_table_row_only, update_last_synced_at, update_etl_table
 11. insert_job, set_job_running, list_jobs, delete_job, get_job, fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status
 
 [Dependencies]
@@ -1122,7 +1122,7 @@ def list_etl_tables() -> list:
             SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
                    t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
-                   t.column_mapping, t.on_row_error, t.index_definitions,
+                   t.column_mapping, t.on_row_error, t.index_definitions, t.diff_delete_orphans,
                    c.connection_name, c.source_type,
                    sc.connection_name AS storage_connection_name
             FROM {_q(schema, "etl_tables")} t
@@ -1167,12 +1167,16 @@ def create_etl_table(
     schema = _schema()
     # 동일 타겟 테이블은 다른 DB(연결)에서 같은 테이블로 추가 적재할 수 있으므로 target_table 유일성 검사 제거.
     sync_mode = (sync_mode or "incremental").strip().lower()
-    if sync_mode not in ("full", "incremental"):
+    if sync_mode not in ("full", "incremental", "diff"):
         sync_mode = "incremental"
     if sync_mode == "full" and target_table_exists(storage_connection_id, target_table):
         raise ValueError(
             "해당 저장 DB에 이미 존재하는 테이블명입니다. 전체(Full) 동기화는 기존 테이블을 삭제한 뒤 재생성하므로, "
             "다른 이름을 사용하거나 증분(Incremental) 모드로 등록하세요."
+        )
+    if sync_mode == "diff" and not target_table_exists(storage_connection_id, target_table):
+        raise ValueError(
+            "diff 모드는 타겟 테이블이 이미 존재해야 합니다. 먼저 full 모드로 최초 적재한 뒤 diff 모드로 전환하세요."
         )
     pk_columns_val = (pk_columns or "").strip() or None
     if not pk_columns_val and connection_id and source_table:
@@ -1293,7 +1297,7 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
                    t.file_type, t.file_path, t.status, t.created_at,
                    t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
                    t.batch_size, t.batch_interval_seconds, t.storage_connection_id, t.column_mapping,
-                   t.on_row_error, t.index_definitions,
+                   t.on_row_error, t.index_definitions, t.diff_delete_orphans,
                    c.connection_name, c.source_type
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
@@ -1309,13 +1313,15 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
 
 
 def get_sync_mode_for_load(etl_table_id: int) -> str:
-    """etl_tables.sync_mode를 조회해 'full' | 'incremental' 반환. 명시적 'full'만 full, 그 외는 모두 incremental."""
+    """etl_tables.sync_mode를 조회해 'full' | 'incremental' | 'diff' 반환. 명시적 'full'/'diff'만 그대로, 그 외는 incremental."""
     row = get_etl_table(etl_table_id)
     if not row:
         return "incremental"
     raw = row.get("sync_mode")
     normalized = (str(raw).strip().lower() if raw is not None else "") or ""
-    return "full" if normalized == "full" else "incremental"
+    if normalized in ("full", "diff"):
+        return normalized
+    return "incremental"
 
 
 def delete_etl_table(etl_table_id: int) -> dict:
@@ -1883,7 +1889,7 @@ def update_etl_table(
             params.append(val)
         if sync_mode is not None:
             raw = (sync_mode or "").strip().lower()
-            val = "full" if raw == "full" else "incremental"
+            val = raw if raw in ("full", "diff") else "incremental"
             updates.append("sync_mode = %s")
             params.append(val)
         if incremental_column is not None:

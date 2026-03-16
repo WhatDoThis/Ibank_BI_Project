@@ -35,11 +35,11 @@ export function isTypeCompatible(sourceType, targetType) {
 }
 
 // 3.
-/** 소스 추론 타입 → 적재 시 사용할 PG 타입명 */
+/** 소스 추론 타입 → 적재 시 사용할 PG 타입명. 백엔드 _pg_type_from_* 반환값(DOUBLE PRECISION, BIGINT 등)과 호환. */
 export function inferredTypeToPg(typeStr) {
   const t = (typeStr || '').toString().trim().toLowerCase();
-  if (['integer', 'int'].some((x) => t === x || t.startsWith(x))) return 'BIGINT';
-  if (t === 'float') return 'DOUBLE PRECISION';
+  if (['integer', 'int', 'bigint', 'smallint', 'serial', 'bigserial'].some((x) => t === x || t.startsWith(x))) return 'BIGINT';
+  if (['float', 'double precision', 'double', 'numeric', 'decimal', 'real'].some((x) => t === x || t.startsWith(x))) return 'DOUBLE PRECISION';
   if (['boolean', 'bool'].some((x) => t === x || t.startsWith(x))) return 'BOOLEAN';
   if (['datetime', 'date', 'timestamp', 'timestamptz', 'time', 'timetz', 'interval', 'year'].some((x) => t === x)) return 'TIMESTAMP';
   return 'TEXT';

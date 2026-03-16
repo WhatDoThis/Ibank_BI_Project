@@ -58,7 +58,8 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
 
   useEffect(() => {
     if (!open || !table) return;
-    setSyncMode((table.sync_mode || 'incremental').toLowerCase() === 'full' ? 'full' : 'incremental');
+    const sm = (table.sync_mode || 'incremental').toLowerCase();
+    setSyncMode(sm === 'full' ? 'full' : sm === 'diff' ? 'diff' : 'incremental');
     const inc = (table.incremental_column || '').trim();
     if (inc) {
       setIncrementalColumnCustom(inc);
@@ -147,7 +148,7 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
         <form onSubmit={handleSubmit} className="etl-settings-modal__form">
           <div className="etl-settings-modal__field">
             <label className="etl-settings-modal__label">동기화 모드</label>
-            <span className="etl-settings-modal__desc">전체: 삭제 후 전체 적재. 증분: 증분 컬럼 기준 이후 행만 조회해 Upsert.</span>
+            <span className="etl-settings-modal__desc">전체: 삭제 후 전체 적재. 증분: 증분 컬럼 기준 이후 행만 조회해 Upsert. PK 비교: 소스·타겟 PK만 비교해 신규/삭제만 반영(증분 컬럼 불필요, 타겟 테이블 사전 존재 필요).</span>
             <select
               value={syncMode}
               onChange={(e) => setSyncMode(e.target.value)}
@@ -155,7 +156,18 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
             >
               <option value="full">전체(Full)</option>
               <option value="incremental">증분(Incremental)</option>
+              <option value="diff">PK 비교(diff)</option>
             </select>
+            {syncMode === 'full' && (
+              <p className="etl-settings-modal__hint">
+                최초 적재 후 여기서 동기화 모드를 <strong>PK 비교(diff)</strong>로 바꾸면, 이후 실행부터는 증분 컬럼 없이 PK만 비교해 신규·삭제만 반영합니다.
+              </p>
+            )}
+            {syncMode === 'diff' && (
+              <p className="etl-settings-modal__hint">
+                타겟 테이블이 이미 있어야 합니다. 아직 최초 적재를 하지 않았다면 먼저 <strong>전체(Full)</strong>로 실행한 뒤 diff로 변경하세요.
+              </p>
+            )}
           </div>
 
           {syncMode === 'incremental' && (

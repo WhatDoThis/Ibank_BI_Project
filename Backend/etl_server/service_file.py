@@ -325,7 +325,7 @@ def list_batch_jobs(
                    j.last_error_message, j.column_mapping, j.index_definitions, j.created_at, j.updated_at,
                    j.job_type, j.connection_id, j.source_table, j.incremental_column, j.sync_mode,
                    j.last_synced_at, j.batch_size, j.batch_interval_seconds, j.on_row_error, j.on_file_error,
-                   j.etl_table_id,
+                   j.etl_table_id, j.diff_delete_orphans,
                    c.connection_name, c.protocol,
                    ec.connection_name AS source_connection_name,
                    sc.connection_name AS storage_connection_name
@@ -419,6 +419,7 @@ def create_batch_job(
     batch_interval_seconds: Optional[int] = None,
     on_row_error: str = "fail",
     etl_table_id: Optional[int] = None,
+    diff_delete_orphans: bool = False,
 ) -> int:
     """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환.
     job_type='file': folder_connection_id 필수. job_type='db': connection_id 필수(etl_table_id 없을 때), folder_connection_id NULL.
@@ -496,16 +497,17 @@ def create_batch_job(
         if on_row_error_val not in ("fail", "skip"):
             on_row_error_val = "fail"
         sync_mode_val = (sync_mode or "incremental").strip().lower()
-        if sync_mode_val not in ("full", "incremental"):
+        if sync_mode_val not in ("full", "incremental", "diff"):
             sync_mode_val = "incremental"
+        diff_delete_orphans_val = bool(diff_delete_orphans) if jtype == "db" else False
 
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "batch_jobs")}
             (folder_connection_id, storage_connection_id, job_name, file_pattern, file_extensions,
              target_table, pk_columns, timestamp_format, interval_minutes, is_active, column_mapping, index_definitions, on_file_error,
-             job_type, connection_id, source_table, incremental_column, sync_mode, last_synced_at, batch_size, batch_interval_seconds, on_row_error, etl_table_id, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, NOW(), NOW())
+             job_type, connection_id, source_table, incremental_column, sync_mode, last_synced_at, batch_size, batch_interval_seconds, on_row_error, etl_table_id, diff_delete_orphans, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, NOW(), NOW())
             RETURNING batch_job_id
             """,
             (
@@ -530,6 +532,7 @@ def create_batch_job(
                 batch_interval_seconds if jtype == "db" else None,
                 on_row_error_val if jtype == "db" else None,
                 etl_table_id if jtype == "db" else None,
+                diff_delete_orphans_val,
             ),
         )
         row = cur.fetchone()
@@ -560,7 +563,7 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
         "job_name", "file_pattern", "file_extensions", "target_table", "pk_columns",
         "interval_minutes", "is_active", "storage_connection_id", "column_mapping", "index_definitions", "on_file_error",
         "connection_id", "source_table", "incremental_column", "sync_mode", "batch_size", "batch_interval_seconds", "on_row_error",
-        "last_run_status",
+        "diff_delete_orphans", "last_run_status",
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
@@ -579,8 +582,8 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
         updates["on_row_error"] = ore
     if "sync_mode" in updates and updates["sync_mode"] is not None:
         sm = (updates["sync_mode"] or "").strip().lower()
-        if sm not in ("full", "incremental"):
-            raise ValueError("sync_mode는 'full' 또는 'incremental'여야 합니다.")
+        if sm not in ("full", "incremental", "diff"):
+            raise ValueError("sync_mode는 'full', 'incremental', 'diff' 중 하나여야 합니다.")
         updates["sync_mode"] = sm
     api_db = _get_db()
     schema = _schema()

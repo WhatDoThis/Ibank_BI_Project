@@ -850,6 +850,11 @@ function DbConnectionForm({ onSuccess }) {
               <option value="full">전체(Full)</option>
               <option value="incremental">증분(Incremental)</option>
             </select>
+            {syncMode === 'full' && (
+              <p className="etl-db-form__hint etl-db-form__hint--sync">
+                등록 후 ETL 목록의 <strong>설정</strong>에서 동기화 모드를 <strong>PK 비교(diff)</strong>로 변경할 수 있습니다. (최초 1회 전체 적재 후 diff 사용)
+              </p>
+            )}
           </div>
           {syncMode === 'incremental' && (
             <div className="etl-db-form__field etl-db-form__field--full">

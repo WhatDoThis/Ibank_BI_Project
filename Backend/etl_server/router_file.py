@@ -98,10 +98,11 @@ class CreateBatchJobBody(BaseModel):
     connection_id: Optional[int] = Field(None, description="DB 배치: 소스 DB 연결 ID")
     source_table: Optional[str] = Field(None, description="DB 배치: 소스 테이블 (schema.table)")
     incremental_column: Optional[str] = Field(None, description="DB 배치: 증분 기준 컬럼")
-    sync_mode: Optional[str] = Field("incremental", description="DB 배치: full | incremental")
+    sync_mode: Optional[str] = Field("incremental", description="DB 배치: full | incremental | diff")
     batch_size: Optional[int] = Field(None, description="DB 배치: fetch 배치 크기")
     batch_interval_seconds: Optional[int] = Field(None, description="DB 배치: 배치 간 대기 초")
     on_row_error: Optional[str] = Field("fail", description="DB 배치: fail | skip")
+    diff_delete_orphans: Optional[bool] = Field(False, description="diff 모드: 소스에서 삭제된 행을 타겟에서도 DELETE")
 
 
 class CreateBatchJobFromEtlTableBody(BaseModel):
@@ -135,6 +136,7 @@ class UpdateBatchJobBody(BaseModel):
     batch_size: Optional[int] = None
     batch_interval_seconds: Optional[int] = None
     on_row_error: Optional[str] = None
+    diff_delete_orphans: Optional[bool] = None
 
 
 class ValidateTargetBody(BaseModel):
@@ -532,6 +534,7 @@ def create_batch_job(body: CreateBatchJobBody):
             batch_size=body.batch_size,
             batch_interval_seconds=body.batch_interval_seconds,
             on_row_error=body.on_row_error or "fail",
+            diff_delete_orphans=getattr(body, "diff_delete_orphans", False) or False,
         )
         if body.is_active:
             job = batch_service.get_batch_job(batch_job_id)
@@ -579,7 +582,7 @@ def create_batch_job_from_etl_table(body: CreateBatchJobFromEtlTableBody):
             source_table=etl_table.get("source_table"),
             column_mapping=None,
             incremental_column=None,
-            sync_mode="incremental",
+            sync_mode=etl_table.get("sync_mode") or "incremental",
             pk_columns=None,
             index_definitions=None,
             interval_minutes=body.interval_minutes,
@@ -587,6 +590,7 @@ def create_batch_job_from_etl_table(body: CreateBatchJobFromEtlTableBody):
             batch_interval_seconds=body.batch_interval_seconds,
             on_row_error=body.on_row_error or "fail",
             is_active=body.is_active,
+            diff_delete_orphans=etl_table.get("diff_delete_orphans", False) or False,
         )
         # ETL 테이블의 마지막 적재 완료 시점(last_synced_at)을 배치 초기값으로 세팅 → 증분 배치는 이후 데이터만 처리
         initial_synced_at = etl_table.get("last_synced_at")
@@ -987,6 +991,7 @@ def clone_batch_job(batch_job_id: int):
             batch_size=job.get("batch_size") if jtype == "db" else None,
             batch_interval_seconds=job.get("batch_interval_seconds") if jtype == "db" else None,
             on_row_error=(job.get("on_row_error") or "fail").strip().lower() if jtype == "db" else "fail",
+            diff_delete_orphans=(job.get("diff_delete_orphans", False) or False) if jtype == "db" else False,
         )
         return {"batch_job_id": new_id, "message": "복제되었습니다. 비활성 상태입니다."}
     except HTTPException:

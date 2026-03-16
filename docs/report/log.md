@@ -1,3 +1,113 @@
+## 2026-03-16 ETL PK Diff Phase 7: router run_table_load diff 사전 검증
+
+**목적:** run_table_load에서 DB 소스·sync_mode=diff일 때 pk_columns·타겟 테이블 존재 사전 검증 및 suggested_action 반환 (14_ETL_PK_DIFF.md §3.5).
+
+**적용 내용:**
+1. DB 소스(postgresql/mysql/oracle)이고 get_sync_mode_for_load(etl_table_id)=="diff"일 때, Job 등록 전 검증.
+2. pk_columns 미설정 시 HTTPException(400, detail={message, suggested_action: "ETL 테이블 설정에서 pk_columns를 지정하세요."}).
+3. target_table_exists(storage_connection_id, target_table) False 시 HTTPException(400, detail={message, suggested_action: "sync_mode를 full로 설정하여 최초 적재를 실행한 뒤, sync_mode를 diff로 변경하세요."}).
+4. 검증 통과 후 기존대로 insert_job(pending) 및 queue_worker 시작.
+
+**변경 파일:** Backend/etl_server/router.py, docs/report/log.md.
+
+---
+
+## 2026-03-16 ETL PK Diff Phase 6: batch_executor_db에 diff 분기
+
+**목적:** batch_executor_db에서 sync_mode=diff 시 _run_diff_sync(is_batch=True) 호출 (14_ETL_PK_DIFF.md §3.3).
+
+**적용 내용:**
+1. sync_mode 정규화에 "diff" 추가 (etl_table_id 모드·독립 모드 공통).
+2. mapping_used 확정 직후, while fetch 루프 전에 sync_mode == "diff" 분기: pk_list 없으면 ValueError. diff_delete_orphans는 etl_table_id면 etl_def, 독립 모드면 job에서 조회.
+3. row_diff, columns_tuples, type_mapper(stype별), select_list_diff·col_names_diff(매핑 시 소스 컬럼만) 구성 후 _run_diff_sync(..., is_batch=True) 호출.
+4. finish_run(success, rows_inserted=result), update_job_status(success) 후 return. last_synced_at 갱신 없음.
+5. 상단 Main Functions·Dependencies 갱신.
+
+**변경 파일:** Backend/etl_server/batch_executor_db.py, docs/report/log.md.
+
+---
+
+## 2026-03-16 ETL PK Diff Phase 5: run_db_load에 diff 분기
+
+**목적:** run_db_load 내 sync_mode=diff 전용 분기 추가 (14_ETL_PK_DIFF.md §3.2.4).
+
+**적용 내용:**
+1. select_list 확정 직후, where_clause/params 설정 전에 `if sync_mode == "diff":` 분기 추가.
+2. pk_columns 없으면 실패 반환 + suggested_action. 타겟 연결 후 타겟 테이블 존재 확인(SELECT 1 ... LIMIT 1), 실패 시 실패 반환 + suggested_action.
+3. _run_diff_sync(..., is_batch=False) 호출 후 완료 시 update_job(completed), update_etl_table_status(done), 연결 정리 후 return. 예외 시 update_job(failed), suggested_action 포함 반환.
+4. 분기 전체 try/except/finally: finally에서 conn_main_diff·src_conn close. return 직전 성공/타겟검사실패 경로에서 close 후 None 설정으로 상위 except의 중복 close 방지.
+
+**변경 파일:** Backend/etl_server/db_load_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-16 ETL PK Diff Phase 4: _run_diff_sync 구현
+
+**목적:** sync_mode=diff 핵심 로직 _run_diff_sync 추가 (14_ETL_PK_DIFF.md §3.2.3).
+
+**적용 내용:**
+1. **_run_diff_sync**: 소스/타겟 PK 집합 조회 → new_pks/deleted_pks 계산, MAX_DIFF_PK_COUNT(10_000_000) 검사, is_batch 분기(진행률·취소 생략).
+2. 신규 PK 배치(1000건)별: Oracle 복합 PK는 OR 체인 WHERE, 단일/비Oracle은 IN 절 → SELECT → DataFrame → 시간대·변환 룰·매핑 형변환 → _copy_insert_batch. 커서 1개 재사용·finally에서 close.
+3. diff_delete_orphans 시 타겟에서 deleted_pks 배치 DELETE (PostgreSQL VALUES 구문).
+4. 반환: rows_inserted, rows_deleted. 상단 Main Functions 목록 갱신.
+
+**변경 파일:** Backend/etl_server/db_load_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-16 ETL PK Diff Phase 3: db_load_service PK 값 집합 조회 함수 추가
+
+**목적:** sync_mode=diff용 소스/타겟 PK 값 집합 조회 함수 추가 (14_ETL_PK_DIFF.md §3.2.1, §3.2.2).
+
+**적용 내용:**
+1. **_fetch_pk_values_from_source**: conn, quoted_table, pk_columns, quote_fn, source_type 인자. SELECT pk1,pk2,... FROM quoted_table → fetchmany(10000) 반복, set 수집. 단일/복합 PK 각각 스칼라·튜플 set.
+2. **_fetch_pk_values_from_target**: conn, schema, table_name, pk_columns. 타겟(PostgreSQL)에서 동일 방식으로 PK 값 set 조회.
+3. **_row_to_pk_key**: tuple/dict 행에서 PK 키 추출 (Oracle 대문자 컬럼명 대비).
+4. _DIFF_PK_FETCH_BATCH = 10000 상수, 상단 Main Functions 목록 갱신.
+
+**변경 파일:** Backend/etl_server/db_load_service.py, docs/report/log.md.
+
+---
+
+## 2026-03-16 ETL PK Diff: migrations 폴더 삭제, Phase 1·2 완료
+
+**목적:** 사용자가 DB 마이그레이션을 직접 적용했으므로 Backend/etl_server/migrations 폴더 삭제. 14_ETL_PK_DIFF.md 기준 Phase 1·2 구현.
+
+**적용 내용:**
+1. **migrations 폴더 삭제**: 001_etl_pk_diff_sync_mode.sql, README.md 삭제 후 폴더 제거.
+2. **Phase 1 (service.py)**: get_sync_mode_for_load에 'diff' 반환, create_etl_table·update_etl_table에 sync_mode 'diff' 허용, diff 시 타겟 테이블 존재 검사 추가.
+3. **Phase 2**: service_file.py — create_batch_job에 diff_delete_orphans 인자·INSERT 컬럼, update_batch_job에 sync_mode 'diff'·diff_delete_orphans 허용. router.py — CreateTableBody/UpdateTableBody sync_mode description에 diff. router_file.py — CreateBatchJobBody/UpdateBatchJobBody에 diff_delete_orphans, sync_mode description에 diff. etl_tables·batch_jobs 목록/단건 SELECT에 diff_delete_orphans 추가.
+
+**변경 파일:** Backend/etl_server/service.py, service_file.py, router.py, router_file.py, docs/report/log.md.
+
+---
+
+## 2026-03-16 docs/report 14_ETL_PK_DIFF 설계서 최종 점검 3건 반영
+
+**목적:** PK Diff 설계서(14_ETL_PK_DIFF.md)에 남은 이슈 3건을 반영해 Cursor AI 구현 시 누락·모호함이 없도록 보완.
+
+**적용 내용:**
+1. **§3.2.3 _run_diff_sync**: 인자 `is_batch: bool = False` 추가. `is_batch=True`이면 set_job_total_rows/update_job_progress/is_job_cancelled 호출 생략. run_db_load는 is_batch=False, batch_executor_db는 is_batch=True로 호출하도록 명시.
+2. **§3.2.4 run_db_load diff 분기**: diff 분기 전체를 try/except/finally로 감싸고, finally에서 conn_main.close()·src_conn.close() 보장. return 직전 src_conn=None, conn_main=None 설정으로 상위 finally 중복 close 방지.
+3. **§3.4 service_file.py**: create_batch_job에 diff_delete_orphans 인자·INSERT 컬럼 추가, update_batch_job에 "diff_delete_orphans" updatable 필드 추가.
+4. **§3.6 router_file.py**: CreateBatchJobBody·UpdateBatchJobBody에 diff_delete_orphans 필드 추가 명시.
+
+**변경 파일:** docs/report/14_ETL_PK_DIFF.md.
+
+---
+
+## 2026-03-16 docs/report 14_ETL_PK_DIFF 설계서 작성
+
+**목적:** ETL PK Diff 동기화 모드(sync_mode=diff) 계획·설계서를 현재 패키지 구조(Backend/etl_server) 기준으로 docs/report에 추가.
+
+**적용 내용:**
+1. **14_ETL_PK_DIFF.md** 신규 작성: 개요·동작 원리·전제 조건, DB 스키마(sync_mode에 diff 허용·diff_delete_orphans 선택 컬럼), Backend/etl_server 파일별 수정(service, db_load_service, batch_executor_db, service_file, router, router_file), 검증·프론트 라벨·테스트 시나리오·구현 순서·향후 확장·패키지 대응표.
+2. **00_ReportIndex.md**: 14_ETL_PK_DIFF.md 항목 추가.
+
+**변경 파일:** docs/report/14_ETL_PK_DIFF.md, docs/report/00_ReportIndex.md, docs/report/log.md.
+
+---
+
 ## 2026-03-13 docs/main·README 현재 구조 반영 (ETL 단일화·뉴 대시보드 2종)
 
 **목적:** log.md 및 코드 구조 기준으로 개발 문서(docs/main)·README를 현재 시스템에 맞게 개편. ETL1 제거·ETL2 단일 ETL로 통일, 뉴 대시보드 2종(뉴 대시보드·마케팅 대시보드) 반영.

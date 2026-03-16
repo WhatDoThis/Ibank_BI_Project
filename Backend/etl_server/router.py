@@ -301,7 +301,7 @@ class CreateTableBody(BaseModel):
     file_path: Optional[str] = None
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분, incremental 시 필수)")
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명")
-    sync_mode: Optional[str] = Field("incremental", description="full | incremental")
+    sync_mode: Optional[str] = Field("incremental", description="full | incremental | diff. diff는 PK 목록 비교 방식(증분 컬럼 불필요, 타겟 테이블 사전 존재 필수)")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). NULL/0이면 전체 fetch. 고객 DB 여건에 따라 설정.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
     storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB(ibank_db). Phase 2b에서 실제 적재 분기.")
@@ -313,7 +313,7 @@ class CreateTableBody(BaseModel):
 class UpdateTableBody(BaseModel):
     """PATCH /api/etl/tables/{id} 요청 body. 전달된 필드만 갱신."""
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분). 비우면 PK 미설정. 파일 적재 시 CREATE TABLE에 반영.")
-    sync_mode: Optional[str] = Field(None, description="full | incremental. DB 연동 ETL만 적용.")
+    sync_mode: Optional[str] = Field(None, description="full | incremental | diff. DB 연동 ETL만 적용.")
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명(소스 테이블). 증분 모드에서 이 컬럼 > last_synced_at 조건으로 조회.")
     storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB.")
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...].")
@@ -1192,6 +1192,26 @@ def run_table_load(etl_table_id: int):
                 "target_table": target_table,
                 "description": description,
             }
+
+        if source_type in ("postgresql", "mysql", "oracle"):
+            sync_mode = etl_service.get_sync_mode_for_load(etl_table_id)
+            if sync_mode == "diff":
+                if not (row.get("pk_columns") or "").strip():
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "message": "diff 모드는 pk_columns가 설정되어 있어야 합니다.",
+                            "suggested_action": "ETL 테이블 설정에서 pk_columns를 지정하세요.",
+                        },
+                    )
+                if not etl_service.target_table_exists(row.get("storage_connection_id"), target_table):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "message": "diff 모드는 타겟 테이블이 이미 존재해야 합니다. 먼저 full 모드로 최초 적재하세요.",
+                            "suggested_action": "sync_mode를 full로 설정하여 최초 적재를 실행한 뒤, sync_mode를 diff로 변경하세요.",
+                        },
+                    )
 
         job_id = etl_service.insert_job(etl_table_id, status="pending")
         from Backend.etl_server import queue_worker

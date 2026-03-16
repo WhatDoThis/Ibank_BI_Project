@@ -2212,6 +2212,9 @@
   color: #6b7280;
   line-height: 1.4;
 }
+.etl-settings-modal__field .etl-settings-modal__hint {
+  margin-top: 8px;
+}
 .etl-settings-modal__target strong {
   color: #111827;
 }

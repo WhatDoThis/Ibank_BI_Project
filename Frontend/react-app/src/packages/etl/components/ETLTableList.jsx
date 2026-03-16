@@ -266,7 +266,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                     : '미설정';
             const connectionText = isDbSource ? (t.connection_name || '—') : '—';
             const syncMode = (t.sync_mode || '').toLowerCase();
-            const syncText = !isDbSource ? '—' : syncMode === 'incremental' ? '증분' : '전체';
+            const syncText = !isDbSource ? '—' : syncMode === 'diff' ? 'PK 비교' : syncMode === 'incremental' ? '증분' : '전체';
             const onRowErrorVal = (t.on_row_error || 'fail').toLowerCase();
             const onRowErrorText = !isDbSource ? '—' : onRowErrorVal === 'skip' ? '제외 적재' : '전체 실패';
             return (
@@ -278,7 +278,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               <td className="etl-table-list__cell-connection" title={isDbSource && t.connection_name ? `연결: ${t.connection_name}` : undefined}>{connectionText}</td>
               <td>{t.source_table || t.file_path || '—'}</td>
               <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '1만 행(기본)'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
-              <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
+              <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'diff' ? 'PK 비교: 소스·타겟 PK만 비교해 신규/삭제만 반영. 설정 버튼에서 변경' : syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
               <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
               <td className="etl-table-list__cell-storage" title={t.storage_connection_name ? `저장 DB: ${t.storage_connection_name}` : '기본 DB (ibank_db)'}>{t.storage_connection_name ? t.storage_connection_name : '기본 DB'}</td>
               <td className={statusCellClass}>{statusText}</td>
