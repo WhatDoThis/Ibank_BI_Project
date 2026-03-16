@@ -710,6 +710,11 @@ export async function batchListSkippedFiles(batchJobId) {
   return request('GET', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files`);
 }
 
+/** GET /api/etl/batch/jobs/:id/skipped-files/history - 스킵/에러 파일 전체 이력 */
+export async function batchListSkippedFilesHistory(batchJobId, limit = 200) {
+  return request('GET', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files/history?limit=${encodeURIComponent(limit)}`);
+}
+
 /** POST /api/etl/batch/jobs/:id/skipped-files/delete - 원격 문제 파일 삭제 */
 export async function batchDeleteSkippedFiles(batchJobId, filenames) {
   return request('POST', `/api/etl/batch/jobs/${encodeURIComponent(batchJobId)}/skipped-files/delete`, { filenames });

@@ -17,7 +17,7 @@ Backend.etl_server.router_file (배치·폴더 연결 API 라우터)
 6. GET /folder-connections/{id}/files, patterns, columns
 7. GET /target-tables, GET /target-registry, DELETE /target-registry/{id}
 8. GET/POST /jobs, PATCH/DELETE /jobs/{id}, POST /jobs/{id}/run-now, toggle
-9. GET /jobs/{id}/history, history/{run_id}, skipped-files, POST skipped-files/delete, reset-ts, rollback-file, clone
+9. GET /jobs/{id}/history, history/{run_id}, skipped-files, skipped-files/history, POST skipped-files/delete, reset-ts, rollback-file, clone
 10. POST /jobs/validate-target, POST /jobs/{id}/history/{run_id}/cancel
 
 [Dependencies]
@@ -844,6 +844,26 @@ def cancel_batch_run(batch_job_id: int, run_id: int):
         raise
     except Exception as e:
         logger.exception("실행 취소 요청 실패")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{batch_job_id}/skipped-files/history")
+def list_skipped_files_history(batch_job_id: int, limit: int = Query(200, ge=1, le=500)):
+    """배치 Job의 스킵/에러 파일 전체 이력 (동일 파일명이 여러 run에 있어도 전부 반환)."""
+    try:
+        job = batch_service.get_batch_job(batch_job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
+        files = batch_service.list_skipped_files_history(batch_job_id, limit=limit)
+        return {
+            "batch_job_id": batch_job_id,
+            "skipped_files": files,
+            "total": len(files),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("스킵 파일 이력 조회 실패")
         raise HTTPException(status_code=500, detail=str(e))
 
 

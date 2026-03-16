@@ -387,7 +387,8 @@ def run_batch_job(batch_job_id: int) -> None:
             conn=sys_conn,
         )
         run_completed_ok = True  # run finished success/partial_error; do not overwrite to "error" if update_job_status below fails
-        batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
+        job_status = "success" if run_status == "success" else run_status
+        batch_service.update_job_status(batch_job_id, job_status, conn=sys_conn)
         try:
             from Backend.etl_server import scheduler_file as sched_mod
             sched_mod.refresh_interval_after_run(batch_job_id)

@@ -1554,6 +1554,44 @@
   margin: 12px 0;
 }
 
+/* 문제 파일 이력 등 공통 모달 (실행 이력창 레이아웃 포맷) */
+.etl-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.etl-modal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  padding: 0;
+  min-width: 400px;
+}
+.etl-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.etl-modal__close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #64748b;
+}
+.etl-modal__close:hover {
+  color: #334155;
+}
+.etl-modal__body {
+  padding: 16px 20px;
+}
+
 /* 미리보기 모달 */
 .etl-preview-modal__backdrop {
   position: fixed;

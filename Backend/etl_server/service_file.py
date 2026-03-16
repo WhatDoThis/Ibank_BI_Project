@@ -18,6 +18,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
 - list_run_history, get_run_detail
 - list_skipped_files: 배치 실행 이력에서 skipped/error 파일 목록 (동일 파일명 최신 1건)
+- list_skipped_files_history: 배치 실행 이력에서 skipped/error 파일 전부 (동일 파일명 여러 run 포함)
 - get_skipped_filenames_set: 이력 중 skipped/error 파일명 집합 (pending 제외용, 매 주기 재시도 방지)
 - delete_remote_files: 원격 폴더에서 지정 파일 삭제 (어댑터 delete_file)
 - rollback_file_from_target: batch_loaded_keys에서 PK 조회 → 타겟 테이블 DELETE → loaded_keys 삭제 (파일 단위 롤백)
@@ -1453,6 +1454,66 @@ def list_skipped_files(batch_job_id: int, conn: Any = None, limit: int = 50) -> 
                 seen_filenames.add(fname)
                 started_at = d.get("started_at")
                 run_started_at = started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at) if started_at else ""
+                result.append({
+                    "filename": fname,
+                    "timestamp": item.get("timestamp"),
+                    "status": st,
+                    "reason": (item.get("reason") or item.get("error") or "").strip(),
+                    "run_id": d.get("run_id"),
+                    "run_started_at": run_started_at,
+                })
+        return result
+    finally:
+        cur.close()
+        if should_close:
+            conn.close()
+
+
+def list_skipped_files_history(batch_job_id: int, conn: Any = None, limit: int = 200) -> List[dict]:
+    """
+    배치 Job의 실행 이력에서 status가 skipped/error인 파일 전부 반환 (동일 파일명 여러 run 포함).
+    반환: [{ filename, timestamp, status, reason, run_id, run_started_at }]
+    """
+    schema = _schema()
+    should_close = conn is None
+    if conn is None:
+        conn = _get_db().get_db_connection_system()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            SELECT r.run_id, r.started_at, r.file_list
+            FROM {_q(schema, "batch_run_history")} r
+            WHERE r.batch_job_id = %s
+              AND r.file_list IS NOT NULL
+            ORDER BY r.started_at DESC
+            LIMIT %s
+            """,
+            (batch_job_id, limit),
+        )
+        rows = cur.fetchall()
+        result: List[dict] = []
+        for row in rows:
+            d = dict(row) if hasattr(row, "keys") else {"run_id": row[0], "started_at": row[1], "file_list": row[2]}
+            file_list = d.get("file_list")
+            if isinstance(file_list, str):
+                try:
+                    file_list = json.loads(file_list)
+                except (TypeError, ValueError):
+                    continue
+            if not file_list:
+                continue
+            started_at = d.get("started_at")
+            run_started_at = started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at) if started_at else ""
+            for item in file_list:
+                if not isinstance(item, dict):
+                    continue
+                st = (item.get("status") or "").strip().lower()
+                if st not in ("skipped", "error"):
+                    continue
+                fname = (item.get("filename") or "").strip()
+                if not fname:
+                    continue
                 result.append({
                     "filename": fname,
                     "timestamp": item.get("timestamp"),

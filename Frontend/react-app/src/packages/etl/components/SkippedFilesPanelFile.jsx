@@ -1,12 +1,13 @@
 /**
  * SkippedFilesPanelFile.jsx (문제 파일 목록 패널)
  * ==============================================
- * 배치 Job의 스킵/에러 파일 목록 조회 및 원격 삭제.
+ * 배치 Job의 스킵/에러 파일 목록 조회 및 원격 삭제. 지난 이력 조회 모달 제공.
  * batch_run_history.file_list에서 status=skipped|error 항목만 집계, 동일 파일명 최신 1건.
  *
  * [Main Functions]
  * ===========
  * 1. batchListSkippedFiles로 목록 조회, 체크박스 선택 후 batchDeleteSkippedFiles로 원격 삭제
+ * 2. 지난 이력 조회: batchListSkippedFilesHistory로 전체 이력 모달 표시 (실행 이력창 레이아웃)
  *
  * [Props]
  * =====
@@ -15,14 +16,15 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListSkippedFiles, batchDeleteSkippedFiles)
- * - etl.css (etl-db-form__section, etl-db-form__table, etl-skipped-files-table: 파일명/타임스탬프/상태 폭 고정·사유 overflow+호버)
+ * - React, @/shared/api/client (batchListSkippedFiles, batchDeleteSkippedFiles, batchListSkippedFilesHistory)
+ * - etl.css (etl-db-form__section, etl-history__table, etl-modal-overlay 등)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import {
   batchListSkippedFiles,
-  batchDeleteSkippedFiles
+  batchDeleteSkippedFiles,
+  batchListSkippedFilesHistory,
 } from '@/shared/api/client';
 import '../etl.css';
 
@@ -33,6 +35,10 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState('');
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyFiles, setHistoryFiles] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!batchJobId) return;
@@ -87,6 +93,19 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
     }
   };
 
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await batchListSkippedFilesHistory(batchJobId);
+      setHistoryFiles(Array.isArray(res?.skipped_files) ? res.skipped_files : []);
+    } catch {
+      setHistoryFiles([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const reasonLabel = (f) => {
     const r = (f.reason || '').trim();
     if (r === 'file_size_exceeded') return '용량 초과';
@@ -102,6 +121,13 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h4 style={{ margin: 0 }}>문제 파일 목록</h4>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
+            onClick={openHistory}
+          >
+            지난 이력 조회
+          </button>
           <button
             type="button"
             className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
@@ -201,6 +227,53 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {historyOpen && (
+        <div className="etl-modal-overlay" onClick={() => setHistoryOpen(false)} role="dialog" aria-modal="true" aria-labelledby="etl-skipped-history-title">
+          <div className="etl-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 800, maxHeight: '80vh', overflow: 'auto' }}>
+            <div className="etl-modal__header">
+              <h3 id="etl-skipped-history-title" style={{ margin: 0 }}>문제 파일 이력</h3>
+              <button type="button" className="etl-modal__close" onClick={() => setHistoryOpen(false)} aria-label="닫기">×</button>
+            </div>
+            <div className="etl-modal__body">
+              {historyLoading ? (
+                <p className="etl-history__loading">조회 중…</p>
+              ) : historyFiles.length === 0 ? (
+                <p className="etl-history__empty">문제 파일 이력이 없습니다.</p>
+              ) : (
+                <div className="etl-history__table-wrap">
+                  <table className="etl-history__table">
+                    <thead>
+                      <tr>
+                        <th>파일명</th>
+                        <th>타임스탬프</th>
+                        <th>상태</th>
+                        <th>사유</th>
+                        <th>감지 시각</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyFiles.map((f, i) => (
+                        <tr key={`${f.filename}-${f.run_id ?? ''}-${i}`}>
+                          <td className="etl-history__cell--overflow" title={f.filename}>{f.filename}</td>
+                          <td>{f.timestamp || '—'}</td>
+                          <td>
+                            <span style={{ color: f.status === 'error' ? '#b91c1c' : '#e67e22', fontWeight: 600 }}>
+                              {f.status === 'error' ? '에러' : '스킵'}
+                            </span>
+                          </td>
+                          <td className="etl-history__cell--overflow" title={reasonLabel(f)}>{reasonLabel(f)}</td>
+                          <td>{f.run_started_at || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

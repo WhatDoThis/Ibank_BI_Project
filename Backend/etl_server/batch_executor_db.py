@@ -194,6 +194,18 @@ def run_db_batch_job(batch_job_id: int) -> None:
     if on_row_error not in ("fail", "skip"):
         on_row_error = "fail"
     last_synced_at = job.get("last_synced_at")
+    if isinstance(last_synced_at, str) and last_synced_at.strip():
+        try:
+            from datetime import datetime as _dt
+            _clean = last_synced_at.strip().split("+")[0].split("Z")[0]
+            for _fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+                try:
+                    last_synced_at = _dt.strptime(_clean, _fmt)
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
 
     if not connection_id or not source_table or not target_table:
         logger.warning("run_db_batch_job: job_id=%s missing connection_id/source_table/target_table", batch_job_id)
