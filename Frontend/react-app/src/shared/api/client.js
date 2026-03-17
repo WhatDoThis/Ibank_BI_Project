@@ -371,6 +371,11 @@ export async function etl2UpdateTable(etlTableId, body) {
   return request('PATCH', `/api/etl/tables/${encodeURIComponent(etlTableId)}`, body);
 }
 
+/** POST /api/etl/tables/:id/refresh-column-mapping — DB 소스 컬럼 기준으로 column_mapping 타입 다시 채움 */
+export async function etl2RefreshColumnMapping(etlTableId) {
+  return request('POST', `/api/etl/tables/${encodeURIComponent(etlTableId)}/refresh-column-mapping`);
+}
+
 /** DELETE /api/etl/tables/:id/row */
 export async function etl2DeleteTableRow(etlTableId) {
   return request('DELETE', `/api/etl/tables/${encodeURIComponent(etlTableId)}/row`);

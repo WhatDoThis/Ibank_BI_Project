@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { etl2UpdateTable, etl2GetSourceColumns, etl2ValidateIncrementalColumn } from '@/shared/api/client';
+import { etl2UpdateTable, etl2GetSourceColumns, etl2ValidateIncrementalColumn, etl2RefreshColumnMapping } from '@/shared/api/client';
 
 // 1.
 function isDateType(dataType) {
@@ -38,6 +38,8 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
 
   const isDbSource = table && ['postgresql', 'mysql', 'oracle'].includes((table.source_type || '').toLowerCase());
   const connectionId = table?.connection_id ? Number(table.connection_id) : null;
@@ -72,8 +74,24 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
     setBatchIntervalSeconds(table.batch_interval_seconds != null && table.batch_interval_seconds >= 0 ? String(table.batch_interval_seconds) : '');
     setOnRowError((table.on_row_error || 'fail').toLowerCase() === 'skip' ? 'skip' : 'fail');
     setSubmitError('');
+    setRefreshError('');
     if (isDbSource && connectionId && sourceTable) loadSourceColumns();
   }, [open, table, isDbSource, connectionId, sourceTable, loadSourceColumns]);
+
+  async function handleRefreshColumnMapping() {
+    if (!table?.etl_table_id) return;
+    setRefreshLoading(true);
+    setRefreshError('');
+    try {
+      await etl2RefreshColumnMapping(table.etl_table_id);
+      if (onSuccess) onSuccess();
+      onClose();
+    } catch (err) {
+      setRefreshError(err.message || '컬럼 타입 갱신 실패');
+    } finally {
+      setRefreshLoading(false);
+    }
+  }
 
   if (!open) return null;
   if (!isDbSource) {
@@ -145,6 +163,20 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
         {table.target_table && (
           <p className="etl-settings-modal__target">타겟 테이블: <strong>{table.target_table}</strong></p>
         )}
+        {table.column_mapping && Array.isArray(table.column_mapping) && table.column_mapping.length > 0 && (
+          <div className="etl-settings-modal__field etl-settings-modal__field--refresh">
+            <p className="etl-settings-modal__hint">컬럼 타입이 예전에 TEXT로 저장된 경우, 소스 DB 기준으로 다시 불러올 수 있습니다.</p>
+            <button
+              type="button"
+              className="etl-settings-modal__btn etl-settings-modal__btn--secondary"
+              onClick={handleRefreshColumnMapping}
+              disabled={refreshLoading}
+            >
+              {refreshLoading ? '갱신 중…' : '컬럼 타입 소스 기준으로 갱신'}
+            </button>
+            {refreshError && <p className="etl-settings-modal__error">{refreshError}</p>}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="etl-settings-modal__form">
           <div className="etl-settings-modal__field">
             <label className="etl-settings-modal__label">동기화 모드</label>
@@ -164,9 +196,14 @@ export default function EtlTableSettingsModal({ open, onClose, table, onSuccess 
               </p>
             )}
             {syncMode === 'diff' && (
-              <p className="etl-settings-modal__hint">
-                타겟 테이블이 이미 있어야 합니다. 아직 최초 적재를 하지 않았다면 먼저 <strong>전체(Full)</strong>로 실행한 뒤 diff로 변경하세요.
-              </p>
+              <>
+                <p className="etl-settings-modal__hint">
+                  타겟 테이블이 이미 있어야 합니다. 아직 최초 적재를 하지 않았다면 먼저 <strong>전체(Full)</strong>로 실행한 뒤 diff로 변경하세요.
+                </p>
+                <p className="etl-settings-modal__hint">
+                  PK에 날짜/시간 컬럼이 포함되고 소스·타겟 서버 시간대가 다르면 diff 비교가 정확하지 않을 수 있습니다. 이 경우 <strong>증분(Incremental)</strong> 모드를 사용하세요.
+                </p>
+              </>
             )}
           </div>
 

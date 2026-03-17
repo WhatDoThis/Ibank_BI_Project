@@ -2302,6 +2302,19 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+.etl-settings-modal__btn--secondary {
+  border-color: #d1d5db;
+  background: #fff;
+}
+.etl-settings-modal__btn--secondary:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.etl-settings-modal__field--refresh {
+  margin-bottom: 12px;
+}
+.etl-settings-modal__field--refresh .etl-settings-modal__hint {
+  margin-bottom: 8px;
+}
 
 /* Phase 3: 테이블선택 및 컬럼매핑 모달 */
 .etl-target-select-modal {

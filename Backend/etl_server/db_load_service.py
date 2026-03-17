@@ -476,7 +476,8 @@ def _fetch_source_pk_columns(conn, schema: str, table: str) -> List[str]:
         cur.close()
 
 
-_DIFF_PK_FETCH_BATCH = 10000
+# 소스/타겟 PK 풀스캔 시 배치 크기. 크면 왕복 횟수 감소(예: 375만 건 시 1만→375회, 5만→75회).
+_DIFF_PK_FETCH_BATCH = 50000
 
 
 def _normalize_pk_for_diff(val: Any) -> Any:
@@ -498,6 +499,8 @@ def _normalize_pk_for_diff(val: Any) -> Any:
     if isinstance(val, float) and not math.isnan(val) and not math.isinf(val) and val == int(val):
         return int(val)
     if isinstance(val, (datetime, date)) and hasattr(val, "isoformat"):
+        if isinstance(val, datetime):
+            return val.replace(microsecond=0).isoformat()
         return val.isoformat()
     return val
 
@@ -531,6 +534,8 @@ def _fetch_pk_values_from_source(
     """
     if not pk_columns:
         return set()
+    t0 = time.monotonic()
+    logger.info("diff: 소스 PK 조회 시작 table=%s pk_columns=%s", quoted_table, pk_columns)
     select_list = ", ".join(quote_fn(c) for c in pk_columns)
     sql = f"SELECT {select_list} FROM {quoted_table}"
     cur = conn.cursor()
@@ -538,13 +543,19 @@ def _fetch_pk_values_from_source(
         cur.execute(sql)
         out: Set[Any] = set()
         single = len(pk_columns) == 1
+        batch_count = 0
         while True:
             rows = cur.fetchmany(_DIFF_PK_FETCH_BATCH)
             if not rows:
                 break
+            batch_count += 1
             for row in rows:
                 k = _row_to_pk_key(row, pk_columns, single)
                 out.add(_normalize_pk_for_diff(k))
+            if batch_count % 10 == 0:
+                logger.info("diff: 소스 PK 조회 진행 중 count=%s 배치=%s", len(out), batch_count)
+        elapsed = time.monotonic() - t0
+        logger.info("diff: 소스 PK 조회 완료 count=%s 배치=%s elapsed=%.1fs", len(out), batch_count, elapsed)
         return out
     finally:
         cur.close()
@@ -558,21 +569,29 @@ def _fetch_pk_values_from_target(
     """
     if not pk_columns:
         return set()
-    pk_quoted = ", ".join(f'"{c}"' for c in pk_columns)
+    t0 = time.monotonic()
     full_name = f'"{schema}"."{table_name}"'
+    logger.info("diff: 타겟 PK 조회 시작 table=%s pk_columns=%s", full_name, pk_columns)
+    pk_quoted = ", ".join(f'"{c}"' for c in pk_columns)
     sql = f"SELECT {pk_quoted} FROM {full_name}"
     cur = conn.cursor()
     try:
         cur.execute(sql)
         out: Set[Any] = set()
         single = len(pk_columns) == 1
+        batch_count = 0
         while True:
             rows = cur.fetchmany(_DIFF_PK_FETCH_BATCH)
             if not rows:
                 break
+            batch_count += 1
             for row in rows:
                 k = _row_to_pk_key(row, pk_columns, single)
                 out.add(_normalize_pk_for_diff(k))
+            if batch_count % 10 == 0:
+                logger.info("diff: 타겟 PK 조회 진행 중 count=%s 배치=%s", len(out), batch_count)
+        elapsed = time.monotonic() - t0
+        logger.info("diff: 타겟 PK 조회 완료 count=%s 배치=%s elapsed=%.1fs", len(out), batch_count, elapsed)
         return out
     finally:
         cur.close()
@@ -962,13 +981,24 @@ def _run_diff_sync(
     sync_mode=diff: 소스·타겟 PK 집합 비교 후 신규 행만 INSERT, (선택) 삭제된 PK는 타겟에서 DELETE.
     반환: {"rows_inserted": int, "rows_deleted": int}. is_batch=True면 set_job_total_rows/update_job_progress/is_job_cancelled 생략.
     """
+    t_diff_start = time.monotonic()
+    logger.info(
+        "diff: _run_diff_sync 시작 etl_table_id=%s job_id=%s is_batch=%s pk_list=%s",
+        etl_table_id, job_id, is_batch, pk_list,
+    )
     target_pk_list = (
         [m["target"] for m in mapping_used if m["source"] in pk_list]
         if mapping_used
         else list(pk_list)
     )
     source_pks = _fetch_pk_values_from_source(src_conn, quoted_src, pk_list, quote_fn, stype)
+    t_after_source = time.monotonic()
     target_pks = _fetch_pk_values_from_target(conn_main, main_schema, target_table, target_pk_list)
+    t_after_target = time.monotonic()
+    logger.info(
+        "diff: PK 집합 계산 완료 source_pks=%s target_pks=%s (소스 %.1fs, 타겟 %.1fs)",
+        len(source_pks), len(target_pks), t_after_source - t_diff_start, t_after_target - t_after_source,
+    )
 
     if len(source_pks) > MAX_DIFF_PK_COUNT:
         raise ValueError(
@@ -985,6 +1015,10 @@ def _run_diff_sync(
         )
     diff_delete_orphans = bool(row.get("diff_delete_orphans", False))
     deleted_pks = (target_pks - source_pks) if diff_delete_orphans else set()
+    logger.info(
+        "diff: new_pks=%s deleted_pks=%s diff_delete_orphans=%s",
+        len(new_pks), len(deleted_pks), diff_delete_orphans,
+    )
 
     if not is_batch and job_id:
         etl_service.set_job_total_rows(job_id, len(new_pks))
@@ -1004,14 +1038,32 @@ def _run_diff_sync(
     total_inserted = 0
     cur_main = conn_main.cursor()
     try:
+        # 타겟 테이블에 실제 존재하는 컬럼만 사용 (설정은 CAMPAIGN_ID 등 있으나 타겟은 예전 스키마인 경우 대비)
+        target_columns = _get_target_column_list(cur_main, main_schema, target_table)
+        if target_columns:
+            cols_insert_orig = cols_insert
+            cols_insert = [c for c in cols_insert if c in target_columns]
+            dropped = set(cols_insert_orig) - set(cols_insert)
+            if dropped:
+                logger.warning("diff: 타겟에 없는 컬럼 제외 후 INSERT (제외: %s)", sorted(dropped))
+        if not cols_insert:
+            cur_main.close()
+            raise ValueError("타겟 테이블에 매핑된 컬럼이 하나도 없습니다. 타겟 스키마를 확인하세요.")
         new_pks_list = list(new_pks)
+        total_batches = (len(new_pks_list) + _DIFF_PK_SELECT_BATCH - 1) // _DIFF_PK_SELECT_BATCH
+        logger.info("diff: 신규 행 INSERT 시작 총 배치=%s (new_pks=%s)", total_batches, len(new_pks_list))
+        batch_index = 0
         for offset in range(0, len(new_pks_list), _DIFF_PK_SELECT_BATCH):
             if not is_batch and job_id and etl_service.is_job_cancelled(job_id):
                 conn_main.rollback()
+                logger.info("diff: 사용자 취소 total_inserted=%s", total_inserted)
                 return {"rows_inserted": total_inserted, "rows_deleted": 0}
             batch_pks = new_pks_list[offset : offset + _DIFF_PK_SELECT_BATCH]
             if not batch_pks:
                 continue
+            batch_index += 1
+            if batch_index <= 3 or batch_index % 50 == 0 or batch_index == total_batches:
+                logger.info("diff: INSERT 배치 진행 batch=%s/%s total_inserted=%s", batch_index, total_batches, total_inserted)
             if oracle_composite:
                 where_parts = []
                 params_list: List[Any] = []
@@ -1087,6 +1139,8 @@ def _run_diff_sync(
         rows_deleted = 0
         if deleted_pks:
             deleted_list = list(deleted_pks)
+            del_batches = (len(deleted_list) + _DIFF_PK_SELECT_BATCH - 1) // _DIFF_PK_SELECT_BATCH
+            logger.info("diff: 타겟 DELETE 시작 deleted_pks=%s 배치=%s", len(deleted_list), del_batches)
             pk_quoted = ", ".join(f'"{c}"' for c in target_pk_list)
             for d_offset in range(0, len(deleted_list), _DIFF_PK_SELECT_BATCH):
                 d_batch = deleted_list[d_offset : d_offset + _DIFF_PK_SELECT_BATCH]
@@ -1107,6 +1161,11 @@ def _run_diff_sync(
     finally:
         cur_main.close()
 
+    elapsed_total = time.monotonic() - t_diff_start
+    logger.info(
+        "diff: _run_diff_sync 완료 rows_inserted=%s rows_deleted=%s elapsed=%.1fs",
+        total_inserted, rows_deleted, elapsed_total,
+    )
     return {"rows_inserted": total_inserted, "rows_deleted": rows_deleted}
 
 

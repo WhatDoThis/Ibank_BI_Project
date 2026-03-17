@@ -14,7 +14,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 7. list_timezones, create_connection, list_connections, get_connection_for_etl, test_connection
 8. list_storage_connections, get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
-10. list_etl_tables, create_etl_table, get_etl_table, get_sync_mode_for_load(full|incremental|diff), delete_etl_table, delete_etl_table_row_only, update_last_synced_at, update_etl_table
+10. list_etl_tables, create_etl_table, get_etl_table, get_sync_mode_for_load(full|incremental|diff), delete_etl_table, delete_etl_table_row_only, update_last_synced_at, update_etl_table, refresh_etl_table_column_mapping
 11. insert_job, set_job_running, list_jobs, delete_job, get_job, fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status
 
 [Dependencies]
@@ -1155,6 +1155,7 @@ def create_etl_table(
     column_mapping: Optional[List[dict]] = None,
     on_row_error: Optional[str] = None,
     index_definitions: Optional[List[dict]] = None,
+    diff_delete_orphans: bool = False,
 ) -> int:
     """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id.
     - 동일 target_table은 다른 연결(DB)에서 같은 테이블로 추가 적재할 수 있으므로 중복 허용.
@@ -1253,8 +1254,8 @@ def create_etl_table(
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "etl_tables")}
-            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, on_row_error, index_definitions, status, created_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, 'draft', %s, NOW())
+            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, on_row_error, index_definitions, diff_delete_orphans, status, created_by, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, 'draft', %s, NOW())
             RETURNING etl_table_id
             """,
             (
@@ -1273,6 +1274,7 @@ def create_etl_table(
                 column_mapping_json,
                 on_row_error_val,
                 index_definitions_json,
+                bool(diff_delete_orphans),
                 created_by,
             ),
         )
@@ -1926,3 +1928,30 @@ def update_etl_table(
     finally:
         cur.close()
         conn.close()
+
+
+def refresh_etl_table_column_mapping(etl_table_id: int) -> None:
+    """DB 소스 ETL의 column_mapping을 소스 테이블 컬럼·타입 기준으로 다시 채워 저장. 예전에 TEXT로 잘못 저장된 타입 보정용."""
+    row = get_etl_table(etl_table_id)
+    if not row:
+        raise ValueError("ETL 테이블을 찾을 수 없습니다.")
+    connection_id = row.get("connection_id")
+    source_table = (row.get("source_table") or "").strip()
+    if not connection_id or not source_table:
+        raise ValueError("DB 소스 ETL만 컬럼 매핑 갱신이 가능합니다.")
+    source_type = (row.get("source_type") or "postgresql").strip().lower()
+    if source_type not in ("postgresql", "mysql", "oracle"):
+        raise ValueError("postgresql, mysql, oracle 소스만 지원합니다.")
+    from Backend.etl_server import db_load_service
+    columns = db_load_service.get_source_columns(connection_id, source_table)
+    if source_type == "mysql":
+        type_mapper = db_load_service._pg_type_from_mysql
+    elif source_type == "oracle":
+        type_mapper = db_load_service._pg_type_from_oracle
+    else:
+        type_mapper = db_load_service._pg_type_from_info_schema
+    column_mapping = [
+        {"source": c["column_name"], "target": c["column_name"], "type": type_mapper(c["data_type"])}
+        for c in columns
+    ]
+    update_etl_table(etl_table_id, column_mapping=column_mapping)

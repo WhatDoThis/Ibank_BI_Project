@@ -18,7 +18,7 @@ FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·
 [Endpoints]
 ===========
 7. GET / — 서비스 안내
-8. GET/POST/PATCH/DELETE /tables, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
+8. GET/POST/PATCH/DELETE /tables, POST /tables/{id}/refresh-column-mapping, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
 9. cleanup-expired-uploads, timezones, connections CRUD, connections test
 10. connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
 11. transform-rules CRUD, target-exists, target-tables, target-columns
@@ -308,6 +308,7 @@ class CreateTableBody(BaseModel):
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...]. 적재 시 컬럼 매핑 반영.")
     on_row_error: Optional[str] = Field("fail", description="행 적재 실패 시: fail=전체 실패, skip=실패 행 제외하고 적재·notice 기록.")
     index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns: [str], is_unique: bool}]")
+    diff_delete_orphans: Optional[bool] = Field(False, description="diff 모드 시 타겟에만 있는 행(DELETE) 제거 여부")
 
 
 class UpdateTableBody(BaseModel):
@@ -368,11 +369,24 @@ def create_table(body: CreateTableBody):
             column_mapping=body.column_mapping,
             on_row_error=body.on_row_error,
             index_definitions=body.index_definitions,
+            diff_delete_orphans=body.diff_delete_orphans is True,
         )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tables/{etl_table_id}/refresh-column-mapping", status_code=204)
+def refresh_table_column_mapping(etl_table_id: int):
+    """DB 소스 ETL의 column_mapping을 소스 테이블 컬럼·타입 기준으로 다시 채워 저장. 예전에 TEXT로 잘못 저장된 타입 보정용."""
+    try:
+        etl_service.refresh_etl_table_column_mapping(etl_table_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("POST /tables/%s/refresh-column-mapping failed: %s", etl_table_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1199,18 +1213,12 @@ def run_table_load(etl_table_id: int):
                 if not (row.get("pk_columns") or "").strip():
                     raise HTTPException(
                         status_code=400,
-                        detail={
-                            "message": "diff 모드는 pk_columns가 설정되어 있어야 합니다.",
-                            "suggested_action": "ETL 테이블 설정에서 pk_columns를 지정하세요.",
-                        },
+                        detail="diff 모드는 pk_columns가 설정되어 있어야 합니다. ETL 테이블 설정에서 pk_columns를 지정하세요.",
                     )
                 if not etl_service.target_table_exists(row.get("storage_connection_id"), target_table):
                     raise HTTPException(
                         status_code=400,
-                        detail={
-                            "message": "diff 모드는 타겟 테이블이 이미 존재해야 합니다. 먼저 full 모드로 최초 적재하세요.",
-                            "suggested_action": "sync_mode를 full로 설정하여 최초 적재를 실행한 뒤, sync_mode를 diff로 변경하세요.",
-                        },
+                        detail="diff 모드는 타겟 테이블이 이미 존재해야 합니다. sync_mode를 full로 설정하여 최초 적재를 실행한 뒤, sync_mode를 diff로 변경하세요.",
                     )
 
         job_id = etl_service.insert_job(etl_table_id, status="pending")
