@@ -464,7 +464,15 @@ function TargetTableSelectModal({
             datetimeCfg[src] = {
               operation: cfg.operation || 'timezone_convert',
               source_timezone: cfg.source_timezone || 'UTC',
-              target_timezone: cfg.target_timezone || 'Asia/Seoul'
+              target_timezone: cfg.target_timezone || 'Asia/Seoul',
+              input_format: cfg.input_format,
+              output_format: cfg.output_format,
+              part: cfg.part,
+              other_column: cfg.other_column,
+              unit: cfg.unit,
+              days: cfg.days,
+              months: cfg.months,
+              years: cfg.years
             };
           }
           if (cfg.on_error) onErrors[src] = cfg.on_error;
@@ -585,6 +593,18 @@ function TargetTableSelectModal({
         if (op === 'timezone_convert') {
           ruleConfig.source_timezone = (cfg.source_timezone || 'UTC').trim();
           ruleConfig.target_timezone = (cfg.target_timezone || 'Asia/Seoul').trim();
+        } else if (op === 'date_format') {
+          if (cfg.input_format != null) ruleConfig.input_format = String(cfg.input_format).trim() || undefined;
+          if (cfg.output_format != null) ruleConfig.output_format = String(cfg.output_format).trim() || undefined;
+        } else if (op === 'extract') {
+          if (cfg.part != null) ruleConfig.part = String(cfg.part).trim() || undefined;
+        } else if (op === 'date_diff') {
+          if (cfg.other_column != null) ruleConfig.other_column = String(cfg.other_column).trim() || undefined;
+          if (cfg.unit != null) ruleConfig.unit = String(cfg.unit).trim() || undefined;
+        } else if (op === 'date_add') {
+          if (cfg.days != null && cfg.days !== '') ruleConfig.days = parseInt(cfg.days, 10) || 0;
+          if (cfg.months != null && cfg.months !== '') ruleConfig.months = parseInt(cfg.months, 10) || 0;
+          if (cfg.years != null && cfg.years !== '') ruleConfig.years = parseInt(cfg.years, 10) || 0;
         }
         rules.push({ source_column: src.name, target_column: targetName, rule_type: 'datetime', rule_config: ruleConfig, apply_order: baseOrder });
       }

@@ -21,9 +21,14 @@ import { getStorageConnectionIdForFormData } from '../utils/storageDb.js';
 /** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ 방지 */
 const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal'));
 
+/** 서버 용량 한도와 동일하게 사용 (config 기본값 50MB). 초과 시 업로드 불가. */
+const MAX_FILE_SIZE_MB = 50;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 // 1.
 function FileUploadForm({ onSuccess }) {
   const [file, setFile] = useState(null);
+  const [rejectedFile, setRejectedFile] = useState(null);
   const [targetTable, setTargetTable] = useState('');
   const [labelName, setLabelName] = useState('');
   const [description, setDescription] = useState('');
@@ -65,6 +70,14 @@ function FileUploadForm({ onSuccess }) {
   }, []);
 
   function setFileFromInput(f) {
+    if (f && f.size > MAX_FILE_SIZE_BYTES) {
+      setRejectedFile({ name: f.name, size: f.size });
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      window.alert(`파일 용량이 한도(${MAX_FILE_SIZE_MB}MB)를 초과합니다. 다른 파일을 선택하세요.`);
+      return;
+    }
+    setRejectedFile(null);
     setFile(f);
     if (f && (f.name || '').trim()) {
       const base = (f.name || '').trim().replace(/\.[^/.]+$/, '') || f.name.trim();
@@ -143,7 +156,7 @@ function FileUploadForm({ onSuccess }) {
         <div className="etl-file-form__step-block">
           <span className="etl-file-form__step-num" aria-hidden="true">1</span>
           <div
-            className={`etl-file-form__drop-zone ${dragOver ? 'etl-file-form__drop-zone--over' : ''} ${file ? 'etl-file-form__drop-zone--has' : ''}`}
+            className={`etl-file-form__drop-zone ${rejectedFile ? 'etl-file-form__drop-zone--error' : ''} ${!rejectedFile && dragOver ? 'etl-file-form__drop-zone--over' : ''} ${file ? 'etl-file-form__drop-zone--has' : ''}`}
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
             onDrop={onDrop}
@@ -157,14 +170,19 @@ function FileUploadForm({ onSuccess }) {
               className="etl-file-form__input--hidden"
               aria-hidden
             />
-            {file && <span className="etl-file-form__drop-badge">선택된 파일</span>}
+            {rejectedFile && <span className="etl-file-form__drop-badge etl-file-form__drop-badge--error">용량 초과</span>}
+            {file && !rejectedFile && <span className="etl-file-form__drop-badge">선택된 파일</span>}
             <span className="etl-file-form__drop-text">
-              {file ? file.name : (dragOver ? '여기에 놓으세요' : '파일을 여기에 드래그하거나')}
+              {rejectedFile
+                ? `${rejectedFile.name} — 한도(${MAX_FILE_SIZE_MB}MB) 초과`
+                : file
+                  ? file.name
+                  : (dragOver ? '여기에 놓으세요' : '파일을 여기에 드래그하거나')}
             </span>
             <button type="button" className="etl-file-form__select-btn">
-              {file ? '다른 파일 선택' : '파일 선택'}
+              {rejectedFile ? '다른 파일 선택' : file ? '다른 파일 선택' : '파일 선택'}
             </button>
-            <p className="etl-file-form__accept">지원 형식: CSV, Excel(.xlsx/.xls), Parquet / 최대 50MB</p>
+            <p className="etl-file-form__accept">지원 형식: CSV, Excel(.xlsx/.xls), Parquet / 최대 {MAX_FILE_SIZE_MB}MB</p>
           </div>
         </div>
         <div className="etl-file-form__fields">

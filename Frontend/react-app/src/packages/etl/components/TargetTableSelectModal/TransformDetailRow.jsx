@@ -6,7 +6,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. TransformDetailRow: kind별 서브 UI (타입 변환 대상, 문자열 가공, 값 치환, 마스킹)
+ * 1. TransformDetailRow: kind별 서브 UI (타입 변환, 문자열, 값 치환, 마스킹, 날짜/시간 연산별 파라미터)
  *
  * [Dependencies]
  * =========
@@ -20,6 +20,10 @@ import {
   STRING_OPERATION_OPTIONS,
   MASKING_OPERATION_OPTIONS,
   DATETIME_OPERATION_OPTIONS,
+  DATETIME_DEFAULT_INPUT_FORMAT,
+  DATETIME_DEFAULT_OUTPUT_FORMAT,
+  DATETIME_EXTRACT_PART_OPTIONS,
+  DATETIME_DATE_DIFF_UNIT_OPTIONS,
   inferredTypeToPg
 } from './constants.js';
 import { CodeMapInlineEditor } from './CodeMapInlineEditor.jsx';
@@ -119,7 +123,7 @@ export function TransformDetailRow({
                   ...p,
                   [src.name]: { ...(p[src.name] || {}), target_type: e.target.value }
                 }))}
-                className="etl-target-select-modal__select--type-cast-target"
+                className="etl-target-select-modal__select--detail"
               />
             </div>
           )}
@@ -132,7 +136,7 @@ export function TransformDetailRow({
                   options={STRING_OPERATION_OPTIONS}
                   value={stringConfig[src.name]?.operation || 'uppercase'}
                   onChange={(e) => setStringConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), operation: e.target.value } }))}
-                  className="etl-target-select-modal__select--string-op"
+                  className="etl-target-select-modal__select--detail"
                 />
               </div>
 
@@ -251,7 +255,7 @@ export function TransformDetailRow({
                   options={MASKING_OPERATION_OPTIONS}
                   value={maskingConfig[src.name]?.operation || 'mask_right'}
                   onChange={(e) => setMaskingConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), operation: e.target.value } }))}
-                  className="etl-target-select-modal__select--masking-op"
+                  className="etl-target-select-modal__select--detail"
                 />
               </div>
               {(maskingConfig[src.name]?.operation === 'mask_right' || maskingConfig[src.name]?.operation === 'mask_left') && (
@@ -265,33 +269,26 @@ export function TransformDetailRow({
 
           {kind === 'datetime' && (
             <div className="etl-detail__card">
-              {((datetimeConfig[src.name]?.operation) || 'timezone_convert') === 'timezone_convert' && (() => {
-                const srcTzId = datetimeConfig[src.name]?.source_timezone || 'UTC';
-                const tgtTzId = datetimeConfig[src.name]?.target_timezone || 'Asia/Seoul';
-                const srcLabel = timezones.find((z) => z.timezone_id === srcTzId)?.display_name || srcTzId;
-                const tgtLabel = timezones.find((z) => z.timezone_id === tgtTzId)?.display_name || tgtTzId;
-                return <p className="etl-target-select-modal__transform-detail-summary">시간대 변환 ({srcLabel} → {tgtLabel})</p>;
-              })()}
               <div className="etl-target-select-modal__transform-detail-group">
                 <FieldLabel hint="날짜/시간에 적용할 연산">연산</FieldLabel>
                 <select
                   value={datetimeConfig[src.name]?.operation || 'timezone_convert'}
                   onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), operation: e.target.value } }))}
-                  className="etl-target-select-modal__select etl-target-select-modal__select--type-cast-target"
+                  className="etl-target-select-modal__select--detail"
                 >
                   {DATETIME_OPERATION_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
               </div>
-              {((datetimeConfig[src.name]?.operation) || 'timezone_convert') === 'timezone_convert' && (
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'timezone_convert' && (
                 <>
                   <div className="etl-target-select-modal__transform-detail-group">
                     <FieldLabel>원본 시간대 (소스 데이터 기준)</FieldLabel>
                     <select
                       value={datetimeConfig[src.name]?.source_timezone || 'UTC'}
                       onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), source_timezone: e.target.value } }))}
-                      className="etl-target-select-modal__select etl-target-select-modal__select--type-cast-target"
+                      className="etl-target-select-modal__select--detail"
                     >
                       {(timezones.length ? timezones : [{ timezone_id: 'UTC', display_name: 'UTC (협정 세계시)' }]).map((tz) => (
                         <option key={tz.timezone_id} value={tz.timezone_id}>{tz.display_name}</option>
@@ -303,13 +300,79 @@ export function TransformDetailRow({
                     <select
                       value={datetimeConfig[src.name]?.target_timezone || 'Asia/Seoul'}
                       onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), target_timezone: e.target.value } }))}
-                      className="etl-target-select-modal__select etl-target-select-modal__select--type-cast-target"
+                      className="etl-target-select-modal__select--detail"
                     >
                       {(timezones.length ? timezones : [{ timezone_id: 'Asia/Seoul', display_name: '한국 표준시 (UTC+09:00)' }]).map((tz) => (
                         <option key={tz.timezone_id} value={tz.timezone_id}>{tz.display_name}</option>
                       ))}
                     </select>
                   </div>
+                </>
+              )}
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'date_format' && (
+                <>
+                  <ParamInput
+                    label="입력 형식"
+                    hint="strftime 스타일 (예: %Y-%m-%d)"
+                    value={datetimeConfig[src.name]?.input_format ?? DATETIME_DEFAULT_INPUT_FORMAT}
+                    onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), input_format: e.target.value || DATETIME_DEFAULT_INPUT_FORMAT } }))}
+                    placeholder={DATETIME_DEFAULT_INPUT_FORMAT}
+                  />
+                  <ParamInput
+                    label="출력 형식"
+                    hint="strftime 스타일 (예: %Y/%m/%d)"
+                    value={datetimeConfig[src.name]?.output_format ?? DATETIME_DEFAULT_OUTPUT_FORMAT}
+                    onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), output_format: e.target.value || DATETIME_DEFAULT_OUTPUT_FORMAT } }))}
+                    placeholder={DATETIME_DEFAULT_OUTPUT_FORMAT}
+                  />
+                </>
+              )}
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'extract' && (
+                <div className="etl-target-select-modal__transform-detail-group">
+                  <FieldLabel hint="날짜에서 추출할 부분">추출 부분</FieldLabel>
+                  <HintSelect
+                    options={DATETIME_EXTRACT_PART_OPTIONS}
+                    value={datetimeConfig[src.name]?.part || 'year'}
+                    onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), part: e.target.value } }))}
+                    className="etl-target-select-modal__select--detail"
+                  />
+                </div>
+              )}
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'date_diff' && (
+                <>
+                  <div className="etl-target-select-modal__transform-detail-group">
+                    <FieldLabel hint="이 컬럼과의 날짜 차이를 계산할 다른 소스 컬럼">비교 컬럼</FieldLabel>
+                    <select
+                      value={datetimeConfig[src.name]?.other_column ?? ''}
+                      onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), other_column: e.target.value || undefined } }))}
+                      className="etl-target-select-modal__select--detail"
+                    >
+                      <option value="">선택</option>
+                      {(sourceColumns || []).filter((c) => (c.name ?? c.column_name) !== src.name).map((c) => {
+                        const name = c.name ?? c.column_name ?? '';
+                        return <option key={name} value={name}>{name}</option>;
+                      })}
+                    </select>
+                  </div>
+                  <div className="etl-target-select-modal__transform-detail-group">
+                    <FieldLabel hint="차이 단위">단위</FieldLabel>
+                    <HintSelect
+                      options={DATETIME_DATE_DIFF_UNIT_OPTIONS}
+                      value={datetimeConfig[src.name]?.unit || 'days'}
+                      onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), unit: e.target.value } }))}
+                      className="etl-target-select-modal__select--detail"
+                    />
+                  </div>
+                </>
+              )}
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'age' && (
+                <p className="etl-target-select-modal__transform-detail-summary">오늘 기준 만 나이(정수)로 변환합니다. 추가 설정 없음.</p>
+              )}
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'date_add' && (
+                <>
+                  <ParamInput label="일" hint="더할 일 수" type="number" min={0} value={datetimeConfig[src.name]?.days ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), days: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                  <ParamInput label="월" hint="더할 월 수" type="number" min={0} value={datetimeConfig[src.name]?.months ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), months: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                  <ParamInput label="년" hint="더할 년 수" type="number" min={0} value={datetimeConfig[src.name]?.years ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), years: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
                 </>
               )}
             </div>

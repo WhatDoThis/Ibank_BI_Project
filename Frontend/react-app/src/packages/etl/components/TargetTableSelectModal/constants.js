@@ -6,7 +6,7 @@
  * [Main Exports]
  * ===========
  * 1. DATETIME_TYPES, NEW_TABLE_VALUE
- * 2. TYPE_CAST_TARGET_OPTIONS, ON_ERROR_OPTIONS, TRANSFORM_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS
+ * 2. TYPE_CAST_TARGET_OPTIONS, ON_ERROR_OPTIONS, TRANSFORM_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS, DATETIME_EXTRACT_PART_OPTIONS, DATETIME_DATE_DIFF_UNIT_OPTIONS
  * 3. typeFamily, isTypeCompatible, inferredTypeToPg
  * 4. getOnErrorValue, normalizeSourceCol, parsePkColumns
  * 5. buildEmptyTransformSettings, TRANSFORM_OPTION_LABELS (모달↔부모 변환 스냅샷)
@@ -77,7 +77,7 @@ export const TRANSFORM_OPTIONS = [
   { value: 'masking', label: '마스킹', hint: '개인정보 비식별화 (비가역)' }
 ];
 
-/** datetime 카테고리 내 operation (timezone_convert만 UI 지원, 나머지는 API/rule_config로 사용 가능) */
+/** datetime 카테고리 내 operation. UI에서 모두 설정 가능. */
 export const DATETIME_OPERATION_OPTIONS = [
   { value: 'date_format', label: '날짜 포맷' },
   { value: 'extract', label: '부분 추출' },
@@ -85,6 +85,26 @@ export const DATETIME_OPERATION_OPTIONS = [
   { value: 'age', label: '나이 계산' },
   { value: 'date_add', label: '날짜 더하기' },
   { value: 'timezone_convert', label: '시간대 변환' }
+];
+
+/** 날짜 포맷 연산: 입력/출력 형식(strftime 스타일). 백엔드 기본값과 동일. */
+export const DATETIME_DEFAULT_INPUT_FORMAT = '%Y-%m-%d';
+export const DATETIME_DEFAULT_OUTPUT_FORMAT = '%Y/%m/%d';
+
+/** 부분 추출 연산: 추출할 부분. transform_engine part 값과 일치. */
+export const DATETIME_EXTRACT_PART_OPTIONS = [
+  { value: 'year', label: '연도' },
+  { value: 'month', label: '월' },
+  { value: 'day', label: '일' },
+  { value: 'hour', label: '시' },
+  { value: 'quarter', label: '분기' },
+  { value: 'weekday', label: '요일(0=월)' }
+];
+
+/** 날짜 차이 연산: 단위. transform_engine unit 값과 일치. */
+export const DATETIME_DATE_DIFF_UNIT_OPTIONS = [
+  { value: 'days', label: '일 수' },
+  { value: 'years', label: '년 수' }
 ];
 
 export const STRING_OPERATION_OPTIONS = [

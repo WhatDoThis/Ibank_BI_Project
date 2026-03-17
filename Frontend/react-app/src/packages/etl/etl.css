@@ -218,6 +218,22 @@
   border-color: #047857;
   background: #d1fae5;
 }
+/* 용량 초과 등 거부된 파일: 빨간 강조 */
+.etl-file-form__drop-zone--error {
+  border-width: 2px;
+  border-style: solid;
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+}
+.etl-file-form__drop-zone--error .etl-file-form__drop-text {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.etl-file-form__drop-badge--error {
+  color: #dc2626 !important;
+  background: rgba(220, 38, 38, 0.15) !important;
+}
 .etl-file-form__drop-badge {
   display: inline-block;
   padding: 4px 10px;
@@ -1820,6 +1836,30 @@
   border-color: #0d9488;
   background: #f0fdfa;
 }
+/* 용량 초과 등 거부된 파일: 빨간 강조 */
+.etl-add-file-modal__drop--error {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+.etl-add-file-modal__drop--error .etl-add-file-modal__drop-name {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.etl-add-file-modal__drop-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 6px;
+  margin-bottom: 2px;
+}
+.etl-add-file-modal__drop-badge--error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.15);
+}
 .etl-add-file-modal__input--hidden {
   position: absolute;
   width: 0;
@@ -2322,9 +2362,10 @@
   inset: 0;
   z-index: 1000;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 24px;
+  padding: 24px 24px 48px;
+  overflow-y: auto;
 }
 .etl-target-select-modal__backdrop {
   position: absolute;
@@ -2337,11 +2378,14 @@
   border-radius: 12px;
   max-width: 1200px;
   width: 100%;
-  max-height: 85vh;
+  min-height: 72vh;
+  max-height: calc(100vh - 48px);
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  margin-top: 0;
 }
 .etl-target-select-modal__header {
   display: flex;
@@ -2407,6 +2451,86 @@
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 0.95rem;
+}
+.etl-target-select-modal__select--table {
+  max-width: 320px;
+  display: block;
+}
+
+/* 테이블 선택 커스텀 드롭다운: 목록 높이 제한 */
+.etl-target-select-modal__table-dropdown {
+  position: relative;
+  max-width: 320px;
+}
+.etl-target-select-modal__table-dropdown .etl-target-select-modal__select--table {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  background-color: #fff;
+  color: #111827;
+}
+.etl-target-select-modal__table-dropdown .etl-target-select-modal__select--table:hover {
+  border-color: #9ca3af;
+}
+.etl-target-select-modal__table-dropdown .etl-target-select-modal__select--table:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.etl-target-select-modal__table-dropdown-arrow {
+  flex-shrink: 0;
+  margin-left: 8px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  pointer-events: none;
+}
+.etl-target-select-modal__table-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 100;
+}
+.etl-target-select-modal__table-dropdown-list li {
+  margin: 0;
+}
+.etl-target-select-modal__table-dropdown-list li button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  font-size: 0.95rem;
+  color: #374151;
+  text-align: left;
+  cursor: pointer;
+}
+.etl-target-select-modal__table-dropdown-list li button:hover {
+  background: #f3f4f6;
+}
+.etl-target-select-modal__table-dropdown-list li[aria-selected="true"] button {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 500;
 }
 .etl-target-select-modal__loading,
 .etl-target-select-modal__hint {
@@ -3172,18 +3296,21 @@
 .etl-target-select-modal__transform-detail-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
+  gap: 6px;
+  min-width: 140px;
+  max-width: 220px;
 }
 .etl-target-select-modal__transform-detail-group--wide {
   flex: 1 1 100%;
   min-width: 0;
+  max-width: none;
 }
 .etl-target-select-modal__transform-detail-label {
   font-size: 0.75rem;
   font-weight: 600;
   color: #475569;
   letter-spacing: 0.01em;
+  line-height: 1.3;
 }
 .etl-hint-icon {
   margin-left: 4px;
@@ -3195,17 +3322,28 @@
 .etl-detail__card {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 24px;
+  gap: 16px 20px;
   align-items: flex-start;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: #f8fafc;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .etl-detail__select-wrap {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.etl-target-select-modal__transform-detail-group .etl-detail__select-wrap {
+  max-width: 220px;
+}
+.etl-detail__select-wrap select {
+  flex: 1;
+  min-width: 0;
 }
 .etl-target-select-modal__concat-checkboxes {
   display: flex;
@@ -3246,13 +3384,16 @@
   font-size: 0.8125rem;
 }
 .etl-target-select-modal__input--detail {
-  padding: 5px 8px;
+  padding: 6px 10px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 0.8125rem;
+  line-height: 1.35;
+  color: #374151;
   width: 100%;
-  max-width: 160px;
+  max-width: 200px;
   background: #fff;
+  box-sizing: border-box;
 }
 .etl-target-select-modal__input--detail:focus {
   outline: none;
@@ -3260,20 +3401,53 @@
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .etl-target-select-modal__input--detail.etl-target-select-modal__input--tiny {
-  max-width: 60px;
+  max-width: 72px;
 }
-.etl-target-select-modal__select--type-cast-target {
-  min-width: 180px;
-  padding: 5px 8px;
+/* 변환 상세 영역 공통 셀렉트 스타일 — 타입 변환/문자열/마스킹/날짜·시간 통일 */
+.etl-target-select-modal__select--type-cast-target,
+.etl-target-select-modal__select--string-op,
+.etl-target-select-modal__select--masking-op,
+.etl-target-select-modal__select--detail {
+  min-width: 0;
+  width: 100%;
+  max-width: 220px;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  line-height: 1.35;
+}
+.etl-target-select-modal__select--type-cast-target:focus,
+.etl-target-select-modal__select--string-op:focus,
+.etl-target-select-modal__select--masking-op:focus,
+.etl-target-select-modal__select--detail:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.etl-target-select-modal__transform-detail-inner .etl-target-select-modal__transform-detail-group select:not([class*="concat"]) {
+  min-width: 0;
+  max-width: 220px;
+  padding: 6px 10px;
   font-size: 0.8125rem;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   background: #fff;
 }
-.etl-target-select-modal__select--type-cast-target:focus {
+.etl-target-select-modal__transform-detail-inner .etl-target-select-modal__transform-detail-group select:not([class*="concat"]):focus {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.etl-target-select-modal__transform-detail-summary {
+  margin: 0;
+  padding: 4px 0 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+  line-height: 1.4;
+  flex-basis: 100%;
 }
 .etl-target-select-modal__select--concat-cols {
   min-height: 60px;

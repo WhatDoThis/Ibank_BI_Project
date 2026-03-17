@@ -18,6 +18,10 @@ import { etl2AddFileToTable, etl2AddFilesZipToTable } from '@/shared/api/client'
 const ACCEPT_SINGLE = '.csv,.xlsx,.xls,.parquet';
 const ACCEPT_ZIP = '.zip';
 
+/** 단일 파일 용량 한도(MB). 서버 etl_limits.max_file_size_mb 기본값과 동일. */
+const MAX_FILE_SIZE_MB = 50;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 const REASON_LABELS = {
   file_too_large: '용량 초과',
   unsupported_format: '미지원 형식',
@@ -28,6 +32,7 @@ const REASON_LABELS = {
 function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess }) {
   const [mode, setMode] = useState('single'); // 'single' | 'zip'
   const [file, setFile] = useState(null);
+  const [rejectedFile, setRejectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
@@ -35,6 +40,16 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
   const fileInputRef = useRef(null);
 
   function setFileSafe(f) {
+    if (mode === 'single' && f && f.size > MAX_FILE_SIZE_BYTES) {
+      setRejectedFile({ name: f.name, size: f.size });
+      setFile(null);
+      setError('');
+      setZipResult(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      window.alert(`파일 용량이 한도(${MAX_FILE_SIZE_MB}MB)를 초과합니다. 다른 파일을 선택하세요.`);
+      return;
+    }
+    setRejectedFile(null);
     setFile(f);
     setError('');
     setZipResult(null);
@@ -46,7 +61,8 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
 
   function onModeChange(m) {
     setMode(m);
-    setFileSafe(null);
+    setFile(null);
+    setRejectedFile(null);
     setZipResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
@@ -195,7 +211,7 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
               </label>
             </div>
             <div
-              className={`etl-add-file-modal__drop ${dragOver ? 'etl-add-file-modal__drop--over' : ''} ${file ? 'etl-add-file-modal__drop--has' : ''}`}
+              className={`etl-add-file-modal__drop ${rejectedFile ? 'etl-add-file-modal__drop--error' : ''} ${!rejectedFile && dragOver ? 'etl-add-file-modal__drop--over' : ''} ${file ? 'etl-add-file-modal__drop--has' : ''}`}
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
               onDrop={onDrop}
@@ -209,7 +225,12 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
                 className="etl-add-file-modal__input--hidden"
                 aria-hidden
               />
-              {file ? (
+              {rejectedFile ? (
+                <>
+                  <span className="etl-add-file-modal__drop-badge etl-add-file-modal__drop-badge--error">용량 초과</span>
+                  <span className="etl-add-file-modal__drop-name">{rejectedFile.name} — 한도({MAX_FILE_SIZE_MB}MB) 초과</span>
+                </>
+              ) : file ? (
                 <span className="etl-add-file-modal__drop-name">{file.name}</span>
               ) : (
                 <>

@@ -377,6 +377,18 @@ function DbConnectionForm({ onSuccess }) {
         if (op === 'timezone_convert') {
           ruleConfig.source_timezone = (cfg.source_timezone || 'UTC').trim();
           ruleConfig.target_timezone = (cfg.target_timezone || 'Asia/Seoul').trim();
+        } else if (op === 'date_format') {
+          if (cfg.input_format != null) ruleConfig.input_format = String(cfg.input_format).trim() || undefined;
+          if (cfg.output_format != null) ruleConfig.output_format = String(cfg.output_format).trim() || undefined;
+        } else if (op === 'extract') {
+          if (cfg.part != null) ruleConfig.part = String(cfg.part).trim() || undefined;
+        } else if (op === 'date_diff') {
+          if (cfg.other_column != null) ruleConfig.other_column = String(cfg.other_column).trim() || undefined;
+          if (cfg.unit != null) ruleConfig.unit = String(cfg.unit).trim() || undefined;
+        } else if (op === 'date_add') {
+          if (cfg.days != null && cfg.days !== '') ruleConfig.days = parseInt(cfg.days, 10) || 0;
+          if (cfg.months != null && cfg.months !== '') ruleConfig.months = parseInt(cfg.months, 10) || 0;
+          if (cfg.years != null && cfg.years !== '') ruleConfig.years = parseInt(cfg.years, 10) || 0;
         }
         rules.push({ source_column: source, target_column: target, rule_type: 'datetime', rule_config: ruleConfig, apply_order: baseOrder });
       }
