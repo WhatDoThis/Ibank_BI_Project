@@ -246,9 +246,46 @@ Backend/
 | GET | /api/new-dashboard/trend | 단일 메트릭 추이 |
 | GET | /api/new-dashboard/trend-multi | 기간별 복수 메트릭(period: daily/weekly/monthly) |
 | GET | /api/new-dashboard/tables | 집계 가능 테이블 목록 |
-| GET | /api/new-dashboard/member-summary | 회원 현황 스냅샷(전환·등급·snapshot_date·prev_snapshot_date 등) |
+| GET | /api/new-dashboard/member-summary | 회원 현황(끝점 빼기·분포 등, **§4.7.1** 계산 공식) |
 | GET | /api/new-dashboard/delivery-demographics | 발송 기준 인구통계(성별·나이대 등) |
 | GET | /api/new-dashboard/hourly | 시간대별 집계(success·open·click 등) |
+
+#### 4.7.1 뉴 대시보드 `member-summary` 계산 공식 (회원 KPI·전환·분포)
+
+BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구현**: `Backend/new_dash_server/router.py` — `member_summary`.
+
+**핵심 원칙: 끝점 빼기(endpoint subtraction)**
+
+- 일별 `increased_count` / `decreased_count`를 **기간에 대해 SUM 하지 않는다.** 컬럼 정의가 이벤트 건수·전일 대비 등으로 달라질 수 있어 합산은 오해 소지가 있다.
+- `total_recipients`가 **일별 잔액(말일·말 시점 총원)** 이라는 전제에서, **기간 순증감**은 **`기간 말 총원 − 직전 동일 단위 기간 말 총원`** 한 번의 뺄셈으로 정한다.
+
+**스냅샷 row 선택 (일간 / 주간 / 월간 공통)**
+
+- `period`: `daily` | `weekly` | `monthly`, `target_date`(기준일)로 `date_range`·`prev_range`를 계산하고, 상한은 `_snapshot_end_clamped` / `_snapshot_prev_end_clamped`로 클램프한다.
+- 각 구간 `[시작일, 상한일]` 안에서 `base_date` 기준 **가장 늦은 날 1건**만 사용한다: `ORDER BY base_date DESC LIMIT 1`.
+- **진행 중인 주·월**: 이론적 주·월 말일이 아니라, **선택일·데이터 존재 범위**에 맞게 위 상한이 줄어든다.
+
+**지표별 정의**
+
+| 구분 | 내용 |
+|------|------|
+| **전체 회원수** | 표시값 = **base** 행의 `total_recipients`. 증감률 `total_recipients_change_pct` = `(base.total − compare.total) / compare.total × 100` (소수 둘째 자리). **compare** = 직전 기간에 대해 동일 규칙으로 고른 행의 `total_recipients`. |
+| **발송 대상 회원수** | 동일 구조로 `target_recipients` 및 `target_recipients_change_pct`. (워크플로 중복 제거 등 의미의 타겟 모수.) |
+| **전환(회원 순증감)** | `member_net_flow_count` = `base.total_recipients − compare.total_recipients`. `member_net_flow_pct` = **위 증감률과 동일 공식**(`_calc_change_pct(base.total, compare.total)`). 즉 **전체 회원수 KPI 배지의 증감률과 수치가 일치**한다. |
+| **분포**(성별·나이·등급·opt_in 등) | **base 행**의 해당 컬럼만 반환. **증감·비교 없음.** |
+| **참고** | `churn_rate` = `decreased_count / total_recipients`, `inflow_share_pct` = `increased_count / total_recipients` — 당일 **base 행** 기준(참고 지표). |
+
+**주간·월간**
+
+- **주간**: 주 범위는 월요일~일요일(`_calc_date_range`). 비교는 **직전 동일 주**의 끝점 행.
+- **월간**: 달력 월 초~말. 비교는 **직전 달** 끝점 행.
+
+**요약 식** (compare = 직전 기간 말 스냅샷 총원)
+
+```text
+순증감(명) = total_recipients(base) − total_recipients(compare)
+증감률(%) = (순증감(명) / total_recipients(compare)) × 100
+```
 
 ### 4.8 마케팅 대시보드 (prefix /api/new-dashboard2)
 
@@ -397,6 +434,7 @@ Backend/
 - (2026-03-13) **현재 구조 반영**: ETL 단일화(etl_server2 제거, etl_server만 유지·API /api/etl·/api/etl/batch). **new_dash_server**·**new_dash_server2** 추가(§2 트리·라우터 등록 순서). §4.6 ETL prefix /api/etl로 통일, §4.7 뉴 대시보드(/api/new-dashboard), §4.8 마케팅 대시보드(/api/new-dashboard2) API 표 추가. §5.1 라우터에 new_dashboard_router, new_dash2_router. §6.7 제목 "etl_server (단일 ETL)".
 - (2026-03-20) **로그 기준 현행화**: §4.7 member-summary·delivery-demographics·hourly, §3.2 etl_tables sync_mode diff·diff_delete_orphans, §6.5 diff 행, §6.1 db_load_service·batch_executor_db diff, §6.6 transform_engine 날짜/시간 연산, §2 new_dash_server 엔드포인트 목록.
 - (2026-03-20) **dash_db(뉴 대시보드 전용 DB)**: §1.1·§3.2.1·§4.7 데이터 소스·§5.2·§5.6. `ibank_1` 계열은 backend.dash_db에서 조회.
+- (2026-03-20) **§4.7.1 member-summary 계산 공식**: 끝점 빼기·일/주/월 스냅샷 선택·전환=총원 순증감·분포는 base만.
 
 ---
 

@@ -253,7 +253,7 @@ Frontend/react-app/
 
 ### 4.5.2 new-dashboard (뉴 대시보드)
 
-- **NewDashboardPage.jsx**: 발송 KPI·추이(trend, trend-multi)·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급·시간대 등 섹션. **API**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **getNewDashboardMemberSummary**, **getNewDashboardDeliveryDemographics**, **getNewDashboardHourly**. 스타일 `new-dashboard.css`. 라우트 `/new-dashboard`. Backend new_dash_server (/api/new-dashboard). 설계·검증: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
+- **NewDashboardPage.jsx**: 발송 KPI·추이(trend, trend-multi)·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급·시간대 등 섹션. **API**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **getNewDashboardMemberSummary**, **getNewDashboardDeliveryDemographics**, **getNewDashboardHourly**. 스타일 `new-dashboard.css`. 라우트 `/new-dashboard`. Backend new_dash_server (/api/new-dashboard). **member-summary 응답 필드 의미·증감 정의**는 **02_BACKEND_GUIDE.md §4.7.1** 참고. 설계·검증: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
 
 ### 4.5.3 new-dashboard2 (마케팅 대시보드)
 

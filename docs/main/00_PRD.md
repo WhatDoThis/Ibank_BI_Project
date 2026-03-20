@@ -163,7 +163,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 6.3.2 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **뉴 대시보드**: 발송 요약(summary)·추이(trend, trend-multi)·집계 테이블 목록(tables)에 더해 **회원 현황 스냅샷**(member-summary: 전환·등급·비교 스냅샷 일자 등)·**발송 기준 인구통계**(delivery-demographics)·**시간대별 집계**(hourly). UI는 KPI·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급 분포·추이 등 섹션 구성. API prefix /api/new-dashboard. Backend new_dash_server. **데이터는 config.backend.dash_db**에서 `ibank_1`·`ibank_1_0`~`ibank_1_4` 테이블로 조회(메인 DB와 분리). 상세 설계·검증 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**, **02_BACKEND_GUIDE.md §3.2.1**.
+- **뉴 대시보드**: 발송 요약(summary)·추이(trend, trend-multi)·집계 테이블 목록(tables)에 더해 **회원 현황**(member-summary: 전환·등급·비교 기준일 등)·**발송 기준 인구통계**(delivery-demographics)·**시간대별 집계**(hourly). UI는 KPI·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급 분포·추이 등 섹션 구성. API prefix /api/new-dashboard. Backend new_dash_server. **데이터는 config.backend.dash_db**에서 `ibank_1`·`ibank_1_0`~`ibank_1_4` 테이블로 조회(메인 DB와 분리). **회원 KPI·전환·분포의 계산 공식(끝점 빼기, 일/주/월)** 은 **02_BACKEND_GUIDE.md §4.7.1** 필수 참고. 상세 설계·검증: **docs/report/15_New_Dashboard_Upgrade_Plan.md**, **02_BACKEND_GUIDE.md §3.2.1**.
 - **마케팅 대시보드**: 종합현황(overview)·별(star)·프리퀀시(frequency)·쿠폰(coupon)·캠페인 세그먼트(campaign-segments)·매장(store)·추이(trend)·상품 마스터(product-master). API prefix /api/new-dashboard2. Backend new_dash_server2(Star DB 연동). 상세는 **01 §4.5.2·§4.5.3**, **02 §4.7·§4.8**.
 
 ### 6.4 공통
@@ -212,3 +212,4 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | (2026-03-04) | **ETL2 DB 배치 통합·status=done·적재 안정성**: §1.2·§6.3.1에 DB 탭 배치(배치설정 버튼·from-etl-table), status=done 시에만 배치설정 활성·last_synced_at 초기 세팅, 테이블 생성 직후 PK 시 upsert·pk_columns 미설정 시 소스 PK 자동 조회(_fetch_source_pk). 01 BatchScheduleModal·ETLTableList 배치설정 disabled/툴팁. 02 from-etl-table·status 검증·last_synced_at·_fetch_source_pk·load_dataframe. README ETL2·배치 흐름 반영. |
 | (2026-03-13) | **docs/main 현재 구조 반영**: ETL 단일화(ETL1 제거·ETL2→단일 ETL, /etl, Backend etl_server만). 뉴 대시보드 2종 반영: **뉴 대시보드**(/new-dashboard, new_dash_server), **마케팅 대시보드**(/new-dashboard2, new_dash_server2). §1.2·§2.1·§2.2·§4·§5.2 접속 경로·패키지·API에서 etl2 제거, new-dashboard·new-dashboard2 추가. §6.3·§6.3.1을 단일 ETL(저장 DB·배치·폴더)로 통합, §6.3.2 뉴 대시보드·마케팅 대시보드 요약 추가. README·01·02 동기화. |
 | (2026-03-20) | **docs/main·README 현행화**(docs/log·docs/report 로그 기준): ETL **sync_mode diff(PK 차이)**·변환 룰(날짜/시간 연산)·14번 설계서 참조. 뉴 대시보드 API·화면 확장(member-summary, delivery-demographics, hourly, 회원·퍼널·인구통계 UI), **15_New_Dashboard_Upgrade_Plan.md** 참조 링크. |
+| (2026-03-20) | **뉴 대시보드 회원 지표 계산 명세**: **02_BACKEND_GUIDE.md §4.7.1**에 `member-summary` 끝점 빼기·일/주/월·전환=총원 순증감 등 공식 추가. **00_PRD §6.3.2**·**01 §4.5.2**에서 §4.7.1 교차 참조. |

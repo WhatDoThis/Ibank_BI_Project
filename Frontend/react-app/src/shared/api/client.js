@@ -241,7 +241,7 @@ export async function getNewDashboardTrendMulti(tableId, { endDate = null, perio
  * - getNewDashboardHourly 단일 누락 시 런타임 ReferenceError.
  * - getNewDashboardDeliveryDemographics: UI 미호출이나 백엔드 /delivery-demographics 와 대칭·추후 드릴다운용으로 동일 블록에 둔다.
  */
-/** GET /api/new-dashboard/member-summary — 회원 현황 스냅샷*/
+/** GET /api/new-dashboard/member-summary — 회원 현황(member_net_flow = 기간 말 total 끝점 빼기, churn_rate 등) */
 export async function getNewDashboardMemberSummary(tableId, { targetDate = null, period = 'daily' } = {}) {
   const params = new URLSearchParams({ table_id: tableId, period })
   if (targetDate) params.set('target_date', targetDate)

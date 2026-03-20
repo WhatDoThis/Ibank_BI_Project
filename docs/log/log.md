@@ -1,6 +1,10 @@
 # Log
 
 ## Log Index
+32. 2026-03-20 docs/main 뉴 대시보드 member-summary 계산 공식(§4.7.1)
+31. 2026-03-20 뉴 대시보드 member-summary 전환 끝점 빼기(주·월 포함)
+30. 2026-03-20 뉴 대시보드 전환 카드 표시값·안내 문구 정리
+29. 2026-03-20 뉴 대시보드 전환 KPI 유입·이탈 순증감 정의로 수정
 28. 2026-03-20 docs/main·README dash_db 반영 (로그 #27 기준)
 27. 2026-03-20 뉴 대시보드 테이블 dash_db 연결 전면 적용 (ibank_1 계열)
 26. 2026-03-20 docs/main·README 현행화 (docs/log·docs/report 로그 기준)
@@ -31,6 +35,58 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+32. 2026-03-20 docs/main 뉴 대시보드 member-summary 계산 공식(§4.7.1)
+Purpose: 뉴 대시보드 회원 KPI·전환·분포의 계산 원칙을 docs/main에 명문화.
+
+Changes:
+- `02_BACKEND_GUIDE.md`: §4.7.1 `member-summary` 끝점 빼기·스냅샷 선택·지표·요약식 표.
+- `00_PRD.md` §6.3.2, `01_FRONTEND_GUIDE.md` §4.5.2: §4.7.1 교차 참조. PRD 변경 이력 한 줄.
+
+Changed files:
+- docs/main/02_BACKEND_GUIDE.md
+- docs/main/00_PRD.md
+- docs/main/01_FRONTEND_GUIDE.md
+- docs/log/log.md
+
+31. 2026-03-20 뉴 대시보드 member-summary 전환 끝점 빼기(주·월 포함)
+Purpose: 전환 순증감을 일별 inc/dec가 아니라 기간 말 total_recipients 직전 기간 대비 차이로 통일(SUM 없음).
+
+Changes:
+- `router.py`: `member_net_flow_count`/`member_net_flow_pct` = 끝점 빼기; `member_net_flow_delta` 계열 제거.
+- `MemberKPICards` 안내 문구, `client.js` 주석.
+
+Changed files:
+- Backend/new_dash_server/router.py
+- Frontend/react-app/src/packages/new-dashboard/components/MemberKPICards.jsx
+- Frontend/react-app/src/shared/api/client.js
+- docs/log/log.md
+
+30. 2026-03-20 뉴 대시보드 전환 카드 표시값·안내 문구 정리
+Purpose: 전환 카드가 ‘전일 순증감 차이’·pp 변화를 쓰며 전체 회원수 증감률과 숫자가 어긋나던 문제 수정; 안내는 스냅샷 용어 제거.
+
+Changes:
+- `MemberKPICards`: 전환 = `member_net_flow_count` + `member_net_flow_pct`(전체 대비 당일 순증감 비율).
+- 하단 안내: 「전체 회원수 대비 유입·이탈 순증감 비율」.
+- `client.js` member-summary 주석 간소화.
+
+Changed files:
+- Frontend/react-app/src/packages/new-dashboard/components/MemberKPICards.jsx
+- Frontend/react-app/src/shared/api/client.js
+- docs/log/log.md
+
+29. 2026-03-20 뉴 대시보드 전환 KPI 유입·이탈 순증감 정의로 수정
+Purpose: 전환 카드가 발송 타겟(target/total)이 아니라 increased_count·decreased_count 기반 순증감 및 전체 대비 비중(pp)을 표시하도록 정합.
+
+Changes:
+- `member-summary`: 제거 `conversion_rate`, `conversion_target_delta`, `conversion_rate_delta_pp`; 추가 `member_net_flow_*`, `inflow_share_pct`, `increased_change_pct`.
+- `MemberKPICards.jsx`, `client.js` 주석 반영.
+
+Changed files:
+- Backend/new_dash_server/router.py
+- Frontend/react-app/src/packages/new-dashboard/components/MemberKPICards.jsx
+- Frontend/react-app/src/shared/api/client.js
+- docs/log/log.md
 
 28. 2026-03-20 docs/main·README dash_db 반영 (로그 #27 기준)
 Purpose: 로그 #27(dash_db) 이후 PRD·백엔드 가이드·README에 뉴 대시보드 전용 DB 설명을 반영.

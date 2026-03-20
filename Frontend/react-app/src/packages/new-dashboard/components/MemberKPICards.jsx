@@ -1,15 +1,15 @@
 /**
  * MemberKPICards (회원 현황 KPI 카드 — 1행 3열)
  * ==============================================
- * 전체 회원수, 발송 대상, 전환(증감 건·퍼센트포인트)을 nd-kpi-card·nd-kpi-grid--3col로 표시.
- * 전환: 증감 톤별 녹/적 색, 하단 ‘증가 또는 감소된 회원 전환률’ 안내.
+ * 전체 회원수, 발송 대상, 전환(기간 말 총원 끝점 빼기 순증감 건·비율)을 nd-kpi-card·nd-kpi-grid--3col로 표시.
+ * 전환 카드: member_net_flow_* = 직전 기간 말 total 대비(일/주/월 동일), inc/dec 합산 없음.
  * API member-summary 응답 객체를 받는다.
  *
  * [Components]
  * ===========
  * 1. formatSignedInt — 증감 건 (+/- 및 천단위)
  * 2. formatSignedPct — 증감 %(소수 둘째)
- * 3. conversionTone — 타겟 증감 건·전환율 pp 부호로 up|down|neutral
+ * 3. memberFlowTone — 순증감 건·전체 대비 비율 부호로 up|down|neutral
  * 4. MemberKPICards (default export)
  *
  * [Dependencies]
@@ -34,9 +34,9 @@ function formatSignedPct(n) {
 }
 
 // 3.
-function conversionTone(targetDelta, rateDeltaPp) {
-  const t = targetDelta
-  const p = rateDeltaPp
+function memberFlowTone(netCount, netPct) {
+  const t = netCount
+  const p = netPct
   if (t != null && t !== 0) return t > 0 ? 'up' : 'down'
   if (p != null && p !== 0) return p > 0 ? 'up' : 'down'
   return 'neutral'
@@ -51,11 +51,11 @@ export default function MemberKPICards({ memberData }) {
     total_recipients_change_pct,
     target_recipients,
     target_recipients_change_pct,
-    conversion_target_delta,
-    conversion_rate_delta_pp,
+    member_net_flow_count,
+    member_net_flow_pct,
   } = memberData
 
-  const convTone = conversionTone(conversion_target_delta, conversion_rate_delta_pp)
+  const convTone = memberFlowTone(member_net_flow_count, member_net_flow_pct)
 
   const cards = [
     {
@@ -77,8 +77,8 @@ export default function MemberKPICards({ memberData }) {
       label: '전환',
       color: '#22c55e',
       variant: 'conversion',
-      countStr: formatSignedInt(conversion_target_delta),
-      pctStr: formatSignedPct(conversion_rate_delta_pp),
+      countStr: formatSignedInt(member_net_flow_count),
+      pctStr: formatSignedPct(member_net_flow_pct),
     },
   ]
 
@@ -110,7 +110,7 @@ export default function MemberKPICards({ memberData }) {
                 <span className="nd-kpi-card__conversion-part">{card.pctStr}</span>
               </div>
               <div className="nd-kpi-card__conversion-guide">
-                증가 또는 감소된 회원 전환률
+                직전 기간 말 총원 대비 순증감 (끝점 빼기)
               </div>
             </>
           ) : (

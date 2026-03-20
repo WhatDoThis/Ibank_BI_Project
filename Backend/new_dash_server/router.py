@@ -8,6 +8,7 @@ Backend.new_dash_server.router (뉴 대시보드 API 라우터)
 _calc_date_range, _calc_previous_range, _calc_change_pct: 기간·증감률
 _get_sub_table, _sub_table_date_col: 서브 테이블(_0~_4) 풀네임·날짜 컬럼명
 _snapshot_end_clamped, _snapshot_prev_end_clamped, _row_date_iso: member-summary 스냅샷 일자 정렬
+member-summary member_net_flow: 기간 말 total_recipients 끝점 빼기(일/주/월 공통, inc/dec 합산 없음)
 _trend_multi_range: period별 start_dt, date_expr, group_expr
 _build_trend_multi_query: trend-multi 단일 쿼리 생성 (by_channel 분기)
 
@@ -17,7 +18,7 @@ GET /api/new-dashboard/summary — 기간별 KPI·aggregated_data·증감률
 GET /api/new-dashboard/trend — 단일 메트릭 추이
 GET /api/new-dashboard/trend-multi — 일자별 복수 메트릭 (by_channel=True면 채널별 분리)
 GET /api/new-dashboard/tables — 집계 가능 테이블 목록
-GET /api/new-dashboard/member-summary — 회원 현황 스냅샷 (snapshot_date·prev_snapshot_date, conversion_*)
+GET /api/new-dashboard/member-summary — 회원 현황 스냅샷 (snapshot_date·prev_snapshot_date, member_net_flow_* 유입·이탈 순증감)
 GET /api/new-dashboard/delivery-demographics — 발송 기준 인구통계
 GET /api/new-dashboard/hourly — 시간대별 집계 (success|open|click)
 
@@ -240,19 +241,20 @@ def member_summary(
 
         prev_total = (prev_row.get("total_recipients") or 0) if prev_row else None
         prev_target = (prev_row.get("target_recipients") or 0) if prev_row else None
+        prev_increased = (prev_row.get("increased_count") or 0) if prev_row else None
         prev_decreased = (prev_row.get("decreased_count") or 0) if prev_row else None
 
-        conversion_rate = round((target / total) * 100, 2) if total > 0 else 0
+        # 이탈률: 탈퇴(감소) 건수 / 전체 회원 (타겟 모수와 무관)
         churn_rate = round((decreased / total) * 100, 2) if total > 0 else 0
-
-        # 전환 카드: 이전 기간 대비 타겟 모수 증감(건), 전환율 증감(퍼센트포인트)
-        conversion_target_delta = None
-        conversion_rate_delta_pp = None
-        if prev_row is not None:
-            pt = prev_target or 0
-            conversion_target_delta = int(target - pt)
-            prev_conv = round((pt / prev_total) * 100, 2) if prev_total and prev_total > 0 else 0.0
-            conversion_rate_delta_pp = round(conversion_rate - prev_conv, 2)
+        # 유입 비중(참고): 신규 건수 / 전체 — 발송 타겟과 무관
+        inflow_share_pct = round((increased / total) * 100, 2) if total > 0 else 0.0
+        # 회원 순증감(전환 카드): 끝점 빼기 — 기간 말 total − 직전 기간 말 total. 비율은 total_recipients_change_pct 와 동일 정의.
+        member_net_flow_count = None
+        member_net_flow_pct = None
+        if prev_row is not None and prev_total is not None:
+            pt = prev_total or 0
+            member_net_flow_count = int(total - pt)
+            member_net_flow_pct = _calc_change_pct(total, pt)
 
         result = {
             "date_range": date_range,
@@ -265,11 +267,12 @@ def member_summary(
             "target_recipients_change_pct": _calc_change_pct(target, prev_target),
             "increased_count": increased,
             "decreased_count": decreased,
+            "increased_change_pct": _calc_change_pct(increased, prev_increased),
             "decreased_change_pct": _calc_change_pct(decreased, prev_decreased),
-            "conversion_rate": conversion_rate,
+            "inflow_share_pct": inflow_share_pct,
             "churn_rate": churn_rate,
-            "conversion_target_delta": conversion_target_delta,
-            "conversion_rate_delta_pp": conversion_rate_delta_pp,
+            "member_net_flow_count": member_net_flow_count,
+            "member_net_flow_pct": member_net_flow_pct,
             "gender": {
                 "male": row.get("male_count") or 0,
                 "female": row.get("female_count") or 0,
