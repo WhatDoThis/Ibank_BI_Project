@@ -84,6 +84,7 @@ export const DATETIME_OPERATION_OPTIONS = [
   { value: 'date_diff', label: '날짜 차이' },
   { value: 'age', label: '나이 계산' },
   { value: 'date_add', label: '날짜 더하기' },
+  { value: 'date_subtract', label: '날짜 빼기' },
   { value: 'timezone_convert', label: '시간대 변환' }
 ];
 

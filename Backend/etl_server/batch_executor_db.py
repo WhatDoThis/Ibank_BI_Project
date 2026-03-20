@@ -364,6 +364,13 @@ def run_db_batch_job(batch_job_id: int) -> None:
             batch_job_id, select_sql, params if params else None,
         )
 
+        if stype == "mysql":
+            _type_mapper = db_load_service._pg_type_from_mysql
+        elif stype == "oracle":
+            _type_mapper = db_load_service._pg_type_from_oracle
+        else:
+            _type_mapper = db_load_service._pg_type_from_info_schema
+        source_type_by_name = {col["column_name"]: col["data_type"] for col in columns}
         mapping_used: List[dict] = []
         if isinstance(column_mapping, list) and column_mapping:
             col_set = set(col_names)
@@ -371,10 +378,15 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 src = (m.get("source") or "").strip()
                 tgt = (m.get("target") or "").strip()
                 if src in col_set and tgt:
+                    type_val = (m.get("type") or "").strip().upper()
+                    if not type_val and src in source_type_by_name:
+                        type_val = _type_mapper(source_type_by_name[src])
+                    if not type_val:
+                        type_val = "TEXT"
                     mapping_used.append({
                         "source": src,
                         "target": tgt,
-                        "type": (m.get("type") or "TEXT").strip().upper() or "TEXT",
+                        "type": type_val,
                         "on_error": (m.get("on_error") or "null").strip().lower() or "null",
                     })
 

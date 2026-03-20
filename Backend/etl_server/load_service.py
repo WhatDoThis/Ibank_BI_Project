@@ -171,9 +171,11 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     df.columns = normalized_names
     try:
         rules = transform_rules_svc.list_transform_rules(etl_table_id)
+        if rules:
+            logger.info("ETL file load etl_table_id=%s: %s개 변환 룰 적용", etl_table_id, len(rules))
         df = transform_engine.apply_rules(df, rules)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("ETL file load etl_table_id=%s: 변환 룰 적용 예외 (원본으로 계속): %s", etl_table_id, e)
 
     # Phase 4: column_mapping 있으면 타겟 컬럼/타입·INSERT 순서를 매핑 기준으로 사용 + 매핑 기반 형변환
     column_mapping = etl_row.get("column_mapping")
@@ -186,12 +188,19 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             if not target_name or not src:
                 continue
             etl_service._validate_identifier(target_name, "컬럼명")
+            type_val = (m.get("type") or "").strip().upper()
             mapping_used.append({
                 "source": src,
                 "target": target_name,
-                "type": (m.get("type") or "TEXT").strip().upper() or "TEXT",
+                "type": type_val if type_val else None,
                 "on_error": (m.get("on_error") or "null").strip().lower() or "null",
             })
+        for mu in mapping_used:
+            if not mu.get("type") and mu.get("source") and mu["source"] in df.columns:
+                inferred = schema_infer._dtype_to_inferred(df[mu["source"]].dtype)
+                mu["type"] = _pg_type(inferred)
+            elif not mu.get("type"):
+                mu["type"] = "TEXT"
         if mapping_used:
             try:
                 df = transform_engine.apply_mapping_type_cast(df, mapping_used, default_on_error="null")
@@ -405,9 +414,11 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
 
     try:
         rules = transform_rules_svc.list_transform_rules(etl_table_id)
+        if rules:
+            logger.info("ETL file upsert etl_table_id=%s: %s개 변환 룰 적용", etl_table_id, len(rules))
         df = transform_engine.apply_rules(df, rules)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("ETL file upsert etl_table_id=%s: 변환 룰 적용 예외 (원본으로 계속): %s", etl_table_id, e)
 
     file_cols = set(df.columns)
     for pk in pk_list:

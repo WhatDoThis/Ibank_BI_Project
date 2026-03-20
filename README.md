@@ -31,16 +31,16 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### ETL (/etl, 단일)
 
-- **파일·외부 DB → 우리 PostgreSQL 적재.** **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑, 설정 모달(동기화 모드·증분 컬럼·배치·행 실패 시 동작). 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. (2) **DB** PostgreSQL·MySQL·Oracle(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental 적재). **Oracle 연결은 Service Name만 지원**. 등록된 연결에 **호스트:포트/DB명** 표시.
+- **파일·외부 DB → 우리 PostgreSQL 적재.** **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑·**변환 룰**(타입·값매핑·날짜/시간 연산 등), 설정 모달(동기화 모드 **전체/증분/PK 차이(diff)**·증분 컬럼·배치·행 실패 시 동작). 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. (2) **DB** PostgreSQL·MySQL·Oracle(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental/**diff** 적재). **Oracle 연결은 Service Name만 지원**. 등록된 연결에 **호스트:포트/DB명** 표시. PK diff 상세: **docs/report/14_ETL_PK_DIFF.md**.
 - **동기화 모드**: 전체(삭제 후 적재) / 증분(last_synced_at 이후 Upsert). **폴더 배치**: SFTP/S3 연결·파일 패턴·주기·배치 Job 등록·이력. **DB 탭 배치**: ETL 테이블 실행(적재 완료) 후 **배치설정** 버튼으로 주기 배치 등록. **실행은 수동(실행 버튼)만**, 스케줄은 배치 설정으로 주기 실행.
 - **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가(각 파일 최대 50MB·ZIP 전체 최대 2GB)·건너뛴 파일 목록.
 - **ETL 사용 시** config에 backend.system_db, backend.etl_limits 선택. 상세는 **docs/main/00_PRD.md §6.3·§6.3.1**, **02_BACKEND_GUIDE.md §3·§6**.
 
 ### 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **뉴 대시보드**: 요약·추이·캠페인 순위 등 마케팅 요약. API /api/new-dashboard.
+- **뉴 대시보드**: 발송 요약·추이·회원 KPI·퍼널·채널 발송/동의·인구통계(성별·나이대·등급)·시간대 등. API /api/new-dashboard(summary, trend, trend-multi, tables, **member-summary**, **delivery-demographics**, **hourly** 등).
 - **마케팅 대시보드**: 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이·상품 마스터(Star DB). API /api/new-dashboard2.
-- 상세는 **docs/main/00_PRD.md §6.3.2**, **01_FRONTEND_GUIDE.md §4.5.2·§4.5.3**, **02_BACKEND_GUIDE.md §4.7·§4.8**.
+- 상세는 **docs/main/00_PRD.md §6.3.2**, **01_FRONTEND_GUIDE.md §4.5.2·§4.5.3**, **02_BACKEND_GUIDE.md §4.7·§4.8**, 업그레이드 설계 **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
 
 ### 공통
 
@@ -179,5 +179,5 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-13 (ETL 단일화·뉴 대시보드 2종·현재 구조 반영). |
+| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-20 (ETL diff·변환 룰·뉴 대시보드 API·UI 확장). |
 | **docs/report/** | 배포·실행 로그 등 |

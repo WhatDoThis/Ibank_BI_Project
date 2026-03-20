@@ -1,11 +1,13 @@
 """
 Backend.new_dash_server.router (뉴 대시보드 API 라우터)
 =======================================================
-일간/주간/월간 요약·증감률·trend·trend-multi·tables. dashboard_service·db 재활용.
+일간/주간/월간 요약·증감률·회원·인구통계·시간대·trend·trend-multi·tables. dashboard_service·db 재활용.
 
 [Helpers]
 =========
 _calc_date_range, _calc_previous_range, _calc_change_pct: 기간·증감률
+_get_sub_table, _sub_table_date_col: 서브 테이블(_0~_4) 풀네임·날짜 컬럼명
+_snapshot_end_clamped, _snapshot_prev_end_clamped, _row_date_iso: member-summary 스냅샷 일자 정렬
 _trend_multi_range: period별 start_dt, date_expr, group_expr
 _build_trend_multi_query: trend-multi 단일 쿼리 생성 (by_channel 분기)
 
@@ -15,6 +17,9 @@ GET /api/new-dashboard/summary — 기간별 KPI·aggregated_data·증감률
 GET /api/new-dashboard/trend — 단일 메트릭 추이
 GET /api/new-dashboard/trend-multi — 일자별 복수 메트릭 (by_channel=True면 채널별 분리)
 GET /api/new-dashboard/tables — 집계 가능 테이블 목록
+GET /api/new-dashboard/member-summary — 회원 현황 스냅샷 (snapshot_date·prev_snapshot_date, conversion_*)
+GET /api/new-dashboard/delivery-demographics — 발송 기준 인구통계
+GET /api/new-dashboard/hourly — 시간대별 집계 (success|open|click)
 
 [Dependencies]
 ==============
@@ -76,7 +81,390 @@ def _calc_change_pct(current, previous):
     return round((current - previous) / previous * 100, 2)
 
 
+# ── 서브 테이블 관련 상수 ──
+
+GRADE_COLS = ["a_grade_count", "b_grade_count", "c_grade_count", "d_grade_count", "e_grade_count"]
+GRADE_LABELS = ["A", "B", "C", "D", "E"]
+
+AGE_COLS = ["age_10s", "age_20s", "age_30s", "age_40s", "age_50s", "age_60s_plus"]
+AGE_LABELS = ["10대", "20대", "30대", "40대", "50대", "60대+"]
+
+GENDER_COLS = ["male_count", "female_count"]
+
+HOUR_SLOTS = [f"{h}_{h+1}" for h in range(24)]
+
+
 # 4.
+def _get_sub_table(table_id: str, suffix: str) -> str:
+    """table_id에 suffix를 붙여 서브 테이블 풀네임 반환.
+    suffix: '_0', '_1', '_2', '_3', '_4'
+    예: table_id='ibank_1', suffix='_0' → '"schema"."ibank_1_0"'
+    """
+    table_name = db.validate_table_name(table_id.strip() + suffix)
+    schema = db.get_table_schema()
+    return f'"{schema}"."{table_name}"'
+
+
+# 5.
+def _sub_table_date_col(suffix: str) -> str:
+    """서브 테이블별 날짜 컬럼명. _0만 base_date, 나머지는 delivery_date."""
+    return "base_date" if suffix == "_0" else "delivery_date"
+
+
+# 5a.
+def _clamp_date_to_range(d: date, start: date, end: date) -> date:
+    """날짜 d를 [start, end] 구간으로 제한."""
+    if d < start:
+        return start
+    if d > end:
+        return end
+    return d
+
+
+# 5b.
+def _snapshot_end_clamped(date_range: list, target_date: str) -> str:
+    """현재 기간 스냅샷 상한일: min(기간말, target_date). 주/월에서 헤더 선택일과 일치."""
+    td = datetime.strptime(target_date, "%Y-%m-%d").date()
+    start = datetime.strptime(date_range[0], "%Y-%m-%d").date()
+    end = datetime.strptime(date_range[1], "%Y-%m-%d").date()
+    return _clamp_date_to_range(td, start, end).isoformat()
+
+
+# 5c.
+def _same_day_prev_month(d: date) -> date:
+    """같은 일자의 전월(말일 보정)."""
+    y, m, day = d.year, d.month, d.day
+    if m == 1:
+        y -= 1
+        m = 12
+    else:
+        m -= 1
+    last_day = calendar.monthrange(y, m)[1]
+    day = min(day, last_day)
+    return date(y, m, day)
+
+
+# 5d.
+def _prev_snapshot_ref_date(target_date: str, period: str) -> date:
+    """이전 동일 기간에서 target_date에 대응하는 비교 기준일(일/주/월)."""
+    td = datetime.strptime(target_date, "%Y-%m-%d").date()
+    if period == "daily":
+        return td - timedelta(days=1)
+    if period == "weekly":
+        return td - timedelta(days=7)
+    return _same_day_prev_month(td)
+
+
+# 5e.
+def _snapshot_prev_end_clamped(prev_range: list, target_date: str, period: str) -> str:
+    """이전 기간 질의 상한: 비교 기준일을 prev_range에 클램프."""
+    ref = _prev_snapshot_ref_date(target_date, period)
+    ps = datetime.strptime(prev_range[0], "%Y-%m-%d").date()
+    pe = datetime.strptime(prev_range[1], "%Y-%m-%d").date()
+    return _clamp_date_to_range(ref, ps, pe).isoformat()
+
+
+# 5f.
+def _row_date_iso(row, col: str) -> Optional[str]:
+    """fetchone 행의 날짜 컬럼을 YYYY-MM-DD 문자열로."""
+    if not row:
+        return None
+    v = row.get(col)
+    if v is None:
+        return None
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    if hasattr(v, "isoformat"):
+        s = v.isoformat()
+        return s[:10] if len(s) >= 10 else s
+    return str(v)[:10]
+
+
+# 6.
+@router.get("/member-summary")
+def member_summary(
+    table_id: str = Query(..., description="테이블 ID (예: ibank_1)"),
+    target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
+    period: str = Query("daily", description="daily | weekly | monthly"),
+):
+    try:
+        if not target_date:
+            target_date = date.today().isoformat()
+        if period not in ("daily", "weekly", "monthly"):
+            period = "daily"
+
+        date_range = _calc_date_range(target_date, period)
+        prev_range = _calc_previous_range(date_range, period)
+        full_table = _get_sub_table(table_id, "_0")
+        date_col = _sub_table_date_col("_0")
+
+        # 스냅샷: 기간말만 보던 것을 target_date(및 이전기간 대응일)까지로 제한해 헤더 일자와 불일치 방지
+        curr_end = _snapshot_end_clamped(date_range, target_date)
+        prev_end = _snapshot_prev_end_clamped(prev_range, target_date, period)
+
+        query = f"""
+            SELECT * FROM {full_table}
+            WHERE {date_col} >= %s AND {date_col} <= %s
+            ORDER BY {date_col} DESC
+            LIMIT 1
+        """
+        query_prev = f"""
+            SELECT * FROM {full_table}
+            WHERE {date_col} >= %s AND {date_col} <= %s
+            ORDER BY {date_col} DESC
+            LIMIT 1
+        """
+
+        conn = db.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(query, (date_range[0], curr_end))
+            row = cur.fetchone()
+            cur.execute(query_prev, (prev_range[0], prev_end))
+            prev_row = cur.fetchone()
+        finally:
+            cur.close()
+            conn.close()
+
+        if not row:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"member-summary: {full_table}에서 {date_range} 기간 데이터 없음")
+            return JSONResponse(status_code=404, content={"error": "해당 기간 데이터 없음"})
+
+        total = row.get("total_recipients") or 0
+        target = row.get("target_recipients") or 0
+        increased = row.get("increased_count") or 0
+        decreased = row.get("decreased_count") or 0
+
+        prev_total = (prev_row.get("total_recipients") or 0) if prev_row else None
+        prev_target = (prev_row.get("target_recipients") or 0) if prev_row else None
+        prev_decreased = (prev_row.get("decreased_count") or 0) if prev_row else None
+
+        conversion_rate = round((target / total) * 100, 2) if total > 0 else 0
+        churn_rate = round((decreased / total) * 100, 2) if total > 0 else 0
+
+        # 전환 카드: 이전 기간 대비 타겟 모수 증감(건), 전환율 증감(퍼센트포인트)
+        conversion_target_delta = None
+        conversion_rate_delta_pp = None
+        if prev_row is not None:
+            pt = prev_target or 0
+            conversion_target_delta = int(target - pt)
+            prev_conv = round((pt / prev_total) * 100, 2) if prev_total and prev_total > 0 else 0.0
+            conversion_rate_delta_pp = round(conversion_rate - prev_conv, 2)
+
+        result = {
+            "date_range": date_range,
+            "period": period,
+            "snapshot_date": _row_date_iso(row, date_col),
+            "prev_snapshot_date": _row_date_iso(prev_row, date_col),
+            "total_recipients": total,
+            "total_recipients_change_pct": _calc_change_pct(total, prev_total),
+            "target_recipients": target,
+            "target_recipients_change_pct": _calc_change_pct(target, prev_target),
+            "increased_count": increased,
+            "decreased_count": decreased,
+            "decreased_change_pct": _calc_change_pct(decreased, prev_decreased),
+            "conversion_rate": conversion_rate,
+            "churn_rate": churn_rate,
+            "conversion_target_delta": conversion_target_delta,
+            "conversion_rate_delta_pp": conversion_rate_delta_pp,
+            "gender": {
+                "male": row.get("male_count") or 0,
+                "female": row.get("female_count") or 0,
+            },
+            "age": [
+                {"group": AGE_LABELS[i], "count": row.get(AGE_COLS[i]) or 0}
+                for i in range(len(AGE_COLS))
+            ],
+            "grade": [
+                {"grade": GRADE_LABELS[i], "count": row.get(GRADE_COLS[i]) or 0}
+                for i in range(len(GRADE_COLS))
+            ],
+            "opt_in": {
+                "email": row.get("email_opt_in_count") or 0,
+                "sms": row.get("sms_opt_in_count") or 0,
+                "kakao": row.get("kakao_opt_in_count") or 0,
+                "push": row.get("push_opt_in_count") or 0,
+            },
+        }
+        return result
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# 7.
+@router.get("/delivery-demographics")
+def delivery_demographics(
+    table_id: str = Query(..., description="테이블 ID"),
+    target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
+    period: str = Query("daily", description="daily | weekly | monthly"),
+    by_channel: bool = Query(False, description="True면 채널별 분리"),
+):
+    try:
+        if not target_date:
+            target_date = date.today().isoformat()
+        if period not in ("daily", "weekly", "monthly"):
+            period = "daily"
+
+        date_range = _calc_date_range(target_date, period)
+        full_table = _get_sub_table(table_id, "_1")
+        date_col = _sub_table_date_col("_1")
+
+        grade_sums = ", ".join(f"COALESCE(SUM({c}), 0)::bigint AS {c}" for c in GRADE_COLS)
+        age_sums = ", ".join(f"COALESCE(SUM({c}), 0)::bigint AS {c}" for c in AGE_COLS)
+        gender_sums = ", ".join(f"COALESCE(SUM({c}), 0)::bigint AS {c}" for c in GENDER_COLS)
+
+        channel_select = ", delivery_channel" if by_channel else ""
+        channel_group = " GROUP BY delivery_channel" if by_channel else ""
+
+        query = f"""
+            SELECT {grade_sums}, {age_sums}, {gender_sums}{channel_select}
+            FROM {full_table}
+            WHERE {date_col} >= %s AND {date_col} <= %s
+            {channel_group}
+        """
+
+        conn = db.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(query, (date_range[0], date_range[1]))
+            raw_rows = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
+
+        def build_item(r, channel_info=None):
+            item = {
+                "grade": [
+                    {"grade": GRADE_LABELS[i], "count": r.get(GRADE_COLS[i]) or 0}
+                    for i in range(len(GRADE_COLS))
+                ],
+                "gender": {
+                    "male": r.get("male_count") or 0,
+                    "female": r.get("female_count") or 0,
+                },
+                "age": [
+                    {"group": AGE_LABELS[i], "count": r.get(AGE_COLS[i]) or 0}
+                    for i in range(len(AGE_COLS))
+                ],
+            }
+            if channel_info is not None:
+                item["channel_code"] = channel_info
+                item["channel"] = CHANNEL_MAPPING.get(channel_info, f"Unknown({channel_info})")
+            return item
+
+        if by_channel:
+            data = [build_item(r, r.get("delivery_channel")) for r in raw_rows]
+        else:
+            data = build_item(raw_rows[0]) if raw_rows else {
+                "grade": [], "gender": {"male": 0, "female": 0}, "age": []
+            }
+
+        return {
+            "data": data,
+            "by_channel": by_channel,
+            "date_range": date_range,
+            "period": period,
+        }
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+_HOURLY_PREFIX_MAP = {
+    "success": ("_2", "success_at"),
+    "open": ("_3", "open_at"),
+    "click": ("_4", "click_at"),
+}
+
+
+# 8.
+@router.get("/hourly")
+def hourly(
+    table_id: str = Query(..., description="테이블 ID"),
+    target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
+    period: str = Query("daily", description="daily | weekly | monthly"),
+    metric: str = Query("success", description="success | open | click"),
+    by_channel: bool = Query(False, description="True면 채널별 분리"),
+):
+    try:
+        if not target_date:
+            target_date = date.today().isoformat()
+        if period not in ("daily", "weekly", "monthly"):
+            period = "daily"
+        if metric not in _HOURLY_PREFIX_MAP:
+            return JSONResponse(status_code=400, content={"error": "metric은 success|open|click 중 하나"})
+
+        suffix, prefix = _HOURLY_PREFIX_MAP[metric]
+        date_range = _calc_date_range(target_date, period)
+        full_table = _get_sub_table(table_id, suffix)
+        date_col = _sub_table_date_col(suffix)
+
+        hour_sums = ", ".join(
+            f'COALESCE(SUM({prefix}_{slot}), 0)::bigint AS "{prefix}_{slot}"'
+            for slot in HOUR_SLOTS
+        )
+        channel_select = ", delivery_channel" if by_channel else ""
+        channel_group = " GROUP BY delivery_channel" if by_channel else ""
+
+        query = f"""
+            SELECT {hour_sums}{channel_select}
+            FROM {full_table}
+            WHERE {date_col} >= %s AND {date_col} <= %s
+            {channel_group}
+        """
+
+        conn = db.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(query, (date_range[0], date_range[1]))
+            raw_rows = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
+
+        def row_to_hours(r):
+            return [
+                {"hour": f"{h}-{h+1}", "count": r.get(f"{prefix}_{h}_{h+1}") or 0}
+                for h in range(24)
+            ]
+
+        if by_channel:
+            results = []
+            for r in raw_rows:
+                ch_code = r.get("delivery_channel")
+                results.append({
+                    "channel_code": ch_code,
+                    "channel": CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})"),
+                    "hours": row_to_hours(r),
+                })
+            data = results
+        else:
+            data = row_to_hours(raw_rows[0]) if raw_rows else []
+            # 데이터 없을 때 로깅 (디버깅용)
+            if not raw_rows:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"hourly {metric}: {full_table}에서 {date_range} 기간 데이터 없음")
+
+        return {
+            "metric": metric,
+            "data": data,
+            "by_channel": by_channel,
+            "date_range": date_range,
+            "period": period,
+        }
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# 9.
 @router.get("/summary")
 def summary(
     table_id: str = Query(..., description="테이블 ID"),
@@ -122,7 +510,7 @@ def summary(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-# 5.
+# 10.
 @router.get("/trend")
 def trend(
     table_id: str = Query(..., description="테이블 ID"),
@@ -153,19 +541,19 @@ def trend(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-# 6.
+# 11.
 def _week_start(dt):
     """해당 일이 속한 주의 월요일."""
     return dt - timedelta(days=dt.weekday())
 
 
-# 7.
+# 12.
 def _month_start(dt):
     """해당 일이 속한 월의 1일."""
     return dt.replace(day=1)
 
 
-# 8.
+# 13.
 def _trend_multi_range(end_dt, period, days, count):
     """period별 시작일·date 표현식·group 표현식 반환. (start_dt, date_expr, group_expr)."""
     if period == "monthly":
@@ -186,7 +574,7 @@ def _trend_multi_range(end_dt, period, days, count):
     return start_dt, date_expr, group_expr
 
 
-# 9.
+# 14.
 def _build_trend_multi_query(full_table, date_expr, group_expr, by_channel):
     """trend-multi 쿼리 생성. by_channel 여부만 SELECT/GROUP BY/ORDER BY에 반영."""
     channel_select = ", delivery_channel" if by_channel else ""
@@ -205,7 +593,7 @@ def _build_trend_multi_query(full_table, date_expr, group_expr, by_channel):
     """
 
 
-# 10.
+# 15.
 @router.get("/trend-multi")
 def trend_multi(
     table_id: str = Query(..., description="테이블 ID"),
@@ -260,7 +648,7 @@ def trend_multi(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-# 11.
+# 16.
 @router.get("/tables")
 def new_dashboard_tables():
     """집계 가능 테이블 목록."""

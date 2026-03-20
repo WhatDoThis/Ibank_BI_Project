@@ -57,7 +57,7 @@ Backend/
 │   ├── load_service_file.py       # 폴더 배치 적재·_batch_upsert(삽입/갱신 구분)
 │   ├── db_load_service.py         # DB 적재·COPY FROM STDIN·on_row_error
 │   ├── batch_executor_file.py     # run_batch_job·load_dataframe·update_run_progress
-│   ├── batch_executor_db.py       # run_db_batch_job·_fetch_source_pk
+│   ├── batch_executor_db.py       # run_db_batch_job·diff·_fetch_source_pk
 │   ├── folder_adapter_file.py     # SFTP/S3·download_file_head
 │   ├── csv_reader.py              # read_csv_robust
 │   ├── parser_file.py             # get_pending_files
@@ -71,7 +71,7 @@ Backend/
 │   └── transform_upsert_verification.py
 │
 ├── new_dash_server/               # 뉴 대시보드 API (/api/new-dashboard)
-│   └── router.py                  # summary, trend, trend-multi, tables
+│   └── router.py                  # summary, trend, trend-multi, tables, member-summary, delivery-demographics, hourly
 │
 └── new_dash_server2/              # 마케팅 대시보드 API (/api/new-dashboard2, Star DB)
     ├── router.py                  # overview, star, frequency, coupon, campaign-segments, store, trend, product-master
@@ -102,7 +102,7 @@ Backend/
 |--------|------|
 | **etl_connections** | 소스 연결 정보(연결명, source_type, host, port, database_name, schema_name, username, encrypted_password). |
 | **etl_storage_connections** | 저장 DB(적재 대상 PostgreSQL) 등록. connection_name, host, port, database_name, schema_name, username, encrypted_password, is_active. ETL2에서 사용. |
-| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error**, **index_definitions** JSONB 등). on_row_error: 'fail'\|'skip'. index_definitions: 타겟 테이블 인덱스 정의(적재 후 자동 생성). |
+| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode(full\|incremental\|**diff**), status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error**, **index_definitions** JSONB, **diff_delete_orphans** 등). on_row_error: 'fail'\|'skip'. index_definitions: 타겟 테이블 인덱스 정의(적재 후 자동 생성). |
 | **etl_transform_rules** | 변환 룰(etl_table_id, source_column, target_column, rule_type, rule_config, apply_order, is_active). |
 | **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message, notice). |
 
@@ -238,6 +238,9 @@ Backend/
 | GET | /api/new-dashboard/trend | 단일 메트릭 추이 |
 | GET | /api/new-dashboard/trend-multi | 기간별 복수 메트릭(period: daily/weekly/monthly) |
 | GET | /api/new-dashboard/tables | 집계 가능 테이블 목록 |
+| GET | /api/new-dashboard/member-summary | 회원 현황 스냅샷(전환·등급·snapshot_date·prev_snapshot_date 등) |
+| GET | /api/new-dashboard/delivery-demographics | 발송 기준 인구통계(성별·나이대 등) |
+| GET | /api/new-dashboard/hourly | 시간대별 집계(success·open·click 등) |
 
 ### 4.8 마케팅 대시보드 (prefix /api/new-dashboard2)
 
@@ -300,7 +303,7 @@ Backend/
 - **router.py**: /api/etl API 진입. service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service 호출.
 - **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능). (동일 target_table 허용·삭제 시 DROP 생략은 **etl_server2**에서 적용.)
 - **load_service.py**: 파일 적재 — get_etl_table → 파싱(CSV/Excel/Parquet) → 변환 룰 → 메인 DB DROP/CREATE/INSERT. 업로드 파일은 **3일** 초과 시 자동 삭제.
-- **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full(DROP+CREATE+INSERT) / Incremental(last_synced_at 이후 Upsert). PostgreSQL·MySQL·**Oracle** 모두 지원. (etl_server2는 COPY FROM STDIN·임시 테이블 Upsert·on_row_error 적용.)
+- **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full / Incremental / **diff**(`_run_diff_sync`: PK 집합 비교·배치 INSERT·선택 orphan DELETE). PostgreSQL·MySQL·**Oracle** 모두 지원. COPY FROM STDIN·on_row_error·인덱스 생성 등 단일 etl_server 경로.
 - **preview_service.py**: 파일·DB 소스 미리보기(10행).
 - **queue_worker.py**: pending Job 선점 → running, 동시 2건 제한, load_service/db_load_service 호출 후 completed/failed 갱신.
 
@@ -334,6 +337,7 @@ Backend/
 | **파일** | - | DROP → CREATE → 전체 INSERT. **전체 교체.** |
 | **DB** | **full** | DROP → CREATE → 전체 INSERT. **전체 교체.** |
 | **DB** | **incremental** | 테이블 유지. last_synced_at 이후만 조회 후 **Upsert.** |
+| **DB** | **diff** | 테이블 유지. 소스/타겟 PK 집합 비교 후 신규 행 INSERT·선택 시 타겟만 DELETE orphan. last_synced_at 갱신 없음. 최초 적재는 full 후 전환. 상세 **docs/report/14_ETL_PK_DIFF.md**. |
 
 ### 6.6 모듈 의존
 
@@ -341,10 +345,10 @@ Backend/
 |------|------|------|
 | 1 | router.py | /api/etl 진입, service·load_service·db_load_service·preview_service·schema_infer·transform_rules 호출 |
 | 2 | load_service.py | 파일 적재 |
-| 3 | db_load_service.py | DB 적재(PostgreSQL·MySQL, Oracle 예정) |
+| 3 | db_load_service.py | DB 적재 Full/Incremental/**diff**·PostgreSQL·MySQL·Oracle |
 | 4 | transform_rules_service.py | etl_transform_rules CRUD |
 | 5 | service.py | 시스템 DB 메타·Job·list_source_tables |
-| 6 | transform_engine.py | 변환 룰 적용(pandas) |
+| 6 | transform_engine.py | 변환 룰 적용(pandas)·날짜/시간 연산 등 |
 | 7 | schema_infer.py | 스키마 추론(pandas) |
 
 ### 6.7 etl_server (단일 ETL)
@@ -358,7 +362,7 @@ Backend/
 - **db_load_service.py**: get_source_indexes(_fetch_source_indexes_pg/mysql/oracle), **_create_indexes_on_target**. run_db_load 상단 conn 초기화·except/finally에서 close; non-streaming 경로 conn_main finally close; non-streaming rows_processed 조기 반환 버그 방지.
 - **load_service.py**: run_file_load·run_file_upsert 변수 **etl_row**(row shadowing 방지). CSV 시 **csv_reader.read_csv_robust**. commit 후 index_definitions 있으면 _create_indexes_on_target.
 - **load_service_file.py**: load_dataframe(**index_definitions**)·테이블 **없을 때** 생성 직후에도 PK가 있으면 _batch_upsert 사용(duplicate key 방지). _batch_upsert(IS DISTINCT FROM·inserted_this_batch==len이면 UPDATE 스킵). add_allowed_table은 storage_connection_id 없을 때만.
-- **batch_executor_db.py**: run_db_batch_job. **pk_columns 미설정 시** 소스 DB에서 **_fetch_source_pk**(conn, stype, schema, table_name)로 PK 자동 조회(postgresql/mysql/oracle) 후 load_dataframe에 전달해 upsert 동작 보장.
+- **batch_executor_db.py**: run_db_batch_job. **pk_columns 미설정 시** 소스 DB에서 **_fetch_source_pk**로 PK 자동 조회 후 load_dataframe에 전달. **sync_mode=diff** 시 `_run_diff_sync`(is_batch=True). run_table_load 전 diff 사전 검증(14번 설계서).
 - **메타**: etl_tables(**index_definitions**), etl_storage_connections, **batch_jobs**(on_file_error, index_definitions), batch_folder_connections, batch_run_history, etl_batch_target_registry. 상세는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
 
 ---
@@ -382,6 +386,7 @@ Backend/
 - (2026-03-04) **from-etl-table·status=done·last_synced_at·적재 안정성**: §2 batch_executor_db.py 명시. §4.6 POST /jobs/from-etl-table·status=done 검증·last_synced_at 초기 세팅. §6.7 router_file from-etl-table, load_service_file 테이블 없음+PK 시 upsert, batch_executor_db _fetch_source_pk. log 2026-03-04 반영.
 - (2026-03-06) **ZIP 한도·미리보기·배치·삭제·검증 반영**: §3.3 etl_limits에 **max_zip_extract_total_mb**(기본 2GB, ZIP bomb 방지)·add-files-zip 압축 해제 전 총량 검사. §4.6 GET preview 변환 룰·타입 캐스트 적용, PATCH clear_last_synced_at, add-files-zip ZIP 총량. §6.7 GET preview _get_preview_with_transform, PATCH clear_last_synced_at, delete_etl_table batch_jobs 연쇄 삭제, get_skipped_filenames_set·배치 스킵/에러 파일 재시도 방지, batch_executor_db apply_rules(변환 룰), transform_upsert_verification. log 2026-03-06 반영.
 - (2026-03-13) **현재 구조 반영**: ETL 단일화(etl_server2 제거, etl_server만 유지·API /api/etl·/api/etl/batch). **new_dash_server**·**new_dash_server2** 추가(§2 트리·라우터 등록 순서). §4.6 ETL prefix /api/etl로 통일, §4.7 뉴 대시보드(/api/new-dashboard), §4.8 마케팅 대시보드(/api/new-dashboard2) API 표 추가. §5.1 라우터에 new_dashboard_router, new_dash2_router. §6.7 제목 "etl_server (단일 ETL)".
+- (2026-03-20) **로그 기준 현행화**: §4.7 member-summary·delivery-demographics·hourly, §3.2 etl_tables sync_mode diff·diff_delete_orphans, §6.5 diff 행, §6.1 db_load_service·batch_executor_db diff, §6.6 transform_engine 날짜/시간 연산, §2 new_dash_server 엔드포인트 목록.
 
 ---
 

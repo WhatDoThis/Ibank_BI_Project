@@ -66,6 +66,18 @@ def _apply_cleansing(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
 def _apply_type_cast(series: pd.Series, config: Dict[str, Any]) -> pd.Series:
     """target_type: date, timestamp, integer, bigint, numeric, text, boolean. on_error: null | zero | keep. date_formats 리스트 지원. empty(NA/빈문자열/nan 문자열)는 항상 None 처리."""
     target = (config.get("target_type") or "text").strip().lower()
+    if "timestamp" in target:
+        target = "timestamp"
+    elif "time" in target and "text" not in target:
+        target = "timestamp"
+    elif target in ("serial", "bigserial", "int4", "int8", "mediumint", "tinyint", "smallint", "integer", "int"):
+        target = "bigint"
+    elif target in ("decimal", "real", "double precision", "float", "number"):
+        target = "numeric"
+    elif target in ("bool",):
+        target = "boolean"
+    elif target in ("varchar", "character varying", "character", "char", "nvarchar", "clob", "nclob", "varchar2", "nvarchar2"):
+        target = "text"
     on_error = (config.get("on_error") or "null").strip().lower()
     date_fmts = config.get("date_formats")
     if not date_fmts:
@@ -160,6 +172,18 @@ def _apply_type_cast_with_mask(series: pd.Series, config: Dict[str, Any]):
     date_formats 리스트 지원. boolean 지원.
     """
     target = (config.get("target_type") or "text").strip().lower()
+    if "timestamp" in target:
+        target = "timestamp"
+    elif "time" in target and "text" not in target:
+        target = "timestamp"
+    elif target in ("serial", "bigserial", "int4", "int8", "mediumint", "tinyint", "smallint", "integer", "int"):
+        target = "bigint"
+    elif target in ("decimal", "real", "double precision", "float", "number"):
+        target = "numeric"
+    elif target in ("bool",):
+        target = "boolean"
+    elif target in ("varchar", "character varying", "character", "char", "nvarchar", "clob", "nclob", "varchar2", "nvarchar2"):
+        target = "text"
     on_error = (config.get("on_error") or "null").strip().lower()
     date_fmts = config.get("date_formats") or [config.get("date_format") or "%Y-%m-%d"]
     failed_mask = pd.Series(False, index=series.index)
@@ -287,13 +311,17 @@ def apply_mapping_type_cast(
             continue
         pg_type = (m.get("type") or "TEXT").strip().upper() or "TEXT"
         target = "text"
-        if pg_type in ("INTEGER", "INT", "BIGINT", "SMALLINT"):
+        if pg_type in ("INTEGER", "INT", "BIGINT", "SMALLINT", "SERIAL", "BIGSERIAL", "INT4", "INT8", "MEDIUMINT", "TINYINT"):
             target = "bigint"
-        elif pg_type in ("NUMERIC", "DECIMAL", "REAL", "DOUBLE PRECISION", "FLOAT"):
+        elif pg_type in ("NUMERIC", "DECIMAL", "REAL", "DOUBLE PRECISION", "FLOAT", "NUMBER", "BINARY_FLOAT", "BINARY_DOUBLE"):
             target = "numeric"
         elif pg_type in ("DATE",):
             target = "date"
-        elif pg_type in ("TIMESTAMP", "TIMESTAMPTZ", "TIME"):
+        elif pg_type in ("TIMESTAMP", "TIMESTAMPTZ", "TIME", "TIMETZ", "DATETIME", "YEAR", "INTERVAL"):
+            target = "timestamp"
+        elif "TIMESTAMP" in pg_type:
+            target = "timestamp"
+        elif "TIME" in pg_type and "TEXT" not in pg_type:
             target = "timestamp"
         elif pg_type in ("BOOLEAN", "BOOL"):
             target = "boolean"
@@ -491,7 +519,7 @@ def _apply_datetime_transform(
     series: pd.Series, config: Dict[str, Any], df: Optional[pd.DataFrame] = None
 ) -> pd.Series:
     """
-    operation: date_format, extract, date_diff, age, date_add, timezone_convert.
+    operation: date_format, extract, date_diff, age, date_add, date_subtract, timezone_convert.
     dt는 date_format이 아닐 때만 계산(성능).
     """
     from datetime import date as date_type
@@ -539,6 +567,13 @@ def _apply_datetime_transform(
         years = int(config.get("years") or 0)
         if days or months or years:
             return (dt + pd.DateOffset(days=days, months=months, years=years)).dt.strftime("%Y-%m-%d")
+        return series
+    if op == "date_subtract":
+        days = int(config.get("days") or 0)
+        months = int(config.get("months") or 0)
+        years = int(config.get("years") or 0)
+        if days or months or years:
+            return (dt - pd.DateOffset(days=days, months=months, years=years)).dt.strftime("%Y-%m-%d")
         return series
     if op == "timezone_convert":
         source_tz_str = (config.get("source_timezone") or "").strip()
@@ -799,7 +834,9 @@ def apply_rules(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> pd.DataFrame:
         category = (r.get("rule_category") or r.get("rule_type") or "").strip().lower()
         category = _LEGACY_CATEGORY_MAP.get(category, category)
         config = _parse_config(r.get("rule_config"))
-        if r.get("operation") and str(r.get("operation")).strip() != "default":
+        if "operation" not in config or not config.get("operation"):
+            config["operation"] = (r.get("operation") or "default").strip()
+        elif r.get("operation") and str(r.get("operation")).strip() != "default":
             config["operation"] = r["operation"]
         if category in _ROW_TRANSFORMERS:
             try:
@@ -813,15 +850,26 @@ def apply_rules(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> pd.DataFrame:
         src = (r.get("source_column") or "").strip()
         tgt = (r.get("target_column") or src).strip()
         if not src or src not in out.columns:
+            if src:
+                logger.warning(
+                    "Transform rule %s: source_column '%s' not found in DataFrame columns %s. Skipping.",
+                    r.get("rule_id"), src, list(out.columns),
+                )
             continue
         transformer = _COLUMN_TRANSFORMERS.get(category)
         if not transformer:
             continue
         try:
             if _NEEDS_DF.get(category, False):
-                out[tgt] = transformer(out[src], config, out)
+                result = transformer(out[src], config, out)
             else:
-                out[tgt] = transformer(out[src], config)
+                result = transformer(out[src], config)
+            if category == "datetime" and result is not None and result.equals(out[src]):
+                logger.warning(
+                    "Transform rule %s (%s.%s → %s): 변환 전후 데이터 동일. operation='%s'",
+                    r.get("rule_id"), category, config.get("operation", "?"), tgt, config.get("operation", "?"),
+                )
+            out[tgt] = result
         except Exception as exc:
             logger.warning(
                 "Transform rule %s (%s.%s → %s) 실패: %s",

@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * 1. getSignal
- * 2. FunnelBar
+ * 2. FunnelBar — trackScalePct로 오픈/클릭 트랙을 발송성공 비율에 맞춤
  * 3. FunnelSection (default export)
  */
 // 1.
@@ -16,14 +16,20 @@ function getSignal(value, thresholds) {
 }
 
 // 2.
-function FunnelBar({ label, value, maxValue, prevValue, color }) {
+/** trackScalePct: 막대 트랙 가로 비율(0~100). 오픈/클릭은 발송성공/발송요청 비율로 트랙 폭을 맞춤. */
+function FunnelBar({ label, value, maxValue, prevValue, color, trackScalePct = 100 }) {
   const pctOfTotal = maxValue > 0 ? (value / maxValue) * 100 : 0
   const pctOfPrev = prevValue > 0 ? (value / prevValue) * 100 : null
+  const scale = Math.min(100, Math.max(0, trackScalePct))
   return (
     <div className="nd-funnel-bar">
       <div className="nd-funnel-bar__label">{label}</div>
-      <div className="nd-funnel-bar__track">
-        <div className="nd-funnel-bar__fill" style={{ width: `${pctOfTotal}%`, background: color }} />
+      <div className="nd-funnel-bar__track-wrap">
+        <div className="nd-funnel-bar__track-scaled" style={{ width: `${scale}%` }}>
+          <div className="nd-funnel-bar__track">
+            <div className="nd-funnel-bar__fill" style={{ width: `${pctOfTotal}%`, background: color }} />
+          </div>
+        </div>
       </div>
       <div className="nd-funnel-bar__value">{Number(value).toLocaleString()}</div>
       <div className="nd-funnel-bar__pct">{pctOfPrev != null ? `${pctOfPrev.toFixed(1)}%` : '100%'}</div>
@@ -47,13 +53,30 @@ export default function FunnelSection({ kpi }) {
   const openSignal = getSignal(open_rate || 0, [20, 10])
   const clickSignal = getSignal(click_rate || 0, [5, 2])
 
+  const successTrackPct =
+    total_send > 0 ? Math.round((total_success / total_send) * 10000) / 100 : 0
+
   return (
     <div className="nd-funnel-section">
       <div className="nd-funnel-section__bars">
-        <FunnelBar label="발송 요청" value={total_send} maxValue={total_send} prevValue={null} color="#7c5cfc" />
-        <FunnelBar label="발송 성공" value={total_success} maxValue={total_send} prevValue={total_send} color="#3b82f6" />
-        <FunnelBar label="오픈" value={total_open} maxValue={total_send} prevValue={total_success} color="#f59e0b" />
-        <FunnelBar label="클릭" value={total_click} maxValue={total_send} prevValue={total_open} color="#22c55e" />
+        <FunnelBar label="발송 요청" value={total_send} maxValue={total_send} prevValue={null} color="#7c5cfc" trackScalePct={100} />
+        <FunnelBar label="발송 성공" value={total_success} maxValue={total_send} prevValue={total_send} color="#3b82f6" trackScalePct={100} />
+        <FunnelBar
+          label="오픈"
+          value={total_open}
+          maxValue={total_success}
+          prevValue={total_success}
+          color="#f59e0b"
+          trackScalePct={successTrackPct}
+        />
+        <FunnelBar
+          label="클릭"
+          value={total_click}
+          maxValue={total_success}
+          prevValue={total_open}
+          color="#22c55e"
+          trackScalePct={successTrackPct}
+        />
       </div>
       <div className="nd-funnel-section__guide">
         <h3 className="nd-funnel-section__guide-title">현재 가이드</h3>

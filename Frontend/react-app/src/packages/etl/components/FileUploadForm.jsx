@@ -14,12 +14,11 @@
  * - React, @/shared/api/client (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal
  */
 
-import { useState, useRef, useEffect, lazy, Suspense } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/shared/api/client';
 import { getStorageConnectionIdForFormData } from '../utils/storageDb.js';
 
-/** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ 방지 */
-const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal'));
+import TargetTableSelectModal from './TargetTableSelectModal/index.jsx';
 
 /** 서버 용량 한도와 동일하게 사용 (config 기본값 50MB). 초과 시 업로드 불가. */
 const MAX_FILE_SIZE_MB = 50;
@@ -217,25 +216,23 @@ function FileUploadForm({ onSuccess }) {
             </div>
           </div>
           {targetTableSelectOpen && (
-            <Suspense fallback={null}>
-              <TargetTableSelectModal
-                open={targetTableSelectOpen}
-                onClose={() => setTargetTableSelectOpen(false)}
-                storageConnectionId={storageConnectionId}
-                currentTargetTable={targetTable}
-                currentColumnMapping={columnMapping || []}
-                currentPkColumns={pkColumns}
-                currentIndexDefinitions={indexDefinitions || []}
-                sourceColumns={sourceColumnsForModal}
-                onSelect={(tableName, mapping, pkCols, idxDefs) => {
-                  setTargetTable(tableName);
-                  setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
-                  setPkColumns(pkCols ?? '');
-                  setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
-                  setTargetTableSelectOpen(false);
-                }}
-              />
-            </Suspense>
+            <TargetTableSelectModal
+              open={targetTableSelectOpen}
+              onClose={() => setTargetTableSelectOpen(false)}
+              storageConnectionId={storageConnectionId}
+              currentTargetTable={targetTable}
+              currentColumnMapping={columnMapping || []}
+              currentPkColumns={pkColumns}
+              currentIndexDefinitions={indexDefinitions || []}
+              sourceColumns={sourceColumnsForModal}
+              onSelect={(tableName, mapping, pkCols, idxDefs) => {
+                setTargetTable(tableName);
+                setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
+                setPkColumns(pkCols ?? '');
+                setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
+                setTargetTableSelectOpen(false);
+              }}
+            />
           )}
           {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || (indexDefinitions && indexDefinitions.length > 0)) && (
             <div className="etl-file-form__row etl-file-form__summary">

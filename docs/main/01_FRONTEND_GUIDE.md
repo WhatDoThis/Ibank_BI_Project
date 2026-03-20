@@ -107,10 +107,9 @@ Frontend/react-app/
 │   │   │   └── utils/
 │   │   │       └── dataUtils.js
 │   │   │
-│   │   ├── new-dashboard/     # 뉴 대시보드 (요약·추이·캠페인 순위)
-│   │   │   ├── NewDashboardPage.jsx
-│   │   │   ├── index.jsx
-│   │   │   └── components/    # KPISummaryCards, SummaryHeader, TrendLineChart, CampaignRankTable, FunnelSection, dateUtils
+│   │   ├── new-dashboard/     # 뉴 대시보드 (요약·추이·회원 KPI·퍼널·채널·인구통계·시간대)
+│   │   │   ├── NewDashboardPage.jsx, new-dashboard.css, index.jsx
+│   │   │   └── components/    # KPISummaryCards, SummaryHeader, MemberKPICards, TrendLineChart, CampaignRankTable, FunnelSection, ChannelStackBarChart, ChannelConsentBars, AgeBarChart, GenderDonutChart, GradeDonutChart, HourlyBarChart, dateUtils
 │   │   │
 │   │   ├── new-dashboard2/    # 마케팅 대시보드 (별·프리퀀시·쿠폰·캠페인·매장·추이)
 │   │   │   ├── NewDashboard2Page.jsx
@@ -139,11 +138,11 @@ Frontend/react-app/
 │   │           ├── SkippedFilesPanelFile.jsx # 스킵/에러 파일 목록·원격 삭제
 │   │           ├── CollapsibleCardSection.jsx # DB·폴더·저장 DB 섹션 접기/펼치기
 │   │           ├── StorageConnectionForm.jsx # 저장 DB(적재 대상) 등록·테스트
-│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·PK·INDEX 열(✓ 읽기 전용)·변환·값매핑·인덱스 추가(테이블 아래)·미리보기
+│   │           ├── TargetTableSelectModal.jsx # 저장 DB 테이블·소스→타겟 매핑·PK·INDEX 열(✓ 읽기 전용)·변환(타입·값매핑·날짜/시간 연산 등)·인덱스 추가(테이블 아래)·미리보기
 │   │           ├── (TargetTableSelectModal 내) TransformPreviewPanel # 변환 미리보기(before/after)·POST /api/etl/transform/preview
 │   │           ├── ETLTableList.jsx         # 목록(etlListTables+배치 레지스트리)·배치 행 삭제=cascade·배치설정 버튼(status=done 시 활성)·새로고침
 │   │           ├── BatchScheduleModal.jsx  # ETL 테이블 기반 배치 등록/수정/토글/삭제/즉시실행(batchCreateJobFromEtlTable·batchListJobs db)
-│   │           ├── EtlTableSettingsModal.jsx # 설정 모달: 동기화 모드·증분 컬럼·배치·on_row_error
+│   │           ├── EtlTableSettingsModal.jsx # 설정 모달: 동기화 모드(전체/증분/diff)·증분 컬럼·배치·on_row_error
 │   │           ├── JobHistoryPanel.jsx      # ETL 이력·새로고침
 │   │           ├── JobLogPanel.jsx
 │   │           ├── AddFileModal.jsx
@@ -241,7 +240,7 @@ Frontend/react-app/
 - **SourceTypeSelector.jsx**: 소스 유형(파일 / PostgreSQL·MySQL·Oracle) 선택.
 - **FileUploadForm.jsx**: 파일 업로드(CSV/Excel/Parquet), etlUploadFile(multipart). target_table·description·created_by. 업로드 파일은 서버에서 **3일** 초과 시 자동 삭제되며, 3일 후 동일 ETL 재실행 시 파일 없음으로 실패할 수 있음.
 - **DbConnectionForm.jsx**: 연결 등록(이름·host·port·database·schema·username·password). **연결 테스트(etlTestConnection) 통과 후에만** 등록 가능. Oracle 선택 시 **서비스명(Service Name)** 라벨·안내(JDBC @호스트:1521/서비스명, SID 미지원)·placeholder 예: FREEPDB1. **등록된 연결** 목록·**ETL 테이블 등록** 연결 선택 옵션에 **호스트:포트/DB명** 형식 표시. 소스 테이블 목록(etlListConnectionTables)·타겟 테이블·설명·sync_mode(전체/증분)·batch_size·batch_interval_seconds·etlCreateTable. Oracle 소스 테이블 선택 시 **OWNER.TABLE_NAME**으로 저장(드롭다운 value·label). 2열 그리드·카드 섹션 UI. **DB 연결 실패 시**: 실제 연결은 브라우저가 아닌 Backend가 수행하므로, 외부 DB 방화벽에 **Backend가 실행 중인 호스트 IP**가 허용돼야 함.
-- **ETLTableList.jsx**: etlListTables 목록. **목록 열**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(batch_size/batch_interval_seconds, "5,000행 / 1초" 등)·**동기화**(전체=DROP+CREATE+INSERT, 증분=last_synced_at 이후 Upsert)·상태(draft/error/done)·동작(미리보기·실행·데이터 추가·PK 설정·삭제). **도움말(?)**: 상태별 버튼 설명·배치·실행 시점 안내.
+- **ETLTableList.jsx**: etlListTables 목록. **목록 열**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(batch_size/batch_interval_seconds, "5,000행 / 1초" 등)·**동기화**(전체·증분·**PK 차이(diff)** 등)·상태(draft/error/done)·동작(미리보기·실행·데이터 추가·PK 설정·삭제). **도움말(?)**: 상태별 버튼 설명·배치·실행 시점 안내.
 - **상태별 버튼 동작**:
   - **draft/error**(타겟 테이블 없거나 불확실): **미리보기** — 등록된 파일 읽어 10행+컬럼 표시. **실행** — 파일로 메인 DB DROP→CREATE→INSERT(전체 교체). **데이터 추가** — 타겟 테이블 없으면 실패(이미 있는 테이블에 새 파일 업서트용). **삭제** — 메타+파일 삭제, DROP TABLE IF EXISTS.
   - **done**(타겟 테이블 있음): **미리보기** — 동일(파일 10행). **실행** — 파일로 테이블 **전체 교체**(실행 전 타겟 존재 시 컨펌). **데이터 추가** — 새 파일을 같은 타겟 테이블에 PK 기준 **업서트**(분할 적재용). **삭제** — 메타+파일 삭제, 테이블 DROP.
@@ -254,7 +253,7 @@ Frontend/react-app/
 
 ### 4.5.2 new-dashboard (뉴 대시보드)
 
-- **NewDashboardPage.jsx**: 요약(summary)·추이(trend, trend-multi)·캠페인 순위 등. **API**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti. 라우트 `/new-dashboard`. Backend new_dash_server (/api/new-dashboard).
+- **NewDashboardPage.jsx**: 발송 KPI·추이(trend, trend-multi)·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급·시간대 등 섹션. **API**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **getNewDashboardMemberSummary**, **getNewDashboardDeliveryDemographics**, **getNewDashboardHourly**. 스타일 `new-dashboard.css`. 라우트 `/new-dashboard`. Backend new_dash_server (/api/new-dashboard). 설계·검증: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
 
 ### 4.5.3 new-dashboard2 (마케팅 대시보드)
 
@@ -262,7 +261,7 @@ Frontend/react-app/
 
 ### 4.6 shared
 
-- **api/client.js**: health, listTables, describeTable, tableRelationships, joinOrder, saveQueryAsTable, saveQueryAsTableStatus, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData, **뉴 대시보드**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **마케팅 대시보드**: getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster, **ETL**(/api/etl): etlListTables, etlCreateTable, etlUploadFile, etlInferSchema, etlListStorageConnections, etlListTargetTables, etlGetSourceColumns, etlGetSourceIndexes, etlTransformPreview, batchListJobs, batchCreateJobFromEtlTable 등.
+- **api/client.js**: health, listTables, describeTable, tableRelationships, joinOrder, saveQueryAsTable, saveQueryAsTableStatus, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData, **뉴 대시보드**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **getNewDashboardMemberSummary**, **getNewDashboardDeliveryDemographics**, **getNewDashboardHourly**, **마케팅 대시보드**: getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster, **ETL**(/api/etl): etlListTables, etlCreateTable, etlUploadFile, etlInferSchema, etlListStorageConnections, etlListTargetTables, etlGetSourceColumns, etlGetSourceIndexes, etlTransformPreview, batchListJobs, batchCreateJobFromEtlTable 등.
 - **config/api.js**: API 베이스 URL (환경·api-config 주입 반영).
 
 ---
@@ -313,3 +312,4 @@ Frontend/react-app/
 - (2026-03-03) **ETL2 인덱스·on_file_error·UI 반영**: §3 FolderConnectionListFile 연결 정보 열, BatchJobFormFile index_definitions·on_file_error, BatchHistoryPanelFile partial_error, TargetTableSelectModal PK·INDEX 열·인덱스 추가 테이블 아래. §4.5.1 FileUploadForm/DbConnectionForm/BatchJobFormFile indexDefinitions·etl2GetSourceIndexes·sourceIndexes·pkReadOnlyFromSource, BatchHistoryPanelFile "일부 실패 (N/M 성공)", TargetTableSelectModal 소스 PK/인덱스 인라인·indexDefinitions onSelect. client.js etl2GetSourceIndexes. log 2026-03-03·2026-02-23 반영.
 - (2026-03-04) **ETL2 DB 배치설정·status=done 흐름**: §3 BatchScheduleModal.jsx 추가, ETLTableList.jsx 배치설정 버튼·BatchScheduleModal 연동. §4.5.1 ETLTableList 배치설정 disabled(statusLower!=='done')·툴팁(먼저 실행하여 적재 확인…/주기 자동 실행 설정), BatchScheduleModal·batchCreateJobFromEtlTable. client.js batchCreateJobFromEtlTable. log 2026-03-04 반영.
 - (2026-03-13) **현재 구조 반영**: ETL 단일화(etl2 제거, 패키지 etl 단일·라우트 /etl·API /api/etl). 뉴 대시보드 2종 추가: **new-dashboard**(/new-dashboard), **new-dashboard2**(마케팅 대시보드, /new-dashboard2). §1.1·§1.2·§3 패키지·접속 경로, §4.5 단일 ETL·§4.5.2 new-dashboard·§4.5.3 new-dashboard2, §4.6 client.js 뉴 대시보드·ETL API 목록.
+- (2026-03-20) **로그 기준 현행화**: §3 new-dashboard 컴포넌트·CSS, §4.5 동기화 diff, §4.5.2 member-summary·demographics·hourly·15번 설계서, §4.6 client.js 3함수, TargetTableSelectModal 변환(날짜/시간 연산).

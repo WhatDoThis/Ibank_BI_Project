@@ -2360,7 +2360,7 @@
 .etl-target-select-modal {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 10000;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2370,10 +2370,12 @@
 .etl-target-select-modal__backdrop {
   position: absolute;
   inset: 0;
+  z-index: 0;
   background: rgba(0, 0, 0, 0.4);
 }
 .etl-target-select-modal__box {
   position: relative;
+  z-index: 1;
   background: #fff;
   border-radius: 12px;
   max-width: 1200px;
@@ -2386,6 +2388,17 @@
   flex-direction: column;
   flex-shrink: 0;
   margin-top: 0;
+}
+.etl-target-select-modal__box--loading {
+  min-height: 0;
+  padding: 24px 32px;
+  align-items: center;
+  justify-content: center;
+}
+.etl-target-select-modal__loading-msg {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #374151;
 }
 .etl-target-select-modal__header {
   display: flex;

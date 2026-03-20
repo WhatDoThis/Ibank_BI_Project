@@ -7,7 +7,7 @@
  * 1. getFullDateRange
  * 2. getFullWeekRange
  * 3. getFullMonthRange
- * 4. formatDateLabel
+ * 4. formatDateLabel — ./dateUtils에서 import
  * 5. calcRate
  * 6. getChannelMetricValue
  * 7. pivotByChannel
@@ -20,7 +20,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { getMonthWeekLabel, toLocalDateString } from './dateUtils'
+import { toLocalDateString, formatDateLabel } from './dateUtils'
 
 const CHANNEL_COLORS = {
   Email: '#7c5cfc', SMS: '#f59e0b', iOS: '#3b82f6',
@@ -87,20 +87,12 @@ function getFullMonthRange(endDateStr, count) {
 }
 
 // 4.
-function formatDateLabel(ymd, period) {
-  if (!ymd) return ymd
-  if (period === 'monthly') return `${ymd.slice(0, 4)}/${ymd.slice(5, 7)}`
-  if (period === 'weekly') return getMonthWeekLabel(ymd) || ymd
-  return ymd.length >= 10 ? `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}` : ymd
-}
-
-// 5.
 /** 비율 계산 공통 (성공수 기준 %, 소수 둘째자리) */
 function calcRate(numerator, denominator) {
   return denominator > 0 ? Math.round((numerator / denominator) * 10000) / 100 : 0
 }
 
-// 6.
+// 5.
 /** 채널 행에서 메트릭 값 (rate는 calcRate 사용) */
 function getChannelMetricValue(r, metric) {
   if (metric === 'open_rate') return calcRate(r.open_count ?? 0, r.success_count ?? 0)
@@ -108,7 +100,7 @@ function getChannelMetricValue(r, metric) {
   return r[metric] ?? 0
 }
 
-// 7.
+// 6.
 /** channelRows를 피벗. fullDates가 있으면 해당 구간 전부 채우고, 없는 날은 0. period로 날짜 라벨. */
 function pivotByChannel(rows, metric, fullDates, period) {
   const dateMap = {}
@@ -133,7 +125,7 @@ function pivotByChannel(rows, metric, fullDates, period) {
   return { chartData, channels: channelList }
 }
 
-// 8.
+// 7.
 /** 전체 합산 rows. fullDates가 있으면 해당 구간 전부 채우고, 없는 날은 0. byDate 구성 시 한 번만 계산. */
 function buildTotalChartData(rows, fullDates, period) {
   const byDate = {}
@@ -164,7 +156,7 @@ function buildTotalChartData(rows, fullDates, period) {
   })
 }
 
-// 9.
+// 8.
 /** 호버 시 해당 데이터 행을 상위로 전달 (범례에 호버된 날짜 값 표시) */
 function TrendTooltipContent({ active, payload, setActiveRow, isRate }) {
   useEffect(() => {
@@ -190,7 +182,7 @@ function TrendTooltipContent({ active, payload, setActiveRow, isRate }) {
   )
 }
 
-// 10.
+// 9.
 export default function TrendLineChart({ data, byChannel, period = 'daily', endDate, days = 10, count = 10 }) {
   const [selectedMetric, setSelectedMetric] = useState('total_count')
   const [activeRow, setActiveRow] = useState(null)

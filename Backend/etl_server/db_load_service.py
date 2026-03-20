@@ -1308,6 +1308,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "소스 테이블에 컬럼이 없습니다."}
 
         col_names = [c[0] for c in columns]
+        source_type_by_name = {c[0]: c[1] for c in columns}
         # Phase 4: column_mapping 있으면 소스→타겟 매핑으로 SELECT 컬럼·타겟 컬럼 제한
         column_mapping = row.get("column_mapping")
         mapping_used: List[dict] = []
@@ -1318,10 +1319,15 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 tgt = (m.get("target") or "").strip()
                 if src in col_set and tgt:
                     etl_service._validate_identifier(tgt, "target")
+                    type_val = (m.get("type") or "").strip().upper()
+                    if not type_val and src in source_type_by_name:
+                        type_val = type_mapper(source_type_by_name[src])
+                    if not type_val:
+                        type_val = "TEXT"
                     mapping_used.append({
                         "source": src,
                         "target": tgt,
-                        "type": (m.get("type") or "TEXT").strip().upper() or "TEXT",
+                        "type": type_val,
                         "on_error": (m.get("on_error") or "null").strip().lower() or "null",
                     })
             if mapping_used:

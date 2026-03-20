@@ -272,8 +272,26 @@
 }
 .nd-funnel-section__bars { flex: 2; display: flex; flex-direction: column; gap: 12px; }
 .nd-funnel-bar { display: flex; align-items: center; gap: 12px; }
-.nd-funnel-bar__label { width: 80px; font-size: 13px; color: #4b5563; text-align: right; }
-.nd-funnel-bar__track { flex: 1; height: 24px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
+.nd-funnel-bar__label { width: 80px; font-size: 13px; color: #4b5563; text-align: right; flex-shrink: 0; }
+.nd-funnel-bar__track-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.nd-funnel-bar__track-scaled {
+  height: 24px;
+  max-width: 100%;
+  min-width: 0;
+}
+.nd-funnel-bar__track-scaled .nd-funnel-bar__track {
+  width: 100%;
+  height: 100%;
+  background: #f3f4f6;
+  border-radius: 4px;
+  overflow: hidden;
+}
 .nd-funnel-bar__fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .nd-funnel-bar__value { width: 90px; font-size: 13px; font-weight: 600; text-align: right; }
 .nd-funnel-bar__pct { width: 55px; font-size: 12px; color: #6b7280; }
@@ -449,4 +467,327 @@
   padding: 40px;
   color: #9ca3af;
   font-size: 14px;
+}
+
+/* ── 3열 KPI 그리드 (회원 현황용: 카드 여유·균등 비율) ── */
+.nd-kpi-grid--3col.nd-kpi-grid--member {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  max-width: 100%;
+}
+
+.nd-kpi-grid--3col.nd-kpi-grid--member .nd-kpi-card {
+  padding: 22px 28px;
+  min-height: 118px;
+}
+
+.nd-kpi-card--conversion .nd-kpi-card__header {
+  margin-bottom: 12px;
+}
+
+.nd-kpi-card__value--conversion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.nd-kpi-card__value--conversion-neutral {
+  color: #111827;
+}
+
+.nd-kpi-card__value--conversion-up {
+  color: #16a34a;
+}
+
+.nd-kpi-card__value--conversion-down {
+  color: #dc2626;
+}
+
+.nd-kpi-card__conversion-part {
+  white-space: nowrap;
+  letter-spacing: -0.02em;
+}
+
+.nd-kpi-card__conversion-sep {
+  font-weight: 600;
+  font-size: 22px;
+}
+
+.nd-kpi-card__value--conversion-neutral .nd-kpi-card__conversion-sep {
+  color: #d1d5db;
+}
+
+.nd-kpi-card__value--conversion-up .nd-kpi-card__conversion-sep {
+  color: rgba(22, 163, 74, 0.45);
+}
+
+.nd-kpi-card__value--conversion-down .nd-kpi-card__conversion-sep {
+  color: rgba(220, 38, 38, 0.45);
+}
+
+.nd-kpi-card__conversion-guide {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #f3f4f6;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.nd-kpi-card__sub-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ef4444;
+  margin-top: 2px;
+}
+
+/* ── 인구통계 3열 그리드 ── */
+.nd-demo-grid--3col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.nd-demo-grid__item {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.nd-demo-grid__subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+/* ── 인구통계 차트 공통 ── */
+.nd-demo-chart {
+  width: 100%;
+}
+
+/* 성별 도넛: 3열 그리드 좁은 칸에서 슬라이스 라벨 제거·도넛 축소, 범례 줄바꿈 */
+.nd-demo-chart--gender {
+  min-width: 0;
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
+.nd-demo-chart--gender .nd-demo-chart__donut {
+  min-width: 0;
+  overflow: visible;
+}
+
+.nd-demo-chart--gender .nd-demo-chart__legend {
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.nd-demo-chart--gender .nd-demo-chart__legend-item {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  column-gap: 6px;
+  line-height: 1.35;
+}
+
+.nd-demo-chart--gender .nd-demo-chart__legend-val,
+.nd-demo-chart--gender .nd-demo-chart__legend-pct {
+  white-space: nowrap;
+}
+
+/* 등급 등분포 도넛: 3열 그리드에서 가로 row 쓰면 도넛 영역 너비 0 → 세로 스택(성별과 동일 패턴) */
+.nd-demo-chart--grade {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+}
+
+.nd-demo-chart--grade .nd-demo-chart__donut {
+  width: 100%;
+  min-height: 200px;
+}
+
+.nd-demo-chart--grade .nd-demo-chart__legend {
+  flex: none;
+  width: 100%;
+}
+
+.nd-demo-chart--row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nd-demo-chart__donut {
+  flex-shrink: 0;
+}
+
+.nd-demo-chart__legend {
+  flex: 1;
+}
+
+.nd-demo-chart__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+
+.nd-demo-chart__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nd-demo-chart__legend-val {
+  font-weight: 600;
+  color: #111827;
+}
+
+.nd-demo-chart__legend-pct {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+/* ── 2열 레이아웃 (채널 스택바 + 추이) ── */
+.nd-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.nd-two-col__left,
+.nd-two-col__right {
+  min-width: 0;
+}
+
+/* 채널 발송+동의 2열 아래 전체 추이 한 줄 */
+.nd-channel-trend-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.nd-full-width-trend {
+  min-width: 0;
+  width: 100%;
+}
+
+.nd-full-width-trend .nd-section__title {
+  margin-bottom: 12px;
+}
+
+/* 채널별 동의 현황 (ibank_1_0 opt_in / total_recipients) */
+.nd-channel-consent {
+  background: #fff;
+  border-radius: 8px;
+  padding: 26px 22px 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.nd-consent-row {
+  display: grid;
+  grid-template-columns: minmax(52px, 64px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 12px;
+  margin-bottom: 18px;
+}
+
+.nd-consent-row:last-child {
+  margin-bottom: 0;
+}
+
+.nd-consent-row__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.nd-consent-row__track {
+  height: 16px;
+  border-radius: 4px;
+  background: #e5e7eb;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.nd-consent-row__fill {
+  height: 100%;
+  min-width: 0;
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
+.nd-consent-row__meta {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.nd-consent-row__suffix {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+/* ── 시간대 3열 그리드 ── */
+.nd-hourly-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.nd-hourly-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.nd-hourly-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+/* ── 채널 스택바 ── */
+.nd-channel-stack {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* ── 반응형 (1024px 이하) ── */
+@media (max-width: 1024px) {
+  .nd-kpi-grid--3col.nd-kpi-grid--member {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .nd-demo-grid--3col {
+    grid-template-columns: 1fr;
+  }
+  .nd-two-col {
+    grid-template-columns: 1fr;
+  }
+  .nd-hourly-grid {
+    grid-template-columns: 1fr;
+  }
 }

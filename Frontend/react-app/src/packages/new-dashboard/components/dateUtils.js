@@ -9,6 +9,7 @@
  * 3. toLocalDateString: Date → YYYY-MM-DD (UTC 비틀림 방지)
  * 4. dateToWeekValue: 날짜 → input type="week" 값
  * 5. weekValueToDate: YYYY-Www → 해당 주 월요일 YYYY-MM-DD
+ * 6. formatDateLabel: period별 축 라벨 (daily MM/DD, weekly getMonthWeekLabel, monthly YYYY/MM)
  */
 
 // 1.
@@ -75,4 +76,13 @@ export function weekValueToDate(weekStr) {
   const mon = jan4.getDate() - (jan4.getDay() || 7) + 1
   const start = new Date(y, 0, mon + (w - 1) * 7)
   return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`
+}
+
+// 6.
+/** YYYY-MM-DD와 period에 따른 차트 축 라벨 (daily: MM/DD, weekly: M월 N주차, monthly: YYYY/MM) */
+export function formatDateLabel(ymd, period) {
+  if (!ymd) return ymd
+  if (period === 'monthly') return `${ymd.slice(0, 4)}/${ymd.slice(5, 7)}`
+  if (period === 'weekly') return getMonthWeekLabel(ymd) || ymd
+  return ymd.length >= 10 ? `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}` : ymd
 }

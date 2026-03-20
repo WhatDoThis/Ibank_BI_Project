@@ -128,6 +128,7 @@ _OPERATION_LABEL = {
     "date_format": "형식변환",
     "extract": "부분추출",
     "date_add": "날짜가감",
+    "date_subtract": "날짜빼기",
     "round": "반올림",
     "arithmetic": "연산",
     "bucket": "구간",

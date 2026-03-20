@@ -375,6 +375,13 @@ export function TransformDetailRow({
                   <ParamInput label="년" hint="더할 년 수" type="number" min={0} value={datetimeConfig[src.name]?.years ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), years: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
                 </>
               )}
+              {(datetimeConfig[src.name]?.operation || 'timezone_convert') === 'date_subtract' && (
+                <>
+                  <ParamInput label="일" hint="뺄 일 수" type="number" min={0} value={datetimeConfig[src.name]?.days ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), days: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                  <ParamInput label="월" hint="뺄 월 수" type="number" min={0} value={datetimeConfig[src.name]?.months ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), months: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                  <ParamInput label="년" hint="뺄 년 수" type="number" min={0} value={datetimeConfig[src.name]?.years ?? ''} onChange={(e) => setDateTimeConfig((p) => ({ ...p, [src.name]: { ...(p[src.name] || {}), years: e.target.value === '' ? undefined : parseInt(e.target.value, 10) || 0 } }))} placeholder="0" className="etl-target-select-modal__input--detail etl-target-select-modal__input--tiny" />
+                </>
+              )}
             </div>
           )}
 

@@ -544,16 +544,16 @@ function TargetTableSelectModal({
       const pgType = typeCastConfig[src.name]?.target_type
         || (selectedTable === NEW_TABLE_VALUE ? inferredTypeToPg(src.type) : (targetColByName[targetName]?.data_type || 'TEXT'));
       if (kind === 'cleansing') {
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_category: 'cleansing', operation: 'trim', rule_config: { empty_to_null: true }, apply_order: baseOrder });
       } else if (kind === 'type_cast') {
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'type_cast', rule_config: { target_type: pgType, on_error: onError }, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'type_cast', rule_category: 'type_cast', operation: 'default', rule_config: { target_type: pgType, on_error: onError }, apply_order: baseOrder });
       } else if (kind === 'cleansing_and_type_cast') {
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'type_cast', rule_config: { target_type: pgType, on_error: onError }, apply_order: baseOrder + 1 });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'cleansing', rule_category: 'cleansing', operation: 'trim', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'type_cast', rule_category: 'type_cast', operation: 'default', rule_config: { target_type: pgType, on_error: onError }, apply_order: baseOrder + 1 });
       } else if (kind === 'code_map') {
         const cfg = codeMapConfig[src.name] || {};
         const defaultVal = cfg.unmapped === 'default' ? (cfg.default_value ?? '') : (cfg.unmapped === 'null' ? null : undefined);
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'code_map', rule_config: { mappings: cfg.map || {}, default: defaultVal }, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'code_map', rule_category: 'mapping', operation: 'value_map', rule_config: { mappings: cfg.map || {}, default: defaultVal }, apply_order: baseOrder });
       } else if (kind === 'string') {
         const cfg = stringConfig[src.name] || {};
         const op = cfg.operation || 'uppercase';
@@ -578,14 +578,14 @@ function TargetTableSelectModal({
           ruleConfig.columns = Array.isArray(cfg.columns) ? cfg.columns : (cfg.columns ? [cfg.columns].flat() : [src.name]);
           ruleConfig.separator = cfg.separator != null ? String(cfg.separator) : '';
         }
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'string', rule_config: ruleConfig, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'string', rule_category: 'string', operation: op, rule_config: ruleConfig, apply_order: baseOrder });
       } else if (kind === 'masking') {
         const cfg = maskingConfig[src.name] || {};
         const ruleConfig = { operation: cfg.operation || 'mask_right', char: (cfg.char != null && cfg.char !== '') ? String(cfg.char) : '*' };
         if (cfg.operation === 'mask_right' || cfg.operation === 'mask_left') {
           ruleConfig.n = parseInt(cfg.n, 10) || 4;
         }
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'masking', rule_config: ruleConfig, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'masking', rule_category: 'masking', operation: ruleConfig.operation || 'mask_right', rule_config: ruleConfig, apply_order: baseOrder });
       } else if (kind === 'datetime') {
         const cfg = datetimeConfig[src.name] || {};
         const op = cfg.operation || 'timezone_convert';
@@ -605,8 +605,12 @@ function TargetTableSelectModal({
           if (cfg.days != null && cfg.days !== '') ruleConfig.days = parseInt(cfg.days, 10) || 0;
           if (cfg.months != null && cfg.months !== '') ruleConfig.months = parseInt(cfg.months, 10) || 0;
           if (cfg.years != null && cfg.years !== '') ruleConfig.years = parseInt(cfg.years, 10) || 0;
+        } else if (op === 'date_subtract') {
+          if (cfg.days != null && cfg.days !== '') ruleConfig.days = parseInt(cfg.days, 10) || 0;
+          if (cfg.months != null && cfg.months !== '') ruleConfig.months = parseInt(cfg.months, 10) || 0;
+          if (cfg.years != null && cfg.years !== '') ruleConfig.years = parseInt(cfg.years, 10) || 0;
         }
-        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'datetime', rule_config: ruleConfig, apply_order: baseOrder });
+        rules.push({ source_column: src.name, target_column: targetName, rule_type: 'datetime', rule_category: 'datetime', operation: op, rule_config: ruleConfig, apply_order: baseOrder });
       }
     });
     return rules;
@@ -758,7 +762,7 @@ function TargetTableSelectModal({
             on_error: getOnErrorValue(mappingOnError, src.name)
           }));
         const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings);
+        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled);
         if (etlTableId != null && etlTableId !== '') {
           try {
             await saveRulesIfNeeded(
@@ -793,7 +797,7 @@ function TargetTableSelectModal({
           });
         });
         const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings);
+        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled);
         if (etlTableId != null && etlTableId !== '') {
           try {
             await saveRulesIfNeeded(
@@ -821,7 +825,7 @@ function TargetTableSelectModal({
         };
       });
       const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-      if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings);
+      if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled);
       applied = true;
     } finally {
       setApplyLoading(false);

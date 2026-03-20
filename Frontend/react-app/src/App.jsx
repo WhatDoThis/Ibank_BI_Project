@@ -42,7 +42,7 @@ const NAV_ITEMS = [
 ]
 
 const navLinkStyle = ({ isActive }) => ({
-  color: 'white',
+  color: isActive ? '#FFF95B' : 'white',
   textDecoration: 'none',
   opacity: isActive ? 1 : 0.85,
 })

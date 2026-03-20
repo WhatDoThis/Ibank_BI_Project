@@ -9,7 +9,7 @@
  * - health, listTables, describeTable, tableRelationships, executeQuery, explainSql, getColumnValues, queryStats (리포트)
  * - getDashboardTables, getDashboardFilterOptions, getDashboardData, getDashboardRequiredColumns, getChartData (대시보드1)
  * - getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData (대시보드2)
- * - getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti (뉴 대시보드)
+ * - getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, getNewDashboardMemberSummary, getNewDashboardDeliveryDemographics, getNewDashboardHourly (뉴 대시보드)
  * - getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster (뉴 대시보드2)
  * - ETL: /api/etl 단일 사용 — etl2* (테이블·업로드·연결·Job), batch* (배치 Job·폴더연결)
  *
@@ -233,6 +233,41 @@ export async function getNewDashboardTrendMulti(tableId, { endDate = null, perio
   const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/trend-multi?${params}`);
   if (!res.ok) throw new Error(`추이(멀티) 조회 실패: ${res.status}`);
   return res.json();
+}
+
+/**
+ * 뉴 대시보드 확장 API (3함수 세트 — 반드시 함께 유지)
+ * - NewDashboardPage: getNewDashboardMemberSummary 1회 + getNewDashboardHourly 3회(metric success/open/click).
+ * - getNewDashboardHourly 단일 누락 시 런타임 ReferenceError.
+ * - getNewDashboardDeliveryDemographics: UI 미호출이나 백엔드 /delivery-demographics 와 대칭·추후 드릴다운용으로 동일 블록에 둔다.
+ */
+/** GET /api/new-dashboard/member-summary — 회원 현황 스냅샷*/
+export async function getNewDashboardMemberSummary(tableId, { targetDate = null, period = 'daily' } = {}) {
+  const params = new URLSearchParams({ table_id: tableId, period })
+  if (targetDate) params.set('target_date', targetDate)
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/member-summary?${params}`)
+  if (!res.ok) throw new Error(`회원 현황 조회 실패: ${res.status}`)
+  return res.json()
+}
+
+/** GET /api/new-dashboard/delivery-demographics — 발송 기준 등급/성별/나이대 */
+export async function getNewDashboardDeliveryDemographics(tableId, { targetDate = null, period = 'daily', byChannel = false } = {}) {
+  const params = new URLSearchParams({ table_id: tableId, period })
+  if (targetDate) params.set('target_date', targetDate)
+  if (byChannel) params.set('by_channel', 'true')
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/delivery-demographics?${params}`)
+  if (!res.ok) throw new Error(`발송 인구통계 조회 실패: ${res.status}`)
+  return res.json()
+}
+
+/** GET /api/new-dashboard/hourly — 시간대별 집계 (metric: success|open|click) */
+export async function getNewDashboardHourly(tableId, { targetDate = null, period = 'daily', metric = 'success', byChannel = false } = {}) {
+  const params = new URLSearchParams({ table_id: tableId, period, metric })
+  if (targetDate) params.set('target_date', targetDate)
+  if (byChannel) params.set('by_channel', 'true')
+  const res = await fetch(`${baseUrlNewDashboard()}/api/new-dashboard/hourly?${params}`)
+  if (!res.ok) throw new Error(`시간대별 조회 실패: ${res.status}`)
+  return res.json()
 }
 
 // ---------- New Dashboard 2 (마케팅 성과 분석) ----------

@@ -85,7 +85,21 @@ def list_transform_rules(etl_table_id: int) -> List[Dict[str, Any]]:
                 d.setdefault("rule_type", d["rule_category"])
             elif "rule_type" in d:
                 d.setdefault("rule_category", _normalize_category(str(d["rule_type"])))
-            if "operation" not in d:
+            _rc = d.get("rule_config")
+            if isinstance(_rc, str):
+                try:
+                    _rc = json.loads(_rc)
+                except Exception:
+                    _rc = {}
+            elif not isinstance(_rc, dict):
+                _rc = {}
+            db_op = (d.get("operation") or "").strip()
+            config_op = (_rc.get("operation") or "").strip() if isinstance(_rc, dict) else ""
+            if db_op and db_op != "default":
+                d["operation"] = db_op
+            elif config_op:
+                d["operation"] = config_op
+            else:
                 d["operation"] = "default"
             out.append(d)
         return out

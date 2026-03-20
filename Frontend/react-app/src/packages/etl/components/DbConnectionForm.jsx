@@ -15,7 +15,7 @@
  * - React, @/shared/api/client (etl2ListTimezones, etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
  */
 
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import {
   etl2ListTimezones,
   etl2ListConnections,
@@ -32,9 +32,7 @@ import {
 } from '@/shared/api/client';
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
 import { getOnErrorValue } from './TargetTableSelectModal/constants.js';
-
-/** 지연 로드: 모달을 별도 청크로 분리해 번들러 minify 시 TDZ(Cannot access 'ie' before initialization) 방지 */
-const TargetTableSelectModal = lazy(() => import('./TargetTableSelectModal'));
+import TargetTableSelectModal from './TargetTableSelectModal/index.jsx';
 import { buildEmptyTransformSettings, TRANSFORM_OPTION_LABELS } from './TargetTableSelectModal/constants.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
 
@@ -328,16 +326,16 @@ function DbConnectionForm({ onSuccess }) {
       const onError = getOnErrorValue(settings.mappingOnError, source);
       const typeCastTarget = (settings.typeCastConfig && settings.typeCastConfig[source]?.target_type) || pgType;
       if (kind === 'cleansing') {
-        rules.push({ source_column: source, target_column: target, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'cleansing', rule_category: 'cleansing', operation: 'trim', rule_config: { empty_to_null: true }, apply_order: baseOrder });
       } else if (kind === 'type_cast') {
-        rules.push({ source_column: source, target_column: target, rule_type: 'type_cast', rule_config: { target_type: typeCastTarget.toLowerCase(), on_error: onError }, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'type_cast', rule_category: 'type_cast', operation: 'default', rule_config: { target_type: typeCastTarget.toLowerCase(), on_error: onError }, apply_order: baseOrder });
       } else if (kind === 'cleansing_and_type_cast') {
-        rules.push({ source_column: source, target_column: target, rule_type: 'cleansing', rule_config: { empty_to_null: true }, apply_order: baseOrder });
-        rules.push({ source_column: source, target_column: target, rule_type: 'type_cast', rule_config: { target_type: typeCastTarget.toLowerCase(), on_error: onError }, apply_order: baseOrder + 1 });
+        rules.push({ source_column: source, target_column: target, rule_type: 'cleansing', rule_category: 'cleansing', operation: 'trim', rule_config: { empty_to_null: true }, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'type_cast', rule_category: 'type_cast', operation: 'default', rule_config: { target_type: typeCastTarget.toLowerCase(), on_error: onError }, apply_order: baseOrder + 1 });
       } else if (kind === 'code_map') {
         const cfg = (settings.codeMapConfig && settings.codeMapConfig[source]) || {};
         const defaultVal = cfg.unmapped === 'default' ? (cfg.default_value ?? '') : (cfg.unmapped === 'null' ? null : undefined);
-        rules.push({ source_column: source, target_column: target, rule_type: 'code_map', rule_config: { mappings: cfg.map || {}, default: defaultVal }, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'code_map', rule_category: 'mapping', operation: 'value_map', rule_config: { mappings: cfg.map || {}, default: defaultVal }, apply_order: baseOrder });
       } else if (kind === 'string') {
         const cfg = (settings.stringConfig && settings.stringConfig[source]) || {};
         const op = cfg.operation || 'uppercase';
@@ -362,14 +360,14 @@ function DbConnectionForm({ onSuccess }) {
           ruleConfig.columns = Array.isArray(cfg.columns) ? cfg.columns : (cfg.columns ? [cfg.columns].flat() : [source]);
           ruleConfig.separator = cfg.separator != null ? String(cfg.separator) : '';
         }
-        rules.push({ source_column: source, target_column: target, rule_type: 'string', rule_config: ruleConfig, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'string', rule_category: 'string', operation: op, rule_config: ruleConfig, apply_order: baseOrder });
       } else if (kind === 'masking') {
         const cfg = (settings.maskingConfig && settings.maskingConfig[source]) || {};
         const ruleConfig = { operation: cfg.operation || 'mask_right', char: (cfg.char != null && cfg.char !== '') ? String(cfg.char) : '*' };
         if (cfg.operation === 'mask_right' || cfg.operation === 'mask_left') {
           ruleConfig.n = parseInt(cfg.n, 10) || 4;
         }
-        rules.push({ source_column: source, target_column: target, rule_type: 'masking', rule_config: ruleConfig, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'masking', rule_category: 'masking', operation: ruleConfig.operation || 'mask_right', rule_config: ruleConfig, apply_order: baseOrder });
       } else if (kind === 'datetime') {
         const cfg = (settings.datetimeConfig && settings.datetimeConfig[source]) || {};
         const op = cfg.operation || 'timezone_convert';
@@ -389,8 +387,12 @@ function DbConnectionForm({ onSuccess }) {
           if (cfg.days != null && cfg.days !== '') ruleConfig.days = parseInt(cfg.days, 10) || 0;
           if (cfg.months != null && cfg.months !== '') ruleConfig.months = parseInt(cfg.months, 10) || 0;
           if (cfg.years != null && cfg.years !== '') ruleConfig.years = parseInt(cfg.years, 10) || 0;
+        } else if (op === 'date_subtract') {
+          if (cfg.days != null && cfg.days !== '') ruleConfig.days = parseInt(cfg.days, 10) || 0;
+          if (cfg.months != null && cfg.months !== '') ruleConfig.months = parseInt(cfg.months, 10) || 0;
+          if (cfg.years != null && cfg.years !== '') ruleConfig.years = parseInt(cfg.years, 10) || 0;
         }
-        rules.push({ source_column: source, target_column: target, rule_type: 'datetime', rule_config: ruleConfig, apply_order: baseOrder });
+        rules.push({ source_column: source, target_column: target, rule_type: 'datetime', rule_category: 'datetime', operation: op, rule_config: ruleConfig, apply_order: baseOrder });
       }
     });
     return rules;
@@ -742,29 +744,27 @@ function DbConnectionForm({ onSuccess }) {
             </div>
           </div>
           {targetTableSelectOpen && (
-            <Suspense fallback={null}>
-              <TargetTableSelectModal
-                open={targetTableSelectOpen}
-                onClose={() => setTargetTableSelectOpen(false)}
-                storageConnectionId={storageConnectionId}
-                currentTargetTable={targetTable}
-                currentColumnMapping={columnMapping || []}
-                currentPkColumns={pkColumns}
-                currentIndexDefinitions={indexDefinitions || []}
-                currentTransformSettings={transformSettings}
-                sourceColumns={sourceColumns}
-                sourceIndexes={sourceIndexes}
-                pkReadOnlyFromSource={sourceIndexes.length > 0 && sourceIndexes.some((i) => i && i.is_primary)}
-                onSelect={(tableName, mapping, pkCols, idxDefs, tSettings) => {
-                  setTargetTable(tableName);
-                  setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
-                  setPkColumns(pkCols ?? '');
-                  setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
-                  if (tSettings) setTransformSettings(tSettings);
-                  setTargetTableSelectOpen(false);
-                }}
-              />
-            </Suspense>
+            <TargetTableSelectModal
+              open={targetTableSelectOpen}
+              onClose={() => setTargetTableSelectOpen(false)}
+              storageConnectionId={storageConnectionId}
+              currentTargetTable={targetTable}
+              currentColumnMapping={columnMapping || []}
+              currentPkColumns={pkColumns}
+              currentIndexDefinitions={indexDefinitions || []}
+              currentTransformSettings={transformSettings}
+              sourceColumns={sourceColumns}
+              sourceIndexes={sourceIndexes}
+              pkReadOnlyFromSource={sourceIndexes.length > 0 && sourceIndexes.some((i) => i && i.is_primary)}
+              onSelect={(tableName, mapping, pkCols, idxDefs, tSettings, assembledRules) => {
+                setTargetTable(tableName);
+                setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
+                setPkColumns(pkCols ?? '');
+                setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
+                if (tSettings) setTransformSettings(tSettings);
+                setTargetTableSelectOpen(false);
+              }}
+            />
           )}
           {(targetTable.trim() || (columnMapping && columnMapping.length > 0) || pkColumns.trim() || (indexDefinitions && indexDefinitions.length > 0) || (transformSettings?.transformKind && Object.values(transformSettings.transformKind).some((v) => v && v !== 'none'))) && (
             <div className="etl-db-form__field etl-db-form__summary">
