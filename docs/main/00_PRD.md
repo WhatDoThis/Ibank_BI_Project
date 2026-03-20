@@ -81,6 +81,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 - `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
 - **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(파일 크기·행 수·배치 상한·**ZIP 압축 해제 총량 상한**) 선택. **etl_limits 미지정 시** etl_server2 기본값 적용(파일 50MB·행 10만·배치 5만·**ZIP 총량 2GB** 등). **max_zip_extract_total_mb**: add-files-zip 시 압축 해제 전 총 용량 상한(MB), 초과 시 전체 실패(ZIP bomb 방지). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
+- **뉴 대시보드 물리 테이블**: backend.**dash_db**(예: `ibank_dash_data`) — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 집계·서브 테이블. 메인 `db_name`과 분리. 상세는 **02_BACKEND_GUIDE.md §3.2.1·§4.7**.
 - **Linux 배포 시**: Nginx에서 프론트는 `/ibank-bi/`, API는 `/report_api/` 등으로 프록시할 경우 `frontend.api_base_url` 은 **API 쪽 URL** (예: `https://도메인/report_api`) 로 설정.
 
 ### 3.3 규칙
@@ -162,7 +163,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 6.3.2 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **뉴 대시보드**: 발송 요약(summary)·추이(trend, trend-multi)·집계 테이블 목록(tables)에 더해 **회원 현황 스냅샷**(member-summary: 전환·등급·비교 스냅샷 일자 등)·**발송 기준 인구통계**(delivery-demographics)·**시간대별 집계**(hourly). UI는 KPI·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급 분포·추이 등 섹션 구성. API prefix /api/new-dashboard. Backend new_dash_server. 상세 설계·검증 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
+- **뉴 대시보드**: 발송 요약(summary)·추이(trend, trend-multi)·집계 테이블 목록(tables)에 더해 **회원 현황 스냅샷**(member-summary: 전환·등급·비교 스냅샷 일자 등)·**발송 기준 인구통계**(delivery-demographics)·**시간대별 집계**(hourly). UI는 KPI·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급 분포·추이 등 섹션 구성. API prefix /api/new-dashboard. Backend new_dash_server. **데이터는 config.backend.dash_db**에서 `ibank_1`·`ibank_1_0`~`ibank_1_4` 테이블로 조회(메인 DB와 분리). 상세 설계·검증 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**, **02_BACKEND_GUIDE.md §3.2.1**.
 - **마케팅 대시보드**: 종합현황(overview)·별(star)·프리퀀시(frequency)·쿠폰(coupon)·캠페인 세그먼트(campaign-segments)·매장(store)·추이(trend)·상품 마스터(product-master). API prefix /api/new-dashboard2. Backend new_dash_server2(Star DB 연동). 상세는 **01 §4.5.2·§4.5.3**, **02 §4.7·§4.8**.
 
 ### 6.4 공통

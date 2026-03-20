@@ -19,7 +19,7 @@ Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
 
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection, get_table_schema, get_table_columns_with_types, validate_table_name 등)
+- Backend.api_server.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, get_table_columns_with_types, validate_table_name, validate_dashboard_data_table_name, is_new_dash_physical_table 등)
 - psycopg2
 """
 
@@ -64,11 +64,14 @@ def get_required_columns():
 
 # 2.
 def get_aggregatable_tables():
-    """allowed_tables 중 필수 컬럼을 모두 가지고, 각 컬럼 타입이 허용 타입인 테이블만 반환 (대시보드 셀렉트용)."""
+    """allowed_tables 중 필수 컬럼을 모두 가지고, 각 컬럼 타입이 허용 타입인 테이블만 반환 (대시보드 셀렉트용). ibank_1 계열도 dash_db에서 체크."""
     allowed = db.get_allowed_tables()
+    # 뉴 대시보드 물리 테이블(ibank_1)도 체크 대상에 추가 (allowed_tables에 없어도 dash_db에서 조회)
+    dash_candidates = ["ibank_1"]
+    all_candidates = sorted(set(allowed) | set(dash_candidates))
     required_count = len(DASHBOARD_REQUIRED_COLUMNS)
     result = []
-    for table_name in sorted(allowed):
+    for table_name in all_candidates:
         try:
             rows = db.get_table_columns_with_types(table_name)
             col_map = {}
@@ -99,9 +102,13 @@ def get_aggregatable_tables():
 
 # 3.
 def _full_table_name(table_id):
-    """검증된 테이블 ID로 스키마.테이블명 반환."""
-    table_name = db.validate_table_name(table_id)
-    schema = db.get_table_schema()
+    """검증된 테이블 ID로 스키마.테이블명 반환. ibank_1 계열은 dash_db 사용."""
+    if db.is_new_dash_physical_table(table_id):
+        table_name = db.validate_dashboard_data_table_name(table_id)
+        schema = db.get_dash_table_schema()
+    else:
+        table_name = db.validate_table_name(table_id)
+        schema = db.get_table_schema()
     return f'"{schema}"."{table_name}"'
 
 
@@ -208,7 +215,7 @@ def get_dashboard_data(req):
         {group_by_clause}
         {order_sql}
     """
-    conn = db.get_db_connection()
+    conn = db.get_db_connection_dash() if db.is_new_dash_physical_table(req["table_id"]) else db.get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute(query, params)
@@ -359,7 +366,7 @@ def get_filter_options(table_id, campaign_ids=None, workflow_ids=None, channels=
     returns: { campaigns, workflows, channels }
     """
     table = _full_table_name(table_id)
-    conn = db.get_db_connection()
+    conn = db.get_db_connection_dash() if db.is_new_dash_physical_table(table_id) else db.get_db_connection()
     cur = conn.cursor()
     try:
         campaigns = []
@@ -465,7 +472,7 @@ def get_chart_data(req):
         GROUP BY {group_cols}
         {order_sql}
     """
-    conn = db.get_db_connection()
+    conn = db.get_db_connection_dash() if db.is_new_dash_physical_table(req["table_id"]) else db.get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute(query, params)

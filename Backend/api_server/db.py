@@ -22,9 +22,12 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 14. get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사, 커넥션 1회)
 15. get_db_connection: 메인 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback.
 16. get_db_connection_system: 시스템 DB 연결을 풀에서 반환. ETL 메타·세션 등용.
-17. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
-18. validate_table_name: 허용 패턴·허용 테이블 검증
-19. validate_column_name: 컬럼명 허용 패턴 검증
+17. get_dash_db_config / get_dash_table_schema / get_db_connection_dash: 뉴 대시보드 전용 dash_db(ibank_dash_data 등) 연결
+18. is_new_dash_physical_table: ibank_1 및 ibank_1_0~ibank_1_4 여부 (config dash_db에 적재된 집계 테이블)
+19. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
+20. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
+21. validate_table_name: 허용 패턴·허용 테이블 검증
+22. validate_column_name: 컬럼명 허용 패턴 검증
 
 [Dependencies]
 =========
@@ -43,10 +46,15 @@ from psycopg2.extras import RealDictCursor
 # 시스템/메인 DB 연결 풀: 동시 연결 수 제한으로 PostgreSQL max_connections 초과 방지
 _SYSTEM_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
 _MAIN_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
+_DASH_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
 _POOL_MIN = 1
 _POOL_MAX = 20
 _system_pool_lock = threading.Lock()
 _main_pool_lock = threading.Lock()
+_dash_pool_lock = threading.Lock()
+
+# 뉴 대시보드 물리 테이블: ibank_1(집계), ibank_1_0~ibank_1_4(서브). backend.dash_db에 위치.
+_NEW_DASH_PHYSICAL_TABLE_RE = re.compile(r"^ibank_1(_[0-4])?$")
 
 
 # 1.
@@ -176,6 +184,56 @@ def get_system_db_config():
     }
 
 
+# 3a.
+def get_dash_db_config():
+    """
+    config.backend.dash_db 에서 뉴 대시보드 전용 DB 연결 설정 읽기.
+    대시보드 물리 테이블(ibank_1, ibank_1_0~4) 적재 DB. 없으면 ValueError.
+    """
+    backend = config.backend
+    dash = getattr(backend, "dash_db", None)
+    if dash is None:
+        raise ValueError(
+            "Env/config/config.json 에 backend.dash_db 가 없습니다. "
+            "뉴 대시보드용 DB(ibank_dash_data 등) 연결을 위해 dash_db 를 추가하세요."
+        )
+    host = getattr(dash, "db_host", None)
+    port = getattr(dash, "db_port", None)
+    database = getattr(dash, "db_name", None)
+    user = getattr(dash, "db_user", None)
+    password = getattr(dash, "db_password", None)
+
+    if not host or not str(host).strip():
+        raise ValueError("backend.dash_db.db_host 가 없거나 비어 있습니다.")
+    if database is None or not str(database).strip():
+        raise ValueError("backend.dash_db.db_name 이 없거나 비어 있습니다.")
+    if not user or not str(user).strip():
+        raise ValueError("backend.dash_db.db_user 가 없거나 비어 있습니다.")
+    if port is None or port == "":
+        raise ValueError("backend.dash_db.db_port 가 없습니다.")
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise ValueError("backend.dash_db.db_port 는 숫자여야 합니다.")
+
+    return {
+        "host": str(host).strip(),
+        "port": port,
+        "database": str(database).strip(),
+        "user": str(user).strip(),
+        "password": str(password).strip() if password is not None else "",
+    }
+
+
+# 3b.
+def get_dash_table_schema():
+    """dash_db 의 table_schema. backend.dash_db.table_schema 가 있으면 사용, 없으면 'public'."""
+    dash = getattr(config.backend, "dash_db", None)
+    if dash is None:
+        return "public"
+    return getattr(dash, "table_schema", None) or "public"
+
+
 # 4.
 def get_system_table_schema():
     """시스템 DB의 table_schema. backend.system_db.table_schema 가 있으면 사용, 없으면 'public'."""
@@ -277,9 +335,14 @@ def get_table_columns(table_name):
 # 11.
 def get_table_columns_with_types(table_name):
     """테이블의 컬럼명·데이터타입 목록 반환. [{ column_name, data_type }, ...]. 대시보드 필수 컬럼 타입 검증용."""
-    validate_table_name(table_name)
-    schema = get_table_schema()
-    conn = get_db_connection()
+    if is_new_dash_physical_table(table_name):
+        validate_dashboard_data_table_name(table_name)
+        schema = get_dash_table_schema()
+        conn = get_db_connection_dash()
+    else:
+        validate_table_name(table_name)
+        schema = get_table_schema()
+        conn = get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute(
@@ -301,36 +364,46 @@ def get_table_columns_with_types(table_name):
 def get_all_tables_columns_with_types(table_names):
     """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [{ column_name, data_type }, ...] }. 테이블 수가 많을 때 분석 부하 감소용."""
     allowed = get_allowed_tables()
-    names = [t for t in (table_names or []) if t in allowed]
-    if not names:
-        return {}
-    schema = get_table_schema()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        placeholders = ", ".join(["%s"] * len(names))
-        cur.execute(
-            """
-            SELECT table_name, column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name IN (""" + placeholders + """)
-            ORDER BY table_name, ordinal_position
-            """,
-            (schema,) + tuple(names),
-        )
-        out = {}
-        for row in cur.fetchall():
-            t = row["table_name"]
-            if t not in out:
-                out[t] = []
-            out[t].append({"column_name": row["column_name"], "data_type": row["data_type"]})
-        for t in names:
-            if t not in out:
-                out[t] = []
-        return out
-    finally:
-        cur.close()
-        conn.close()
+    raw_names = [t for t in (table_names or []) if t in allowed]
+    main_names = [t for t in raw_names if not is_new_dash_physical_table(t)]
+    dash_names = [t for t in raw_names if is_new_dash_physical_table(t)]
+
+    def _fetch_batch(schema, names, conn_getter):
+        if not names:
+            return {}
+        conn = conn_getter()
+        cur = conn.cursor()
+        try:
+            placeholders = ", ".join(["%s"] * len(names))
+            cur.execute(
+                """
+                SELECT table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name IN (""" + placeholders + """)
+                ORDER BY table_name, ordinal_position
+                """,
+                (schema,) + tuple(names),
+            )
+            out = {}
+            for row in cur.fetchall():
+                t = row["table_name"]
+                if t not in out:
+                    out[t] = []
+                out[t].append({"column_name": row["column_name"], "data_type": row["data_type"]})
+            for t in names:
+                if t not in out:
+                    out[t] = []
+            return out
+        finally:
+            cur.close()
+            conn.close()
+
+    out = {}
+    if main_names:
+        out.update(_fetch_batch(get_table_schema(), main_names, get_db_connection))
+    if dash_names:
+        out.update(_fetch_batch(get_dash_table_schema(), dash_names, get_db_connection_dash))
+    return out
 
 
 # 13.
@@ -431,6 +504,51 @@ def get_db_connection_system():
 
 
 # 19.
+def get_db_connection_dash():
+    """뉴 대시보드용 dash_db 연결을 풀에서 반환. close() 시 풀 반환. 풀 고갈 시 직접 연결 fallback."""
+    global _DASH_DB_POOL
+    with _dash_pool_lock:
+        if _DASH_DB_POOL is None:
+            cfg = {**get_dash_db_config(), "cursor_factory": RealDictCursor}
+            _DASH_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
+                _POOL_MIN, _POOL_MAX, **cfg
+            )
+    try:
+        raw = _DASH_DB_POOL.getconn()
+        raw.set_client_encoding("UTF8")
+        return _PooledConnection(_DASH_DB_POOL, raw)
+    except Exception:
+        cfg = get_dash_db_config()
+        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
+        conn.set_client_encoding("UTF8")
+        return conn
+
+
+# 19a.
+def is_new_dash_physical_table(table_name: str) -> bool:
+    """ibank_1 또는 ibank_1_0~ibank_1_4 (backend.dash_db 상의 뉴 대시보드 물리 테이블)."""
+    if not table_name or not str(table_name).strip():
+        return False
+    return _NEW_DASH_PHYSICAL_TABLE_RE.match(str(table_name).strip()) is not None
+
+
+# 19b.
+def validate_dashboard_data_table_name(table_name):
+    """
+    대시보드·뉴 대시보드 API용 테이블명 검증.
+    뉴 대시보드 물리 테이블(ibank_1 계열)은 allowed_tables 없이 패턴만 검증, 그 외는 validate_table_name.
+    """
+    if not table_name:
+        raise ValueError("테이블 이름이 필요합니다")
+    name = str(table_name).strip()
+    if not re.match(r"^[a-zA-Z0-9_]+$", name):
+        raise ValueError(f"잘못된 테이블 이름: {table_name}")
+    if is_new_dash_physical_table(name):
+        return name
+    return validate_table_name(name)
+
+
+# 20.
 def format_value(value):
     """값 포맷팅 (JSON 직렬화 가능하도록)."""
     if value is None:
@@ -445,7 +563,7 @@ def format_value(value):
     return str(value)
 
 
-# 20.
+# 21.
 def validate_table_name(table_name):
     """테이블 이름 검증."""
     if not table_name:
@@ -458,7 +576,7 @@ def validate_table_name(table_name):
     return table_name
 
 
-# 21.
+# 22.
 def validate_column_name(column_name):
     """컬럼 이름 검증 (영문, 숫자, 언더스코어만 허용)."""
     if not column_name:

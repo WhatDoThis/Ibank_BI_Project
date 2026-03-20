@@ -96,12 +96,13 @@ HOUR_SLOTS = [f"{h}_{h+1}" for h in range(24)]
 
 # 4.
 def _get_sub_table(table_id: str, suffix: str) -> str:
-    """table_id에 suffix를 붙여 서브 테이블 풀네임 반환.
+    """table_id에 suffix를 붙여 서브 테이블 풀네임 반환. dash_db 사용.
     suffix: '_0', '_1', '_2', '_3', '_4'
     예: table_id='ibank_1', suffix='_0' → '"schema"."ibank_1_0"'
     """
-    table_name = db.validate_table_name(table_id.strip() + suffix)
-    schema = db.get_table_schema()
+    full_table_id = table_id.strip() + suffix
+    table_name = db.validate_dashboard_data_table_name(full_table_id)
+    schema = db.get_dash_table_schema()
     return f'"{schema}"."{table_name}"'
 
 
@@ -215,7 +216,7 @@ def member_summary(
             LIMIT 1
         """
 
-        conn = db.get_db_connection()
+        conn = db.get_db_connection_dash()
         cur = conn.cursor()
         try:
             cur.execute(query, (date_range[0], curr_end))
@@ -327,7 +328,7 @@ def delivery_demographics(
             {channel_group}
         """
 
-        conn = db.get_db_connection()
+        conn = db.get_db_connection_dash()
         cur = conn.cursor()
         try:
             cur.execute(query, (date_range[0], date_range[1]))
@@ -418,7 +419,7 @@ def hourly(
             {channel_group}
         """
 
-        conn = db.get_db_connection()
+        conn = db.get_db_connection_dash()
         cur = conn.cursor()
         try:
             cur.execute(query, (date_range[0], date_range[1]))
@@ -610,15 +611,15 @@ def trend_multi(
         if period not in ("daily", "weekly", "monthly"):
             period = "daily"
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-        table_name = db.validate_table_name(table_id.strip())
-        schema = db.get_table_schema()
+        table_name = db.validate_dashboard_data_table_name(table_id.strip())
+        schema = db.get_dash_table_schema()
         full_table = f'"{schema}"."{table_name}"'
 
         start_dt, date_expr, group_expr = _trend_multi_range(end_dt, period, days, count)
         query = _build_trend_multi_query(full_table, date_expr, group_expr, by_channel)
         params = (start_dt.isoformat(), end_dt.isoformat())
 
-        conn = db.get_db_connection()
+        conn = db.get_db_connection_dash()
         cur = conn.cursor()
         try:
             cur.execute(query, params)

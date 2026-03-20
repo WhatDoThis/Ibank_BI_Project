@@ -38,7 +38,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **뉴 대시보드**: 발송 요약·추이·회원 KPI·퍼널·채널 발송/동의·인구통계(성별·나이대·등급)·시간대 등. API /api/new-dashboard(summary, trend, trend-multi, tables, **member-summary**, **delivery-demographics**, **hourly** 등).
+- **뉴 대시보드**: 발송 요약·추이·회원 KPI·퍼널·채널 발송/동의·인구통계(성별·나이대·등급)·시간대 등. API /api/new-dashboard(summary, trend, trend-multi, tables, **member-summary**, **delivery-demographics**, **hourly** 등). 집계용 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`)은 **config.backend.dash_db**에서 조회.
 - **마케팅 대시보드**: 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이·상품 마스터(Star DB). API /api/new-dashboard2.
 - 상세는 **docs/main/00_PRD.md §6.3.2**, **01_FRONTEND_GUIDE.md §4.5.2·§4.5.3**, **02_BACKEND_GUIDE.md §4.7·§4.8**, 업그레이드 설계 **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
 
@@ -100,7 +100,8 @@ API·웹 서버 설정은 **Env/config/config.json** 에서 합니다.
 `Env/config/config.json.example` 을 복사해 `config.json` 으로 만든 뒤 값을 채우면 됩니다.
 
 - **backend**: api_host, api_port, db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema, query_timeout_seconds, claude_api_key, claude_api_url  
-  - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb** ZIP 압축 해제 총량 상한·기본 2GB) 선택
+  - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb** ZIP 압축 해제 총량 상한·기본 2GB) 선택  
+  - **뉴 대시보드**: **dash_db**(db_host, db_port, db_name, db_user, db_password, table_schema) — `ibank_1`·`ibank_1_0`~`ibank_1_4` 등 전용 DB
 - **frontend**: static_port, main_page, api_base_url, static_dir (기본: `Frontend/react-app/dist`)
 
 **.env 파일은 사용하지 않습니다.** 환경은 config.json 에만 정의합니다.
@@ -120,7 +121,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 ├── Backend/
 │   ├── api_server/     # FastAPI (리포트·대시보드)
 │   │   ├── main.py     # 앱·CORS·라우터 등록·ETL 워커 startup
-│   │   ├── db.py       # PostgreSQL 연동(비즈니스·시스템 DB)
+│   │   ├── db.py       # PostgreSQL 연동(메인·시스템·dash_db)
 │   │   ├── dependencies.py
 │   │   ├── schemas.py
 │   │   ├── dashboard_service.py
@@ -179,5 +180,5 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-20 (ETL diff·변환 룰·뉴 대시보드 API·UI 확장). |
+| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-20 (ETL diff·변환 룰·뉴 대시보드 API·UI·**dash_db**). |
 | **docs/report/** | 배포·실행 로그 등 |

@@ -11,7 +11,7 @@
 ### 1.1 역할
 
 - **FastAPI** 기반 REST API 서버. 리포트(쿼리 빌더)·대시보드1·대시보드2·**뉴 대시보드**(new_dash_server)·**마케팅 대시보드**(new_dash_server2)·**ETL**(etl_server 단일) 용 API 제공.
-- **PostgreSQL** 연동: 비즈니스 DB(리포트·대시보드·allowed_tables), 선택 시 **시스템 DB**(ETL 메타·etl_connections, etl_tables, etl_jobs 등).
+- **PostgreSQL** 연동: 비즈니스 DB(리포트·대시보드·allowed_tables), 선택 시 **시스템 DB**(ETL 메타·etl_connections, etl_tables, etl_jobs 등), **뉴 대시보드 전용 DB**(backend.dash_db — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
 
@@ -38,7 +38,7 @@
 Backend/
 ├── api_server/                    # 리포트·대시보드 API
 │   ├── main.py                    # FastAPI 앱·CORS·라우터 등록·예외 핸들러·ETL 워커 startup
-│   ├── db.py                      # config.backend 기반 DB 연결(get_connection, get_db_config, get_allowed_tables, get_db_connection_system 등)
+│   ├── db.py                      # config.backend 기반 DB 연결(get_db_config, get_allowed_tables, get_db_connection, get_db_connection_system, get_db_connection_dash 등)
 │   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
 │   ├── schemas.py                 # Pydantic 요청 스키마 (POST 바디 검증)
 │   ├── dashboard_service.py      # 대시보드1·2 집계 비즈니스 로직
@@ -91,7 +91,7 @@ Backend/
 
 - **위치**: `Env/config/config.json` (또는 config.json.example 복사 후 수정).
 - **로드**: `Env/__init__.py` → loader.load_config() → config.backend, config.frontend.
-- **백엔드 사용**: main.py(api_host, api_port), db.py(db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema), report 라우터(query_timeout_seconds, claude_api_key, claude_api_url).
+- **백엔드 사용**: main.py(api_host, api_port), db.py(db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema), report 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**(db_host, db_port, db_name, db_user, db_password, table_schema).
 
 ### 3.2 시스템 DB (ETL)
 
@@ -108,6 +108,12 @@ Backend/
 
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
 - **batch_jobs**(폴더 배치): **on_file_error** 'stop'\|'continue'(파일 1건 실패 시 run 중단 vs 다음 파일 계속). **index_definitions** JSONB(타겟 인덱스 정의).
+
+### 3.2.1 뉴 대시보드 전용 DB (dash_db)
+
+- **backend.dash_db**: 뉴 대시보드·관련 집계용 PostgreSQL. db_name 예: `ibank_dash_data`. **필수 키**는 system_db와 동일(`db_host`, `db_port`, `db_name`, `db_user`, `db_password`, 선택 `table_schema`).
+- **용도**: 물리 테이블 `ibank_1`(집계용)·`ibank_1_0`~`ibank_1_4`(서브 테이블) 조회. `db.get_db_connection_dash()`, `get_dash_table_schema()`, `is_new_dash_physical_table()`, `validate_dashboard_data_table_name()` 사용.
+- **연동**: `dashboard_service`는 `table_id`가 위 패턴이면 dash_db로 연결·스키마 적용. `new_dash_server`는 해당 테이블 조회를 dash_db 전용으로 수행. 마케팅 대시보드(new_dash_server2)의 Star DB(`backend.star_db`)와는 별개.
 
 ### 3.3 ETL 한도 (etl_limits)
 
@@ -232,6 +238,8 @@ Backend/
 
 ### 4.7 뉴 대시보드 (prefix /api/new-dashboard)
 
+- **데이터 소스**: 기본 테이블 ID `ibank_1` 및 서브 `ibank_1_0`~`ibank_1_4`는 **config.backend.dash_db**에 적재된 DB에서 조회(메인 `db_name`과 분리).
+
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
 | GET | /api/new-dashboard/summary | 기간별 요약(KPI·증감률·aggregated_data) |
@@ -270,8 +278,9 @@ Backend/
 
 ### 5.2 db.py
 
-- **get_db_config()**, **get_allowed_tables()**, **get_connection()**: config.backend 기반 비즈니스 DB 연결.
+- **get_db_config()**, **get_allowed_tables()**, **get_db_connection()**: config.backend 기반 비즈니스(메인) DB 연결.
 - **get_db_connection_system()**, **get_system_table_schema()**: backend.system_db 기반 시스템 DB(ETL 메타).
+- **get_dash_db_config()**, **get_dash_table_schema()**, **get_db_connection_dash()**, **is_new_dash_physical_table()**, **validate_dashboard_data_table_name()**: backend.dash_db 기반 뉴 대시보드 물리 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`).
 - 프레임워크 무관(Flask/FastAPI 공통) 사용.
 
 ### 5.3 dependencies.py
@@ -292,7 +301,7 @@ Backend/
 
 ### 5.6 dashboard_service.py
 
-- 대시보드1·2 집계 비즈니스 로직. db만 사용(프레임워크 무관).
+- 대시보드1·2 집계 비즈니스 로직. db만 사용(프레임워크 무관). `table_id`가 뉴 대시보드 물리 테이블(`ibank_1` 등)이면 dash_db 연결·스키마로 집계.
 
 ---
 
@@ -387,6 +396,7 @@ Backend/
 - (2026-03-06) **ZIP 한도·미리보기·배치·삭제·검증 반영**: §3.3 etl_limits에 **max_zip_extract_total_mb**(기본 2GB, ZIP bomb 방지)·add-files-zip 압축 해제 전 총량 검사. §4.6 GET preview 변환 룰·타입 캐스트 적용, PATCH clear_last_synced_at, add-files-zip ZIP 총량. §6.7 GET preview _get_preview_with_transform, PATCH clear_last_synced_at, delete_etl_table batch_jobs 연쇄 삭제, get_skipped_filenames_set·배치 스킵/에러 파일 재시도 방지, batch_executor_db apply_rules(변환 룰), transform_upsert_verification. log 2026-03-06 반영.
 - (2026-03-13) **현재 구조 반영**: ETL 단일화(etl_server2 제거, etl_server만 유지·API /api/etl·/api/etl/batch). **new_dash_server**·**new_dash_server2** 추가(§2 트리·라우터 등록 순서). §4.6 ETL prefix /api/etl로 통일, §4.7 뉴 대시보드(/api/new-dashboard), §4.8 마케팅 대시보드(/api/new-dashboard2) API 표 추가. §5.1 라우터에 new_dashboard_router, new_dash2_router. §6.7 제목 "etl_server (단일 ETL)".
 - (2026-03-20) **로그 기준 현행화**: §4.7 member-summary·delivery-demographics·hourly, §3.2 etl_tables sync_mode diff·diff_delete_orphans, §6.5 diff 행, §6.1 db_load_service·batch_executor_db diff, §6.6 transform_engine 날짜/시간 연산, §2 new_dash_server 엔드포인트 목록.
+- (2026-03-20) **dash_db(뉴 대시보드 전용 DB)**: §1.1·§3.2.1·§4.7 데이터 소스·§5.2·§5.6. `ibank_1` 계열은 backend.dash_db에서 조회.
 
 ---
 

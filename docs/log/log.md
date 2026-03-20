@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+28. 2026-03-20 docs/main·README dash_db 반영 (로그 #27 기준)
+27. 2026-03-20 뉴 대시보드 테이블 dash_db 연결 전면 적용 (ibank_1 계열)
 26. 2026-03-20 docs/main·README 현행화 (docs/log·docs/report 로그 기준)
 25. 2026-03-20 뉴 대시보드 등급 분포 도넛 표시(레이아웃)
 24. 2026-03-20 뉴 대시보드 등급 분포 도넛 복원
@@ -29,6 +31,34 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+28. 2026-03-20 docs/main·README dash_db 반영 (로그 #27 기준)
+Purpose: 로그 #27(dash_db) 이후 PRD·백엔드 가이드·README에 뉴 대시보드 전용 DB 설명을 반영.
+
+Changes:
+- `02_BACKEND_GUIDE.md`: §1.1·§3.2.1·§4.7·§5.2·§5.6·변경 이력 — dash_db·ibank_1 계열.
+- `00_PRD.md`: §3 설정·§6.3.2 뉴 대시보드 — dash_db 언급.
+- `README.md`: 뉴 대시보드·config·db.py·문서 표.
+
+Changed files:
+- docs/main/00_PRD.md
+- docs/main/02_BACKEND_GUIDE.md
+- README.md
+- docs/log/log.md
+
+27. 2026-03-20 뉴 대시보드 테이블 dash_db 연결 전면 적용 (ibank_1 계열)
+Purpose: config.json의 dash_db 설정을 사용하여 뉴 대시보드 관련 테이블(ibank_1, ibank_1_0~ibank_1_4)을 dash_db에서 로드하도록 전면 적용.
+
+Changes:
+- db.py: get_dash_db_config, get_dash_table_schema, get_db_connection_dash 추가. is_new_dash_physical_table로 ibank_1 계열 판별. validate_dashboard_data_table_name으로 대시보드 테이블명 검증(ibank_1 계열은 allowed_tables 없이 검증). get_table_columns_with_types, get_all_tables_columns_with_types에서 dash_db 분기 처리.
+- dashboard_service.py: _full_table_name에서 ibank_1 계열은 dash_db 스키마 사용. get_dashboard_data, get_filter_options, get_chart_data에서 ibank_1 계열은 dash_db 연결 사용. get_aggregatable_tables에서 ibank_1도 체크 대상에 추가.
+- new_dash_server/router.py: _get_sub_table에서 dash_db 스키마와 validate_dashboard_data_table_name 사용. 모든 DB 연결을 get_db_connection_dash로 변경. get_table_schema를 get_dash_table_schema로 변경.
+
+Changed files:
+- Backend/api_server/db.py
+- Backend/api_server/dashboard_service.py
+- Backend/new_dash_server/router.py
+- docs/log/log.md
 
 26. 2026-03-20 docs/main·README 현행화 (docs/log·docs/report 로그 기준)
 Purpose: 개발문서·README를 최신 시스템 상태(ETL diff·변환 룰·뉴 대시보드 API·UI 확장)에 맞게 갱신. 변경 이력 일일이 복사하지 않고 요약 반영.
