@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+35. 2026-03-20 member-summary 주·월 직전 스냅샷 폴백(base_date < 기간시작)
+34. 2026-03-20 docs/main 가이드 문체 정리(§4.7.1·부록 A·PRD)
+33. 2026-03-20 member-summary 주·월 직전 스냅샷 조회 범위 수정
 32. 2026-03-20 docs/main 뉴 대시보드 member-summary 계산 공식(§4.7.1)
 31. 2026-03-20 뉴 대시보드 member-summary 전환 끝점 빼기(주·월 포함)
 30. 2026-03-20 뉴 대시보드 전환 카드 표시값·안내 문구 정리
@@ -35,6 +38,43 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+35. 2026-03-20 member-summary 주·월 직전 스냅샷 폴백(base_date < 기간시작)
+Purpose: 직전 달력 구간에 일별 행이 없을 때 prev_row 가 비어 전환 KPI 가 — 로만 표시되던 경우 대비.
+
+Changes:
+- `router.py`: weekly/monthly 에서 `query_prev` 무결과 시 `base_date < date_range[0]` 최신 1건 조회. 상단 `import logging` 정리.
+
+Changed files:
+- Backend/new_dash_server/router.py
+- docs/log/log.md
+
+34. 2026-03-20 docs/main 가이드 문체 정리(§4.7.1·부록 A·PRD)
+Purpose: docs/main 본문을 현행 동작 기준 문장으로 정리, PRD §8 중복 행 통합.
+
+Changes:
+- `02_BACKEND_GUIDE.md`: §4.7.1·§6.7 db_load_service·부록 A 문장, §변경 이력 2026-03-20 한 줄로 통합.
+- `00_PRD.md` §6.3.2·§8, `01_FRONTEND_GUIDE.md` §4.5.2 한 줄.
+- `router.py` member_summary 주석 중립화.
+
+Changed files:
+- docs/main/02_BACKEND_GUIDE.md
+- docs/main/00_PRD.md
+- docs/main/01_FRONTEND_GUIDE.md
+- Backend/new_dash_server/router.py
+- docs/log/log.md
+
+33. 2026-03-20 member-summary 주·월 직전 스냅샷 조회 범위 수정
+Purpose: 주·월 `query_prev` 상한을 직전 기간 전체(`prev_range[1]`)로 통일, §4.7.1 문구 반영.
+
+Changes:
+- `router.py`: `query_prev` 상한 — 일간 `prev_end`, 주·월 `prev_range[1]`.
+- `02_BACKEND_GUIDE.md` §4.7.1 스냅샷 선택.
+
+Changed files:
+- Backend/new_dash_server/router.py
+- docs/main/02_BACKEND_GUIDE.md
+- docs/log/log.md
 
 32. 2026-03-20 docs/main 뉴 대시보드 member-summary 계산 공식(§4.7.1)
 Purpose: 뉴 대시보드 회원 KPI·전환·분포의 계산 원칙을 docs/main에 명문화.

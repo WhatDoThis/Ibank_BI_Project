@@ -259,11 +259,12 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 - 일별 `increased_count` / `decreased_count`를 **기간에 대해 SUM 하지 않는다.** 컬럼 정의가 이벤트 건수·전일 대비 등으로 달라질 수 있어 합산은 오해 소지가 있다.
 - `total_recipients`가 **일별 잔액(말일·말 시점 총원)** 이라는 전제에서, **기간 순증감**은 **`기간 말 총원 − 직전 동일 단위 기간 말 총원`** 한 번의 뺄셈으로 정한다.
 
-**스냅샷 row 선택 (일간 / 주간 / 월간 공통)**
+**스냅샷 row 선택**
 
-- `period`: `daily` | `weekly` | `monthly`, `target_date`(기준일)로 `date_range`·`prev_range`를 계산하고, 상한은 `_snapshot_end_clamped` / `_snapshot_prev_end_clamped`로 클램프한다.
-- 각 구간 `[시작일, 상한일]` 안에서 `base_date` 기준 **가장 늦은 날 1건**만 사용한다: `ORDER BY base_date DESC LIMIT 1`.
-- **진행 중인 주·월**: 이론적 주·월 말일이 아니라, **선택일·데이터 존재 범위**에 맞게 위 상한이 줄어든다.
+- **현재 기간(base)**: `date_range`·`curr_end = _snapshot_end_clamped(...)` 로 `[시작, 상한]` 안에서 `base_date` **최신 1건** (`ORDER BY base_date DESC LIMIT 1`). **진행 중인 주·월**은 상한이 `target_date` 등으로 줄어든다.
+- **직전 기간(compare)**:
+  - **일간**: 직전일 구간 — 상한 `_snapshot_prev_end_clamped` (전일까지).
+  - **주간·월간**: 비교 스냅샷은 **직전 기간** `[prev_range[0], prev_range[1]]` 구간에서 `base_date` **최신 1건**을 고른다.
 
 **지표별 정의**
 
@@ -405,7 +406,7 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 - **router_file.py**: GET/POST /batch/jobs, **POST /batch/jobs/from-etl-table**(ETL 테이블 기반 배치 등록·etl_table.status=done 검증·last_synced_at 초기 세팅), target-registry, validate-target, run/now, history, get-run-detail, skipped-files, rollback. list_folder_columns 시 CSV는 download_file_head만.
 - **service.py**: get_target_db_connection, list_target_tables, list_target_columns, list_storage_connections, create_etl_table(**index_definitions**), update_etl_table, delete_etl_table. **claim_next_pending_job** finally에서 close 전 rollback-safe. **_sys_cursor** context manager(새 함수 권장).
 - **service_file.py**: batch_jobs(**on_file_error**, **index_definitions**)·batch_folder_connections·batch_run_history·etl_batch_target_registry. create_batch_job(중복 검사), delete_batch_job(FK 순서), update_run_progress, finish_run, create_batch_run.
-- **db_load_service.py**: get_source_indexes(_fetch_source_indexes_pg/mysql/oracle), **_create_indexes_on_target**. run_db_load 상단 conn 초기화·except/finally에서 close; non-streaming 경로 conn_main finally close; non-streaming rows_processed 조기 반환 버그 방지.
+- **db_load_service.py**: get_source_indexes(_fetch_source_indexes_pg/mysql/oracle), **_create_indexes_on_target**. run_db_load 상단 conn 초기화·except/finally에서 close; non-streaming 경로 conn_main finally close; non-streaming 경로에서 rows_processed 조기 반환 시 건수 누락을 막는 분기.
 - **load_service.py**: run_file_load·run_file_upsert 변수 **etl_row**(row shadowing 방지). CSV 시 **csv_reader.read_csv_robust**. commit 후 index_definitions 있으면 _create_indexes_on_target.
 - **load_service_file.py**: load_dataframe(**index_definitions**)·테이블 **없을 때** 생성 직후에도 PK가 있으면 _batch_upsert 사용(duplicate key 방지). _batch_upsert(IS DISTINCT FROM·inserted_this_batch==len이면 UPDATE 스킵). add_allowed_table은 storage_connection_id 없을 때만.
 - **batch_executor_db.py**: run_db_batch_job. **pk_columns 미설정 시** 소스 DB에서 **_fetch_source_pk**로 PK 자동 조회 후 load_dataframe에 전달. **sync_mode=diff** 시 `_run_diff_sync`(is_batch=True). run_table_load 전 diff 사전 검증(14번 설계서).
@@ -432,15 +433,13 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 - (2026-03-04) **from-etl-table·status=done·last_synced_at·적재 안정성**: §2 batch_executor_db.py 명시. §4.6 POST /jobs/from-etl-table·status=done 검증·last_synced_at 초기 세팅. §6.7 router_file from-etl-table, load_service_file 테이블 없음+PK 시 upsert, batch_executor_db _fetch_source_pk. log 2026-03-04 반영.
 - (2026-03-06) **ZIP 한도·미리보기·배치·삭제·검증 반영**: §3.3 etl_limits에 **max_zip_extract_total_mb**(기본 2GB, ZIP bomb 방지)·add-files-zip 압축 해제 전 총량 검사. §4.6 GET preview 변환 룰·타입 캐스트 적용, PATCH clear_last_synced_at, add-files-zip ZIP 총량. §6.7 GET preview _get_preview_with_transform, PATCH clear_last_synced_at, delete_etl_table batch_jobs 연쇄 삭제, get_skipped_filenames_set·배치 스킵/에러 파일 재시도 방지, batch_executor_db apply_rules(변환 룰), transform_upsert_verification. log 2026-03-06 반영.
 - (2026-03-13) **현재 구조 반영**: ETL 단일화(etl_server2 제거, etl_server만 유지·API /api/etl·/api/etl/batch). **new_dash_server**·**new_dash_server2** 추가(§2 트리·라우터 등록 순서). §4.6 ETL prefix /api/etl로 통일, §4.7 뉴 대시보드(/api/new-dashboard), §4.8 마케팅 대시보드(/api/new-dashboard2) API 표 추가. §5.1 라우터에 new_dashboard_router, new_dash2_router. §6.7 제목 "etl_server (단일 ETL)".
-- (2026-03-20) **로그 기준 현행화**: §4.7 member-summary·delivery-demographics·hourly, §3.2 etl_tables sync_mode diff·diff_delete_orphans, §6.5 diff 행, §6.1 db_load_service·batch_executor_db diff, §6.6 transform_engine 날짜/시간 연산, §2 new_dash_server 엔드포인트 목록.
-- (2026-03-20) **dash_db(뉴 대시보드 전용 DB)**: §1.1·§3.2.1·§4.7 데이터 소스·§5.2·§5.6. `ibank_1` 계열은 backend.dash_db에서 조회.
-- (2026-03-20) **§4.7.1 member-summary 계산 공식**: 끝점 빼기·일/주/월 스냅샷 선택·전환=총원 순증감·분포는 base만.
+- (2026-03-20) **뉴 대시보드·dash_db·ETL diff 현행화**: §1.1·§3.2.1·§4.7·§5.2·§5.6 dash_db·`ibank_1` 계열. §4.7 엔드포인트·member-summary·delivery-demographics·hourly. §4.7.1 member-summary 계산(끝점 빼기·일/주/월·전환·분포). §3.2 etl_tables sync_mode diff·§6.5 diff·§6.1·§6.6.
 
 ---
 
-## 부록 A. Flask → FastAPI 전환 계획 (참고)
+## 부록 A. Flask → FastAPI 전환 요약 (참고)
 
-아래는 과거 **마이그레이션 계획** 요약. 전환은 완료된 상태이며, 구조 이해·롤백 시 참고용.
+운영 백엔드는 FastAPI 기준이다. 아래는 전환 당시 구조 정리·참고용 요약이다.
 
 ### A.1 목적·원칙
 

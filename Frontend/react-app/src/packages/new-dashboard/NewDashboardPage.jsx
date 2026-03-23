@@ -223,7 +223,7 @@ export default function NewDashboardPage() {
                   />
                 </div>
                 <div className="nd-two-col__right">
-                  <h2 className="nd-section__title">채널별 동의 현황</h2>
+                  <h2 className="nd-section__title">마켓팅 수신 동의 현황</h2>
                   {memberData ? (
                     <ChannelConsentBars
                       optIn={memberData.opt_in}

@@ -8,7 +8,7 @@ Backend.new_dash_server.router (뉴 대시보드 API 라우터)
 _calc_date_range, _calc_previous_range, _calc_change_pct: 기간·증감률
 _get_sub_table, _sub_table_date_col: 서브 테이블(_0~_4) 풀네임·날짜 컬럼명
 _snapshot_end_clamped, _snapshot_prev_end_clamped, _row_date_iso: member-summary 스냅샷 일자 정렬
-member-summary member_net_flow: 기간 말 total_recipients 끝점 빼기(일/주/월 공통, inc/dec 합산 없음)
+member-summary member_net_flow: 기간 말 total_recipients 끝점 빼기; 주·월에서 직전 구간 무행 시 date_range[0] 이전 최신 1건 폴백
 _trend_multi_range: period별 start_dt, date_expr, group_expr
 _build_trend_multi_query: trend-multi 단일 쿼리 생성 (by_channel 분기)
 
@@ -29,6 +29,7 @@ GET /api/new-dashboard/hourly — 시간대별 집계 (success|open|click)
 """
 
 import calendar
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -203,6 +204,8 @@ def member_summary(
         # 스냅샷: 기간말만 보던 것을 target_date(및 이전기간 대응일)까지로 제한해 헤더 일자와 불일치 방지
         curr_end = _snapshot_end_clamped(date_range, target_date)
         prev_end = _snapshot_prev_end_clamped(prev_range, target_date, period)
+        # 직전 기간 compare 행: daily는 prev_end까지. weekly/monthly는 직전 기간 상한 prev_range[1]까지 조회.
+        prev_query_end = prev_range[1] if period in ("weekly", "monthly") else prev_end
 
         query = f"""
             SELECT * FROM {full_table}
@@ -222,16 +225,31 @@ def member_summary(
         try:
             cur.execute(query, (date_range[0], curr_end))
             row = cur.fetchone()
-            cur.execute(query_prev, (prev_range[0], prev_end))
+            cur.execute(query_prev, (prev_range[0], prev_query_end))
             prev_row = cur.fetchone()
+            # 주·월: 직전 달력 구간에 일별 행이 없으면(월말만 적재 등) prev_row 가 비어 전환이 — 가 됨 → 현재 기간 시작일 이전 전체에서 최신 1건
+            if prev_row is None and period in ("weekly", "monthly"):
+                fb = f"""
+                    SELECT * FROM {full_table}
+                    WHERE {date_col} < %s
+                    ORDER BY {date_col} DESC
+                    LIMIT 1
+                """
+                cur.execute(fb, (date_range[0],))
+                prev_row = cur.fetchone()
+                if prev_row is not None:
+                    logging.getLogger(__name__).info(
+                        "member-summary: prev_range empty; using fallback base_date < %s",
+                        date_range[0],
+                    )
         finally:
             cur.close()
             conn.close()
 
         if not row:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"member-summary: {full_table}에서 {date_range} 기간 데이터 없음")
+            logging.getLogger(__name__).warning(
+                "member-summary: %s 에서 %s 기간 데이터 없음", full_table, date_range
+            )
             return JSONResponse(status_code=404, content={"error": "해당 기간 데이터 없음"})
 
         total = row.get("total_recipients") or 0
