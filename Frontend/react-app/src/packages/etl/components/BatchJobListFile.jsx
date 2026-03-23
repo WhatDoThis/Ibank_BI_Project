@@ -20,7 +20,7 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListJobs, batchToggleJob, batchRunJobNow, batchDeleteJob)
+ * - React, @/packages/etl/api/etlClient.js (batchListJobs, batchToggleJob, batchRunJobNow, batchDeleteJob)
  * - etl.css (etl-db-form__table, etl-db-form__status--*)
  */
 
@@ -32,7 +32,7 @@ import {
   batchDeleteJob,
   batchUpdateJob,
   batchGetJobDbPreview,
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 import SkippedFilesPanelFile from './SkippedFilesPanelFile';
 import '../etl.css';
 

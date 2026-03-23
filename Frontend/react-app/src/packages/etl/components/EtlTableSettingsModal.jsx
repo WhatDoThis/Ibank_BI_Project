@@ -11,11 +11,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2UpdateTable, etl2GetSourceColumns, etl2ValidateIncrementalColumn)
+ * - React, @/packages/etl/api/etlClient.js (etl2UpdateTable, etl2GetSourceColumns, etl2ValidateIncrementalColumn)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { etl2UpdateTable, etl2GetSourceColumns, etl2ValidateIncrementalColumn, etl2RefreshColumnMapping } from '@/shared/api/client';
+import { etl2UpdateTable, etl2GetSourceColumns, etl2ValidateIncrementalColumn, etl2RefreshColumnMapping } from '@/packages/etl/api/etlClient.js';
 
 // 1.
 function isDateType(dataType) {

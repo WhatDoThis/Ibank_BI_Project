@@ -14,8 +14,7 @@
  * 6. useNewDash2Data → { data, loading, error, refresh, summaryData, summaryLoading, getCachedData }
  *
  * [Dependencies]
- * - @/shared/api/client: getNewDash2Overview, getNewDash2Trend, getNewDash2Star,
- *   getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store
+ * - @/packages/new-dashboard2/api/newDashboard2Client
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -27,7 +26,7 @@ import {
   getNewDash2Coupon,
   getNewDash2CampaignSegments,
   getNewDash2Store,
-} from '@/shared/api/client'
+} from '@/packages/new-dashboard2/api/newDashboard2Client.js'
 
 // 1.
 function getPreviousTargetDate(targetDate, period) {

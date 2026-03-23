@@ -9,11 +9,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/config/api (getApiBase), @/shared/api/client (health, listTables, describeTable)
+ * - React, @/shared/config/api (getApiBase), @/packages/report/api/reportClient.js (health, listTables, describeTable)
  */
 import { useState, useCallback } from 'react'
 import { getApiBase } from '@/shared/config/api'
-import { health, listTables, describeTable } from '@/shared/api/client'
+import { health, listTables, describeTable } from '@/packages/report/api/reportClient.js'
 
 // 1.
 export function useReportData() {

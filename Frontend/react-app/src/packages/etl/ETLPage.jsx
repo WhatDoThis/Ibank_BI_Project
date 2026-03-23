@@ -10,14 +10,14 @@
  *
  * [Dependencies]
  * =========
- * - React, etl/components, @/shared/api/client (etl2ListJobs, etl2RunTable, etl2GetJob, etl2CancelJob)
+ * - React, etl/components, @/packages/etl/api/etlClient.js (etl2ListJobs, etl2RunTable, etl2GetJob, etl2CancelJob)
  * - folder 탭: FolderConnectionFormFile, FolderConnectionListFile, BatchJobFormFile, BatchJobListFile, 실행 이력 모달(BatchHistoryPanelFile, BatchHistoryDetailFile)
  * - 처음 사용하시나요: 탭별 사용 순서 + 폴더 탭 시 "폴더에 파일 올릴 때 확인할 점"(용량·행수·파일명·인코딩 등) 안내
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { etl2RunTable, etl2GetJob, etl2CancelJob, etl2ListJobs, etl2PreviewTable, etl2TargetExists, etl2DeleteJob } from '@/shared/api/client';
+import { etl2RunTable, etl2GetJob, etl2CancelJob, etl2ListJobs, etl2PreviewTable, etl2TargetExists, etl2DeleteJob } from '@/packages/etl/api/etlClient.js';
 import SourceTypeSelector from './components/SourceTypeSelector';
 import FileUploadForm from './components/FileUploadForm';
 import DbConnectionForm from './components/DbConnectionForm';

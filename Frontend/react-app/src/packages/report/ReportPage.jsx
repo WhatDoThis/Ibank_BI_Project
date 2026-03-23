@@ -11,12 +11,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client, @/shared/config/api, report/utils (sqlBuilder, joinRules, safetyCheck, constants), report/components (Sidebar, MainArea)
+ * - React, @/packages/report/api/reportClient.js, @/shared/config/api, report/utils (sqlBuilder, joinRules, safetyCheck, constants), report/components (Sidebar, MainArea)
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './report.css'
-import { listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/shared/api/client'
+import { listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/report/api/reportClient.js'
 import { useReportData } from './hooks/useReportData'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'

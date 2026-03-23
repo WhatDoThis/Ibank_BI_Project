@@ -36,16 +36,17 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가(각 파일 최대 50MB·ZIP 전체 최대 2GB)·건너뛴 파일 목록.
 - **ETL 사용 시** config에 backend.system_db, backend.etl_limits 선택. 상세는 **docs/main/00_PRD.md §6.3·§6.3.1**, **02_BACKEND_GUIDE.md §3·§6**.
 
-### 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
+### 뉴 대시보드 (/new-dashboard) · 캠페인 대시보드 (/campaign-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **뉴 대시보드**: 발송 요약·추이·회원 KPI·퍼널·채널 발송/동의·인구통계(성별·나이대·등급)·시간대 등. API /api/new-dashboard(summary, trend, trend-multi, tables, **member-summary**, **delivery-demographics**, **hourly** 등). 집계용 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`)은 **config.backend.dash_db**에서 조회.
-- **마케팅 대시보드**: 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이·상품 마스터(Star DB). API /api/new-dashboard2.
-- 상세는 **docs/main/00_PRD.md §6.3.2**, **01_FRONTEND_GUIDE.md §4.5.2·§4.5.3**, **02_BACKEND_GUIDE.md §4.7·§4.8**, 업그레이드 설계 **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
+- **뉴 대시보드**: 발송 요약·추이·회원 KPI·퍼널·채널·인구통계·시간대 등. API `/api/new-dashboard`. 집계 테이블 `ibank_1`, `ibank_1_0`~`ibank_1_4`는 **config.backend.dash_db**.
+- **캠페인 대시보드**: 화면·API 형태는 뉴 대시보드와 동일. 데이터는 Star 물리 테이블(`ibank_*_star_1`, `ibank_*_star_2`). API `/api/campaign-dashboard`.
+- **마케팅 대시보드**: 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이·상품 마스터(Star DB). API `/api/new-dashboard2`.
+- 상세는 **docs/main/00_PRD.md §6.3.2**, **01_FRONTEND_GUIDE.md §4.5.2·§4.5.2b·§4.5.3**, **02_BACKEND_GUIDE.md §4.7·§4.7.2·§4.8**. 컬럼·JSONB 매핑 보조: **docs/report/15_New_Dashboard_Upgrade_Plan.md**, **docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md**.
 
 ### 공통
 
 - **설정**: 환경은 `Env/config/config.json` 만 사용(.env 미사용).
-- **API**: FastAPI(health, report API, dashboard API, dashboard2 API, **ETL API**), PostgreSQL 연동. 리포트: join-order, save-query-as-table·status 등.
+- **API**: FastAPI(health, report, dashboard, dashboard2, 뉴/캠페인/마케팅 대시보드, **ETL**), PostgreSQL 연동. 리포트: join-order, save-query-as-table·status 등.
 
 ---
 
@@ -75,7 +76,7 @@ npm install
 `start.bat` 실행 시 API 서버·웹 서버가 각각 새 창에서 실행됩니다.
 
 - API: http://localhost:5001  
-- 웹: http://localhost:8080/ibank-bi/ (리포트 `/ibank-bi/report`, 대시보드 `/ibank-bi/dashboard`, 대시보드2 `/ibank-bi/dashboard2`, 뉴 대시보드 `/ibank-bi/new-dashboard`, 마케팅 대시보드 `/ibank-bi/new-dashboard2`, 위젯보드 `/ibank-bi/widgetboard`, ETL `/ibank-bi/etl`)
+- 웹: http://localhost:8080/ibank-bi/ — `report`, `dashboard`, `dashboard2`, `new-dashboard`, `campaign-dashboard`, `new-dashboard2`, `widgetboard`, `etl`
 
 **방법 B – 터미널에서 분리 실행**
 
@@ -101,7 +102,7 @@ API·웹 서버 설정은 **Env/config/config.json** 에서 합니다.
 
 - **backend**: api_host, api_port, db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema, query_timeout_seconds, claude_api_key, claude_api_url  
   - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb** ZIP 압축 해제 총량 상한·기본 2GB) 선택  
-  - **뉴 대시보드**: **dash_db**(db_host, db_port, db_name, db_user, db_password, table_schema) — `ibank_1`·`ibank_1_0`~`ibank_1_4` 등 전용 DB
+  - **뉴 대시보드·캠페인 대시보드**: **dash_db** — `ibank_1` / `ibank_1_*` / `ibank_*_star_1|2` 등 집계용 물리 테이블
 - **frontend**: static_port, main_page, api_base_url, static_dir (기본: `Frontend/react-app/dist`)
 
 **.env 파일은 사용하지 않습니다.** 환경은 config.json 에만 정의합니다.
@@ -114,42 +115,47 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 ```
 프로젝트 루트/
-├── run.py              # 진입점 (back | front | serve)
-├── start.bat           # API·웹 서버 한 번에 실행 (Windows)
+├── run.py
+├── start.bat
 ├── requirements.txt
 ├── README.md
+├── docs/
+│   ├── main/           # 00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE (현행 동작 가이드)
+│   ├── log/            # log.md (작업 이력)
+│   ├── report/         # 보조 설계·배포·체크리스트
+│   └── README.md       # docs 폴더 안내
 ├── Backend/
-│   ├── api_server/     # FastAPI (리포트·대시보드)
-│   │   ├── main.py     # 앱·CORS·라우터 등록·ETL 워커 startup
-│   │   ├── db.py       # PostgreSQL 연동(메인·시스템·dash_db)
-│   │   ├── dependencies.py
-│   │   ├── schemas.py
+│   ├── api_server/           # FastAPI 앱·health·report·dashboard·dashboard2·라우터 조립
+│   │   ├── main.py
+│   │   ├── db.py
 │   │   ├── dashboard_service.py
-│   │   └── routers/    # health, report, dashboard, dashboard2
-│   ├── etl_server/     # ETL API (단일)·메타·저장 DB·폴더/DB 배치·Job 큐 (/api/etl, /api/etl/batch)
-│   ├── new_dash_server/   # 뉴 대시보드 API (/api/new-dashboard)
-│   └── new_dash_server2/  # 마케팅 대시보드 API (/api/new-dashboard2)
+│   │   └── routers/
+│   ├── etl_server/           # /api/etl, /api/etl/batch (단일 ETL)
+│   ├── new_dash_server/      # /api/new-dashboard
+│   ├── campaign_dash_server/ # /api/campaign-dashboard (Star 테이블)
+│   └── new_dash_server2/     # /api/new-dashboard2 (Star DB)
 ├── Frontend/
-│   ├── react-app/      # React(Vite) 단일 앱, base /ibank-bi/
+│   ├── react-app/
 │   │   ├── src/
 │   │   │   ├── App.jsx
-│   │   │   └── packages/
-│   │   │       ├── report/      # 쿼리 빌더
-│   │   │       ├── dashboard/   # 대시보드1
-│   │   │       ├── dashboard2/  # 성과리포트
-│   │   │       ├── widgetboard/ # 위젯보드
-│   │   │       ├── new-dashboard/   # 뉴 대시보드
-│   │   │       ├── new-dashboard2/  # 마케팅 대시보드
-│   │   │       ├── etl/         # ETL (단일: 파일·DB·저장 DB·폴더/DB 배치)
-│   │   │       └── shared/      # api/client.js, config, PeriodLabel 등
-│   │   ├── index.html
-│   │   └── dist/       # npm run build 결과 (정적 서버가 서빙)
-│   └── static_server/  # 정적 HTTP 서버 (SPA fallback, api-config.js 주입)
+│   │   │   ├── app/              # navConfig.js, routes.jsx
+│   │   │   ├── packages/
+│   │   │   │   ├── report/          # api/reportClient.js
+│   │   │   │   ├── dashboard/       # api/dashboardClient.js, utils/dateRange, PeriodLabel
+│   │   │   │   ├── dashboard2/
+│   │   │   │   ├── widgetboard/
+│   │   │   │   ├── new-dashboard/
+│   │   │   │   ├── campaign_dashboard/
+│   │   │   │   ├── new-dashboard2/
+│   │   │   │   └── etl/             # api/etlClient.js
+│   │   │   └── shared/              # api/http.js, config/api.js
+│   │   └── dist/
+│   └── static_server/
 └── Env/
-    └── config/         # config.json, config.json.example, loader.py
+    └── config/
 ```
 
-상세 디렉터리·패키지·API 명세는 **docs/main** (00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md) 참고.
+상세 경로·엔드포인트는 **docs/main** (00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md) 참고.
 
 ---
 
@@ -172,7 +178,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 - **대시보드2**: `/ibank-bi/dashboard2` — 성과리포트, 주간/월간/일간/연간 비교, 디멘션별 비교/요약 토글  
 - **위젯보드**: `/ibank-bi/widgetboard` — 드래그 앤 드롭 위젯 그리드  
 - **ETL**: `/ibank-bi/etl` — 탭(파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력). 저장 DB·테이블선택 및 컬럼매핑·설정 모달. DB 탭: ETL 테이블 등록 → 실행(적재 완료) 후 **배치설정**으로 주기 배치 등록. 폴더 탭: SFTP/S3·파일 패턴·배치 Job·이력.  
-- **뉴 대시보드**: `/ibank-bi/new-dashboard` — 요약·추이·캠페인 순위. **마케팅 대시보드**: `/ibank-bi/new-dashboard2` — 종합현황·별·프리퀀시·쿠폰·캠페인·매장·추이.  
+- **뉴 대시보드**: `/ibank-bi/new-dashboard` — 요약·추이·회원·퍼널 등. **캠페인 대시보드**: `/ibank-bi/campaign-dashboard` — 동일 UI·Star 테이블 데이터. **마케팅 대시보드**: `/ibank-bi/new-dashboard2` — 종합현황·별·프리퀀시·쿠폰·캠페인·매장·추이.
 
 ---
 
@@ -180,5 +186,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 개발 명세 (00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE). 최종 반영: 2026-03-20 (ETL diff·변환 룰·뉴 대시보드 API·UI·**dash_db**). |
-| **docs/report/** | 배포·실행 로그 등 |
+| **docs/main/** | 현행 시스템 가이드: 00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md |
+| **docs/README.md** | docs 폴더 구성( main / log / report ) |
+| **docs/log/log.md** | 작업 이력(목적·변경 파일) |
+| **docs/report/** | 배포·보조 설계·체크리스트(동작 정의는 docs/main 우선) |

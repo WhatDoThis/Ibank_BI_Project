@@ -10,11 +10,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListJobs, etl2DeleteJob)
+ * - React, @/packages/etl/api/etlClient.js (etl2ListJobs, etl2DeleteJob)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { etl2ListJobs, etl2DeleteJob } from '@/shared/api/client';
+import { etl2ListJobs, etl2DeleteJob } from '@/packages/etl/api/etlClient.js';
 
 const STATUS_OPTIONS = [
   { value: 'completed', label: '완료' },

@@ -67,7 +67,7 @@ def get_aggregatable_tables():
     """allowed_tables 중 필수 컬럼을 모두 가지고, 각 컬럼 타입이 허용 타입인 테이블만 반환 (대시보드 셀렉트용). ibank_1 계열도 dash_db에서 체크."""
     allowed = db.get_allowed_tables()
     # 뉴 대시보드 물리 테이블(ibank_1)도 체크 대상에 추가 (allowed_tables에 없어도 dash_db에서 조회)
-    dash_candidates = ["ibank_1"]
+    dash_candidates = ["ibank_1", "ibank_1_star_1"]
     all_candidates = sorted(set(allowed) | set(dash_candidates))
     required_count = len(DASHBOARD_REQUIRED_COLUMNS)
     result = []

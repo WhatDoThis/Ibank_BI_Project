@@ -15,12 +15,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client, @/shared/utils/dateRange, @/shared/components/PeriodLabel, dashboard2/utils/periodCompare, dashboard2/components
+ * - React, dashboard2/api/dashboard2Client, dashboard/utils/dateRange, dashboard/components/PeriodLabel, dashboard2/utils/periodCompare
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getDashboard2Data, getDashboard2FilterOptions, getDashboard2Tables, getDashboard2ChartData } from '@/shared/api/client'
-import { normalizeDateRange } from '@/shared/utils/dateRange'
+import { getDashboard2Data, getDashboard2FilterOptions, getDashboard2Tables, getDashboard2ChartData } from '@/packages/dashboard2/api/dashboard2Client.js'
+import { normalizeDateRange } from '@/packages/dashboard/utils/dateRange.js'
 import { getWeekRange, getMonthRange, getPreviousWeekRange, getPreviousMonthRange, getPreviousDay, getYearRange, getPreviousYearRange } from './utils/periodCompare'
 import './dashboard2.css'
 import Dashboard2Header from './components/Dashboard2Header'
@@ -31,7 +31,7 @@ import AggregatedBarChart2 from './components/AggregatedBarChart2'
 import AggregatedDataTable2 from './components/AggregatedDataTable2'
 import TargetContextSection from './components/TargetContextSection'
 import EChartsChart from './components/EChartsChart'
-import PeriodLabel from '@/shared/components/PeriodLabel'
+import PeriodLabel from '@/packages/dashboard/components/PeriodLabel.jsx'
 
 const TARGETS_STORAGE_KEY = 'dashboard2_targets'
 

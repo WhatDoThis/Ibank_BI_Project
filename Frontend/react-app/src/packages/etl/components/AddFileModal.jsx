@@ -9,11 +9,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2AddFileToTable, etl2AddFilesZipToTable)
+ * - React, @/packages/etl/api/etlClient.js (etl2AddFileToTable, etl2AddFilesZipToTable)
  */
 
 import { useState, useRef } from 'react';
-import { etl2AddFileToTable, etl2AddFilesZipToTable } from '@/shared/api/client';
+import { etl2AddFileToTable, etl2AddFilesZipToTable } from '@/packages/etl/api/etlClient.js';
 
 const ACCEPT_SINGLE = '.csv,.xlsx,.xls,.parquet';
 const ACCEPT_ZIP = '.zip';

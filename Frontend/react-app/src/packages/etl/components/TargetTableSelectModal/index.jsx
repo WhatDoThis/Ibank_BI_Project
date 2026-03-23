@@ -10,11 +10,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client, ../utils/storageDb, ./constants, ./TableSelector, ./ColumnMappingSection, ./PreviewSection
+ * - React, @/packages/etl/api/etlClient.js, ../utils/storageDb, ./constants, ./TableSelector, ./ColumnMappingSection, ./PreviewSection
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { etl2ListTargetTables, etl2ListTargetColumns, etl2ListTransformRules, etl2CreateTransformRule, etl2DeleteTransformRule, etl2TransformPreview, etl2ListTimezones } from '@/shared/api/client';
+import { etl2ListTargetTables, etl2ListTargetColumns, etl2ListTransformRules, etl2CreateTransformRule, etl2DeleteTransformRule, etl2TransformPreview, etl2ListTimezones } from '@/packages/etl/api/etlClient.js';
 import { normalizeStorageConnectionId } from '../../utils/storageDb.js';
 import { normalizeSourceCol, NEW_TABLE_VALUE, getOnErrorValue, inferredTypeToPg, parsePkColumns, isTypeCompatible } from './constants.js';
 import { TableSelector } from './TableSelector.jsx';

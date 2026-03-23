@@ -1,6 +1,10 @@
 # Log
 
 ## Log Index
+39. 2026-03-23 docs/main·README·docs/README 아키텍처·캠페인 대시보드 반영
+38. 2026-03-23 프론트 API 패키지 분리·라우트 모듈화(shared client 제거)
+37. 2026-03-23 캠페인 대시보드 구현(campaign_dash_server·campaign_dashboard)
+36. 2026-03-23 캠페인 대시보드 Star 스키마 계획서(16)·Report 인덱스
 35. 2026-03-20 member-summary 주·월 직전 스냅샷 폴백(base_date < 기간시작)
 34. 2026-03-20 docs/main 가이드 문체 정리(§4.7.1·부록 A·PRD)
 33. 2026-03-20 member-summary 주·월 직전 스냅샷 조회 범위 수정
@@ -38,6 +42,56 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+39. 2026-03-23 docs/main·README·docs/README 아키텍처·캠페인 대시보드 반영
+Purpose: docs/main 을 현행 가이드로 통일(캠페인 대시보드·campaign_dash_server·패키지 API·트리). 날짜별 타임라인 제거·docs/report 역할 명시. 루트 README·docs/README 갱신.
+
+Changes:
+
+- 00_PRD: 캠페인 대시보드·접속 경로·§8 문서 이력 단순화·PeriodLabel 경로
+- 01_FRONTEND_GUIDE: §7 변경 이력 제거·현행 구조만
+- 02_BACKEND_GUIDE: campaign_dash_server 트리·§4.7.2·라우터 순서·§5.1·잘못된 §4.8 하위 문단 제거·문서 이력 단순화
+- docs/README.md: main / log / report 역할 정리
+- README.md: 프로젝트 트리·캠페인 경로·문서 표
+
+Changed files: docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/README.md, README.md, docs/log/log.md
+
+38. 2026-03-23 프론트 API 패키지 분리·라우트 모듈화(shared client 제거)
+Purpose: shared/api/client.js 단일 집약을 제거하고 패키지별 api/*Client.js + shared/api/http.js 로 분리. 대시보드 전용 dateRange·PeriodLabel은 packages/dashboard 로 이동.
+
+Changes:
+
+- 신규: shared/api/http.js, packages/*/api/*Client.js(report, dashboard, dashboard2, new-dashboard, campaign_dashboard, new-dashboard2, etl), app/navConfig.js, app/routes.jsx
+- App.jsx: 네비·Route를 app 모듈로 위임
+- 삭제: shared/api/client.js, shared/utils/dateRange.js, shared/components/PeriodLabel.jsx
+- 문서: docs/main/01_FRONTEND_GUIDE.md, .cursor/skills/api-client-sync/SKILL.md, docs/report/16 Phase2 표·표 내 client.js 잔여 문구
+- report·dashboard·dashboard2·widgetboard 일부 파일 상단 [Dependencies]를 실제 import(*Client.js·dashboard/dateRange)에 맞게 정리
+
+Changed files: Frontend/react-app/src/shared/api/http.js, Frontend/react-app/src/app/*, Frontend/react-app/src/App.jsx, Frontend/react-app/src/packages/**/api/*.js, Frontend/react-app/src/packages/report/ReportPage.jsx·hooks/useReportData.js, Frontend/react-app/src/packages/widgetboard/Dashboard3Page.jsx, Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx·ChartWidget2.jsx·DashboardHeader.jsx, Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx, 다수 패키지 import 경로, docs/main/01_FRONTEND_GUIDE.md, .cursor/skills/api-client-sync/SKILL.md, docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md, docs/log/log.md
+
+37. 2026-03-23 캠페인 대시보드 구현(campaign_dash_server·campaign_dashboard)
+Purpose: docs/report/16 계획에 따라 Star JSONB 테이블(ibank_*_star_1/2) 전용 API·UI를 뉴 대시보드와 동형으로 추가.
+
+Changes:
+
+- Backend/campaign_dash_server: `/api/campaign-dashboard` 라우터(summary·trend·trend-multi·tables·member-summary·delivery-demographics·hourly). table_id는 `*_star_1` 고정, 회원은 `_star_2` 매핑.
+- db.py: `is_new_dash_physical_table`에 `ibank_*_star_1|2` 패턴. dashboard_service: `get_aggregatable_tables` dash 후보에 `ibank_1_star_1`.
+- main.py: campaign_dashboard_router 등록.
+- shared/api/client.js: getCampaignDashboard* 함수군.
+- packages/campaign_dashboard: new-dashboard 복사본·CampaignDashboardPage·`/campaign-dashboard` 전용.
+- App.jsx: 네비·Route 추가.
+
+Changed files: Backend/campaign_dash_server/__init__.py, Backend/campaign_dash_server/router.py, Backend/api_server/db.py, Backend/api_server/dashboard_service.py, Backend/api_server/main.py, Frontend/react-app/src/shared/api/client.js, Frontend/react-app/src/packages/campaign_dashboard/**, Frontend/react-app/src/App.jsx, docs/log/log.md
+
+36. 2026-03-23 캠페인 대시보드 Star 스키마 계획서(16)·Report 인덱스
+Purpose: `new_dash_server`/`new-dashboard`와 동일 UI·API 계약으로 `ibank_1_star_1`·`ibank_1_star_2` 전환 시 컬럼·JSONB 매핑 검증 및 Phase 계획을 문서화.
+
+Changes:
+
+- `docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md` 신규(ibank_1~_4 ↔ star 테이블 매핑, Phase·체크리스트).
+- `docs/report/00_ReportIndex.md` 16번 항목 추가.
+
+Changed files: docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
 
 35. 2026-03-20 member-summary 주·월 직전 스냅샷 폴백(base_date < 기간시작)
 Purpose: 직전 달력 구간에 일별 행이 없을 때 prev_row 가 비어 전환 KPI 가 — 로만 표시되던 경우 대비.

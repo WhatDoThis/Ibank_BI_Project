@@ -11,11 +11,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2UpdateTable, etl2PreviewTable)
+ * - React, @/packages/etl/api/etlClient.js (etl2UpdateTable, etl2PreviewTable)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { etl2UpdateTable, etl2PreviewTable } from '@/shared/api/client';
+import { etl2UpdateTable, etl2PreviewTable } from '@/packages/etl/api/etlClient.js';
 
 // 1.
 function parsePkColumns(str) {

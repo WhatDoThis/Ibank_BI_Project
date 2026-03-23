@@ -10,11 +10,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListFolderConnections, batchDeleteFolderConnection)
+ * - React, @/packages/etl/api/etlClient.js (batchListFolderConnections, batchDeleteFolderConnection)
  */
 
 import { useState, useEffect } from 'react';
-import { batchListFolderConnections, batchDeleteFolderConnection } from '@/shared/api/client';
+import { batchListFolderConnections, batchDeleteFolderConnection } from '@/packages/etl/api/etlClient.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
 
 // 1.

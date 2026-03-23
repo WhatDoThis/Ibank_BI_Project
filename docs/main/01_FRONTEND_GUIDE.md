@@ -1,6 +1,6 @@
 # 프론트엔드 개발 가이드
 
-본 문서는 **docs/main** 내 프론트엔드 전용 명세입니다. 구현 위치: `Frontend/react-app`.
+본 문서는 **docs/main** 내 프론트엔드 전용 명세이며, **현재 코드 기준** 경로·패키지·API만 기술한다. 구현 위치: `Frontend/react-app`. 작업 이력은 **docs/log/log.md** 참고.
 
 ---
 
@@ -9,13 +9,13 @@
 ### 1.1 역할
 
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **new-dashboard**(뉴 대시보드), **new-dashboard2**(마케팅 대시보드), **etl**(단일 ETL: 파일·DB·저장 DB·폴더/DB 배치, Job 큐), shared(API·config). 공용 API·설정은 shared 에서 사용합니다.
+- **패키지**: report, dashboard, **dashboard2**, **widgetboard**, **new-dashboard**, **campaign_dashboard**(Star 스키마 캠페인 대시보드), **new-dashboard2**, **etl**. **공용 최소**: `shared/config/api.js`(베이스 URL), `shared/api/http.js`(JSON `request`·`fetchOkJson`). **패키지별 API**는 각 `packages/<이름>/api/*Client.js` 에 두어 단독 이식 시 해당 패키지+http+config 만 옮기면 됩니다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
 
-- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../new-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`
-- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 report, dashboard, dashboard2, new-dashboard, new-dashboard2, widgetboard, etl). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url(예: `https://ajo.sdev-ibank.co.kr/report_api`) 로 호출.
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../dashboard2`, `.../new-dashboard`, `.../campaign-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`
+- **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 + **campaign-dashboard**). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url 로 호출.
 
 ### 1.3 프론트와 설정
 
@@ -33,7 +33,7 @@
 | 라우팅 | react-router-dom | 7.x |
 | 차트 | Recharts | Recharts 2.x (대시보드) |
 | 스타일 | CSS | report.css, dashboard.css, main.css |
-| API | fetch | shared/api/client.js 래퍼 |
+| API | fetch | `shared/api/http.js` + 패키지별 `api/*Client.js` |
 | 언어 | JavaScript (ESM) | JSX |
 
 - .env 미사용. API URL 등은 config.json → api-config.js 또는 shared/config 에서 처리.
@@ -45,7 +45,10 @@
 ```
 Frontend/react-app/
 ├── src/
-│   ├── App.jsx                 # 라우팅 (/, /report, /dashboard, /dashboard2, /new-dashboard, /new-dashboard2, /widgetboard, /etl)
+│   ├── App.jsx                 # BrowserRouter·상단 네비
+│   ├── app/
+│   │   ├── navConfig.js        # NAV_ITEMS
+│   │   └── routes.jsx          # AppRoutes (Route 트리)
 │   ├── main.jsx
 │   ├── index.css
 │   ├── packages/
@@ -53,6 +56,8 @@ Frontend/react-app/
 │   │   │   ├── ReportPage.jsx  # 페이지·상태·실행·해석·페이지네이션·JOIN 설정
 │   │   │   ├── index.jsx
 │   │   │   ├── report.css
+│   │   │   ├── api/
+│   │   │   │   └── reportClient.js
 │   │   │   ├── components/
 │   │   │   │   ├── Sidebar.jsx   # 테이블·컬럼 목록, 드래그, JOIN 불가 비활성화
 │   │   │   │   ├── MainArea.jsx  # 그리드·SQL 패널·해석 영역·페이지네이션 바
@@ -71,9 +76,13 @@ Frontend/react-app/
 │   │   │   ├── DashboardPage.jsx
 │   │   │   ├── index.jsx
 │   │   │   ├── dashboard.css
+│   │   │   ├── api/
+│   │   │   │   └── dashboardClient.js
 │   │   │   ├── utils/
-│   │   │   │   └── periodCompare.js   # getWeekRange, getMonthRange, getYearRange, getPrevious* (일/주/월/연)
+│   │   │   │   ├── periodCompare.js
+│   │   │   │   └── dateRange.js       # normalizeDateRange, formatDateRangeLabel (대시보드2에서도 import)
 │   │   │   └── components/
+│   │   │       ├── PeriodLabel.jsx    # 기간 뱃지 (대시보드2에서 재사용)
 │   │   │       ├── DashboardHeader.jsx   # 테이블·필수 컬럼 안내·보기(일반/일간·주간·월간·연간 비교)·기준·비교 일/주/월/연·집계 기준·정렬·캠페인/워크플로우/채널 필터
 │   │   │       ├── TargetContextSection.jsx  # 목표(기간 유형·지표·목표값)·저장된 목표 목록
 │   │   │       ├── CollapsibleSection.jsx
@@ -88,6 +97,8 @@ Frontend/react-app/
 │   │   │   ├── Dashboard2Page.jsx
 │   │   │   ├── index.jsx
 │   │   │   ├── dashboard2.css
+│   │   │   ├── api/
+│   │   │   │   └── dashboard2Client.js
 │   │   │   ├── utils/
 │   │   │   │   └── periodCompare.js   # getWeekRange, getPreviousWeekRange, getMonthRange, getPreviousMonthRange, getPreviousDay, getYearRange, getPreviousYearRange
 │   │   │   └── components/
@@ -109,12 +120,19 @@ Frontend/react-app/
 │   │   │
 │   │   ├── new-dashboard/     # 뉴 대시보드 (요약·추이·회원 KPI·퍼널·채널·인구통계·시간대)
 │   │   │   ├── NewDashboardPage.jsx, new-dashboard.css, index.jsx
-│   │   │   └── components/    # KPISummaryCards, SummaryHeader, MemberKPICards, TrendLineChart, CampaignRankTable, FunnelSection, ChannelStackBarChart, ChannelConsentBars, AgeBarChart, GenderDonutChart, GradeDonutChart, HourlyBarChart, dateUtils
+│   │   │   ├── api/newDashboardClient.js
+│   │   │   └── components/    # KPISummaryCards, SummaryHeader, …
+│   │   │
+│   │   ├── campaign_dashboard/ # 캠페인 대시보드 (Star JSONB, UI는 new-dashboard 동형)
+│   │   │   ├── CampaignDashboardPage.jsx, campaign-dashboard.css, index.jsx
+│   │   │   ├── api/campaignDashboardClient.js
+│   │   │   └── components/    # new-dashboard에서 복사
 │   │   │
 │   │   ├── new-dashboard2/    # 마케팅 대시보드 (별·프리퀀시·쿠폰·캠페인·매장·추이)
 │   │   │   ├── NewDashboard2Page.jsx
 │   │   │   ├── index.js
 │   │   │   ├── new-dashboard2.css
+│   │   │   ├── api/newDashboard2Client.js
 │   │   │   ├── hooks/useNewDash2Data.js
 │   │   │   ├── utils/dateUtils.js, chartHelpers.js
 │   │   │   └── components/    # Dash2Header, OverviewSection, StarSection, FrequencySection, CouponSection, CampaignSegmentTable, StoreSection, DemographicDonut, AgeGenderBarChart, FunnelBar, SectionBlock, ScoreCardGrid, OverviewTrendChart, SectionTrendChart
@@ -123,6 +141,7 @@ Frontend/react-app/
 │   │       ├── ETLPage.jsx
 │   │       ├── index.jsx
 │   │       ├── etl.css
+│   │       ├── api/etlClient.js
 │   │       ├── utils/
 │   │       │   └── storageDb.js        # storage_connection_id 정규화(기본 DB null 통일)
 │   │       └── components/
@@ -150,10 +169,8 @@ Frontend/react-app/
 │   │           └── PreviewModal.jsx
 │   │
 │   ├── shared/
-│   │   ├── components/
-│   │   │   └── PeriodLabel.jsx # 기간 표시 (기준일/기간 뱃지, dateRange.formatDateRangeLabel 연동)
 │   │   ├── api/
-│   │   │   └── client.js       # listTables, executeQuery, explainSql, getDashboardData 등
+│   │   │   └── http.js         # request(), fetchOkJson() — 패키지 *Client.js 공통
 │   │   └── config/
 │   │       └── api.js          # API 베이스 URL 반환
 │   │
@@ -201,7 +218,7 @@ Frontend/react-app/
 - **AggregatedDataTable**: 집계 테이블, 페이징·테이블 내 검색. **비교 시** compareTableMode(merged/summary)·정렬 행·필터 툴바·CompareMergedTable/CompareSummaryTable.
 - **ChartWidget**: 차트 생성. Dimension/Metric/막대·선형·영역, 전용 API·Y축 고정·X축 검색 찾기/다음.
 - **ChartWidget2**: 위젯 생성 (beta). 파이·도넛·레이더·산점도·막대·선형·영역. Y축-플롯 세로 길이 일치. 비교 모드 시 차트 기간 셀렉트(기준 기간|비교 기간)로 선택한 기간만 반영.
-- **PeriodLabel** (shared/components/PeriodLabel.jsx): 기간 표시. filters.date_range → formatDateRangeLabel 뱃지. 주요 지표·채널별 분석 CollapsibleSection 본문 최상단에 배치.
+- **PeriodLabel** (`dashboard/components/PeriodLabel.jsx`): 기간 표시. `dashboard2`는 동일 컴포넌트를 `@/packages/dashboard/components/PeriodLabel.jsx` 로 import.
 
 ### 4.3 dashboard2 (성과리포트)
 
@@ -229,7 +246,7 @@ Frontend/react-app/
 
 ### 4.4 widgetboard (위젯보드)
 
-- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. App에서 `/widgetboard` 라우트로 렌더. 레이아웃·위젯 설정은 localStorage 저장(`widgetboard_layout`, `widgetboard_widget_configs`). 기존 대시보드·리포트 API 및 shared 데이터 유틸 활용.
+- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. `/widgetboard`. 위젯 데이터는 **report** API(`packages/report/api/reportClient.js` — listTables, describeTable, executeQuery) 사용.
 - **index.jsx**: WidgetboardPage export. App.jsx에서 `/widgetboard` → WidgetboardPage.
 - **utils/dataUtils.js**: 위젯보드용 데이터 처리 유틸.
 - **widgetboard.css**: 위젯보드 전용 스타일(헤더·사이드바·캔버스·드래그 오버 등).
@@ -249,20 +266,26 @@ Frontend/react-app/
 - **AddFileModal.jsx**: 단일 파일 추가 적재. **ZIP 다중 파일**: etlAddFilesZipToTable. 서버가 ZIP 압축 해제 후 지원 형식(.csv, .xlsx, .xls, .parquet)·용량 한도 이하 파일만 순서대로 Job 등록. **건너뛴 파일**이 있으면 API 응답 skipped_files(파일명·사유: file_too_large, unsupported_format, schema_or_pk_failed 등)로 전달되며, UI에서 "다음 파일은 건너뛰었습니다" 안내+파일명·사유 목록 표시.
 - **PreviewModal.jsx**: 미리보기 10행. **PkColumnsModal.jsx**: PK 컬럼 체크박스.
 - **etl.css**: ETL 목록·연결·배치·동기화 열 스타일.
-- **API**(shared/api/client.js): etlListTables, etlCreateTable, etlUploadFile, etlDeleteTable, etlUpdateTable, etlPreviewTable, etlRunTable, etlAddFileToTable, etlAddFilesZipToTable, etlListJobs, etlGetJob, etlListConnections, etlCreateConnection, etlTestConnection, etlListConnectionTables, etlInferSchema, etlGetSourceColumns, etlGetSourceIndexes, etlValidateIncrementalColumn, etlTransformPreview, etlListStorageConnections, etlListTargetTables, etlListTargetColumns, **batch*** (batchListJobs, batchCreateJobFromEtlTable 등). 라우트 **/etl**, API prefix **/api/etl**, **/api/etl/batch/**.
+- **API**(`packages/etl/api/etlClient.js`): etl2ListTables, etl2UploadFile, batchListJobs, batchCreateJobFromEtlTable 등(함수명은 `etl2*`·`batch*` 접두). 라우트 **/etl**, API prefix **/api/etl**, **/api/etl/batch/**.
 
 ### 4.5.2 new-dashboard (뉴 대시보드)
 
-- **NewDashboardPage.jsx**: 발송 KPI·추이(trend, trend-multi)·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급·시간대 등 섹션. **API**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **getNewDashboardMemberSummary**, **getNewDashboardDeliveryDemographics**, **getNewDashboardHourly**. 스타일 `new-dashboard.css`. 라우트 `/new-dashboard`. Backend new_dash_server (/api/new-dashboard). **member-summary** 필드·증감 정의: **02_BACKEND_GUIDE.md §4.7.1**. 설계 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
+- **NewDashboardPage.jsx**: 발송 KPI·추이·회원·시간대 등. **API**: `packages/new-dashboard/api/newDashboardClient.js` (getNewDashboardTables, Summary, TrendMulti, MemberSummary, Hourly 등). 라우트 `/new-dashboard`. Backend **new_dash_server** (`/api/new-dashboard`). **member-summary**: **02_BACKEND_GUIDE.md §4.7.1**. Star·컬럼 매핑·JSONB 필드 보조 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
+
+### 4.5.2b campaign_dashboard (캠페인 대시보드, Star 테이블)
+
+- **CampaignDashboardPage.jsx**: UI는 new-dashboard와 동형. **API**: `packages/campaign_dashboard/api/campaignDashboardClient.js` → Backend **campaign_dash_server** (`/api/campaign-dashboard`). 라우트 `/campaign-dashboard`. 테이블·JSONB 매핑 보조 참고: **docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md**.
 
 ### 4.5.3 new-dashboard2 (마케팅 대시보드)
 
-- **NewDashboard2Page.jsx**: 종합현황(overview)·별(star)·프리퀀시(frequency)·쿠폰(coupon)·캠페인 세그먼트(campaign-segments)·매장(store)·추이(trend)·상품 마스터(product-master). **hooks/useNewDash2Data.js**: fetchOverview, fetchAllSummaries, fetchTab(star/frequency/coupon/campaign/store). **API**: getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster. 라우트 `/new-dashboard2`. Backend new_dash_server2 (/api/new-dashboard2, Star DB).
+- **NewDashboard2Page.jsx**: 종합현황·탭별 섹션·추이. **hooks/useNewDash2Data.js**. **API**: `packages/new-dashboard2/api/newDashboard2Client.js`. 라우트 `/new-dashboard2`. Backend new_dash_server2 (`/api/new-dashboard2`, Star DB).
 
-### 4.6 shared
+### 4.6 shared (최소 공용)
 
-- **api/client.js**: health, listTables, describeTable, tableRelationships, joinOrder, saveQueryAsTable, saveQueryAsTableStatus, executeQuery, explainSql, getColumnValues, queryStats, getDashboardData, getDashboardFilterOptions, getDashboardTables, getDashboardRequiredColumns, getChartData, getDashboard2Tables, getDashboard2FilterOptions, getDashboard2Data, getDashboard2RequiredColumns, getDashboard2ChartData, **뉴 대시보드**: getNewDashboardTables, getNewDashboardSummary, getNewDashboardTrend, getNewDashboardTrendMulti, **getNewDashboardMemberSummary**, **getNewDashboardDeliveryDemographics**, **getNewDashboardHourly**, **마케팅 대시보드**: getNewDash2Overview, getNewDash2Star, getNewDash2Frequency, getNewDash2Coupon, getNewDash2CampaignSegments, getNewDash2Store, getNewDash2Trend, getNewDash2ProductMaster, **ETL**(/api/etl): etlListTables, etlCreateTable, etlUploadFile, etlInferSchema, etlListStorageConnections, etlListTargetTables, etlGetSourceColumns, etlGetSourceIndexes, etlTransformPreview, batchListJobs, batchCreateJobFromEtlTable 등.
-- **config/api.js**: API 베이스 URL (환경·api-config 주입 반영).
+- **config/api.js**: `getApiBase()` — 빌드 주입·api-config.js 반영.
+- **api/http.js**: `apiBaseUrl`, `request`(JSON POST/GET), `fetchOkJson`(GET + 상태 검사), `formatFetchErrorMessage`. 패키지별 `*Client.js`에서만 import.
+
+엔드포인트 추가 시 **해당 패키지의 `api/*Client.js`** 와 `http.js`를 수정한다. (구 monolithic `client.js` 없음.)
 
 ---
 
@@ -273,7 +296,7 @@ Frontend/react-app/
 - **역할**: 실행된 SQL을 백엔드 경유로 Claude API에 보내 자연어 해석을 받아 표시합니다.
 - **API 키**: 백엔드 설정(`config.backend.claude_api_key`, `claude_api_url`)만 사용. 프론트에는 노출되지 않습니다.
 - **동작**: 쿼리 실행 후 **🤖 해석** 클릭 → `POST /api/explain-sql` 로 SQL 전달 → 백엔드가 Claude 호출 후 해석 문구 반환 → MainArea 의 **💬 Claude 해석** 영역에 표시.
-- **구현**: ReportPage `runExplainSql` → `client.explainSql()` → MainArea 해석 영역.
+- **구현**: ReportPage `runExplainSql` → `reportClient.explainSql()` → MainArea 해석 영역.
 - **UI**: SQL 패널 헤더에 "📄 실행된 SQL | 🤖 해석 | 📋 복사". 해석 요청 시 로딩 문구 후 결과 표시, 닫기로 숨김.
 - **주의**: claude_api_key 비어 있으면 explain-sql 오류 가능. 토큰 과금·Rate Limit 유의.
 
@@ -300,16 +323,9 @@ Frontend/react-app/
 
 | 문서 | 용도 |
 |------|------|
-| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 (간결, 세부는 01/02 참고) |
-| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 (본 문서) |
-| 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 |
+| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 |
+| 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 (본 문서) |
+| 02_BACKEND_GUIDE.md | 백엔드 구조·API·설정·etl_server |
 
-- docs/report: 배포·실행 로그 등. 대외 소개 시에는 본 docs/main 문서만 사용.
-
-**변경 이력 (본 문서)**  
-- (2026-02-23) **ETL2** §1.1·§1.2 접속 경로에 /etl2. §3 디렉터리 트리에 packages/etl2 및 컴포넌트(EtlTableSettingsModal, 동기화·행 실패 시 드롭다운). **§4.5.1 ETL2** 갱신: 설정 모달·on_row_error·저장 DB 열·08 참조.
-- (2026-02-26) **ETL2 폴더·레지스트리·변환·새로고침 반영**: §3 etl2에 폴더 탭 컴포넌트(FolderConnectionFormFile, FolderConnectionListFile, BatchJobFormFile, BatchJobListFile, BatchHistoryPanelFile, BatchHistoryDetailFile, SkippedFilesPanelFile), CollapsibleCardSection, TransformPreviewPanel, utils/storageDb.js 추가. **§4.5.1 ETL2** 전면 갱신: 5탭(폴더 추가), ETL 목록 etl2ListBatchTargetRegistry·배치 행 삭제=cascade·새로고침, 배치 Job 목록·이력 새로고침·폴링, 변환 열·미리보기 패널·중복 Job 등록 안내, storageDb 정규화. log.md 2026-02-26 적용분 기준.
-- (2026-03-03) **ETL2 인덱스·on_file_error·UI 반영**: §3 FolderConnectionListFile 연결 정보 열, BatchJobFormFile index_definitions·on_file_error, BatchHistoryPanelFile partial_error, TargetTableSelectModal PK·INDEX 열·인덱스 추가 테이블 아래. §4.5.1 FileUploadForm/DbConnectionForm/BatchJobFormFile indexDefinitions·etl2GetSourceIndexes·sourceIndexes·pkReadOnlyFromSource, BatchHistoryPanelFile "일부 실패 (N/M 성공)", TargetTableSelectModal 소스 PK/인덱스 인라인·indexDefinitions onSelect. client.js etl2GetSourceIndexes. log 2026-03-03·2026-02-23 반영.
-- (2026-03-04) **ETL2 DB 배치설정·status=done 흐름**: §3 BatchScheduleModal.jsx 추가, ETLTableList.jsx 배치설정 버튼·BatchScheduleModal 연동. §4.5.1 ETLTableList 배치설정 disabled(statusLower!=='done')·툴팁(먼저 실행하여 적재 확인…/주기 자동 실행 설정), BatchScheduleModal·batchCreateJobFromEtlTable. client.js batchCreateJobFromEtlTable. log 2026-03-04 반영.
-- (2026-03-13) **현재 구조 반영**: ETL 단일화(etl2 제거, 패키지 etl 단일·라우트 /etl·API /api/etl). 뉴 대시보드 2종 추가: **new-dashboard**(/new-dashboard), **new-dashboard2**(마케팅 대시보드, /new-dashboard2). §1.1·§1.2·§3 패키지·접속 경로, §4.5 단일 ETL·§4.5.2 new-dashboard·§4.5.3 new-dashboard2, §4.6 client.js 뉴 대시보드·ETL API 목록.
-- (2026-03-20) **로그 기준 현행화**: §3 new-dashboard 컴포넌트·CSS, §4.5 동기화 diff, §4.5.2 member-summary·demographics·hourly·15번 설계서, §4.6 client.js 3함수, TargetTableSelectModal 변환(날짜/시간 연산).
+- **docs/report**: 배포·보조 설계·체크리스트. **동작 정의의 기준은 docs/main** 이다.
+- **문서 이력**: 본 파일에 날짜별 수정 타임라인을 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다. **현재 구조**: 패키지별 `packages/<도메인>/api/*Client.js`, `shared/api/http.js`, `app/navConfig.js`·`app/routes.jsx`, **campaign_dashboard** (`/campaign-dashboard`).

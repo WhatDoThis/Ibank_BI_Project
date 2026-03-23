@@ -11,7 +11,7 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListTimezones, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2DeleteStorageConnection)
+ * - React, @/packages/etl/api/etlClient.js (etl2ListTimezones, etl2ListStorageConnections, etl2CreateStorageConnection, etl2TestStorageConnection, etl2DeleteStorageConnection)
  */
 
 import { useState, useEffect } from 'react';
@@ -21,7 +21,7 @@ import {
   etl2CreateStorageConnection,
   etl2TestStorageConnection,
   etl2DeleteStorageConnection
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
 
 // 1.

@@ -18,13 +18,13 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchGetJobHistoryDetail, batchRollbackFile)
+ * - React, @/packages/etl/api/etlClient.js (batchGetJobHistoryDetail, batchRollbackFile)
  * - etl.css (etl-db-form__*)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import React from 'react';
-import { batchGetJobHistoryDetail, batchCancelRun, batchDeleteSkippedFiles, batchRollbackFile } from '@/shared/api/client';
+import { batchGetJobHistoryDetail, batchCancelRun, batchDeleteSkippedFiles, batchRollbackFile } from '@/packages/etl/api/etlClient.js';
 
 // 1.
 function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {

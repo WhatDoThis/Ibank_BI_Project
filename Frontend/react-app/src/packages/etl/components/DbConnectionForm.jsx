@@ -12,7 +12,7 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListTimezones, etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
+ * - React, @/packages/etl/api/etlClient.js (etl2ListTimezones, etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
  */
 
 import { useState, useEffect } from 'react';
@@ -29,7 +29,7 @@ import {
   etl2DeleteConnection,
   etl2ListStorageConnections,
   etl2CreateTransformRule
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
 import { getOnErrorValue } from './TargetTableSelectModal/constants.js';
 import TargetTableSelectModal from './TargetTableSelectModal/index.jsx';

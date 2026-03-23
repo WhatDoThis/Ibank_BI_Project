@@ -18,7 +18,7 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListFolderConnections, etl2ListStorageConnections, batchListFolderPatterns, batchGetFolderColumns, batchCreateJob)
+ * - React, @/packages/etl/api/etlClient.js (batchListFolderConnections, etl2ListStorageConnections, batchListFolderPatterns, batchGetFolderColumns, batchCreateJob)
  * - etl.css (etl-db-form, etl-db-form__message--warning)
  */
 
@@ -31,7 +31,7 @@ import {
   batchListTargetTables,
   batchValidateTarget,
   batchCreateJob
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
 import '../etl.css';
 

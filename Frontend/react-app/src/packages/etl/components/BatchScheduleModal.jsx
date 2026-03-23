@@ -21,7 +21,7 @@
  *
  * [Dependencies]
  * ==========
- * - React, @/shared/api/client (batchListJobs, batchCreateJobFromEtlTable, batchUpdateJob, batchToggleJob, batchDeleteJob, batchRunJobNow)
+ * - React, @/packages/etl/api/etlClient.js (batchListJobs, batchCreateJobFromEtlTable, batchUpdateJob, batchToggleJob, batchDeleteJob, batchRunJobNow)
  * - etl.css (etl-db-form__*, etl-add-file-modal__*)
  */
 
@@ -33,7 +33,7 @@ import {
   batchToggleJob,
   batchDeleteJob,
   batchRunJobNow,
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 
 const INTERVAL_MIN = 10;
 const INTERVAL_MAX = 1440;

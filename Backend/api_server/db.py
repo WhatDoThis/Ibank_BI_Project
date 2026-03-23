@@ -23,7 +23,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 15. get_db_connection: 메인 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback.
 16. get_db_connection_system: 시스템 DB 연결을 풀에서 반환. ETL 메타·세션 등용.
 17. get_dash_db_config / get_dash_table_schema / get_db_connection_dash: 뉴 대시보드 전용 dash_db(ibank_dash_data 등) 연결
-18. is_new_dash_physical_table: ibank_1 및 ibank_1_0~ibank_1_4 여부 (config dash_db에 적재된 집계 테이블)
+18. is_new_dash_physical_table: ibank_1·ibank_1_0~4·ibank_*_star_1|2 여부 (dash_db 집계·Star JSONB 테이블)
 19. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
 20. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
 21. validate_table_name: 허용 패턴·허용 테이블 검증
@@ -53,8 +53,8 @@ _system_pool_lock = threading.Lock()
 _main_pool_lock = threading.Lock()
 _dash_pool_lock = threading.Lock()
 
-# 뉴 대시보드 물리 테이블: ibank_1(집계), ibank_1_0~ibank_1_4(서브). backend.dash_db에 위치.
-_NEW_DASH_PHYSICAL_TABLE_RE = re.compile(r"^ibank_1(_[0-4])?$")
+# 뉴 대시보드 물리 테이블: ibank_1(집계), ibank_1_0~ibank_1_4(서브), ibank_*_star_1|2(JSONB 집약). backend.dash_db.
+_NEW_DASH_PHYSICAL_TABLE_RE = re.compile(r"^ibank_1(_[0-4])?$|^ibank_[a-z0-9_]+_star_[12]$")
 
 
 # 1.
@@ -188,7 +188,7 @@ def get_system_db_config():
 def get_dash_db_config():
     """
     config.backend.dash_db 에서 뉴 대시보드 전용 DB 연결 설정 읽기.
-    대시보드 물리 테이블(ibank_1, ibank_1_0~4) 적재 DB. 없으면 ValueError.
+    대시보드 물리 테이블(ibank_1, ibank_1_0~4, ibank_*_star_1|2) 적재 DB. 없으면 ValueError.
     """
     backend = config.backend
     dash = getattr(backend, "dash_db", None)
@@ -526,7 +526,7 @@ def get_db_connection_dash():
 
 # 19a.
 def is_new_dash_physical_table(table_name: str) -> bool:
-    """ibank_1 또는 ibank_1_0~ibank_1_4 (backend.dash_db 상의 뉴 대시보드 물리 테이블)."""
+    """ibank_1·ibank_1_0~4 또는 ibank_*_star_1|2 (backend.dash_db 뉴 대시보드·Star 물리 테이블)."""
     if not table_name or not str(table_name).strip():
         return False
     return _NEW_DASH_PHYSICAL_TABLE_RE.match(str(table_name).strip()) is not None

@@ -17,12 +17,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListJobHistory)
+ * - React, @/packages/etl/api/etlClient.js (batchListJobHistory)
  * - etl.css (etl-db-form__table, etl-db-form__table-wrap, etl-db-form__table-wrap--viewport-scroll, etl-db-form__table-actions)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { batchListJobHistory } from '@/shared/api/client';
+import { batchListJobHistory } from '@/packages/etl/api/etlClient.js';
 
 // 1.
 function BatchHistoryPanelFile({ batchJobId, onClose, onSelectRun }) {

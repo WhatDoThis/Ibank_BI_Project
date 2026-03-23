@@ -12,11 +12,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow)
+ * - React, @/packages/etl/api/etlClient.js (etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow)
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs } from '@/shared/api/client';
+import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs } from '@/packages/etl/api/etlClient.js';
 import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
 import BatchScheduleModal from './BatchScheduleModal.jsx';
 

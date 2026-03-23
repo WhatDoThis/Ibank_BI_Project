@@ -9,12 +9,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (getDashboard2RequiredColumns), @/shared/utils/dateRange (normalizeDateRange), dashboard2/utils/periodCompare
+ * - React, @/packages/dashboard2/api/dashboard2Client.js (getDashboard2RequiredColumns), @/packages/dashboard/utils/dateRange.js (normalizeDateRange), dashboard2/utils/periodCompare
  */
 
 import { useState, useEffect } from 'react'
-import { getDashboard2RequiredColumns } from '@/shared/api/client'
-import { normalizeDateRange } from '@/shared/utils/dateRange'
+import { getDashboard2RequiredColumns } from '@/packages/dashboard2/api/dashboard2Client.js'
+import { normalizeDateRange } from '@/packages/dashboard/utils/dateRange.js'
 import { getWeekRange, getMonthRange, getYearRange, getPreviousDay } from '../utils/periodCompare'
 
 const SORT_OPTIONS = [

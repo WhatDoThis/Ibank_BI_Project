@@ -12,7 +12,7 @@
  *
  * [Dependencies]
  * =========
- * - React, react-grid-layout, recharts, echarts, @/shared/api/client (listTables, describeTable, executeQuery), ./utils/dataUtils
+ * - React, react-grid-layout, recharts, echarts, @/packages/report/api/reportClient.js (listTables, describeTable, executeQuery), ./utils/dataUtils
  */
 import { useState, useCallback, useEffect, useRef } from 'react'
 import GridLayout from 'react-grid-layout/legacy'
@@ -35,7 +35,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import * as echarts from 'echarts'
-import { listTables, describeTable, executeQuery } from '@/shared/api/client'
+import { listTables, describeTable, executeQuery } from '@/packages/report/api/reportClient.js'
 import {
   pickDimensionAndMetric,
   aggregateForChart,

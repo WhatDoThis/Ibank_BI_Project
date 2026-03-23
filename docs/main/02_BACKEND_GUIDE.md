@@ -1,8 +1,7 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`, `Backend/new_dash_server`, `Backend/new_dash_server2`.  
-**목적**: 백엔드 구조·기술 스택·API·설정·모듈 역할을 정리한 가이드.  
-(Flask → FastAPI 전환 계획은 **부록 A**에 참고용으로 둠. 운영·COPY 적재·설정 모달 등은 **docs/report/08_ETL_Phase_Implement_Guide.md** 참조.)
+본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`, `Backend/new_dash_server`, `Backend/campaign_dash_server`, `Backend/new_dash_server2`.  
+**목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
 
 ---
 
@@ -10,7 +9,7 @@
 
 ### 1.1 역할
 
-- **FastAPI** 기반 REST API 서버. 리포트(쿼리 빌더)·대시보드1·대시보드2·**뉴 대시보드**(new_dash_server)·**마케팅 대시보드**(new_dash_server2)·**ETL**(etl_server 단일) 용 API 제공.
+- **FastAPI** 기반 REST API 서버. 리포트·대시보드1·대시보드2·**뉴 대시보드**(new_dash_server)·**캠페인 대시보드**(campaign_dash_server)·**마케팅 대시보드**(new_dash_server2)·**ETL**(etl_server 단일) 용 API 제공.
 - **PostgreSQL** 연동: 비즈니스 DB(리포트·대시보드·allowed_tables), 선택 시 **시스템 DB**(ETL 메타·etl_connections, etl_tables, etl_jobs 등), **뉴 대시보드 전용 DB**(backend.dash_db — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
@@ -73,6 +72,9 @@ Backend/
 ├── new_dash_server/               # 뉴 대시보드 API (/api/new-dashboard)
 │   └── router.py                  # summary, trend, trend-multi, tables, member-summary, delivery-demographics, hourly
 │
+├── campaign_dash_server/          # 캠페인 대시보드 API (/api/campaign-dashboard)
+│   └── router.py                  # new-dashboard와 동일 경로·JSON 계약, Star 테이블(ibank_*_star_1/2) 전용
+│
 └── new_dash_server2/              # 마케팅 대시보드 API (/api/new-dashboard2, Star DB)
     ├── router.py                  # overview, star, frequency, coupon, campaign-segments, store, trend, product-master
     ├── service.py                 # get_dashboard_overall, get_star_analyze, get_frequency_analyze, get_coupon_analyze, get_campaign_segments, get_store_order_analyze, get_trend_data, get_product_master
@@ -80,7 +82,7 @@ Backend/
     └── star_db.py                 # Star DB 연결 풀
 ```
 
-- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router**(Backend.etl_server.router) → **new_dashboard_router**(Backend.new_dash_server.router) → **new_dash2_router**(Backend.new_dash_server2.router).
+- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router** → **new_dashboard_router** → **campaign_dashboard_router** → **new_dash2_router** (`main.py` 의 `include_router` 순서와 동일).
 - **etl_limits**: etl_server에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb) 반환. config에 0을 넣으면 해당 항목 한도 없음.
 
 ---
@@ -288,6 +290,21 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 증감률(%) = (순증감(명) / total_recipients(compare)) × 100
 ```
 
+### 4.7.2 캠페인 대시보드 (prefix /api/campaign-dashboard)
+
+- **데이터 소스**: **config.backend.dash_db** 의 Star 물리 테이블 — 발송 팩트 `ibank_*_star_1`, 회원 스냅샷 `ibank_*_star_2`(JSONB 컬럼). 집계·스냅샷 선택 규칙은 `Backend/campaign_dash_server/router.py` 가 담당한다.
+- **요청/응답**: 경로·쿼리 파라미터·JSON 필드 이름이 **§4.7 뉴 대시보드**와 동일하다(프론트는 `campaignDashboardClient.js`로 호출).
+
+| 메서드 | 경로 | 용도 |
+|--------|------|------|
+| GET | /api/campaign-dashboard/summary | 기간별 요약 |
+| GET | /api/campaign-dashboard/trend | 단일 메트릭 추이 |
+| GET | /api/campaign-dashboard/trend-multi | 복수 메트릭 추이 |
+| GET | /api/campaign-dashboard/tables | 집계 가능 테이블 목록(`*_star_1` 만) |
+| GET | /api/campaign-dashboard/member-summary | 회원 현황(계산 원칙은 §4.7.1과 동일 패턴) |
+| GET | /api/campaign-dashboard/delivery-demographics | 발송 기준 인구통계 |
+| GET | /api/campaign-dashboard/hourly | 시간대별 집계 |
+
 ### 4.8 마케팅 대시보드 (prefix /api/new-dashboard2)
 
 | 메서드 | 경로 | 용도 |
@@ -301,24 +318,22 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 | GET | /api/new-dashboard2/trend | 추이(table_name, metrics, end_date, days, period) |
 | GET | /api/new-dashboard2/product-master | 상품 마스터 |
 
-- etl_tables에 storage_connection_id·column_mapping·on_row_error·**index_definitions** 저장. 적재 완료 후 index_definitions 있으면 **_create_indexes_on_target** 호출. **csv_reader.read_csv_robust**: CSV 인코딩 감지(chardet/charset_normalizer)·순차 시도(utf-8→cp949 등), load_service·parser_file에서 공용. **batch_jobs.on_file_error**: 'stop'(기본, 파일 실패 시 run 중단) / 'continue'(해당 파일만 error 기록·다음 파일 계속, run은 partial_error 가능). **load_service_file._batch_upsert**: INSERT DO NOTHING 후 **실제 값 변경 행만** UPDATE(AND t.col IS DISTINCT FROM v.col); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 run 기록 미생성(건너뜀); 파일별 commit 실패 시 명시 로그·finish_run(error); on_file_error=continue 시 해당 파일 rollback 후 계속. **run_db_load**: 커넥션 누수 방지(src_conn/conn_main 초기화·except/finally에서 close). **transform_engine._apply_type_cast_with_mask**: 벡터화(대량 행 시 성능). **claim_next_pending_job**: finally에서 close 전 rollback-safe. **etl_batch_target_registry**·**create_batch_job** 중복 검사·**update_run_progress**·**parser_file.get_pending_files** 첫 실행 전부 반환. 상세는 **§6.7**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
-
 ---
 
 ## 5. api_server 상세
 
 ### 5.1 main.py
 
-- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, report, dashboard, dashboard2, etl_router, **new_dashboard_router**, **new_dash2_router**).
+- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, report, dashboard, dashboard2, etl_router, **new_dashboard_router**, **campaign_dashboard_router**, **new_dash2_router**).
 - 예외: 404/500 → JSONResponse.
-- startup: ETL queue_worker.start_background_worker() 호출(실패 시 무시).
+- lifespan: ETL 폴더 배치 스케줄러(`etl_server.scheduler_file`) 기동(실패 시 무시).
 - `__main__`: config.backend.api_host/api_port, uvicorn.run(app).
 
 ### 5.2 db.py
 
 - **get_db_config()**, **get_allowed_tables()**, **get_db_connection()**: config.backend 기반 비즈니스(메인) DB 연결.
 - **get_db_connection_system()**, **get_system_table_schema()**: backend.system_db 기반 시스템 DB(ETL 메타).
-- **get_dash_db_config()**, **get_dash_table_schema()**, **get_db_connection_dash()**, **is_new_dash_physical_table()**, **validate_dashboard_data_table_name()**: backend.dash_db 기반 뉴 대시보드 물리 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`).
+- **get_dash_db_config()**, **get_dash_table_schema()**, **get_db_connection_dash()**, **is_new_dash_physical_table()**, **validate_dashboard_data_table_name()**: backend.dash_db 기반 뉴 대시보드·캠페인 대시보드 물리 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등).
 - 프레임워크 무관(Flask/FastAPI 공통) 사용.
 
 ### 5.3 dependencies.py
@@ -422,18 +437,9 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 (본 문서) |
 
-- docs/report: 배포·실행 로그 등. 대외 소개 시에는 본 docs/main 문서만 사용.
+- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE.**
 
-**변경 이력 (본 문서)**  
-- (2026-02-23) **ETL2** §2 아키텍처에 etl_server2 추가. §4.6 ETL2 API 표(PATCH tables/{id}, add-files-zip). §5.1 라우터에 etl2_router. **§6.7 etl_server2** 신설: 저장 DB·테이블/컬럼 조회·infer-schema·column_mapping·on_row_error·COPY 적재·동일 target_table 허용·08 참조.
-- (2026-02-23) **docs/main 최신화(08·log 기준)**: §3.2 메타에 etl_storage_connections·on_row_error 추가. §6.2 Oracle 적재 지원. §6.1 etl_server create_etl_table 설명 유지(동일 타겟 허용은 etl_server2). §6.7 COPY·on_row_error·설정(PATCH)·08 참조 반영.
-- (2026-02-26) **ETL2 폴더 배치·레지스트리·API·적재 로직 반영**: §2 etl_server2에 router_file, service_file, load_service_file, batch_executor_file, folder_adapter_file, parser_file, scheduler_file 명시. §4.6 transform/preview·batch/target-registry·DELETE target-registry/{id} 추가. §6.7 전면 갱신: etl_batch_target_registry·list/upsert/clear/delete_batch_target_registry·create_batch_job 중복 검사·update_run_progress·_batch_upsert 삽입/갱신 구분·get_pending_files 첫 실행 전부·download_file_head·09 참조. log.md 2026-02-26 적용분 기준.
-- (2026-02-27) **ETL 한도·배치 기본값·취소 체크**: §2 etl_server2에 etl_limits.py 추가. §3.3 etl_limits: config 없을 때 etl_server2 기본값(50/100_000/50_000), 배치 미입력 시 기본 10_000건 상한(etl_server·etl_server2), etl_server db_load_service _safe_is_job_cancelled(시스템 DB 실패 시 적재 계속) 반영.
-- (2026-03-03) **ETL2 인덱스·on_file_error·csv_reader·배치·안정성 반영**: §2 csv_reader.py 추가. §3.2 etl_tables index_definitions, batch_jobs on_file_error·index_definitions. §4.6 GET source-indexes, etl_tables/batch_jobs index_definitions·csv_reader·on_file_error·_batch_upsert IS DISTINCT FROM·배치 대기 파일 없으면 run 미기록·run_db_load/commit/transform_engine/claim_next_pending_job. §6.7 전면 보강: csv_reader, on_file_error, index_definitions, get_source_indexes, _create_indexes_on_target, _batch_upsert 최적화, batch_executor 대기 파일·commit 실패·partial_error, db_load_service·load_service·service_file·load_service_file 상세. log 2026-03-03·2026-02-23 반영.
-- (2026-03-04) **from-etl-table·status=done·last_synced_at·적재 안정성**: §2 batch_executor_db.py 명시. §4.6 POST /jobs/from-etl-table·status=done 검증·last_synced_at 초기 세팅. §6.7 router_file from-etl-table, load_service_file 테이블 없음+PK 시 upsert, batch_executor_db _fetch_source_pk. log 2026-03-04 반영.
-- (2026-03-06) **ZIP 한도·미리보기·배치·삭제·검증 반영**: §3.3 etl_limits에 **max_zip_extract_total_mb**(기본 2GB, ZIP bomb 방지)·add-files-zip 압축 해제 전 총량 검사. §4.6 GET preview 변환 룰·타입 캐스트 적용, PATCH clear_last_synced_at, add-files-zip ZIP 총량. §6.7 GET preview _get_preview_with_transform, PATCH clear_last_synced_at, delete_etl_table batch_jobs 연쇄 삭제, get_skipped_filenames_set·배치 스킵/에러 파일 재시도 방지, batch_executor_db apply_rules(변환 룰), transform_upsert_verification. log 2026-03-06 반영.
-- (2026-03-13) **현재 구조 반영**: ETL 단일화(etl_server2 제거, etl_server만 유지·API /api/etl·/api/etl/batch). **new_dash_server**·**new_dash_server2** 추가(§2 트리·라우터 등록 순서). §4.6 ETL prefix /api/etl로 통일, §4.7 뉴 대시보드(/api/new-dashboard), §4.8 마케팅 대시보드(/api/new-dashboard2) API 표 추가. §5.1 라우터에 new_dashboard_router, new_dash2_router. §6.7 제목 "etl_server (단일 ETL)".
-- (2026-03-20) **뉴 대시보드·dash_db·ETL diff 현행화**: §1.1·§3.2.1·§4.7·§5.2·§5.6 dash_db·`ibank_1` 계열. §4.7 엔드포인트·member-summary·delivery-demographics·hourly. §4.7.1 member-summary 계산(끝점 빼기·일/주/월·전환·분포). §3.2 etl_tables sync_mode diff·§6.5 diff·§6.1·§6.6.
+**문서 이력**: 날짜별 수정 타임라인은 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다.
 
 ---
 

@@ -10,7 +10,7 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListFolderConnections, batchCreateFolderConnection, batchTestFolderConnection)
+ * - React, @/packages/etl/api/etlClient.js (batchListFolderConnections, batchCreateFolderConnection, batchTestFolderConnection)
  */
 
 import { useState, useEffect } from 'react';
@@ -18,7 +18,7 @@ import {
   batchListFolderConnections,
   batchCreateFolderConnection,
   batchTestFolderConnection
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
 
 const DEFAULT_SFTP = {

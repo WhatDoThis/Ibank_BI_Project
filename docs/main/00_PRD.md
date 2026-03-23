@@ -1,9 +1,9 @@
 # 제품 요구사항 정의서 (PRD)
 
 ## 문서 정보
-- **카테고리**: 요구사항 정의
-- **기반**: docs/main (통합·정리 완료. CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 내용 취합 후 해당 파일 삭제)
-- **비고**: 개발문서는 docs/main 에만 두며, docs/report 는 코드 정리·배포·실행 로그만 포함. **대외 소개 시** PRD·01·02 메인 문서만 사용(요약=PRD, 상세=01·02 가이드).
+- **카테고리**: 요구사항·아키텍처 요약 (현행 구현 기준)
+- **역할**: 제품 범위·구조·설정·기능을 한 곳에서 요약한다. **세부 경로·API·파일 목록**은 **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**를 본다.
+- **비고**: **docs/main** 은 항상 **최신 동작**을 기술한다(로드맵·Phase·예정 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 를 본다. **docs/report** 는 설계·배포·체크리스트 등 보조 문서이며, 동작 정의의 기준은 **docs/main** 이다.
 
 ---
 
@@ -17,8 +17,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **대시보드**: 테이블 선택·기간·캠페인·워크플로우·채널 필터, 집계 기준(일자/캠페인/워크플로우/채널), **비교 모드**(일반/일간/주간/월간/연간)·**디멘션별 비교(B)/요약 보기(A)** 토글, KPI·채널 도넛·기준별 막대 차트(복수 차원 시 X축 단일 차원·**일자 제외** 캠페인/워크플로우/채널만)·집계 테이블·차트 생성 위젯·**위젯 생성 (beta)**. 주요 지표·채널별 분석 섹션 상단 **기간 표시**(PeriodLabel).
 - **대시보드2**(성과리포트): 보기 모드(일반/일간·주간·월간·연간 비교), 기준·비교 주/월/일/연 선택(비어두면 전 주/전 월/전일/전년), **디멘션별 비교(B)/요약 보기(A)** 토글, 기준별 발송 현황·집계 테이블 복수 차원 시 **X축 단일 차원(일자 제외)**. KPI 순서 통일, 집계 테이블(컬럼 순서·rate 채우기 막대·내부 테두리), 위젯 rate형 Y축 소수점 둘째자리·info 버튼. 상세는 §6.2.1.
 - **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드 대시보드. 기존 대시보드 API·데이터 유틸 활용.
-- **뉴 대시보드**(/new-dashboard): 발송 요약·추이·회원/인구통계/시간대·퍼널·채널 등 마케팅 요약(API: /api/new-dashboard — summary, trend, member-summary 등). 상세는 **01_FRONTEND_GUIDE.md §4.5.2**, **02_BACKEND_GUIDE.md §4.7**, **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
-- **마케팅 대시보드**(/new-dashboard2): 별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이 등 마케팅 성과 분석용 대시보드(API: /api/new-dashboard2, Star DB 연동). 상세는 **01_FRONTEND_GUIDE.md §4.5.3**, **02_BACKEND_GUIDE.md §4.8**.
+- **뉴 대시보드**(/new-dashboard): 발송 요약·추이·회원/인구통계/시간대·퍼널·채널 등(API `/api/new-dashboard`). **dash_db** 의 `ibank_1`·`ibank_1_0`~`ibank_1_4` 테이블. 상세는 **01_FRONTEND_GUIDE.md §4.5.2**, **02_BACKEND_GUIDE.md §4.7·§4.7.1**.
+- **캠페인 대시보드**(/campaign-dashboard): UI·API 계약은 뉴 대시보드와 동일. 데이터는 Star 물리 테이블(`ibank_*_star_1`, `ibank_*_star_2`). API `/api/campaign-dashboard`. 상세는 **01_FRONTEND_GUIDE.md §4.5.2b**, **02_BACKEND_GUIDE.md §4.7.2**.
+- **마케팅 대시보드**(/new-dashboard2): 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이 등(API `/api/new-dashboard2`, Star DB). 상세는 **01_FRONTEND_GUIDE.md §4.5.3**, **02_BACKEND_GUIDE.md §4.8**.
 - **ETL**(/etl, 단일): 파일·외부 DB → 우리 PostgreSQL 적재. **소스**: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle). **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환·**변환 룰**(날짜/시간 연산 등)·증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분/**PK 차이(diff)**)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN**(Full·Incremental). **diff**는 DB 소스·PK 기준 소스/타겟 집합 비교 적재(최초는 full 후 전환). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행. **DB 탭 배치**: ETL 테이블 기반 **배치설정** 버튼으로 주기 배치 등록(status=done 시 활성). **배치 파일별 에러 정책**(on_file_error): stop/continue. **인덱스 설정**(index_definitions), **CSV 인코딩** 통합(csv_reader). API prefix **/api/etl**, Backend **etl_server**. 상세는 **01 §4.5**, **02 §6**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**, **docs/report/14_ETL_PK_DIFF.md**(diff).
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
@@ -30,9 +31,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. packages: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **new-dashboard**(뉴 대시보드), **new-dashboard2**(마케팅 대시보드), **etl**(단일 ETL: 파일·DB·저장 DB·폴더/DB 배치), shared(API·config). 상세 디렉터리·파일은 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/navConfig.js`, `src/app/routes.jsx`. **packages**: report, dashboard, **dashboard2**, **widgetboard**, **new-dashboard**, **campaign_dashboard**, **new-dashboard2**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·dashboard2), dashboard_service.py. **Backend/etl_server**: 단일 ETL API·메타·업로드·DB 적재·저장 DB·폴더/DB 배치·Job 큐(router, router_file, service, load_service, db_load_service, batch_executor_*, preview_service 등). **Backend/new_dash_server**, **Backend/new_dash_server2**: 뉴 대시보드·마케팅 대시보드 API. 상세는 **02_BACKEND_GUIDE.md** (§6 etl_server, §4.7·§4.8 new-dashboard API 포함).
+- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard·dashboard2), dashboard_service.py. **Backend/etl_server**: 단일 ETL API(`/api/etl`, `/api/etl/batch`). **Backend/new_dash_server**, **Backend/campaign_dash_server**, **Backend/new_dash_server2**: 뉴 대시보드·캠페인 대시보드·마케팅 대시보드 API. 상세는 **02_BACKEND_GUIDE.md**.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -41,7 +42,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - `python run.py serve`: 빌드 없이 정적 서버만 (report-front 서비스 기동용, 배포 시 502 방지)
 - **Linux 배포**: 실제 업데이트 배포 시 루트의 **deploy.sh** 사용 (빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md 참고.
 - **접속 경로**
-  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, 리포트 `.../report`, 대시보드 `.../dashboard`, 대시보드2 `.../dashboard2`, 뉴 대시보드 `.../new-dashboard`, 마케팅 대시보드 `.../new-dashboard2`, 위젯보드 `.../widgetboard`, ETL `.../etl`
+  - **로컬(DEV)**: `http://localhost:8080/ibank-bi/` — `report`, `dashboard`, `dashboard2`, `new-dashboard`, `campaign-dashboard`, `new-dashboard2`, `widgetboard`, `etl`
   - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일하게 `.../report`, `.../dashboard`, `.../dashboard2`, `.../new-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`). API는 동일 도메인 `/report_api` 등으로 프록시되며 config.frontend.api_base_url 로 설정.
 
 ---
@@ -92,7 +93,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ## 4. 프론트엔드 (Frontend)
 
-- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report(쿼리 빌더), dashboard(집계 대시보드), **dashboard2**(성과리포트·기간 비교), **widgetboard**(위젯보드), **new-dashboard**(뉴 대시보드), **new-dashboard2**(마케팅 대시보드), **etl**(단일 ETL). 공용 API·설정은 shared. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
+- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report, dashboard, **dashboard2**, **widgetboard**, **new-dashboard**, **campaign_dashboard**, **new-dashboard2**, **etl**. 공용: `shared/config/api.js`, `shared/api/http.js`. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
 - 상세 구조·패키지·추가 기능(Claude 해석·페이지네이션)은 **01_FRONTEND_GUIDE.md** 참고.
 
 ---
@@ -100,11 +101,11 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ## 5. 백엔드 (Backend)
 
 ### 5.1 역할
-- **FastAPI** REST API: 리포트용(health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, save-query-as-table/status/{job_id}, execute-query, explain-sql, get-column-values, query-stats) + 대시보드1(dashboard/*) + 대시보드2(dashboard2/*) + **뉴 대시보드**(/api/new-dashboard: summary, trend, trend-multi, tables, **member-summary**, **delivery-demographics**, **hourly**) + **마케팅 대시보드**(/api/new-dashboard2: overview, star, frequency, coupon, campaign-segments, store, trend, product-master) + **ETL**(/api/etl: connections, tables, jobs, storage-connections, batch, preview, run, add-file, add-files-zip 등). 위젯보드는 별도 라우터 없이 기존 API 활용.
+- **FastAPI** REST API: 리포트·대시보드1·대시보드2·**뉴 대시보드**(`/api/new-dashboard`)·**캠페인 대시보드**(`/api/campaign-dashboard`)·**마케팅 대시보드**(`/api/new-dashboard2`)·**ETL**(`/api/etl`, `/api/etl/batch`). 위젯보드는 별도 라우터 없이 리포트·대시보드 API를 사용한다.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성
-- 엔드포인트 목록: health, list-tables, describe-table, table-relationships, **join-order**, **save-query-as-table**, **save-query-as-table/status/{job_id}**, execute-query, explain-sql, get-column-values, query-stats, dashboard/*, dashboard2/*, **api/new-dashboard/** (summary, trend, trend-multi, tables, **member-summary**, **delivery-demographics**, **hourly**), **api/new-dashboard2/** (overview, star, frequency, coupon, campaign-segments, store, trend, product-master), **api/etl/** (connections, tables, jobs, storage-connections, batch, preview, run, add-file, add-files-zip, transform/preview 등). 요청/응답·라우터 구분은 **02_BACKEND_GUIDE.md §4**. ETL 상세는 **02 §6**, 뉴 대시보드 API는 **02 §4.7·§4.8**, 운영·COPY·설정 모달은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- 엔드포인트·접두사·바디 규칙은 **02_BACKEND_GUIDE.md §4** (뉴 대시보드 §4.7·§4.7.1, 캠페인 §4.7.2, 마케팅 §4.8, ETL §4.5·§6). ETL 운영·COPY·설정 모달 보조 설명은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
 - main.py·db·routers·dependencies·schemas·dashboard_service 역할은 **02_BACKEND_GUIDE.md §5** 참고.
 
 ---
@@ -126,7 +127,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - 목표·컨텍스트 섹션: 기간 유형(연/월/기간)·지표·목표값 입력·저장(localStorage `dashboard_targets`), 저장된 목표 목록·삭제.
 - 주요 지표: 캠페인 수·워크플로우 수·채널 수, 발송/성공/실패/오픈/클릭, 성공률·실패률·오픈률·클릭률(00.00% 포맷). 표시할 지표 선택(접이식 체크박스, `dashboard_kpi_visible`). 목표 대비 신호등(달성/주의/미달). 비교 모드 시 compareKpi·±n% vs 비교기간 표시.
 - KPI 카드, 채널별 도넛(비교 시 기준/비교 블록 구분), 기준별 발송 현황(막대, 상위 10건·발송성공 기준·복수 차원 시 X축 단일 차원·일자 제외), 집계 데이터 테이블(페이징·검색·비교 시 merged/summary 모드·필터 툴바), 차트 생성 위젯, **위젯 생성 (beta)**(ChartWidget2). 비교 모드 시 위젯은 **기준 기간/비교 기간** 셀렉트로 선택한 기간만 표시.
-- **기간 표시**: 주요 지표·채널별 분석 섹션 상단 PeriodLabel(기준일/기간 뱃지). shared/utils/dateRange.formatDateRangeLabel, shared/components/PeriodLabel.jsx.
+- **기간 표시**: 주요 지표·채널별 분석 섹션 상단 PeriodLabel(기준일/기간 뱃지). `packages/dashboard/utils/dateRange.js`, `packages/dashboard/components/PeriodLabel.jsx`(대시보드2에서도 import).
 - 필수 컬럼 안내 모달(컬럼명·허용 타입 목록). 섹션 접기/펼치기(CollapsibleSection, 차트 생성·위젯 생성 beta 기본 접힘).
 
 ### 6.2.1 대시보드2 (성과리포트, /dashboard2)
@@ -163,8 +164,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 6.3.2 뉴 대시보드 (/new-dashboard) · 마케팅 대시보드 (/new-dashboard2)
 
-- **뉴 대시보드**: 발송 요약(summary)·추이(trend, trend-multi)·집계 테이블 목록(tables)에 더해 **회원 현황**(member-summary: 전환·등급·비교 기준일 등)·**발송 기준 인구통계**(delivery-demographics)·**시간대별 집계**(hourly). UI는 KPI·캠페인 순위·퍼널·채널별 발송/동의·성별·나이대·등급 분포·추이 등 섹션 구성. API prefix /api/new-dashboard. Backend new_dash_server. **데이터는 config.backend.dash_db**에서 `ibank_1`·`ibank_1_0`~`ibank_1_4` 테이블로 조회(메인 DB와 분리). **회원 KPI·전환·분포 계산(끝점 빼기, 일/주/월)**: **02_BACKEND_GUIDE.md §4.7.1**. 설계·검증 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**, **02_BACKEND_GUIDE.md §3.2.1**.
-- **마케팅 대시보드**: 종합현황(overview)·별(star)·프리퀀시(frequency)·쿠폰(coupon)·캠페인 세그먼트(campaign-segments)·매장(store)·추이(trend)·상품 마스터(product-master). API prefix /api/new-dashboard2. Backend new_dash_server2(Star DB 연동). 상세는 **01 §4.5.2·§4.5.3**, **02 §4.7·§4.8**.
+- **뉴 대시보드**: 발송 요약·추이·집계 테이블 목록·**회원 현황**(member-summary)·**발송 기준 인구통계**(delivery-demographics)·**시간대별 집계**(hourly). API `/api/new-dashboard`, Backend **new_dash_server**. **config.backend.dash_db** 의 `ibank_1`·`ibank_1_0`~`ibank_1_4`. **회원 KPI·전환·분포 계산**: **02_BACKEND_GUIDE.md §4.7.1**. **DB 스키마·컬럼 매핑** 보조 참고: **docs/report/15_New_Dashboard_Upgrade_Plan.md**.
+- **캠페인 대시보드**: 뉴 대시보드와 동일 화면·엔드포인트 이름이나 데이터는 **Star** 물리 테이블(`ibank_*_star_1`, `ibank_*_star_2`). API `/api/campaign-dashboard`, Backend **campaign_dash_server**, 프론트 **packages/campaign_dashboard**. 상세 **01 §4.5.2b**, **02 §4.7.2**(계산 원칙은 §4.7.1과 동일 패턴).
+- **마케팅 대시보드**: 종합현황·별·프리퀀시·쿠폰·캠페인 세그먼트·매장·추이·상품 마스터. API `/api/new-dashboard2`, Backend **new_dash_server2**(Star DB). 상세 **01 §4.5.3**, **02 §4.8**.
 
 ### 6.4 공통
 - API 베이스 URL: config 또는 api-config.js 주입. 빌드 시 config.json frontend.api_base_url 사용 가능.
@@ -184,31 +186,6 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ---
 
-## 8. 변경 이력
+## 8. 문서 이력
 
-| 일자 | 변경 내용 |
-|------|-----------|
-| (최초) | docs/main 기반 PRD 초안 |
-| (갱신) | run.py back/front/serve, Frontend/react-app, static_server, config.json 구조 반영 |
-| (React 전환) | packages report·dashboard, static_dir=Frontend/react-app/dist 반영 |
-| (문서 통합) | CURSOR_SPEC, CURSOR_SPEC_V2_SIMPLIFIED 유효 내용 PRD로 통합, 해당 두 파일 삭제. base /ibank-bi/, 대시보드 API·필수 컬럼 타입·금지 키워드 문맥 검사 반영 |
-| (문서 분리) | 프론트 상세를 01_FRONTEND_GUIDE.md 로 이관. 00_PRD는 요약만 유지. ADVANCED_FEATURES.md 내용 통합 후 삭제 |
-| (최신화) | 차트 생성 전용 API(chart-data), 차트 생성 위젯(전용 조회·Y축 고정·막대/선형/영역 동일 구성), CollapsibleSection 반영. 사용하지 않는 표현 정리 |
-| (문서-코드 동기화) | 백엔드 FastAPI·routers(health/report/dashboard)·dependencies·schemas 반영, chart-data LIMIT 제거, 문서 구성(02 추가) 반영 |
-| (리포트 반영) | 리포트 패키지: JOIN 규칙(joinRules)·안전성(safetyCheck)·joinConfigs(LEFT/INNER/RIGHT·복합 조건)·generateDistinctPivotSQL 반영. docs/main 에서 대시보드2 언급 제거 |
-| (PRD 간결화) | 00_PRD §2.1·§4·§5.2·§5.3을 요약으로 줄이고, 상세는 01·02 참조로 통일. 02 문서 routes.py→routers/report 반영·Phase 3·4 완료 상태 정리 |
-| (문서-구현 동기화) | 대시보드(대시보드2 제외): 위젯 생성 (beta)(ChartWidget2)·기간 표시(PeriodLabel)·Y축-플롯 세로 길이 일치·차트 생성/위젯 생성 beta 기본 접힘 반영. 01_FRONTEND_GUIDE §3·§4.2·README 갱신 |
-| (대시보드2 반영) | 대시보드2 패키지·API(dashboard2/*)·주간/월간 비교(기준·비교 주/월 선택)·KPI·집계 테이블 순서·rate 채우기 막대·내부 테두리·위젯 rate Y축 소수점·info 버튼 위치 반영. 00_PRD §2.1·§4·§5·§6.2/6.3, 01_FRONTEND_GUIDE §3·§4, 02 §1.3 갱신 |
-| (접속 경로·Phase3 보완) | 00_PRD §2.2 접속 경로에 .../dashboard2 명시. 02 Phase 3 현재 구조에 dashboard2.py 반영 |
-| (2026-02-02) | 위젯보드 패키지·/widgetboard 경로 반영. 대시보드1: 비교 모드(일/주/월/연), 디멘션별 비교(B)/요약 보기(A) 토글, 기준별 발송 X축 단일 차원(일자 제외), periodCompare.js, 위젯 기간 선택. 대시보드2: 일간/연간 비교, 디멘션별 비교/요약, X축 단일 차원(일자 제외), merged/summary·필터 툴바. 리포트 API: join-order, save-query-as-table·status. §6.2.2 위젯보드, 01·02 문서 갱신 |
-| (2026-02-19) | docs/report·log 반영하여 PRD 정리. **ETL** §1.2·§2.1·§2.2·§4·§5·**§6.3** 추가: 파일·DB 연동(PostgreSQL·MySQL 적재, Oracle 목록·미리보기·PK), 동기화 모드(전체/증분)·배치·실행 시점(수동만·스케줄 미지원), 목록 열(연결·배치·동기화)·도움말. config §3.2에 system_db·etl_limits 언급. |
-| (2026-02-19) | **01_FRONTEND_GUIDE.md**·**02_BACKEND_GUIDE.md** 업데이트. 01: ETL 패키지(§1.1·§1.2·§3·§4.5)·접속 경로·shared API(ETL·joinOrder·saveQueryAsTable). 02: 가이드 명세(구조·기술 스택·API·설정·api_server/etl_server 상세), Flask→FastAPI 계획은 부록 A 참고. |
-| (2026-02-13) | **ETL 현행 반영**: Oracle Service Name만 지원(SID 미지원), 등록된 연결에 호스트:포트/DB명 표시. 타겟 테이블명 중복 검사(etl_tables·메인 DB, 증분 시 기존 테이블 허용). Oracle 테이블 목록: 스키마 미지정 시 USER_TABLES(접속 사용자 소유만), 지정 시 ALL_TABLES 해당 OWNER. 소스 테이블 OWNER.TABLE_NAME 저장. |
-| (2026-02-23) | **ETL2 (테스트중) 반영**: §1.2·§2.1·§2.2에 ETL2·etl2 패키지·etl_server2·접속 경로 /etl2 추가. §5.2 API에 api/etl2 언급. **§6.3.1 ETL2 (테스트중)** 신설: 탭(파일·DB·저장 DB 등록·이력), 저장 DB·테이블선택 및 컬럼매핑·column_mapping·증분 컬럼 셀렉트·UI 사용성·API·01 §4.5.1·02 §6.7 참조. |
-| (2026-02-23) | **docs/main 최신화(08·log 기준)**: ETL Oracle 적재 지원 반영. ETL2 "테스트중" 제거·현행 반영: 설정 모달·on_row_error·동일 target_table 허용·COPY FROM STDIN·08 참조. §6.3·§6.3.1 정리. |
-| (2026-02-26) | **ETL2 폴더 배치·레지스트리·문서 동기화**: §1.2·§6.3.1에 폴더 탭·etl_batch_target_registry·ETL 목록 통합(배치 행 삭제=cascade+테이블 DROP)·중복 Job 등록 방지·변환 룰 매핑 모달·미리보기 API·배치 첫 실행 큐·upsert 삽입/갱신 건수 구분·새로고침 버튼·기본 DB 정합성(storageDb)·CollapsibleCardSection·실행 이력 폴링·CSV head 다운로드 반영. log.md 2026-02-26 적용분 기준. |
-| (2026-02-27) | **docs/main 동기화(2026-02-27 log 기준)**: ETL 한도 config 미지정 시 etl_server2 기본값(§3.2). DB 적재 배치 미입력 시 기본 1만 건 상한(02 §3.3). etl_server db_load_service 취소 체크 견고화(_safe_is_job_cancelled) 반영. README 요약·최종 업데이트 일자 갱신. |
-| (2026-03-03) | **docs/main 최신화(log 2026-03-03·2026-02-23 반영)**: ETL2 §1.2·§6.3.1에 csv_reader(CSV 인코딩 통합), on_file_error(stop/continue), index_definitions(인덱스 설정·source-indexes), 배치 대기 파일 없으면 run 미기록, 폴더 연결 목록 연결정보 열, 실행 이력 partial_error·삽입/갱신 의미, 매핑 모달 PK·INDEX 열·인덱스 추가 테이블 아래, _batch_upsert IS DISTINCT FROM. 01 §4.5.1 인덱스 UI·BatchHistoryPanelFile partial_error·FolderConnectionListFile. 02 §2 csv_reader·§3.2 index_definitions·on_file_error·§4.6 source-indexes·§6.7 상세. README 요약 갱신. |
-| (2026-03-04) | **ETL2 DB 배치 통합·status=done·적재 안정성**: §1.2·§6.3.1에 DB 탭 배치(배치설정 버튼·from-etl-table), status=done 시에만 배치설정 활성·last_synced_at 초기 세팅, 테이블 생성 직후 PK 시 upsert·pk_columns 미설정 시 소스 PK 자동 조회(_fetch_source_pk). 01 BatchScheduleModal·ETLTableList 배치설정 disabled/툴팁. 02 from-etl-table·status 검증·last_synced_at·_fetch_source_pk·load_dataframe. README ETL2·배치 흐름 반영. |
-| (2026-03-13) | **docs/main 현재 구조 반영**: ETL 단일화(ETL1 제거·ETL2→단일 ETL, /etl, Backend etl_server만). 뉴 대시보드 2종 반영: **뉴 대시보드**(/new-dashboard, new_dash_server), **마케팅 대시보드**(/new-dashboard2, new_dash_server2). §1.2·§2.1·§2.2·§4·§5.2 접속 경로·패키지·API에서 etl2 제거, new-dashboard·new-dashboard2 추가. §6.3·§6.3.1을 단일 ETL(저장 DB·배치·폴더)로 통합, §6.3.2 뉴 대시보드·마케팅 대시보드 요약 추가. README·01·02 동기화. |
-| (2026-03-20) | **docs/main·README 현행화**: ETL sync_mode diff·변환 룰·14번 설계서. 뉴 대시보드 API·UI(member-summary 등). **02 §4.7.1** `member-summary` 계산·**01 §4.5.2** 교차 참조. **15_New_Dashboard_Upgrade_Plan.md** 링크. |
+본 PRD에는 **날짜별 변경 타임라인을 두지 않는다.** 작업 단위 이력은 **docs/log/log.md**, 코드 이력은 Git을 본다.

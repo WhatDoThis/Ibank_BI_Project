@@ -11,11 +11,11 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal
+ * - React, @/packages/etl/api/etlClient.js (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/shared/api/client';
+import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/packages/etl/api/etlClient.js';
 import { getStorageConnectionIdForFormData } from '../utils/storageDb.js';
 
 import TargetTableSelectModal from './TargetTableSelectModal/index.jsx';

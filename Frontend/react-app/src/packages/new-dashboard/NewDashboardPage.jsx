@@ -15,7 +15,7 @@ import {
   getNewDashboardTrendMulti,
   getNewDashboardMemberSummary,
   getNewDashboardHourly,
-} from '@/shared/api/client'
+} from '@/packages/new-dashboard/api/newDashboardClient.js'
 import './new-dashboard.css'
 import SummaryHeader from './components/SummaryHeader'
 import KPISummaryCards from './components/KPISummaryCards'

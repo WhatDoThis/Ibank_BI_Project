@@ -11,12 +11,12 @@
  *
  * [Dependencies]
  * =========
- * - React, recharts, shared/api/client (getChartData)
+ * - React, recharts, @/packages/dashboard/api/dashboardClient.js (getChartData)
  */
 
 import { useState, useMemo, useEffect, useRef, useCallback, createContext, useContext } from 'react'
-import { getChartData } from '@/shared/api/client'
-import { normalizeDateRange } from '@/shared/utils/dateRange'
+import { getChartData } from '@/packages/dashboard/api/dashboardClient.js'
+import { normalizeDateRange } from '../utils/dateRange.js'
 import {
   BarChart,
   Bar,

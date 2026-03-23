@@ -20,12 +20,12 @@
  * [Dependencies]
  * =========
  * - React (useState, useEffect)
- * - @/shared/api/client (batchListFolderPatterns)
+ * - @/packages/etl/api/etlClient.js (batchListFolderPatterns)
  * - etl.css (etl-db-form__*, etl-add-file-modal__* 스타일)
  */
 
 import { useState, useEffect } from 'react';
-import { batchListFolderPatterns } from '@/shared/api/client';
+import { batchListFolderPatterns } from '@/packages/etl/api/etlClient.js';
 import '../etl.css';
 
 // 1.

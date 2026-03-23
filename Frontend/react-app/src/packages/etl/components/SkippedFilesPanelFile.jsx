@@ -16,7 +16,7 @@
  *
  * [Dependencies]
  * =========
- * - React, @/shared/api/client (batchListSkippedFiles, batchDeleteSkippedFiles, batchListSkippedFilesHistory)
+ * - React, @/packages/etl/api/etlClient.js (batchListSkippedFiles, batchDeleteSkippedFiles, batchListSkippedFilesHistory)
  * - etl.css (etl-db-form__section, etl-history__table, etl-modal-overlay 등)
  */
 
@@ -25,7 +25,7 @@ import {
   batchListSkippedFiles,
   batchDeleteSkippedFiles,
   batchListSkippedFilesHistory,
-} from '@/shared/api/client';
+} from '@/packages/etl/api/etlClient.js';
 import '../etl.css';
 
 // 1.
