@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+40. 2026-03-23 뉴/캠페인 대시보드 주간 API target_date 일요일 끝점 보정
 39. 2026-03-23 docs/main·README·docs/README 아키텍처·캠페인 대시보드 반영
 38. 2026-03-23 프론트 API 패키지 분리·라우트 모듈화(shared client 제거)
 37. 2026-03-23 캠페인 대시보드 구현(campaign_dash_server·campaign_dashboard)
@@ -42,6 +43,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+40. 2026-03-23 뉴/캠페인 대시보드 주간 API target_date 일요일 끝점 보정
+Purpose: 주간 선택 시 weekValueToDate가 월요일만 저장되어 member-summary·hourly 등에 월요일이 넘어가 백엔드 curr_end가 월요일로 고정되던 문제 수정.
+
+Changes:
+
+- dateUtils: weeklySnapshotTargetDate — 해당 주 일요일과 오늘 중 이른 날
+- NewDashboardPage·CampaignDashboardPage: period===weekly 일 때 summary·trendMulti·member·hourly에 apiTargetDate 사용
+
+Changed files: Frontend/react-app/src/packages/new-dashboard/components/dateUtils.js, NewDashboardPage.jsx, Frontend/react-app/src/packages/campaign_dashboard/components/dateUtils.js, CampaignDashboardPage.jsx, docs/log/log.md
 
 39. 2026-03-23 docs/main·README·docs/README 아키텍처·캠페인 대시보드 반영
 Purpose: docs/main 을 현행 가이드로 통일(캠페인 대시보드·campaign_dash_server·패키지 API·트리). 날짜별 타임라인 제거·docs/report 역할 명시. 루트 README·docs/README 갱신.

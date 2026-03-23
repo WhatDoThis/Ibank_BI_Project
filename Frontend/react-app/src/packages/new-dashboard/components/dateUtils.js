@@ -9,7 +9,8 @@
  * 3. toLocalDateString: Date → YYYY-MM-DD (UTC 비틀림 방지)
  * 4. dateToWeekValue: 날짜 → input type="week" 값
  * 5. weekValueToDate: YYYY-Www → 해당 주 월요일 YYYY-MM-DD
- * 6. formatDateLabel: period별 축 라벨 (daily MM/DD, weekly getMonthWeekLabel, monthly YYYY/MM)
+ * 6. weeklySnapshotTargetDate: 주간 API용 target_date — 해당 주 일요일과 오늘 중 이른 날(끝점 스냅샷)
+ * 7. formatDateLabel: period별 축 라벨 (daily MM/DD, weekly getMonthWeekLabel, monthly YYYY/MM)
  */
 
 // 1.
@@ -79,6 +80,25 @@ export function weekValueToDate(weekStr) {
 }
 
 // 6.
+/**
+ * 주간 모드에서 member-summary·hourly 등 API에 넣을 target_date.
+ * UI state는 weekValueToDate로 월요일만 저장되므로, 그대로 보내면 curr_end가 월요일에 고정됨.
+ * 해당 주 일요일(주말 끝점)과 오늘 중 이른 날을 쓰면 완료된 주는 일요일 스냅샷, 진행 주는 오늘까지 반영.
+ */
+export function weeklySnapshotTargetDate(anchorYmd) {
+  if (!anchorYmd || anchorYmd.length < 10) return anchorYmd
+  const d = new Date(`${anchorYmd.slice(0, 10)}T12:00:00`)
+  const dow = d.getDay()
+  const monOffset = dow === 0 ? -6 : 1 - dow
+  d.setDate(d.getDate() + monOffset)
+  const sun = new Date(d)
+  sun.setDate(sun.getDate() + 6)
+  const sunStr = toLocalDateString(sun)
+  const todayStr = toLocalDateString(new Date())
+  return sunStr < todayStr ? sunStr : todayStr
+}
+
+// 7.
 /** YYYY-MM-DD와 period에 따른 차트 축 라벨 (daily: MM/DD, weekly: M월 N주차, monthly: YYYY/MM) */
 export function formatDateLabel(ymd, period) {
   if (!ymd) return ymd

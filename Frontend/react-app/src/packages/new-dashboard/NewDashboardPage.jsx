@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * 1. todayStr
- * 2. loadData (useCallback): 캠페인(summary+trendMulti) / 회원+시간대(member+hourly×3) try 분리, moveDate, handleDateChange. 로딩은 새로고침 버튼 '조회 중...' 표시.
+ * 2. loadData (useCallback): 주간 시 weeklySnapshotTargetDate(월요일 state → min(일요일, 오늘))로 API target_date 보정 후 캠페인(summary+trendMulti) / 회원+시간대(member+hourly×3). moveDate, handleDateChange.
  *    회원 현황·회원 분석·채널 발송+동의·전체 추이(하단 전폭)·시간대 차트 등 신규 섹션 렌더.
  */
 import { useState, useEffect, useCallback } from 'react'
@@ -17,6 +17,7 @@ import {
   getNewDashboardHourly,
 } from '@/packages/new-dashboard/api/newDashboardClient.js'
 import './new-dashboard.css'
+import { weeklySnapshotTargetDate } from './components/dateUtils.js'
 import SummaryHeader from './components/SummaryHeader'
 import KPISummaryCards from './components/KPISummaryCards'
 import TrendLineChart from './components/TrendLineChart'
@@ -72,11 +73,12 @@ export default function NewDashboardPage() {
     if (!tableId) return
     setLoading(true)
     setError(null)
+    const apiTargetDate = period === 'weekly' ? weeklySnapshotTargetDate(targetDate) : targetDate
     try {
       const [summary, trendMulti] = await Promise.all([
-        getNewDashboardSummary(tableId, targetDate, period),
+        getNewDashboardSummary(tableId, apiTargetDate, period),
         getNewDashboardTrendMulti(tableId, {
-          endDate: targetDate,
+          endDate: apiTargetDate,
           period,
           days: 10,
           count: 10,
@@ -92,10 +94,10 @@ export default function NewDashboardPage() {
     }
     try {
       const [member, hSuccess, hOpen, hClick] = await Promise.all([
-        getNewDashboardMemberSummary(tableId, { targetDate, period }),
-        getNewDashboardHourly(tableId, { targetDate, period, metric: 'success' }),
-        getNewDashboardHourly(tableId, { targetDate, period, metric: 'open' }),
-        getNewDashboardHourly(tableId, { targetDate, period, metric: 'click' }),
+        getNewDashboardMemberSummary(tableId, { targetDate: apiTargetDate, period }),
+        getNewDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'success' }),
+        getNewDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'open' }),
+        getNewDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'click' }),
       ])
       setMemberData(member)
       setHourlySuccess(hSuccess)

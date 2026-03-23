@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * 1. todayStr
- * 2. loadData: getCampaignDashboard* 호출
+ * 2. loadData: 주간 시 weeklySnapshotTargetDate 보정 후 getCampaignDashboard* 호출
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -16,6 +16,7 @@ import {
   getCampaignDashboardHourly,
 } from '@/packages/campaign_dashboard/api/campaignDashboardClient.js'
 import './campaign-dashboard.css'
+import { weeklySnapshotTargetDate } from './components/dateUtils.js'
 import SummaryHeader from './components/SummaryHeader'
 import KPISummaryCards from './components/KPISummaryCards'
 import TrendLineChart from './components/TrendLineChart'
@@ -71,11 +72,12 @@ export default function CampaignDashboardPage() {
     if (!tableId) return
     setLoading(true)
     setError(null)
+    const apiTargetDate = period === 'weekly' ? weeklySnapshotTargetDate(targetDate) : targetDate
     try {
       const [summary, trendMulti] = await Promise.all([
-        getCampaignDashboardSummary(tableId, targetDate, period),
+        getCampaignDashboardSummary(tableId, apiTargetDate, period),
         getCampaignDashboardTrendMulti(tableId, {
-          endDate: targetDate,
+          endDate: apiTargetDate,
           period,
           days: 10,
           count: 10,
@@ -91,10 +93,10 @@ export default function CampaignDashboardPage() {
     }
     try {
       const [member, hSuccess, hOpen, hClick] = await Promise.all([
-        getCampaignDashboardMemberSummary(tableId, { targetDate, period }),
-        getCampaignDashboardHourly(tableId, { targetDate, period, metric: 'success' }),
-        getCampaignDashboardHourly(tableId, { targetDate, period, metric: 'open' }),
-        getCampaignDashboardHourly(tableId, { targetDate, period, metric: 'click' }),
+        getCampaignDashboardMemberSummary(tableId, { targetDate: apiTargetDate, period }),
+        getCampaignDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'success' }),
+        getCampaignDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'open' }),
+        getCampaignDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'click' }),
       ])
       setMemberData(member)
       setHourlySuccess(hSuccess)
