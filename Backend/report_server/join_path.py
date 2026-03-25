@@ -1,5 +1,5 @@
 """
-Backend.api_server.join_path (JOIN 경로·순서)
+Backend.report_server.join_path (JOIN 경로·순서)
 =============================================
 JOIN 자동 생성: 경로 탐색(BFS), 직접 관계, JOIN 순서 결정. report 라우터에서 determine_join_order, validate_join_order 사용.
 

@@ -11,15 +11,15 @@ FastAPI 라우터. DB 연결 확인·루트·API 엔드포인트 목록 안내. 
 
 [Dependencies]
 =========
-- Backend.api_server.db, Backend.api_server.dependencies.get_db
+- Backend.core.db, Backend.core.dependencies.get_db
 - fastapi
 """
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from Backend.api_server import db
-from Backend.api_server.dependencies import get_db
+from Backend.core import db
+from Backend.core.dependencies import get_db
 
 router = APIRouter(tags=["health"])
 
@@ -77,10 +77,5 @@ def api_index():
             "GET  /api/dashboard/tables",
             "GET  /api/dashboard/required-columns",
             "POST /api/dashboard/chart-data",
-            "POST /api/dashboard2/data",
-            "GET  /api/dashboard2/filter-options/<table_id>",
-            "GET  /api/dashboard2/tables",
-            "GET  /api/dashboard2/required-columns",
-            "POST /api/dashboard2/chart-data",
         ],
     }

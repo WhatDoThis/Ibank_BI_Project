@@ -25,7 +25,7 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection_system, get_system_table_schema, _get_db/_schema/_q는 service 위임)
+- Backend.core.db (get_db_connection_system, get_system_table_schema, _get_db/_schema/_q는 service 위임)
 - Backend.etl_server.service (_get_db, _schema, _q 공유)
 - Backend.etl_server.folder_adapter_file (SFTPAdapter, S3Adapter)
 """

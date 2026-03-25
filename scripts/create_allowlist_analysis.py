@@ -5,7 +5,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root))
 
-from Backend.api_server import db
+from Backend.core import db
 
 DDL = """
 CREATE TABLE IF NOT EXISTS allowlist_analysis (

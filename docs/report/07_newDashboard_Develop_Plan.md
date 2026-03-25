@@ -22,7 +22,7 @@
 
 ## 2. 현행 구조 요약 (검토 기준)
 
-### 2.1 백엔드 (dashboard_service, dashboard2 라우터)
+### 2.1 백엔드 (dashboard_service, dashboard 라우터)
 
 - **테이블 목록**: `get_aggregatable_tables()` → `DASHBOARD_REQUIRED_COLUMNS`에 정의된 컬럼·타입을 **모두** 만족하는 테이블만 반환.
 - **필수 컬럼**: `delivery_date`, `campaign_id`, `campaign_label`, `workflow_id`, `workflow_label`, `delivery_channel`, `total_count`, `success_count`, `failed_count`, `open_count`, `click_count` 등 **고정**.
@@ -31,14 +31,14 @@
 - **필터 옵션**: `get_filter_options()` → `campaigns` / `workflows` / `channels` 전용 쿼리(컬럼명 고정).
 - **차트 데이터**: `get_chart_data()` → `CHART_DIMENSION_KEYS`, `CHART_METRIC_KEYS` 고정.
 
-### 2.2 프론트엔드 (dashboard2 패키지)
+### 2.2 프론트엔드 (dashboard 패키지)
 
-- **집계 기준**: `Dashboard2Header` 등에서 `groupBy: { campaign, date, workflow, channel }` 고정.
-- **디멘션/메트릭**: `DIMENSION_FIELDS`, `METRIC_FIELDS` 상수로 라벨·키 고정.
-- **KPI**: `KPICards2` → `ALL_KPI_KEYS`, `CARD_CONFIG` 고정 (캠페인 수, 워크플로우 수, 발송, 성공률 등).
-- **목표**: `TargetContextSection` → 지표 키가 고정; 목표값은 실수형 대응만 하면 됨.
-- **집계 테이블**: `AggregatedDataTable2` → 컬럼 정의가 `delivery_date`, `campaign_label`, `workflow_label`, `channel_name`, `total_count`, `success_count`, … 등 고정.
-- **위젯 (beta)**: `EChartsChart` → dimension/metric 키가 `METRIC_FIELDS`/`DIMENSION_FIELDS` 기반 고정.
+- **집계 기준**: `DashboardHeader` 등에서 `groupBy: { campaign, date, workflow, channel }` 고정.
+- **디멘션/메트릭**: 화면별 상수로 라벨·키 고정.
+- **KPI**: `KPICards` 등에서 카드 구성·지표 키가 도메인 규칙에 맞게 고정.
+- **목표**: `TargetContextSection` → 지표 키가 고정; 목표값은 실수형 대응.
+- **집계 테이블**: `AggregatedDataTable` → 컬럼 정의가 `delivery_date`, `campaign_label`, `workflow_label`, `channel_name`, `total_count`, `success_count`, … 등 고정.
+- **위젯 (beta)**: `ChartWidget2` 등에서 dimension/metric 선택이 테이블·상수 조합에 기대도록 구성.
 
 ### 2.3 기존 공용 유틸 (참고)
 
@@ -83,10 +83,10 @@
 ## 5. 패키지·파일 전략
 
 - **패키지**: `Frontend/react-app/src/packages/newDashboard` 신규 생성.
-- **초기 구성**: 사용자가 **폴더 생성 및 기존 대시보드 파일 복사**를 수행. **dashboard2 기준 복사 권장**(비교 모드, 디멘션별/요약, periodCompare 등이 이미 반영됨). 이후 에이전트가 **파일 내용 변경·파일 정리** 수행.
+- **초기 구성**: 사용자가 **폴더 생성 및 기존 대시보드 파일 복사**를 수행. **`packages/dashboard` 기준 복사**(비교 모드, 디멘션별/요약, periodCompare 등 참고). 이후 에이전트가 **파일 내용 변경·파일 정리** 수행.
 - **복사 시 제외**: 채널별 분석, 기준별 발송 현황, (일반) 위젯 생성 관련 컴포넌트는 복사하지 않거나 복사 후 제거.  
-  - 예: `ChannelDonutCharts2`, `AggregatedBarChart2`(기준별 발송) 등은 범용 버전으로 대체하거나 제외.
-- **유지 후 수정**: `KPICards` → 스키마 기반 KPI 목록, `AggregatedDataTable` → 스키마 기반 컬럼, `TargetContextSection` → 숫자형 컬럼만 목표, `EChartsChart`(위젯 beta) → 테이블 기반 dimension/metric 선택.
+  - 예: `ChannelDonutCharts`, `AggregatedBarChart`(기준별 발송) 등은 범용 버전으로 대체하거나 제외.
+- **유지 후 수정**: `KPICards` → 스키마 기반 KPI 목록, `AggregatedDataTable` → 스키마 기반 컬럼, `TargetContextSection` → 숫자형 컬럼만 목표, `ChartWidget2`(위젯 beta) → 테이블 기반 dimension/metric 선택.
 
 ---
 
@@ -95,10 +95,10 @@
 ### Phase 0: 사전 작업 (사용자 수행)
 
 - `packages/newDashboard` 폴더 생성.
-- 기존 대시보드(**dashboard2 권장**) 패키지에서 **제외 대상 외** 파일 복사.
-  - 복사 후 제거할 컴포넌트: `ChannelDonutCharts2`, `AggregatedBarChart2` (채널별 분석·기준별 발송 현황).
-  - 유지 후 수정 대상: `Dashboard2Page` → `NewDashboardPage`, 헤더, KPI, 목표, 집계 테이블, 위젯(beta), 유틸.
-- **공통 의존성 확인**: `CollapsibleSection2`, `PeriodLabel`(shared), `periodCompare` 유틸 등 복사·import 경로가 newDashboard 기준으로 동작하는지 확인. shared 컴포넌트는 그대로 `@/shared/...` 참조 가능.
+- 기존 **`packages/dashboard`** 에서 **제외 대상 외** 파일 복사.
+  - 복사 후 제거할 컴포넌트: `ChannelDonutCharts`, `AggregatedBarChart` (채널별 분석·기준별 발송 현황).
+  - 유지 후 수정 대상: `DashboardPage` → `NewDashboardPage`, 헤더, KPI, 목표, 집계 테이블, 위젯(beta), 유틸.
+- **공통 의존성 확인**: `CollapsibleSection`, `PeriodLabel`, `periodCompare` 유틸 등 복사·import 경로가 newDashboard 기준으로 동작하는지 확인. shared 컴포넌트는 그대로 `@/shared/...` 참조 가능.
 
 ---
 

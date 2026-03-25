@@ -1,6 +1,6 @@
 """
-Backend.api_server.db (DB 연결 및 검증)
-=======================================
+Backend.core.db (DB 연결 및 검증)
+=================================
 Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.get_db()로 연결 주입.
 메인 DB·시스템 DB 분리. ETL 타겟 테이블은 get_table_columns_for_etl_target, get_primary_key_columns_for_etl_target로 allowed_tables 미검사 조회.
 
@@ -28,6 +28,13 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 20. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
 21. validate_table_name: 허용 패턴·허용 테이블 검증
 22. validate_column_name: 컬럼명 허용 패턴 검증
+
+[Package Usage]
+===========
+1. Backend/api_server (main.py 기동 로그, routers/health), Backend/report_server (router, analysis_store), Backend/etl_server (router·service·load·batch 등)
+2. Backend/new_dash_server, Backend/campaign_dash_server
+3. Backend/core (dependencies, dashboard_service 내부 import)
+4. scripts (DB 점검·스키마 덤프·allowlist 등)
 
 [Dependencies]
 =========

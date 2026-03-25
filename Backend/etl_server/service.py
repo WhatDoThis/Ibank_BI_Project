@@ -19,7 +19,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection_system, get_system_table_schema)
+- Backend.core.db (get_db_connection_system, get_system_table_schema)
 - psycopg2, PyMySQL, oracledb (외부 DB 연결·테스트·소스 테이블 목록)
 """
 
@@ -78,8 +78,8 @@ except ImportError:
 
 
 def _get_db():
-    """순환 import 방지: api_server.db를 사용 시점에 로드."""
-    from Backend.api_server import db as api_db
+    """순환 import 방지: Backend.core.db를 사용 시점에 로드."""
+    from Backend.core import db as api_db
     return api_db
 
 

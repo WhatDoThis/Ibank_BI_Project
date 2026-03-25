@@ -17,7 +17,7 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 
 [Dependencies]
 =========
-- Backend.api_server.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
+- Backend.core.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
 - Env.config.loader.add_allowed_table
 - psycopg2 (copy_expert), pandas
 """

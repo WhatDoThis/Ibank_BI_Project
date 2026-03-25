@@ -1,7 +1,7 @@
 """
-Backend.api_server.schemas (요청 바디 스키마)
-==============================================
-FastAPI POST 엔드포인트 요청 검증·문서화용 Pydantic 모델. 프론트 전송 형식과 동일 유지.
+Backend.report_server.schemas (리포트 API 요청 바디)
+===================================================
+FastAPI POST 엔드포인트 요청 검증용 Pydantic 모델. 구 대시보드 스키마는 legacy_dashboard_server.schemas.
 
 [Pydantic Models]
 ===========
@@ -12,9 +12,7 @@ FastAPI POST 엔드포인트 요청 검증·문서화용 Pydantic 모델. 프론
 5. QueryStatsRequest: POST /api/query-stats
 6. JoinOrderRequest: POST /api/join-order
 7. SaveQueryAsTableRequest: POST /api/save-query-as-table
-8. ColumnLabelsRequest: GET/POST /api/column-labels (테이블·컬럼 라벨)
-9. DashboardDataRequest: 대시보드1·2 data (table_id, date_range, group_by 등)
-10. ChartDataRequest: 대시보드 차트 (dimension, metric 등)
+8. ColumnLabelsRequest: GET/POST /api/column-labels
 
 [Dependencies]
 =========
@@ -75,26 +73,3 @@ class ColumnLabelsRequest(BaseModel):
     table_name: str = Field(..., description="테이블명")
     labels: dict = Field(default_factory=dict, description="컬럼명 → 라벨 매핑")
     table_label: Optional[str] = Field(None, description="테이블 표시 라벨 (선택)")
-
-
-# 9.
-class DashboardDataRequest(BaseModel):
-    table_id: str = Field(..., description="테이블 ID")
-    date_range: List[Any] = Field(..., min_length=2, description="[시작일, 종료일]")
-    campaign_ids: Optional[List[int]] = None
-    workflow_ids: Optional[List[int]] = None
-    channels: Optional[List[int]] = None
-    group_by: Optional[dict] = Field(
-        default_factory=lambda: {"campaign": True, "date": True, "workflow": False, "channel": True}
-    )
-
-
-# 10.
-class ChartDataRequest(BaseModel):
-    table_id: str = Field(..., description="테이블 ID")
-    date_range: List[Any] = Field(..., min_length=2, description="[시작일, 종료일]")
-    campaign_ids: Optional[List[int]] = None
-    workflow_ids: Optional[List[int]] = None
-    channels: Optional[List[int]] = None
-    dimension: str = Field("delivery_date", description="집계 기준 컬럼")
-    metric: str = Field("success_count", description="집계 지표 컬럼")

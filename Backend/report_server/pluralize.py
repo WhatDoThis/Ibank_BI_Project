@@ -1,5 +1,5 @@
 """
-Backend.api_server.pluralize (단수/복수 변환·부모 테이블 찾기)
+Backend.report_server.pluralize (단수/복수 변환·부모 테이블 찾기)
 =============================================================
 리포트·쿼리 빌더에서 테이블명·컬럼명 처리. report 라우터에서 find_parent_table 사용.
 

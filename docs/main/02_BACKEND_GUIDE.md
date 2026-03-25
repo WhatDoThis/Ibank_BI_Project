@@ -1,6 +1,6 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/api_server`, `Backend/etl_server`, `Backend/new_dash_server`, `Backend/campaign_dash_server`, `Backend/new_dash_server2`.  
+본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/report_server`, `Backend/legacy_dashboard_server`, `Backend/api_server`(호스트 앱), `Backend/etl_server`, `Backend/new_dash_server`, `Backend/campaign_dash_server`, `Backend/new_dash_server2`.  
 **목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
 
 ---
@@ -9,7 +9,7 @@
 
 ### 1.1 역할
 
-- **FastAPI** 기반 REST API 서버. 리포트·대시보드1·대시보드2·**뉴 대시보드**(new_dash_server)·**캠페인 대시보드**(campaign_dash_server)·**마케팅 대시보드**(new_dash_server2)·**ETL**(etl_server 단일) 용 API 제공.
+- **FastAPI** 기반 REST API 서버. 리포트·대시보드·**뉴 대시보드**(new_dash_server)·**캠페인 대시보드**(campaign_dash_server)·**마케팅 대시보드**(new_dash_server2)·**ETL**(etl_server 단일) 용 API 제공.
 - **PostgreSQL** 연동: 비즈니스 DB(리포트·대시보드·allowed_tables), 선택 시 **시스템 DB**(ETL 메타·etl_connections, etl_tables, etl_jobs 등), **뉴 대시보드 전용 DB**(backend.dash_db — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
@@ -35,17 +35,25 @@
 
 ```
 Backend/
-├── api_server/                    # 리포트·대시보드 API
-│   ├── main.py                    # FastAPI 앱·CORS·라우터 등록·예외 핸들러·ETL 워커 startup
+├── core/                          # 공유 DB·의존성·대시보드 집계 (여러 서버가 import)
 │   ├── db.py                      # config.backend 기반 DB 연결(get_db_config, get_allowed_tables, get_db_connection, get_db_connection_system, get_db_connection_dash 등)
 │   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
-│   ├── schemas.py                 # Pydantic 요청 스키마 (POST 바디 검증)
-│   ├── dashboard_service.py      # 대시보드1·2 집계 비즈니스 로직
+│   └── dashboard_service.py       # 대시보드 집계 비즈니스 로직 (legacy_dashboard·new_dash_server·campaign_dash_server 공용)
+│
+├── report_server/                 # 노코드 쿼리 빌더·리포트 API (prefix /api, etl_server와 동급 패키지)
+│   ├── router.py                  # list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats
+│   ├── schemas.py                 # 리포트 전용 Pydantic 요청 스키마
+│   ├── pluralize.py, relationship_inference.py, join_path.py, join_metrics.py, analysis_store.py
+│
+├── legacy_dashboard_server/       # 구 대시보드 API만 (prefix /api/dashboard)
+│   ├── router.py                  # data, filter-options, tables, required-columns, chart-data
+│   └── schemas.py                 # DashboardDataRequest, ChartDataRequest
+│
+├── api_server/                    # FastAPI 호스트: 앱 조립·CORS·라우터 등록
+│   ├── main.py                    # FastAPI 앱·CORS·라우터 등록·예외 핸들러·ETL 워커 startup
 │   └── routers/
-│       ├── health.py              # GET /, /api, /api/, /health
-│       ├── report.py              # prefix /api — list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats
-│       ├── dashboard.py           # prefix /api/dashboard — data, filter-options, tables, required-columns, chart-data
-│       └── dashboard2.py           # prefix /api/dashboard2 — 동일
+│       ├── __init__.py            # health + report_server.router + legacy_dashboard_server.router 재export
+│       └── health.py              # GET /, /api, /api/, /health
 │
 ├── etl_server/                    # ETL API (단일) — /api/etl, /api/etl/batch
 │   ├── router.py                  # prefix /api/etl — connections, tables, jobs, storage-connections, target-tables, infer-schema, source-columns, source-indexes, transform/preview, preview, run, add-file, add-files-zip 등
@@ -82,7 +90,7 @@ Backend/
     └── star_db.py                 # Star DB 연결 풀
 ```
 
-- **라우터 등록 순서**: health → report → dashboard → dashboard2 → **etl_router** → **new_dashboard_router** → **campaign_dashboard_router** → **new_dash2_router** (`main.py` 의 `include_router` 순서와 동일).
+- **라우터 등록 순서**: health → report → dashboard → **etl_router** → **new_dashboard_router** → **campaign_dashboard_router** → **new_dash2_router** (`main.py` 의 `include_router` 순서와 동일).
 - **etl_limits**: etl_server에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb) 반환. config에 0을 넣으면 해당 항목 한도 없음.
 
 ---
@@ -93,7 +101,7 @@ Backend/
 
 - **위치**: `Env/config/config.json` (또는 config.json.example 복사 후 수정).
 - **로드**: `Env/__init__.py` → loader.load_config() → config.backend, config.frontend.
-- **백엔드 사용**: main.py(api_host, api_port), db.py(db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema), report 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**(db_host, db_port, db_name, db_user, db_password, table_schema).
+- **백엔드 사용**: main.py(api_host, api_port), **Backend.core.db**(db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema), **report_server** 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**(db_host, db_port, db_name, db_user, db_password, table_schema).
 
 ### 3.2 시스템 DB (ETL)
 
@@ -177,17 +185,7 @@ Backend/
 | GET | /api/dashboard/required-columns | 필수 컬럼 |
 | POST | /api/dashboard/chart-data | 차트 데이터(단일 디멘션·메트릭, LIMIT 없음) |
 
-### 4.4 dashboard2 (prefix /api/dashboard2)
-
-| 메서드 | 경로 | 용도 |
-|--------|------|------|
-| POST | /api/dashboard2/data | 대시보드2 집계·KPI |
-| GET | /api/dashboard2/filter-options/{table_id} | 필터 옵션 |
-| GET | /api/dashboard2/tables | 테이블 목록 |
-| GET | /api/dashboard2/required-columns | 필수 컬럼 |
-| POST | /api/dashboard2/chart-data | 차트 데이터 |
-
-### 4.5 ETL (prefix /api/etl)
+### 4.4 ETL (prefix /api/etl)
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -210,7 +208,7 @@ Backend/
 
 - 요청/응답 형식: JSON.
 
-### 4.6 ETL (prefix /api/etl, /api/etl/batch) — 단일
+### 4.5 ETL (prefix /api/etl, /api/etl/batch) — 단일
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -238,7 +236,7 @@ Backend/
 | **POST** | **/api/etl/batch/jobs/from-etl-table** | ETL 테이블 기반 DB 배치 등록. etl_table.status=done 검증(아니면 400). 등록 직후 etl_tables.last_synced_at → batch_jobs.last_synced_at 초기 세팅. |
 | (기타) | /api/etl/batch/jobs, validate-target, run/now, history, skipped-files, rollback 등 | 배치 Job CRUD·즉시실행·이력·스킵 파일·롤백 |
 
-### 4.7 뉴 대시보드 (prefix /api/new-dashboard)
+### 4.6 뉴 대시보드 (prefix /api/new-dashboard)
 
 - **데이터 소스**: 기본 테이블 ID `ibank_1` 및 서브 `ibank_1_0`~`ibank_1_4`는 **config.backend.dash_db**에 적재된 DB에서 조회(메인 `db_name`과 분리).
 
@@ -248,11 +246,11 @@ Backend/
 | GET | /api/new-dashboard/trend | 단일 메트릭 추이 |
 | GET | /api/new-dashboard/trend-multi | 기간별 복수 메트릭(period: daily/weekly/monthly) |
 | GET | /api/new-dashboard/tables | 집계 가능 테이블 목록 |
-| GET | /api/new-dashboard/member-summary | 회원 현황(끝점 빼기·분포 등, **§4.7.1** 계산 공식) |
+| GET | /api/new-dashboard/member-summary | 회원 현황(끝점 빼기·분포 등, **§4.6.1** 계산 공식) |
 | GET | /api/new-dashboard/delivery-demographics | 발송 기준 인구통계(성별·나이대 등) |
 | GET | /api/new-dashboard/hourly | 시간대별 집계(success·open·click 등) |
 
-#### 4.7.1 뉴 대시보드 `member-summary` 계산 공식 (회원 KPI·전환·분포)
+#### 4.6.1 뉴 대시보드 `member-summary` 계산 공식 (회원 KPI·전환·분포)
 
 BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구현**: `Backend/new_dash_server/router.py` — `member_summary`.
 
@@ -290,10 +288,10 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 증감률(%) = (순증감(명) / total_recipients(compare)) × 100
 ```
 
-### 4.7.2 캠페인 대시보드 (prefix /api/campaign-dashboard)
+### 4.6.2 캠페인 대시보드 (prefix /api/campaign-dashboard)
 
 - **데이터 소스**: **config.backend.dash_db** 의 Star 물리 테이블 — 발송 팩트 `ibank_*_star_1`, 회원 스냅샷 `ibank_*_star_2`(JSONB 컬럼). 집계·스냅샷 선택 규칙은 `Backend/campaign_dash_server/router.py` 가 담당한다.
-- **요청/응답**: 경로·쿼리 파라미터·JSON 필드 이름이 **§4.7 뉴 대시보드**와 동일하다(프론트는 `campaignDashboardClient.js`로 호출).
+- **요청/응답**: 경로·쿼리 파라미터·JSON 필드 이름이 **§4.6 뉴 대시보드**와 동일하다(프론트는 `campaignDashboardClient.js`로 호출).
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -301,11 +299,11 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 | GET | /api/campaign-dashboard/trend | 단일 메트릭 추이 |
 | GET | /api/campaign-dashboard/trend-multi | 복수 메트릭 추이 |
 | GET | /api/campaign-dashboard/tables | 집계 가능 테이블 목록(`*_star_1` 만) |
-| GET | /api/campaign-dashboard/member-summary | 회원 현황(계산 원칙은 §4.7.1과 동일 패턴) |
+| GET | /api/campaign-dashboard/member-summary | 회원 현황(계산 원칙은 §4.6.1과 동일 패턴) |
 | GET | /api/campaign-dashboard/delivery-demographics | 발송 기준 인구통계 |
 | GET | /api/campaign-dashboard/hourly | 시간대별 집계 |
 
-### 4.8 마케팅 대시보드 (prefix /api/new-dashboard2)
+### 4.7 마케팅 대시보드 (prefix /api/new-dashboard2)
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -320,41 +318,41 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 
 ---
 
-## 5. api_server 상세
+## 5. api_server·core·report_server·legacy_dashboard 상세
 
-### 5.1 main.py
+### 5.1 main.py (api_server)
 
-- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, report, dashboard, dashboard2, etl_router, **new_dashboard_router**, **campaign_dashboard_router**, **new_dash2_router**).
+- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, report, dashboard, etl_router, **new_dashboard_router**, **campaign_dashboard_router**, **new_dash2_router**).
 - 예외: 404/500 → JSONResponse.
 - lifespan: ETL 폴더 배치 스케줄러(`etl_server.scheduler_file`) 기동(실패 시 무시).
-- `__main__`: config.backend.api_host/api_port, uvicorn.run(app).
+- `__main__`: config.backend.api_host/api_port, uvicorn.run(app). 시작 시 로그용으로 **Backend.core.db** 설정 출력.
 
-### 5.2 db.py
+### 5.2 core/db.py
 
 - **get_db_config()**, **get_allowed_tables()**, **get_db_connection()**: config.backend 기반 비즈니스(메인) DB 연결.
 - **get_db_connection_system()**, **get_system_table_schema()**: backend.system_db 기반 시스템 DB(ETL 메타).
 - **get_dash_db_config()**, **get_dash_table_schema()**, **get_db_connection_dash()**, **is_new_dash_physical_table()**, **validate_dashboard_data_table_name()**: backend.dash_db 기반 뉴 대시보드·캠페인 대시보드 물리 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등).
-- 프레임워크 무관(Flask/FastAPI 공통) 사용.
+- 프레임워크 무관(Flask/FastAPI 공통) 사용. **etl_server·new_dash_server·campaign_dash_server** 등도 동일 모듈을 import.
 
-### 5.3 dependencies.py
+### 5.3 core/dependencies.py
 
 - **get_db**: 요청 단위 DB 연결(컨텍스트 매니저).
 - **get_config**: config 객체 주입.
 
-### 5.4 schemas.py
+### 5.4 report_server/schemas.py · legacy_dashboard_server/schemas.py
 
-- Pydantic 모델: 리포트·대시보드 POST 바디 검증(테이블 ID, 필터, 쿼리 등).
+- **report_server.schemas**: 리포트·쿼리 빌더 POST 바디 검증(describe-table, execute-query, join-order 등).
+- **legacy_dashboard_server.schemas**: 구 대시보드 POST 바디(DashboardDataRequest, ChartDataRequest).
 
-### 5.5 routers
+### 5.5 routers (등록 소스)
 
-- **health_router**: GET /, /api, /api/, /health.
-- **report_router**: prefix=/api. list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats. execute-query 시 SELECT만 허용·금지 키워드 검사.
-- **dashboard_router**: prefix=/api/dashboard. dashboard_service 호출, data, filter-options, tables, required-columns, chart-data.
-- **dashboard2_router**: prefix=/api/dashboard2. 동일 구조.
+- **health_router** (`api_server/routers/health.py`): GET /, /api, /api/, /health.
+- **report_router** (`report_server/router.py`): prefix=/api. list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats. execute-query 시 SELECT만 허용·금지 키워드 검사.
+- **dashboard_router** (`legacy_dashboard_server/router.py`): prefix=/api/dashboard. **core.dashboard_service** 호출, data, filter-options, tables, required-columns, chart-data.
 
-### 5.6 dashboard_service.py
+### 5.6 core/dashboard_service.py
 
-- 대시보드1·2 집계 비즈니스 로직. db만 사용(프레임워크 무관). `table_id`가 뉴 대시보드 물리 테이블(`ibank_1` 등)이면 dash_db 연결·스키마로 집계.
+- 대시보드 집계 비즈니스 로직. db만 사용(프레임워크 무관). `table_id`가 뉴 대시보드 물리 테이블(`ibank_1` 등)이면 dash_db 연결·스키마로 집계.
 
 ---
 
@@ -455,14 +453,14 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 
 ### A.2 파일별 의존성 (전환 후 구조)
 
-| 순서 | 파일 | 비고 |
+| 순서 | 위치 | 비고 |
 |------|------|------|
-| 1 | db.py | Env.config, psycopg2 |
-| 2 | dashboard_service.py | db만 사용 |
-| 3 | dependencies.py | get_db, get_config |
-| 4 | schemas.py | Pydantic |
-| 5 | routers/ | health, report, dashboard, dashboard2 |
-| 6 | main.py | FastAPI, CORS, 라우터, uvicorn |
+| 1 | core/db.py | Env.config, psycopg2 |
+| 2 | core/dashboard_service.py | db만 사용 |
+| 3 | core/dependencies.py | get_db, get_config |
+| 4 | report_server/schemas.py, legacy_dashboard_server/schemas.py | Pydantic |
+| 5 | report_server/router.py, legacy_dashboard_server/router.py, api_server/routers/health.py | APIRouter |
+| 6 | api_server/main.py | FastAPI, CORS, 라우터, uvicorn |
 
 ### A.3 Phase 요약
 

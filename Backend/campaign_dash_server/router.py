@@ -22,7 +22,7 @@ GET /api/campaign-dashboard/hourly
 
 [Dependencies]
 ==============
-- Backend.api_server.dashboard_service, Backend.api_server.db
+- Backend.core.dashboard_service, Backend.core.db
 - datetime, calendar, fastapi, json
 """
 
@@ -35,8 +35,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from Backend.api_server import dashboard_service, db
-from Backend.api_server.dashboard_service import CHANNEL_MAPPING
+from Backend.core import dashboard_service, db
+from Backend.core.dashboard_service import CHANNEL_MAPPING
 
 router = APIRouter(prefix="/api/campaign-dashboard", tags=["campaign-dashboard"])
 

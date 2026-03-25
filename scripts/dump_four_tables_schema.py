@@ -5,7 +5,7 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from Backend.api_server import db
+from Backend.core import db
 
 TABLES = ["campaigns", "test_deliveries_data", "test_delivery_tracking", "workflows"]
 

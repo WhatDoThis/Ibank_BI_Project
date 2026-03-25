@@ -13,7 +13,7 @@ Backend.etl_server.load_service (파일 기반 추출·적재)
 
 [Dependencies]
 =========
-- Backend.api_server.db, Backend.etl_server.service, schema_infer, transform_engine, transform_rules_service, etl_limits
+- Backend.core.db, Backend.etl_server.service, schema_infer, transform_engine, transform_rules_service, etl_limits
 - Backend.etl_server.csv_reader (CSV 인코딩 감지·읽기)
 - Env.config.loader.add_allowed_table
 - pandas
@@ -355,7 +355,7 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
             pk_list = etl_service.get_target_pk_columns(sid, target_table)
         else:
             try:
-                from Backend.api_server import db as api_db
+                from Backend.core import db as api_db
                 pk_list = api_db.get_primary_key_columns_for_etl_target(target_table)
             except Exception:
                 pk_list = []
@@ -369,7 +369,7 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
         if sid is not None:
             table_columns = etl_service.get_target_table_column_names(sid, target_table)
         else:
-            from Backend.api_server import db as api_db
+            from Backend.core import db as api_db
             table_columns = api_db.get_table_columns_for_etl_target(target_table)
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=f"타겟 테이블 컬럼 조회 실패: {e}")

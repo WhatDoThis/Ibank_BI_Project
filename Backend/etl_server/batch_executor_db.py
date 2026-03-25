@@ -111,7 +111,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
     → batch_size 단위 fetch → DataFrame → column_mapping → load_dataframe → batch_interval_seconds sleep
     → last_synced_at 갱신 → finish_run, update_job_status. 예외 시 check_consecutive_failures (finally 밖).
     """
-    from Backend.api_server import db as api_db
+    from Backend.core import db as api_db
     from Backend.etl_server import service_file as batch_service
     from Backend.etl_server import service as etl_service
     from Backend.etl_server import timezone_utils

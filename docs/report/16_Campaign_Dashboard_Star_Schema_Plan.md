@@ -2,7 +2,7 @@
 
 **문서 목적**: `new_dash_server` + `new-dashboard`와 **동일한 UI·API 계약**을 유지한 채, 물리 데이터 소스만 **`ibank_1` ~ `ibank_1_4` 분할 테이블**에서 **`ibank_1_star_1` / `ibank_1_star_2`(JSONB 최소 컬럼 버전)** 로 전환한다. 백엔드 패키지 `Backend/campaign_dash_server`, 프론트 패키지 `Frontend/react-app/src/packages/campaign_dashboard`를 신규로 두되, 화면·엔드포인트 의미는 뉴 대시보드와 동일하게 맞춘다.
 
-**참고 문서**: `12_뉴대시보드_제작_플랜.md`, `15_New_Dashboard_Upgrade_Plan.md`, `docs/main/02_BACKEND_GUIDE.md`(§4.7 뉴 대시보드), `Backend/new_dash_server/router.py`, `Backend/api_server/dashboard_service.py`(DASHBOARD_REQUIRED_COLUMNS).
+**참고 문서**: `12_뉴대시보드_제작_플랜.md`, `15_New_Dashboard_Upgrade_Plan.md`, `docs/main/02_BACKEND_GUIDE.md`(§4.6 뉴 대시보드), `Backend/new_dash_server/router.py`, `Backend/api_server/dashboard_service.py`(DASHBOARD_REQUIRED_COLUMNS).
 
 ---
 

@@ -1,7 +1,7 @@
 """
-Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
-=============================================================
-캠페인/일자/워크플로우/채널별 GROUP BY 집계·KPI·필터 옵션·차트 데이터 조회. dashboard·dashboard2 라우터에서 공통 호출.
+Backend.core.dashboard_service (대시보드 비즈니스 로직)
+======================================================
+캠페인/일자/워크플로우/채널별 GROUP BY 집계·KPI·필터 옵션·차트 데이터 조회. legacy_dashboard·new_dash_server·campaign_dash_server에서 공통 호출.
 
 [Main Functions]
 ===========
@@ -17,15 +17,29 @@ Backend.api_server.dashboard_service (대시보드 비즈니스 로직)
 10. get_filter_options: 캠페인·워크플로우·채널 목록 (테이블·필터 조건 기반)
 11. get_chart_data: 단일 dimension·metric 집계 (차트 전용)
 
+[Package Usage]
+===========
+1. get_required_columns: Backend/legacy_dashboard_server
+2. get_aggregatable_tables: Backend/legacy_dashboard_server, Backend/new_dash_server, Backend/campaign_dash_server
+3. _full_table_name: (모듈 내부 전용)
+4. _build_group_by_clause: (모듈 내부 전용)
+5. _build_where_clause: (모듈 내부 전용)
+6. _row_to_aggregated: (모듈 내부 전용)
+7. get_dashboard_data: Backend/legacy_dashboard_server, Backend/new_dash_server, Backend/campaign_dash_server
+8. _calculate_kpi: (모듈 내부 전용)
+9. _build_filter_linked_where: (모듈 내부 전용)
+10. get_filter_options: Backend/legacy_dashboard_server
+11. get_chart_data: Backend/legacy_dashboard_server, Backend/new_dash_server, Backend/campaign_dash_server
+
 [Dependencies]
 =========
-- Backend.api_server.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, get_table_columns_with_types, validate_table_name, validate_dashboard_data_table_name, is_new_dash_physical_table 등)
+- Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, get_table_columns_with_types, validate_table_name, validate_dashboard_data_table_name, is_new_dash_physical_table 등)
 - psycopg2
 """
 
 import psycopg2
 
-from Backend.api_server import db
+from Backend.core import db
 
 # 대시보드 집계에 필요한 컬럼·허용 타입 (모두 있어야 셀렉트에 노출·조회 가능). (컬럼명, 허용 data_type 목록)
 # data_type 은 PostgreSQL information_schema.columns.data_type 값(소문자 비교).

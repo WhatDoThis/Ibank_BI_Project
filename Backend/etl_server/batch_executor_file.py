@@ -117,7 +117,7 @@ def run_batch_job(batch_job_id: int) -> None:
     run_completed_ok = False  # True after finish_run(success/partial_error); avoid overwriting to "error" if update_job_status("success") fails
 
     try:
-        from Backend.api_server import db as api_db
+        from Backend.core import db as api_db
         sys_conn = api_db.get_db_connection_system()
         fresh_lp = batch_service.get_last_processed_ts(batch_job_id, conn=sys_conn)
 

@@ -11,18 +11,17 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 
 [라우터]
 ===========
-1. health_router: GET /health, GET /, GET /api, GET /api/
-2. report_router: /api/* (list-tables, describe-table, execute-query, explain-sql 등)
-3. dashboard_router: /api/dashboard/* (data, filter-options, tables, required-columns, chart-data)
-4. dashboard2_router: /api/dashboard2/* (동일)
-5. etl_router: /api/etl/* (단일 ETL: 메타·업로드·연결·Job·배치 등)
-6. new_dashboard_router: /api/new-dashboard/* (summary, trend, trend-multi, tables)
-7. campaign_dashboard_router: /api/campaign-dashboard/* (Star JSONB 테이블용, new-dashboard 동형)
-8. new_dash2_router: /api/new-dashboard2/* (overview, star, frequency, coupon, campaign-segments, store, trend, product-master)
+1. health_router: GET /health, GET /, GET /api, GET /api/ (api_server/routers/health)
+2. report_router: /api/* — Backend.report_server.router
+3. dashboard_router: /api/dashboard/* — Backend.legacy_dashboard_server.router
+4. etl_router: /api/etl/* (단일 ETL: 메타·업로드·연결·Job·배치 등)
+5. new_dashboard_router: /api/new-dashboard/* (summary, trend, trend-multi, tables)
+6. campaign_dashboard_router: /api/campaign-dashboard/* (Star JSONB 테이블용, new-dashboard 동형)
+7. new_dash2_router: /api/new-dashboard2/* (overview, star, frequency, coupon, campaign-segments, store, trend, product-master)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.api_server.db, Backend.api_server.routers, Backend.etl_server.router, Backend.new_dash_server, Backend.campaign_dash_server, Backend.new_dash_server2
+- Env (config.backend), Backend.core.db, Backend.api_server.routers, Backend.etl_server.router, Backend.new_dash_server, Backend.campaign_dash_server, Backend.new_dash_server2
 - fastapi, uvicorn
 """
 
@@ -41,8 +40,8 @@ except ImportError:
         sys.path.insert(0, _root)
     from Env import config
 
-from Backend.api_server import db
-from Backend.api_server.routers import health_router, report_router, dashboard_router, dashboard2_router
+from Backend.core import db
+from Backend.api_server.routers import health_router, report_router, dashboard_router
 from Backend.etl_server import router as etl_router
 from Backend.new_dash_server import router as new_dashboard_router
 from Backend.campaign_dash_server import router as campaign_dashboard_router
@@ -82,7 +81,6 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(report_router)
 app.include_router(dashboard_router)
-app.include_router(dashboard2_router)
 app.include_router(etl_router)
 app.include_router(new_dashboard_router)
 app.include_router(campaign_dashboard_router)

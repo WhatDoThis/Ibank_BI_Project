@@ -547,7 +547,7 @@ async def add_file_to_table(
     등록된 ETL(파일 기반)의 타겟 테이블에 추가 적재. 파일 업로드 후 PK 검증 → 대기열 등록 → 업서트 실행.
     타겟 테이블에 PK가 있거나 ETL에 pk_columns가 설정되어 있어야 함.
     """
-    from Backend.api_server import db as api_db
+    from Backend.core import db as api_db
     from Backend.etl_server import queue_worker
 
     row = etl_service.get_etl_table(etl_table_id)
@@ -620,7 +620,7 @@ async def add_files_zip_to_table(
     ZIP으로 여러 파일 추가 적재. 압축 해제 후 파일명 자연 정렬 순으로 Job 등록.
     각 파일이 max_file_size_mb 이하이고 지원 형식이어야 함. 건너뛴 파일은 skipped_files로 반환.
     """
-    from Backend.api_server import db as api_db
+    from Backend.core import db as api_db
     from Backend.etl_server import queue_worker
     from Backend.etl_server.etl_limits import get_etl_limits, get_max_zip_extract_total_mb
 

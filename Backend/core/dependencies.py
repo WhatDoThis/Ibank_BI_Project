@@ -1,6 +1,6 @@
 """
-Backend.api_server.dependencies (FastAPI 의존성 주입)
-=====================================================
+Backend.core.dependencies (FastAPI 의존성 주입)
+================================================
 DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)로 사용.
 
 [Main Functions]
@@ -8,14 +8,18 @@ DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)�
 1. get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
 2. get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
 
+[Package Usage]
+===========
+1. Backend/api_server/routers/health, Backend/report_server/router
+
 [Dependencies]
 =========
-- Backend.api_server.db, Env (config)
+- Backend.core.db, Env (config)
 """
 
 from typing import Generator
 
-from Backend.api_server import db
+from Backend.core import db
 
 try:
     from Env import config

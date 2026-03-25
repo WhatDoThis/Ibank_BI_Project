@@ -1,7 +1,7 @@
 """
-Backend.api_server.routers.dashboard (대시보드1 API)
-====================================================
-FastAPI 라우터. prefix /api/dashboard. 대시보드1용 집계·필터 옵션·테이블 목록·필수 컬럼·차트 데이터.
+Backend.legacy_dashboard_server.router (구 대시보드 API)
+=========================================================
+FastAPI 라우터. prefix /api/dashboard. 집계·필터 옵션·테이블 목록·필수 컬럼·차트 데이터.
 
 [Main Functions]
 ===========
@@ -14,7 +14,7 @@ FastAPI 라우터. prefix /api/dashboard. 대시보드1용 집계·필터 옵션
 
 [Dependencies]
 =========
-- Backend.api_server.dashboard_service, Backend.api_server.schemas
+- Backend.core.dashboard_service, Backend.legacy_dashboard_server.schemas
 - fastapi
 """
 
@@ -23,8 +23,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from Backend.api_server import dashboard_service
-from Backend.api_server.schemas import ChartDataRequest, DashboardDataRequest
+from Backend.core import dashboard_service
+from Backend.legacy_dashboard_server.schemas import ChartDataRequest, DashboardDataRequest
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 

@@ -92,17 +92,7 @@ ECharts 문서(축 개념, 옵션)를 참고한 요소와 적용 방법입니다
 - **차트 폭:**  
   `minWidth: max(70%, barCount * LABEL_SLOT_WIDTH)`로 막대당 최소 폭 확보.
 
-### 3.3 dashboard2 EChartsChart (개선 전)
-
-- **현재:**  
-  `yAxis: { type: 'value' }`만 사용 → 기본적으로 0부터 자동 확장.  
-  복수 막대 시리즈에 `stack` 미적용.  
-  카테고리 많을 때 X축 회전만 적용, dataZoom 없음.  
-  → “일자별 발송·성공·오픈·클릭 (막대)”에서 이미지와 같은 가독성 문제 발생.
-
----
-
-## 4. 적용 방안 요약 (EChartsChart 개선)
+## 4. 적용 방안 요약 (ECharts 기반 커스텀 차트 개선)
 
 - **Y축 데이터 구간 확대:**  
   막대(및 스택) 값의 min/max를 구한 뒤, `(dataMax - dataMin) / dataMax < 0.2` 등으로 “좁은 구간”일 때  
@@ -117,7 +107,7 @@ ECharts 문서(축 개념, 옵션)를 참고한 요소와 적용 방법입니다
 - **선택:**  
   카테고리 수가 적을 때만 막대에 `label.show`로 값 표시.
 
-위 방안을 반영한 구현은 `Frontend/react-app/src/packages/dashboard2/components/EChartsChart.jsx`에 반영합니다.
+동일한 원칙은 프로젝트 내 ECharts 옵션을 구성하는 컴포넌트에 적용할 수 있다.
 
 ---
 

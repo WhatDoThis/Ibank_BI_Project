@@ -26,7 +26,7 @@ def main():
         return 1
 
     print("\n2. get_db_config() / get_system_db_config() 호출...")
-    from Backend.api_server import db
+    from Backend.core import db
     main_cfg = db.get_db_config()
     sys_cfg = db.get_system_db_config()
     print(f"   메인 DB: host={main_cfg['host']}, database={main_cfg['database']}, port={main_cfg['port']}")

@@ -1,6 +1,10 @@
 # Log
 
 ## Log Index
+44. 2026-03-23 dashboard_service [Package Usage] 함수 1~11 대응
+43. 2026-03-23 Backend/core 모듈 docstring [Package Usage] 추가
+42. 2026-03-23 백엔드 리패키징(core·report_server·legacy_dashboard·api_server 슬림)
+41. 2026-03-23 대시보드2(성과리포트) 제거·문서·README 정리
 40. 2026-03-23 뉴/캠페인 대시보드 주간 API target_date 일요일 끝점 보정
 39. 2026-03-23 docs/main·README·docs/README 아키텍처·캠페인 대시보드 반영
 38. 2026-03-23 프론트 API 패키지 분리·라우트 모듈화(shared client 제거)
@@ -43,6 +47,49 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+44. 2026-03-23 dashboard_service [Package Usage] 함수 1~11 대응
+Purpose: [Main Functions] 번호와 맞추어 각 함수가 어떤 Backend 패키지 라우터에서 호출되는지(또는 내부 전용인지) [Package Usage]에 1.~11.로 기술.
+
+Changes:
+
+- `Backend/core/dashboard_service.py` [Package Usage] 세분화, `Backend/core/__init__.py` 3번 항목을 상세 참조 문구로 정리
+
+Changed files: Backend/core/dashboard_service.py, Backend/core/__init__.py, docs/log/log.md
+
+43. 2026-03-23 Backend/core 모듈 docstring [Package Usage] 추가
+Purpose: core 패키지·db·dependencies·dashboard_service 상단 주석에 어떤 Backend 패키지(및 scripts)가 import하는지 한눈에 보이도록 [Main Functions]와 [Dependencies] 사이에 [Package Usage] 블록 추가.
+
+Changes:
+
+- `Backend/core/__init__.py`, `db.py`, `dependencies.py`, `dashboard_service.py` docstring 갱신
+
+Changed files: Backend/core/__init__.py, Backend/core/db.py, Backend/core/dependencies.py, Backend/core/dashboard_service.py, docs/log/log.md
+
+42. 2026-03-23 백엔드 리패키징(core·report_server·legacy_dashboard·api_server 슬림)
+Purpose: 공유 DB·dashboard_service를 `Backend/core`로, 리포트·조인 유틸을 `Backend/report_server`로, 구 `/api/dashboard`를 `Backend/legacy_dashboard_server`로 분리. URL(`/api/...`)은 유지. ETL·뉴/캠페인 대시보드·스크립트·테스트의 import를 `Backend.core`·`Backend.report_server`로 정리.
+
+Changes:
+
+- 신설: `Backend/core`(db, dependencies, dashboard_service), `Backend/report_server`(router, schemas 1–8, pluralize, join_*, relationship_inference, analysis_store), `Backend/legacy_dashboard_server`(router, schemas 9–10)
+- `api_server`: `main.py`·`routers/health.py`·`routers/__init__.py`만 유지(리포트·대시보드 라우터는 타 패키지에서 로드)
+- 제거: `api_server` 내 구 db·dependencies·dashboard_service·schemas·report·dashboard·조인/복수 유틸 파일(이동 완료 후 삭제)
+- 소비자: `etl_server/*`, `new_dash_server`, `campaign_dash_server`, `scripts/*`, `tests/test_join_path.py`, `tests/test_table_relationship_inference.py`, `tests/test_four_tables_join.py` import 경로 갱신
+- 문서: `docs/main/02_BACKEND_GUIDE.md` 디렉터리 트리·§5·부록 A.2 반영
+
+Changed files: Backend/core/*, Backend/report_server/*, Backend/legacy_dashboard_server/*, Backend/api_server/main.py, routers/__init__.py, routers/health.py, Backend/__init__.py, Backend/api_server/__init__.py, Backend/etl_server/*.py(다수), Backend/new_dash_server/*, Backend/campaign_dash_server/router.py, Backend/new_dash_server2/star_db.py, scripts/*.py, tests/test_*.py, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+41. 2026-03-23 대시보드2(성과리포트) 제거·문서·README 정리
+Purpose: `/dashboard2`·`/api/dashboard2` 및 전용 패키지 제거. 대시보드1·공통(dashboard_service, schemas) 유지. 문서에서 관련 설명 삭제(폐기 문구 없음), 백엔드 API 장 §4.4~§4.7 재번호.
+
+Changes:
+
+- Backend: `routers/dashboard2.py` 삭제, `main.py`·`routers/__init__.py`·`health.py`·`dashboard_service` docstring·`dashboard.py` 모듈 주석 정리
+- Frontend: `packages/dashboard2/` 전체 삭제, `app/routes.jsx`·`navConfig.js`에서 라우트·네비 제거, `PeriodLabel`·`dateRange` 주석 정리
+- 문서: `docs/main`(00_PRD, 01_FRONTEND, 02_BACKEND), README, `docs/report`(00_ReportIndex, 01_ChartReadability, 07·12 플랜), `.cursor` rules/skills, `schemas.py` 헤더
+- 삭제: `docs/report/03_대시보드2_*.md`, `docs/report/05_대시보드2_*.md`
+
+Changed files: Backend/api_server/main.py, routers/__init__.py, routers/health.py, routers/dashboard.py, dashboard_service.py, schemas.py (삭제: routers/dashboard2.py), Frontend/react-app/src/app/routes.jsx, navConfig.js, packages/dashboard/**/PeriodLabel.jsx, dateRange.js, docs/main/*, README.md, docs/report/*, docs/log/log.md, .cursor/rules/project-conventions.mdc, .cursor/skills/api-client-sync/SKILL.md
 
 40. 2026-03-23 뉴/캠페인 대시보드 주간 API target_date 일요일 끝점 보정
 Purpose: 주간 선택 시 weekValueToDate가 월요일만 저장되어 member-summary·hourly 등에 월요일이 넘어가 백엔드 curr_end가 월요일로 고정되던 문제 수정.

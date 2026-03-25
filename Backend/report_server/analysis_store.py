@@ -1,6 +1,6 @@
 """
-Backend.api_server.analysis_store (분석 결과 저장/조회)
-======================================================
+Backend.report_server.analysis_store (분석 결과 저장/조회)
+==========================================================
 allowlist_analysis 테이블에 분석 결과 저장/조회. report 라우터 등에서 사용.
 
 [Main Functions]
@@ -10,13 +10,13 @@ allowlist_analysis 테이블에 분석 결과 저장/조회. report 라우터 �
 
 [Dependencies]
 =========
-- Backend.api_server.db
+- Backend.core.db
 - json
 """
 
 import json
 
-from Backend.api_server import db
+from Backend.core import db
 
 
 # 1.

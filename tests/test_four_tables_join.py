@@ -191,7 +191,7 @@ def test_step4_full_join_order_print(join_orders, capsys):
 # ---------- JOIN 지표(경우의 수·정확도) 및 파생 테이블 컬럼 ----------
 def test_step5_join_metrics_and_derived_columns(tables_and_columns, relationships, join_orders):
     """Step5: 경우의 수·정확도 점수 계산, 파생 테이블 컬럼이 여러 개인지 검증."""
-    from Backend.api_server.join_metrics import (
+    from Backend.report_server.join_metrics import (
         join_case_count,
         join_accuracy_score,
         derived_table_columns,

@@ -1,6 +1,6 @@
 """
-Backend.api_server.routers.report (리포트/쿼리 빌더 API)
-========================================================
+Backend.report_server.router (리포트/쿼리 빌더 API)
+===================================================
 FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 실행·Claude 해석·컬럼 고유값·쿼리 통계.
 
 [Helpers]
@@ -32,7 +32,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Dependencies]
 =========
-- Backend.api_server.db, dependencies.get_db, get_config, schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
+- Backend.core.db, Backend.core.dependencies, Backend.report_server.schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
 - fastapi, psycopg2, psycopg2.extras.RealDictCursor, requests
 """
 
@@ -54,14 +54,14 @@ import requests
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 
-from Backend.api_server import db
-from Backend.api_server import analysis_store
+from Backend.core import db
+from Backend.report_server import analysis_store
 from Env.config.loader import add_allowed_table as add_allowed_table_to_config
-from Backend.api_server.relationship_inference import infer_relationships
-from Backend.api_server.dependencies import get_db, get_config
-from Backend.api_server.join_path import determine_join_order, validate_join_order
-from Backend.api_server.join_metrics import join_accuracy_score
-from Backend.api_server.schemas import (
+from Backend.report_server.relationship_inference import infer_relationships
+from Backend.core.dependencies import get_db, get_config
+from Backend.report_server.join_path import determine_join_order, validate_join_order
+from Backend.report_server.join_metrics import join_accuracy_score
+from Backend.report_server.schemas import (
     ColumnLabelsRequest,
     DescribeTableRequest,
     ExecuteQueryRequest,
@@ -72,8 +72,8 @@ from Backend.api_server.schemas import (
     SaveQueryAsTableRequest,
 )
 
-# 프로젝트 루트: Backend/api_server/routers/report.py → 4단계 상위
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+# 프로젝트 루트: Backend/report_server/router.py → 3단계 상위
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEBUG_LOG_DIR = _PROJECT_ROOT / "Env" / "logs"
 _DEBUG_LOG_PATH = _DEBUG_LOG_DIR / "execute_query_debug.log"
 _COLUMN_LABELS_PATH = _PROJECT_ROOT / "Env" / "config" / "column_labels.json"

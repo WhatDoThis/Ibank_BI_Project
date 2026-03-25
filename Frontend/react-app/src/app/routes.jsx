@@ -10,7 +10,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import ReportPage from '@/packages/report'
 import DashboardPage from '@/packages/dashboard'
-import Dashboard2Page from '@/packages/dashboard2'
 import WidgetboardPage from '@/packages/widgetboard'
 import ETLPage from '@/packages/etl'
 import NewDashboardPage from '@/packages/new-dashboard'
@@ -23,7 +22,6 @@ export function AppRoutes() {
       <Route path="/" element={<Navigate to="/report" replace />} />
       <Route path="/report" element={<ReportPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/dashboard2" element={<Dashboard2Page />} />
       <Route path="/new-dashboard" element={<NewDashboardPage />} />
       <Route path="/campaign-dashboard" element={<CampaignDashboardPage />} />
       <Route path="/new-dashboard2" element={<NewDashboard2Page />} />

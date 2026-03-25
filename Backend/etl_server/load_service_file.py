@@ -18,7 +18,7 @@ table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유)
 =========
 - Backend.etl_server.service (get_target_db_connection)
 - Backend.etl_server.transform_engine (apply_mapping_type_cast, optional)
-- Backend.api_server.db (get_system_table_schema, get_db_connection_system은 호출부에서 전달)
+- Backend.core.db (get_system_table_schema, get_db_connection_system은 호출부에서 전달)
 - pandas, psycopg2
 
 [Transform→Upsert 검증]
@@ -351,7 +351,7 @@ def _record_loaded_keys(
     if not pk_columns or df.empty:
         return
     logger = logging.getLogger(__name__)
-    from Backend.api_server import db as api_db
+    from Backend.core import db as api_db
 
     schema = api_db.get_system_table_schema()
     cur = sys_conn.cursor()

@@ -1,7 +1,7 @@
 """
 Backend.new_dash_server2.star_db (Star DB 연결 풀 — New Dashboard 2 전용)
 =========================================================================
-config.backend.star_db 전용. Backend.api_server.db import 금지. 패키지 내 자족 구현.
+config.backend.star_db 전용. Backend.core.db import 금지. 패키지 내 자족 구현.
 
 [Main Functions]
 ================

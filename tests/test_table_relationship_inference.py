@@ -14,7 +14,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from Backend.api_server.pluralize import find_parent_table as _find_parent_table, pluralize
+from Backend.report_server.pluralize import find_parent_table as _find_parent_table, pluralize
 
 
 # --- 5개 테이블 컬럼 정의 (describe-table 기준) ---
