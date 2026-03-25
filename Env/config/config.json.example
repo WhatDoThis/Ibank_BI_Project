@@ -7,12 +7,6 @@
     "db_name": "",
     "db_user": "",
     "db_password": "",
-    "allowed_tables": [
-      "campaign_integrated_master",
-      "campaign_member_segment",
-      "campaign_metadata",
-      "campaign_offer_log"
-    ],
     "table_schema": "public",
     "query_timeout_seconds": 10,
     "claude_api_key": "",

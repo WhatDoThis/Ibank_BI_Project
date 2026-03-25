@@ -139,7 +139,7 @@ if __name__ == "__main__":
     print("Starbucks CRM NoCode Query Builder API (FastAPI)")
     print("=" * 50)
     print(f"Database: {db_config.get('database')}@{db_config.get('host')}")
-    print(f"Allowed Tables: {len(allowed)}개")
+    print(f"메인 스키마 테이블·뷰: {len(allowed)}개 (DB 메타데이터 기준)")
     print(f"Server: http://localhost:{port}")
     print(f"Health Check: http://localhost:{port}/health")
     print("=" * 50)

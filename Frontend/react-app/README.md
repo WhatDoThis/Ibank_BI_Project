@@ -1,6 +1,6 @@
 # React + Vite (IBANK BI 프론트엔드)
 
-본 앱은 프로젝트 루트의 **README.md** 및 **docs/main/** 개발 명세(00_PRD, 01_FRONTEND_GUIDE)를 참고하세요. base 경로 `/ibank-bi/`, 패키지: report, dashboard, dashboard2, widgetboard, etl, etl2.
+본 앱은 프로젝트 루트의 **README.md** 및 **docs/main/** 개발 명세(00_PRD, 01_FRONTEND_GUIDE)를 참고하세요. base 경로 `/ibank-bi/`, 패키지: query_studio, dashboard, dashboard2, widgetboard, etl, etl2.
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

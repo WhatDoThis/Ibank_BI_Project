@@ -138,7 +138,7 @@ python run.py serve
 
 ## 5. /ibank-bi 경로 접속 시 404 (base 경로 변경 후)
 
-**증상**: `https://도메인/ibank-bi/` 또는 `https://도메인/ibank-bi/report` 접속 시 404.
+**증상**: `https://도메인/ibank-bi/` 또는 `https://도메인/ibank-bi/query-studio` 접속 시 404.
 
 **원인**: 프론트엔드 Vite `base`가 `/ibank-bi/`로 설정되어 있어, 앱은 **/ibank-bi/** 아래에서만 동작합니다. Nginx에 **location /ibank-bi/** 가 없으면 해당 경로가 다른 location 또는 default로 가서 404가 난다.
 
@@ -175,7 +175,7 @@ location = /ibank-bi {
 }
 ```
 
-2. **주의**: `proxy_pass http://127.0.0.1:3500;` 처럼 **끝에 슬래시 없이** 써야 요청 URI(`/ibank-bi/report` 등)가 그대로 3500으로 전달된다. 슬래시를 붙이면 경로가 잘려서 SPA/asset 요청이 깨진다.
+2. **주의**: `proxy_pass http://127.0.0.1:3500;` 처럼 **끝에 슬래시 없이** 써야 요청 URI(`/ibank-bi/query-studio` 등)가 그대로 3500으로 전달된다. 슬래시를 붙이면 경로가 잘려서 SPA/asset 요청이 깨진다.
 
 3. 설정 반영 후:
 ```bash
@@ -209,8 +209,8 @@ Nginx는 **프론트엔드**와 **API**를 서로 다른 경로로 프록시합�
 
 | 설정 | 설명 |
 |------|------|
-| **잘못된 예** | `"api_base_url": "https://ajo.sdev-ibank.co.kr/report"` → API 요청이 `/report/api/...` 로 나가서 **프론트엔드 서버(3500)** 로 전달됨 → API 실패 |
+| **잘못된 예** | `"api_base_url": "https://예시도메인/ibank-bi/query-studio"` → API 요청이 `/query-studio/api/...` 로 나가서 **프론트엔드 서버(3500)** 로 전달됨 → API 실패 |
 | **올바른 예** | `"api_base_url": "https://ajo.sdev-ibank.co.kr/report_api"` → API 요청이 `/report_api/api/...` 로 나가서 **백엔드(8500)** 로 전달됨 → 정상 동작 |
 
-**조치**: Linux 서버의 `Env/config/config.json` 에서 `frontend.api_base_url` 을 **`https://도메인/report_api`** 로 설정해야 합니다. (`/report` 가 아닌 **`/report_api`**)  
+**조치**: Linux 서버의 `Env/config/config.json` 에서 `frontend.api_base_url` 을 **`https://도메인/report_api`** 로 설정해야 합니다. (SPA 경로 `/query-studio` 등이 아닌 **`/report_api`**)  
 수정 후 `sudo systemctl restart report-front` 로 재시작해야 반영됩니다.

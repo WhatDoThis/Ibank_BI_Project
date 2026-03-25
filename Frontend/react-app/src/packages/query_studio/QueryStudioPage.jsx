@@ -1,23 +1,23 @@
 /**
- * report/ReportPage.jsx (리포트·쿼리 빌더 페이지)
- * ==============================================
+ * query_studio/QueryStudioPage.jsx (쿼리 스튜디오·쿼리 빌더 페이지)
+ * ================================================================
  * 노코드 쿼리 빌더. 그리드·테이블/컬럼·필터·GROUP BY·피벗·HAVING·정렬·실행·페이지네이션·JOIN 설정·Claude 해석·저장.
  *
  * [Main Functions]
  * ===========
  * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination
  * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출
- * 3. ReportPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
+ * 3. QueryStudioPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
  *
  * [Dependencies]
  * =========
- * - React, @/packages/report/api/reportClient.js, @/shared/config/api, report/utils (sqlBuilder, joinRules, safetyCheck, constants), report/components (Sidebar, MainArea)
+ * - React, @/packages/query_studio/api/queryStudioClient.js, @/shared/config/api, query_studio/utils (sqlBuilder, joinRules, safetyCheck, constants), query_studio/components (Sidebar, MainArea)
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import './report.css'
-import { listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/report/api/reportClient.js'
-import { useReportData } from './hooks/useReportData'
+import './queryStudio.css'
+import { listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/query_studio/api/queryStudioClient.js'
+import { useQueryStudioData } from './hooks/useQueryStudioData'
 import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
 import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
 import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils/safetyCheck'
@@ -33,8 +33,8 @@ function isGroupByColumn(groupBy, table, column) {
 }
 
 // 2.
-export default function ReportPage() {
-  const { dbStatus, setDbStatus, tables, setTables, loading, loadHealth, loadTables, refreshAll } = useReportData()
+export default function QueryStudioPage() {
+  const { dbStatus, setDbStatus, tables, setTables, loading, loadHealth, loadTables, refreshAll } = useQueryStudioData()
 
   const [gridColumns, setGridColumns] = useState([])
   const [addedTables, setAddedTables] = useState([])
@@ -186,7 +186,7 @@ export default function ReportPage() {
       .catch((err) => {
         if (!cancelled) {
           setJoinOrderData(null)
-          console.warn('[report] join-order API 실패, 순차 조인 fallback 사용:', err?.message || err)
+          console.warn('[query-studio] join-order API 실패, 순차 조인 fallback 사용:', err?.message || err)
         }
       })
     return () => { cancelled = true }
@@ -310,6 +310,91 @@ export default function ReportPage() {
       }
     },
     [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions]
+  )
+
+  const addTableColumns = useCallback(
+    (tableName, columnList) => {
+      if (!tableName || !Array.isArray(columnList) || columnList.length === 0) return
+
+      const toAdd = columnList.filter(
+        (c) => c && c.name && !gridColumns.some((gc) => gc.table === tableName && gc.column === c.name)
+      )
+      if (toAdd.length === 0) {
+        showToast('warning', '이미 해당 테이블의 컬럼이 모두 추가되어 있거나 추가할 컬럼이 없습니다')
+        return
+      }
+
+      const tableAlreadyAdded = addedTables.includes(tableName)
+      let newAddedTables
+      let intermediateParent = null
+
+      if (tableAlreadyAdded) {
+        newAddedTables = addedTables
+      } else if (canAddTableByColumn(addedTables, tableName, relationshipOptions)) {
+        newAddedTables = [...addedTables, tableName]
+      } else {
+        const lastTable = addedTables[addedTables.length - 1]
+        intermediateParent = findIntermediateParent(lastTable, tableName, relationshipOptions)
+        if (intermediateParent) {
+          if (addedTables.includes(intermediateParent)) {
+            newAddedTables = [...addedTables, tableName]
+            intermediateParent = null
+          } else {
+            newAddedTables = [...addedTables, intermediateParent, tableName]
+          }
+        } else {
+          setShowJoinImpossibleModal(true)
+          return
+        }
+      }
+
+      if (!tableAlreadyAdded) {
+        const safetyCheck = canAddTableSafely(addedTables, tableName, intermediateParent, relationshipOptions)
+        if (!safetyCheck.ok) {
+          if (safetyCheck.severity === 'error') {
+            showToast('error', safetyCheck.reason)
+            if (safetyCheck.detail) console.error('Safety check:', safetyCheck.detail)
+            if (safetyCheck.suggestion) showToast('info', `💡 ${safetyCheck.suggestion}`)
+            return
+          }
+          if (safetyCheck.severity === 'warning') {
+            showToast('warning', safetyCheck.reason)
+            if (safetyCheck.suggestion) showToast('info', safetyCheck.suggestion)
+          }
+        }
+      }
+
+      const tableAliasMap = {}
+      newAddedTables.forEach((t, i) => {
+        tableAliasMap[t] = 't' + (i + 1)
+      })
+      const alias = tableAliasMap[tableName] || 't1'
+
+      const newGridEntries = toAdd.map((c) => {
+        const isGB = isGroupByColumn(groupBy, tableName, c.name)
+        const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
+        return {
+          table: tableName,
+          column: c.name,
+          alias,
+          type: c.type,
+          aggFunc,
+          label: c.label ?? c.name,
+        }
+      })
+
+      setAddedTables(newAddedTables)
+      setGridColumns((prev) => syncAggFuncs([...prev, ...newGridEntries], groupBy))
+      setCurrentPage(1)
+
+      const tableMeta = tables.find((t) => t.table_name === tableName)
+      const displayLabel = tableMeta?.table_label ?? tableName
+      showToast('success', `'${displayLabel}' 컬럼 ${toAdd.length}개를 추가했습니다`)
+      if (intermediateParent && !tableAlreadyAdded) {
+        showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${tableName}'를 추가했습니다`)
+      }
+    },
+    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables]
   )
 
   const [queryRunning, setQueryRunning] = useState(false)
@@ -829,6 +914,7 @@ export default function ReportPage() {
           executedSql={executedSql}
           explanation={explanation}
           onAddColumn={addColumn}
+          onAddTableColumns={addTableColumns}
           onRemoveColumn={removeColumn}
           onMoveColumn={moveColumn}
           onExecute={runExecuteQuery}

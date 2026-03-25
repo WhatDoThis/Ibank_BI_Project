@@ -17,14 +17,14 @@ Backend/
       report.py               (수정) - 개선된 관계 분석
 
 Frontend/
-  react-app/src/packages/report/
+  react-app/src/packages/query_studio/
     utils/
       safetyCheck.js          (신규) - 안전성 검증
       joinRules.js            (기존)
     components/
       RelationshipDiagram.jsx (신규) - 시각화
       RelationshipDiagram.css (신규)
-    ReportPage.jsx            (수정) - 안전성 적용
+    QueryStudioPage.jsx            (수정) - 안전성 적용
 ```
 
 ---
@@ -264,7 +264,7 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("all")):
 
 ## 🛡️ 2. 프론트엔드: 안전성 강화
 
-### 파일: `Frontend/react-app/src/packages/report/utils/safetyCheck.js` (신규)
+### 파일: `Frontend/react-app/src/packages/query_studio/utils/safetyCheck.js` (신규)
 
 ```javascript
 /**
@@ -504,7 +504,7 @@ export function validateJoinPath(addedTables, relationshipOptions) {
 
 ---
 
-### 파일: `Frontend/react-app/src/packages/report/ReportPage.jsx` (수정)
+### 파일: `Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx` (수정)
 
 ```javascript
 // 기존 import에 추가
@@ -708,7 +708,7 @@ const runExecuteQuery = useCallback(async () => {
 
 ## 📊 3. 관계 시각화
 
-### 파일: `Frontend/react-app/src/packages/report/components/RelationshipDiagram.jsx` (신규)
+### 파일: `Frontend/react-app/src/packages/query_studio/components/RelationshipDiagram.jsx` (신규)
 
 ```jsx
 /**
@@ -1011,7 +1011,7 @@ function hasConnectionTo(tableName, addedTables, relationshipOptions) {
 
 ---
 
-### 파일: `Frontend/react-app/src/packages/report/components/RelationshipDiagram.css` (신규)
+### 파일: `Frontend/react-app/src/packages/query_studio/components/RelationshipDiagram.css` (신규)
 
 ```css
 .relationship-diagram-container {
@@ -1077,7 +1077,7 @@ function hasConnectionTo(tableName, addedTables, relationshipOptions) {
 
 ---
 
-### 파일: `Frontend/react-app/src/packages/report/ReportPage.jsx` (다이어그램 추가)
+### 파일: `Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx` (다이어그램 추가)
 
 ```jsx
 // import 추가
@@ -1136,14 +1136,14 @@ return (
   - [ ] relationship_type 추가
 
 ### 프론트엔드
-- [ ] `Frontend/react-app/src/packages/report/utils/safetyCheck.js` 생성
-- [ ] `Frontend/react-app/src/packages/report/ReportPage.jsx` 수정
+- [ ] `Frontend/react-app/src/packages/query_studio/utils/safetyCheck.js` 생성
+- [ ] `Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx` 수정
   - [ ] import 추가
   - [ ] addColumn에 안전성 검증 추가
   - [ ] runExecuteQuery에 경로 검증 추가
   - [ ] RelationshipDiagram 추가
-- [ ] `Frontend/react-app/src/packages/report/components/RelationshipDiagram.jsx` 생성
-- [ ] `Frontend/react-app/src/packages/report/components/RelationshipDiagram.css` 생성
+- [ ] `Frontend/react-app/src/packages/query_studio/components/RelationshipDiagram.jsx` 생성
+- [ ] `Frontend/react-app/src/packages/query_studio/components/RelationshipDiagram.css` 생성
 
 ---
 
@@ -1178,7 +1178,7 @@ return (
 - [ ] **2.4** 예외 처리: except 블록에 `import traceback` 및 `traceback.print_exc()` 추가
 
 ### 3. 프론트엔드 — safetyCheck.js (신규)
-- [ ] **3.1** 파일 생성: `Frontend/react-app/src/packages/report/utils/safetyCheck.js`
+- [ ] **3.1** 파일 생성: `Frontend/react-app/src/packages/query_studio/utils/safetyCheck.js`
 - [ ] **3.2** `detectCircularReference(proposedPath)` 구현
   - [ ] seen Set으로 중복 테이블 감지
   - [ ] 반환: { circular: true, duplicate, path, circularPart } 또는 { circular: false }
@@ -1200,7 +1200,7 @@ return (
   - [ ] 인접 쌍마다 detectManyToMany → N:N이면 MANY_TO_MANY warning
   - [ ] valid = error 개수 0
 
-### 4. 프론트엔드 — ReportPage.jsx (안전성 적용)
+### 4. 프론트엔드 — QueryStudioPage.jsx (안전성 적용)
 - [ ] **4.1** import 추가: `canAddTableSafely`, `validateJoinPath` from `'./utils/safetyCheck'`
 - [ ] **4.2** addColumn 수정
   - [ ] 직접 추가 시: intermediateParent = null
@@ -1216,7 +1216,7 @@ return (
   - [ ] useCallback 의존성 배열에 relationshipOptions 추가
 
 ### 5. 프론트엔드 — RelationshipDiagram.jsx (신규)
-- [ ] **5.1** 파일 생성: `Frontend/react-app/src/packages/report/components/RelationshipDiagram.jsx`
+- [ ] **5.1** 파일 생성: `Frontend/react-app/src/packages/query_studio/components/RelationshipDiagram.jsx`
 - [ ] **5.2** props: tables, addedTables, relationshipOptions, onTableClick
 - [ ] **5.3** state: selectedTable
 - [ ] **5.4** useMemo layout: calculateLayout(tables, relationshipOptions) → { table_name: { x, y, level } }
@@ -1230,14 +1230,14 @@ return (
 - [ ] **5.12** 범례: 추가됨(녹색), 추가 가능(파랑), 추가 불가(회색)
 
 ### 6. 프론트엔드 — RelationshipDiagram.css (신규)
-- [ ] **6.1** 파일 생성: `Frontend/react-app/src/packages/report/components/RelationshipDiagram.css`
+- [ ] **6.1** 파일 생성: `Frontend/react-app/src/packages/query_studio/components/RelationshipDiagram.css`
 - [ ] **6.2** .relationship-diagram-container (배경, 테두리, padding, margin)
 - [ ] **6.3** .relationship-diagram (block, 배경 흰색, border-radius)
 - [ ] **6.4** .table-node (transition), :hover:not(.disabled) filter, .selected rect drop-shadow, .disabled opacity
 - [ ] **6.5** .edge-label (font-family Courier, font-weight)
 - [ ] **6.6** .diagram-legend, .legend-item, .legend-color
 
-### 7. 프론트엔드 — ReportPage.jsx (다이어그램 연동)
+### 7. 프론트엔드 — QueryStudioPage.jsx (다이어그램 연동)
 - [ ] **7.1** import: `RelationshipDiagram` from `'./components/RelationshipDiagram'`
 - [ ] **7.2** return 구조: report-page > report-header(h1) + relationship-diagram-section(details/summary) + report-body(Sidebar, MainArea)
 - [ ] **7.3** details.summary: "🔗 테이블 관계 다이어그램"

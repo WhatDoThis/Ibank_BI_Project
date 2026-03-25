@@ -1,5 +1,5 @@
 /**
- * report/utils/sqlBuilder.js (SQL 생성 유틸)
+ * query_studio/utils/sqlBuilder.js (SQL 생성 유틸)
  * ===========================================
  * 리포트 쿼리 빌더 전용. SELECT/JOIN/WHERE/GROUP BY/HAVING/ORDER BY/LIMIT 생성. 별칭 t1, t2 사용.
  *

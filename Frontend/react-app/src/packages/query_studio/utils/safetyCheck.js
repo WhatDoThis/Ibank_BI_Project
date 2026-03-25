@@ -1,5 +1,5 @@
 /**
- * report/utils/safetyCheck.js (JOIN 안전성 검증)
+ * query_studio/utils/safetyCheck.js (JOIN 안전성 검증)
  * ==============================================
  * 리포트 쿼리 빌더. 순환 참조·N:N 감지, 테이블 추가 전 경로 검증.
  *

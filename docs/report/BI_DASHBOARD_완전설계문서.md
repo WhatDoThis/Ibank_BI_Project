@@ -896,7 +896,7 @@ src/
 
 ### 7.4 에러 처리
 
-※ **구현:** `ReportPage.jsx` (자동 정렬 시 에러/경로 없음 토스트), `MainArea.jsx` (조인 불가 툴팁). 동일 문구로 해결 방법 안내. [12. 구현 반영 현황](#12-구현-반영-현황) 참고.
+※ **구현:** `QueryStudioPage.jsx` (자동 정렬 시 에러/경로 없음 토스트), `MainArea.jsx` (조인 불가 툴팁). 동일 문구로 해결 방법 안내. [12. 구현 반영 현황](#12-구현-반영-현황) 참고.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -1338,9 +1338,9 @@ GROUP BY c.id, u.user_id
 
 | 설계 문서 절 | 구현 위치 | 설명 |
 |-------------|-----------|------|
-| **7.4 에러 처리 (JOIN 불가)** | `Frontend/.../report/ReportPage.jsx` (자동 정렬 시), `MainArea.jsx` (조인 조건 영역) | 에러/경로 없음 시 토스트·툴팁: "해결: 1) 중간 테이블을 추가하세요 2) 다른 테이블 조합을 선택하세요". |
-| **관계 타입 표시** | `MainArea.jsx` + `report.css` | 조인 조건 옆에 **1:1 / N:1** 뱃지 표시 (`firstOpt.relationship_type`). 스타일: `.join-conditions-pair__rel-type`. |
-| **자동 정렬 + JOIN 타입** | `ReportPage.jsx` → `applyJoinOrder` | `fetchJoinOrder` 응답의 `suggested_join_type`을 읽어 `joinTypes` 상태에 반영. |
+| **7.4 에러 처리 (JOIN 불가)** | `Frontend/.../query_studio/QueryStudioPage.jsx` (자동 정렬 시), `MainArea.jsx` (조인 조건 영역) | 에러/경로 없음 시 토스트·툴팁: "해결: 1) 중간 테이블을 추가하세요 2) 다른 테이블 조합을 선택하세요". |
+| **관계 타입 표시** | `MainArea.jsx` + `queryStudio.css` | 조인 조건 옆에 **1:1 / N:1** 뱃지 표시 (`firstOpt.relationship_type`). 스타일: `.join-conditions-pair__rel-type`. |
+| **자동 정렬 + JOIN 타입** | `QueryStudioPage.jsx` → `applyJoinOrder` | `fetchJoinOrder` 응답의 `suggested_join_type`을 읽어 `joinTypes` 상태에 반영. |
 
 ### 12.3 설계 ↔ 코드 매핑 요약
 
@@ -1349,7 +1349,7 @@ GROUP BY c.id, u.user_id
 설계 5.2 전략/경로     → join_path.determine_join_order + report base_alternatives
 설계 5.2.6 JOIN 타입   → join-order 응답 suggested_join_type (filter_tables·1:1 반영)
 설계 5.3 SQL 생성     → Frontend sqlBuilder (기존) + joinConfigs/joinTypes
-설계 7.4 JOIN 불가 UI → ReportPage 토스트 + MainArea 툴팁
+설계 7.4 JOIN 불가 UI → QueryStudioPage 토스트 + MainArea 툴팁
 관계 타입 표시        → relationshipOptions.relationship_type → MainArea 뱃지
 ```
 

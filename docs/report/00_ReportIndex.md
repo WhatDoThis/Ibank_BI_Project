@@ -30,5 +30,5 @@
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |
-| nginx_report.conf | Nginx location 설정 (Report 대시보드: /report → 3500, /report_api → 8500). 서버 배포 시 참고 |
+| nginx_report.conf | Nginx location 설정 (SPA: /ibank-bi/query-studio 등 → 3500, /report_api → 8500). 서버 배포 시 참고 |
 | REACT_MIGRATION_PLAN.md | Frontend React 전환 Phase 계획 (Phase 0~5, 검수 기준) |

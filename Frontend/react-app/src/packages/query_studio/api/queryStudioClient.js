@@ -1,7 +1,7 @@
 /**
- * report/api/reportClient.js (리포트 패키지 API)
- * ==============================================
- * /health, /api/list-tables, execute-query 등 리포트·쿼리 빌더 전용.
+ * query_studio/api/queryStudioClient.js (쿼리 스튜디오 패키지 API)
+ * ================================================================
+ * /health, /api/list-tables, execute-query 등 쿼리 스튜디오·쿼리 빌더 전용.
  *
  * [Dependencies]
  * =========

@@ -32,7 +32,7 @@ body { font-family: 'Segoe UI', sans-serif; background: var(--background); heigh
 .sidebar-search { padding: 8px; border-bottom: 1px solid var(--border); }
 .sidebar-search input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 11px; }
 .sidebar-content { flex: 1; overflow-y: auto; padding: 8px; }
-/* 리포트 사이드바: 테이블 폴더 (I1, 쿼리빌더, 기타) */
+/* 쿼리 스튜디오 사이드바: 테이블 폴더 (I1, 쿼리 스튜디오 저장, 기타) */
 .sidebar-folder { margin-bottom: 12px; }
 .sidebar-folder-header {
   display: flex; align-items: center; gap: 6px;
@@ -50,11 +50,14 @@ body { font-family: 'Segoe UI', sans-serif; background: var(--background); heigh
 .table-group:hover { background: var(--primary-light); }
 .table-group.disabled { opacity: 0.4; cursor: not-allowed; background: #f5f5f5; }
 .table-group.disabled:hover { background: #f5f5f5; }
-.table-header { padding: 8px 10px; cursor: pointer; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.table-header { padding: 8px 10px; cursor: default; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .table-group.disabled .table-header { pointer-events: none; }
 .table-group.disabled .column-item { pointer-events: none; cursor: not-allowed; }
-.toggle-icon { font-size: 10px; }
+.toggle-icon { font-size: 10px; cursor: pointer; user-select: none; }
 .table-name { font-size: 12px; font-weight: 600; color: var(--primary); }
+.table-name.table-name--draggable { cursor: grab; user-select: none; }
+.table-name.table-name--draggable:active { cursor: grabbing; }
+.table-name.table-name--draggable.dragging { opacity: 0.55; }
 .table-count { font-size: 10px; color: var(--text-light); }
 .disabled-hint { font-size: 9px; color: var(--disabled); margin-left: 4px; }
 .column-list { display: none; max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }

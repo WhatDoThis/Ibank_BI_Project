@@ -8,7 +8,7 @@
  */
 
 import { Routes, Route, Navigate } from 'react-router-dom'
-import ReportPage from '@/packages/report'
+import QueryStudioPage from '@/packages/query_studio'
 import DashboardPage from '@/packages/dashboard'
 import WidgetboardPage from '@/packages/widgetboard'
 import ETLPage from '@/packages/etl'
@@ -19,15 +19,16 @@ import NewDashboard2Page from '@/packages/new-dashboard2'
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/report" replace />} />
-      <Route path="/report" element={<ReportPage />} />
+      <Route path="/" element={<Navigate to="/query-studio" replace />} />
+      <Route path="/report" element={<Navigate to="/query-studio" replace />} />
+      <Route path="/query-studio" element={<QueryStudioPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/new-dashboard" element={<NewDashboardPage />} />
       <Route path="/campaign-dashboard" element={<CampaignDashboardPage />} />
       <Route path="/new-dashboard2" element={<NewDashboard2Page />} />
       <Route path="/widgetboard" element={<WidgetboardPage />} />
       <Route path="/etl" element={<ETLPage />} />
-      <Route path="*" element={<Navigate to="/report" replace />} />
+      <Route path="*" element={<Navigate to="/query-studio" replace />} />
     </Routes>
   )
 }

@@ -148,7 +148,7 @@ Changes:
 - 문서: docs/main/01_FRONTEND_GUIDE.md, .cursor/skills/api-client-sync/SKILL.md, docs/report/16 Phase2 표·표 내 client.js 잔여 문구
 - report·dashboard·dashboard2·widgetboard 일부 파일 상단 [Dependencies]를 실제 import(*Client.js·dashboard/dateRange)에 맞게 정리
 
-Changed files: Frontend/react-app/src/shared/api/http.js, Frontend/react-app/src/app/*, Frontend/react-app/src/App.jsx, Frontend/react-app/src/packages/**/api/*.js, Frontend/react-app/src/packages/report/ReportPage.jsx·hooks/useReportData.js, Frontend/react-app/src/packages/widgetboard/Dashboard3Page.jsx, Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx·ChartWidget2.jsx·DashboardHeader.jsx, Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx, 다수 패키지 import 경로, docs/main/01_FRONTEND_GUIDE.md, .cursor/skills/api-client-sync/SKILL.md, docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md, docs/log/log.md
+Changed files: Frontend/react-app/src/shared/api/http.js, Frontend/react-app/src/app/*, Frontend/react-app/src/App.jsx, Frontend/react-app/src/packages/**/api/*.js, Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx·hooks/useQueryStudioData.js, Frontend/react-app/src/packages/widgetboard/Dashboard3Page.jsx, Frontend/react-app/src/packages/dashboard/components/ChartWidget.jsx·ChartWidget2.jsx·DashboardHeader.jsx, Frontend/react-app/src/packages/dashboard2/components/Dashboard2Header.jsx, 다수 패키지 import 경로, docs/main/01_FRONTEND_GUIDE.md, .cursor/skills/api-client-sync/SKILL.md, docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md, docs/log/log.md
 
 37. 2026-03-23 캠페인 대시보드 구현(campaign_dash_server·campaign_dashboard)
 Purpose: docs/report/16 계획에 따라 Star JSONB 테이블(ibank_*_star_1/2) 전용 API·UI를 뉴 대시보드와 동형으로 추가.

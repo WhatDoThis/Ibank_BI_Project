@@ -1,5 +1,5 @@
 /**
- * report/components/MainArea.jsx (리포트 페이지 메인 영역)
+ * query_studio/components/MainArea.jsx (쿼리 스튜디오 메인 영역)
  * =======================================================
  * 그리드·드롭 존·기준축/피벗/HAVING/조건/정렬·페이지네이션·SQL 패널·해석·JOIN 설정 UI·관계 다이어그램.
  *
@@ -10,7 +10,7 @@
  *
  * [Dependencies]
  * =========
- * - React, report/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), report/utils/helpers (isDateColumn, isDateType, isDateTimeType), report/utils/relationshipDiagram (buildRelationshipTree, buildRelationshipMermaid)
+ * - React, query_studio/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), query_studio/utils/helpers (isDateColumn, isDateType, isDateTimeType), query_studio/utils/relationshipDiagram (buildRelationshipTree, buildRelationshipMermaid)
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -86,6 +86,7 @@ export default function MainArea({
   executedSql = '',
   explanation = null,
   onAddColumn,
+  onAddTableColumns,
   onRemoveColumn,
   onMoveColumn,
   onExecute,
@@ -157,8 +158,12 @@ export default function MainArea({
     try {
       const raw = e.dataTransfer.getData('application/json')
       if (!raw) return
-      const columnInfo = JSON.parse(raw)
-      if (columnInfo.table && columnInfo.column && onAddColumn) onAddColumn(columnInfo)
+      const payload = JSON.parse(raw)
+      if (payload.dragKind === 'table' && payload.table && Array.isArray(payload.columns) && onAddTableColumns) {
+        onAddTableColumns(payload.table, payload.columns)
+        return
+      }
+      if (payload.table && payload.column && onAddColumn) onAddColumn(payload)
     } catch (_) {}
   }
 
@@ -354,12 +359,12 @@ export default function MainArea({
               <span className="filter-order-bar__actions-spacer" />
               <div className="filter-order-bar__actions" onClick={(e) => e.stopPropagation()}>
                 {typeof onClearAll === 'function' && (
-                  <button type="button" className="btn btn-report-secondary" onClick={onClearAll}>
+                  <button type="button" className="btn btn-query-studio-secondary" onClick={onClearAll}>
                     초기화
                   </button>
                 )}
                 {typeof onToggleAutoExecute === 'function' && (
-                  <label className="btn-report-auto-toggle" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                  <label className="btn-query-studio-auto-toggle" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
                     <input type="checkbox" checked={autoExecute} onChange={onToggleAutoExecute} />
                     자동 실행
                   </label>
@@ -377,7 +382,7 @@ export default function MainArea({
                   </button>
                 )}
                 {onOpenSaveAsTableModal && (
-                  <button type="button" className="btn btn-report-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
+                  <button type="button" className="btn btn-query-studio-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
                     💾 저장
                   </button>
                 )}
@@ -684,14 +689,14 @@ export default function MainArea({
           onDrop={handleDrop}
         >
           <div className={`drop-overlay ${dropOverlayActive ? 'active' : ''}`}>
-            <div className="drop-message">👇 컬럼을 여기에 드롭하세요</div>
+            <div className="drop-message">👇 컬럼 또는 테이블 이름을 여기에 드롭하세요</div>
           </div>
 
           {gridColumns.length === 0 && (
             <div className="empty-state">
               <div className="empty-icon">📊</div>
-              <div className="empty-title">왼쪽에서 컬럼을 드래그하세요</div>
-              <div className="empty-desc">테이블을 선택하고 원하는 컬럼을 드래그하여<br />데이터를 조회할 수 있습니다</div>
+              <div className="empty-title">왼쪽에서 컬럼 또는 테이블 이름을 드래그하세요</div>
+              <div className="empty-desc">개별 컬럼을 드래그하거나, 테이블 이름을 드래그하면<br />해당 테이블의 컬럼이 한 번에 추가됩니다</div>
             </div>
           )}
 

@@ -82,7 +82,7 @@
 
 ## 3. 프론트엔드: 관계 옵션으로의 변환
 
-### 3.1 relationshipOptions 구성 (ReportPage.jsx)
+### 3.1 relationshipOptions 구성 (QueryStudioPage.jsx)
 
 - **입력**: `GET /api/table-relationships`의 `relationships` 배열.
 - **처리**:
@@ -156,7 +156,7 @@
 - **의미**: 직접 조인 가능하거나, “같은 부모 경유”로 추가 가능한 경우에도 리스트에 노출.
 - **로직**: `isTableAvailable(...)`가 true이면 true. 아니면 `findIntermediateParent(last, tableName, relationshipOptions)`가 있으면 true.
 
-### 4.5 컬럼 추가 시 테이블 추가 흐름 (ReportPage addColumn)
+### 4.5 컬럼 추가 시 테이블 추가 흐름 (QueryStudioPage addColumn)
 
 - 테이블이 이미 추가돼 있으면: `newAddedTables = addedTables` 유지.
 - `canAddTableByColumn(addedTables, columnInfo.table, relationshipOptions)`가 true면: `newAddedTables = [...addedTables, columnInfo.table]`.
@@ -451,9 +451,9 @@ export async function tableRelationships(mode = 'all') {
 
 ---
 
-## 4. 프론트엔드 — ReportPage.jsx (JOIN 관련 코드 전문)
+## 4. 프론트엔드 — QueryStudioPage.jsx (JOIN 관련 코드 전문)
 
-**파일:** `Frontend/react-app/src/packages/report/ReportPage.jsx`
+**파일:** `Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx`
 
 상태(L52~56), tableRelationships useMemo(L58~76), joinConfigs useMemo(L78~94), 관계 로드 useEffect(L139~172), setJoinConditionsForPair·setJoinConditionAt·addJoinCondition·removeJoinCondition·setJoinTypeForPair·setJoinLogicalOperatorForPair(L174~208), addColumn(L227~264), runExecuteQuery(L268~295), removeJoinedTable(L365~389), fetchAndSetPivot(L463~487), Sidebar/MainArea props(L581~603) — 위 구간의 **전체 코드**는 PART II 서두의 “빠짐없이 적은다”는 원칙에 따라 아래에 이어서 기술한다. 전체 코드는 아래 4.1~4.10에 빠짐없이 적었다.
 
@@ -732,7 +732,7 @@ export async function tableRelationships(mode = 'all') {
 
 ## 5. 프론트엔드 — joinRules.js (파일 전체)
 
-**파일:** `Frontend/react-app/src/packages/report/utils/joinRules.js`
+**파일:** `Frontend/react-app/src/packages/query_studio/utils/joinRules.js`
 
 ```javascript
 /**
@@ -787,7 +787,7 @@ export function isTableAvailableOrViaParent(tableName, addedTables, tableRelatio
 
 ## 6. 프론트엔드 — sqlBuilder.js (JOIN 관련)
 
-**파일:** `Frontend/react-app/src/packages/report/utils/sqlBuilder.js`
+**파일:** `Frontend/react-app/src/packages/query_studio/utils/sqlBuilder.js`
 
 getJoinKey (L23~29):
 
@@ -834,7 +834,7 @@ generateCountSQL·generateDistinctPivotSQL의 JOIN 루프도 동일한 key/confi
 
 ## 7. 프론트엔드 — MainArea.jsx (조인 UI)
 
-**파일:** `Frontend/react-app/src/packages/report/components/MainArea.jsx`
+**파일:** `Frontend/react-app/src/packages/query_studio/components/MainArea.jsx`
 
 조인 관련 props: `relationshipOptions`, `joinConditions`, `joinTypes`, `onSetJoinConditions`, `onSetJoinConditionAt`, `onAddJoinCondition`, `onRemoveJoinCondition`, `onRemoveJoinedTable`, `onSetJoinType`, `joinLogicalOperators`, `onSetJoinLogicalOperator`.
 
@@ -925,7 +925,7 @@ joinPairs·hasImpossibleJoin·joinConditionsBlock (L173~311) 전문:
 
 ## 8. 프론트엔드 — Sidebar.jsx (JOIN 관련)
 
-**파일:** `Frontend/react-app/src/packages/report/components/Sidebar.jsx`
+**파일:** `Frontend/react-app/src/packages/query_studio/components/Sidebar.jsx`
 
 ```javascript
 export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {} }) {
@@ -946,28 +946,28 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
 
 ---
 
-## 9. 스타일 — report.css (조인 관련)
+## 9. 스타일 — queryStudio.css (조인 관련)
 
-**파일:** `Frontend/react-app/src/packages/report/report.css`
+**파일:** `Frontend/react-app/src/packages/query_studio/queryStudio.css`
 
-조인 관련 클래스: `.join-conditions-bar`, `.join-conditions-bar__label`, `.join-conditions-bar__pairs`, `.join-conditions-pair`, `.join-conditions-pair--multi`, `.join-conditions-pair__head`, `.join-conditions-pair__tables`, `.join-conditions-pair__confidence`, `.join-conditions-pair__reason`, `.join-conditions-pair__join-type`, `.join-conditions-pair__conditions`, `.join-conditions-pair__row`, `.join-conditions-pair__select`, `.join-conditions-pair__remove-join`, `.join-conditions-pair__remove-condition`, `.join-conditions-pair__add-condition`, `.join-conditions-pair__row-wrap`, `.join-conditions-pair__logical-op`, `.filter-order-bar .join-row`, `.join-conditions-pair__impossible`. (전체 CSS 선언은 report.css L56~274 참조.)
+조인 관련 클래스: `.join-conditions-bar`, `.join-conditions-bar__label`, `.join-conditions-bar__pairs`, `.join-conditions-pair`, `.join-conditions-pair--multi`, `.join-conditions-pair__head`, `.join-conditions-pair__tables`, `.join-conditions-pair__confidence`, `.join-conditions-pair__reason`, `.join-conditions-pair__join-type`, `.join-conditions-pair__conditions`, `.join-conditions-pair__row`, `.join-conditions-pair__select`, `.join-conditions-pair__remove-join`, `.join-conditions-pair__remove-condition`, `.join-conditions-pair__add-condition`, `.join-conditions-pair__row-wrap`, `.join-conditions-pair__logical-op`, `.filter-order-bar .join-row`, `.join-conditions-pair__impossible`. (전체 CSS 선언은 queryStudio.css L56~274 참조.)
 
 ---
 
 ## 10. 테스트 — joinRules.test.js·sqlBuilder.test.js
 
 **joinRules.test.js**  
-canAddTableByColumn, findIntermediateParent, isTableAvailable, isTableAvailableOrViaParent 시나리오 전체 코드는 `Frontend/react-app/src/packages/report/__tests__/joinRules.test.js` 파일 전체와 동일. (121줄.)
+canAddTableByColumn, findIntermediateParent, isTableAvailable, isTableAvailableOrViaParent 시나리오 전체 코드는 `Frontend/react-app/src/packages/query_studio/__tests__/joinRules.test.js` 파일 전체와 동일. (121줄.)
 
 **sqlBuilder.test.js**  
-generateDistinctPivotSQL 호출 시 tableRelationships, joinConfigs, dateGranularity 전달하는 테스트 전체 코드는 `Frontend/react-app/src/packages/report/__tests__/sqlBuilder.test.js` 파일 전체와 동일. (126줄.)
+generateDistinctPivotSQL 호출 시 tableRelationships, joinConfigs, dateGranularity 전달하는 테스트 전체 코드는 `Frontend/react-app/src/packages/query_studio/__tests__/sqlBuilder.test.js` 파일 전체와 동일. (126줄.)
 
 ---
 
 ## 11. 데이터 흐름 요약
 
 1. **관계 로드**: client.tableRelationships() → report.py table_relationships() → relationships 배열.
-2. **옵션 구성**: ReportPage useEffect에서 rels.forEach → push(from||to), push(to||from) → setRelationshipOptions(opts).
+2. **옵션 구성**: QueryStudioPage useEffect에서 rels.forEach → push(from||to), push(to||from) → setRelationshipOptions(opts).
 3. **파생 구조**: relationshipOptions + joinConditions → tableRelationships (useMemo). relationshipOptions + joinConditions + joinTypes + joinLogicalOperators → joinConfigs (useMemo).
 4. **테이블 추가**: addColumn → canAddTableByColumn 또는 findIntermediateParent → setAddedTables, setGridColumns.
 5. **SQL 생성**: generateSQL(gridColumns, addedTables, ..., tableRelationships, { joinConfigs, ... }) → joinConfigs[key].conditions 또는 getJoinKey(tableRelationships, prev, curr) → ON 절.

@@ -1,5 +1,5 @@
 /**
- * report/utils/helpers.js (리포트 쿼리 빌더 헬퍼)
+ * query_studio/utils/helpers.js (쿼리 스튜디오 헬퍼)
  * ==============================================
  * 날짜 컬럼 판별·SQL 이스케이프·WHERE 값 포맷.
  *

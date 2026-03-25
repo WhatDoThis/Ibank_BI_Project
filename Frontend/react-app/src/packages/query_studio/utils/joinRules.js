@@ -1,5 +1,5 @@
 /**
- * report/utils/joinRules.js (조인 규칙·테이블 추가 가능 여부)
+ * query_studio/utils/joinRules.js (조인 규칙·테이블 추가 가능 여부)
  * ===========================================================
  * 리포트 쿼리 빌더. 직접 관계·중간 부모 끼워 넣기·사이드바 노출 여부. relationshipOptions 기반.
  *

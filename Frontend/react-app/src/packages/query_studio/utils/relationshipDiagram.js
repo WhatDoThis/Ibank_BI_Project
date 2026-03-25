@@ -1,5 +1,5 @@
 /**
- * report/utils/relationshipDiagram.js (테이블 관계도 텍스트·Mermaid)
+ * query_studio/utils/relationshipDiagram.js (테이블 관계도 텍스트·Mermaid)
  * ==================================================================
  * joinOrder 또는 relationshipOptions + addedTables로 족보 형태 관계도 텍스트·Mermaid 생성. MainArea 관계도 패널용.
  *

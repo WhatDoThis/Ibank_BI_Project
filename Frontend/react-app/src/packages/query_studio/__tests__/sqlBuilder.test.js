@@ -1,5 +1,5 @@
 /**
- * report/__tests__/sqlBuilder.test.js
+ * query_studio/__tests__/sqlBuilder.test.js
  * ===================================
  * 피벗 축 값 조회 SQL(연/연월/연월일) 및 execute-query 동작 검증.
  *

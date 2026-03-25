@@ -14,7 +14,7 @@
 
 ### 1.2 접속 경로
 
-- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../report`, `.../dashboard`, `.../new-dashboard`, `.../campaign-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`
+- **로컬(DEV)**: `http://localhost:8080/ibank-bi/`, `.../query-studio`, `.../dashboard`, `.../new-dashboard`, `.../campaign-dashboard`, `.../new-dashboard2`, `.../widgetboard`, `.../etl`
 - **Linux 배포(실제 서비스)**: base URL **`https://ajo.sdev-ibank.co.kr/ibank-bi/`** (동일 경로 + **campaign-dashboard**). Nginx가 `/ibank-bi/` → 정적 서버, API는 api_base_url 로 호출.
 
 ### 1.3 프론트와 설정
@@ -32,7 +32,7 @@
 | UI | React | 19.x |
 | 라우팅 | react-router-dom | 7.x |
 | 차트 | Recharts | Recharts 2.x (대시보드) |
-| 스타일 | CSS | report.css, dashboard.css, main.css |
+| 스타일 | CSS | queryStudio.css, dashboard.css, main.css |
 | API | fetch | `shared/api/http.js` + 패키지별 `api/*Client.js` |
 | 언어 | JavaScript (ESM) | JSX |
 
@@ -52,12 +52,12 @@ Frontend/react-app/
 │   ├── main.jsx
 │   ├── index.css
 │   ├── packages/
-│   │   ├── report/             # 쿼리 빌더
-│   │   │   ├── ReportPage.jsx  # 페이지·상태·실행·해석·페이지네이션·JOIN 설정
+│   │   ├── query_studio/       # 쿼리 스튜디오(쿼리 빌더)
+│   │   │   ├── QueryStudioPage.jsx  # 페이지·상태·실행·해석·페이지네이션·JOIN 설정
 │   │   │   ├── index.jsx
-│   │   │   ├── report.css
+│   │   │   ├── queryStudio.css
 │   │   │   ├── api/
-│   │   │   │   └── reportClient.js
+│   │   │   │   └── queryStudioClient.js
 │   │   │   ├── components/
 │   │   │   │   ├── Sidebar.jsx   # 테이블·컬럼 목록, 드래그, JOIN 불가 비활성화
 │   │   │   │   ├── MainArea.jsx  # 그리드·SQL 패널·해석 영역·페이지네이션 바
@@ -172,7 +172,7 @@ Frontend/react-app/
 
 ### 4.1 report (쿼리 빌더)
 
-- **ReportPage.jsx**: 그리드 컬럼·추가 테이블·필터·정렬·집계·피벗·HAVING·날짜 단위·실행·페이지네이션 상태. joinMode, relationshipOptions, joinConditions, joinTypes, joinLogicalOperators, joinConfigs, tableRelationships, groupBy, pivot, pivotRowAggs, dateGranularity, havings. `runExecuteQuery`, `runExplainSql`, 초기화. Sidebar, MainArea 에 props 전달.
+- **QueryStudioPage.jsx**: 그리드 컬럼·추가 테이블·필터·정렬·집계·피벗·HAVING·날짜 단위·실행·페이지네이션 상태. joinMode, relationshipOptions, joinConditions, joinTypes, joinLogicalOperators, joinConfigs, tableRelationships, groupBy, pivot, pivotRowAggs, dateGranularity, havings. `runExecuteQuery`, `runExplainSql`, 초기화. Sidebar, MainArea 에 props 전달.
 - **Sidebar**: 테이블 목록, 테이블별 컬럼(드래그 가능). JOIN 불가 테이블 비활성화(`joinRules.isTableAvailable`). `list-tables`, `table-relationships` 연동.
 - **MainArea**: 드롭 존·그리드·필터/정렬 칩·SQL 패널(실행된 SQL, 🤖 해석, 📋 복사)·Claude 해석 영역·페이지네이션 바(처음/이전/다음/마지막, 페이지 크기 선택).
 - **utils/sqlBuilder.js**: getJoinKey, generateSQL, generateCountSQL, generateDistinctPivotSQL. 옵션: joinConfigs(joinType, conditions, logicalOperator), groupBy, dateGranularity, havings, pivot, pivotRowAggs. 별칭(t1, t2) 사용.
@@ -204,7 +204,7 @@ Frontend/react-app/
 
 ### 4.3 widgetboard (위젯보드)
 
-- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. `/widgetboard`. 위젯 데이터는 **report** API(`packages/report/api/reportClient.js` — listTables, describeTable, executeQuery) 사용.
+- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. `/widgetboard`. 위젯 데이터는 **report** API(`packages/query_studio/api/queryStudioClient.js` — listTables, describeTable, executeQuery) 사용.
 - **index.jsx**: WidgetboardPage export. App.jsx에서 `/widgetboard` → WidgetboardPage.
 - **utils/dataUtils.js**: 위젯보드용 데이터 처리 유틸.
 - **widgetboard.css**: 위젯보드 전용 스타일(헤더·사이드바·캔버스·드래그 오버 등).
@@ -254,14 +254,14 @@ Frontend/react-app/
 - **역할**: 실행된 SQL을 백엔드 경유로 Claude API에 보내 자연어 해석을 받아 표시합니다.
 - **API 키**: 백엔드 설정(`config.backend.claude_api_key`, `claude_api_url`)만 사용. 프론트에는 노출되지 않습니다.
 - **동작**: 쿼리 실행 후 **🤖 해석** 클릭 → `POST /api/explain-sql` 로 SQL 전달 → 백엔드가 Claude 호출 후 해석 문구 반환 → MainArea 의 **💬 Claude 해석** 영역에 표시.
-- **구현**: ReportPage `runExplainSql` → `reportClient.explainSql()` → MainArea 해석 영역.
+- **구현**: QueryStudioPage `runExplainSql` → `queryStudioClient.explainSql()` → MainArea 해석 영역.
 - **UI**: SQL 패널 헤더에 "📄 실행된 SQL | 🤖 해석 | 📋 복사". 해석 요청 시 로딩 문구 후 결과 표시, 닫기로 숨김.
 - **주의**: claude_api_key 비어 있으면 explain-sql 오류 가능. 토큰 과금·Rate Limit 유의.
 
 ### 5.2 페이지네이션 (LIMIT / OFFSET)
 
 - **역할**: LIMIT + OFFSET 페이지 단위 조회. 전체 건수는 **COUNT 쿼리**로 별도 조회(generateCountSQL + execute-query).
-- **동작**: 실행 시 ReportPage 에서 generateCountSQL → apiExecuteQuery(countSQL) → setTotalCount. 이어서 generateSQL(LIMIT/OFFSET) 실행. 페이지/페이지 크기 변경 시 runExecuteQuery 재호출. 컬럼 추가·필터·정렬·집계·피벗 변경 시 currentPage=1 로 리셋 후 실행.
+- **동작**: 실행 시 QueryStudioPage 에서 generateCountSQL → apiExecuteQuery(countSQL) → setTotalCount. 이어서 generateSQL(LIMIT/OFFSET) 실행. 페이지/페이지 크기 변경 시 runExecuteQuery 재호출. 컬럼 추가·필터·정렬·집계·피벗 변경 시 currentPage=1 로 리셋 후 실행.
 - **UI**: 그리드 하단 페이지네이션 바(결과가 있을 때만): 현재 범위/총 건수, ⏮️처음 ◀이전 페이지 N/M 다음▶ 마지막⏭️, 페이지 크기(50/100/200/500 등). MainArea 에서 currentPage, pageSize, totalCount, onSetPage, onSetPageSize props 로 제어.
 - **주의**: COUNT + 데이터로 2회 실행. 대용량 시 COUNT 지연·OFFSET 큰 경우 지연 가능.
 
@@ -269,7 +269,7 @@ Frontend/react-app/
 
 ## 6. 스타일링
 
-- **report.css**: 리포트 패키지 전용 (사이드바, 그리드, SQL 패널, 필터/정렬 칩, 페이지네이션 바, 해석 영역 등).
+- **queryStudio.css**: 리포트 패키지 전용 (사이드바, 그리드, SQL 패널, 필터/정렬 칩, 페이지네이션 바, 해석 영역 등).
 - **dashboard.css**: 대시보드 패키지 전용 (헤더, 필터, KPI, 차트, 테이블, 모달, 집계 테이블 rate 채우기·내부 테두리 등).
 - **widgetboard.css**: 위젯보드 패키지 전용.
 - **main.css / index.css**: 앱 공통. 별도 유틸리티 CSS 프레임워크 없음.

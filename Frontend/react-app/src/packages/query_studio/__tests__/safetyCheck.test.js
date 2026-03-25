@@ -1,5 +1,5 @@
 /**
- * report/__tests__/safetyCheck.test.js
+ * query_studio/__tests__/safetyCheck.test.js
  * =====================================
  * JOIN 안전성 검증 풀가동 테스트
  *
@@ -136,7 +136,7 @@ describe('안전한 테이블 추가 (canAddTableSafely) - 전체 에러 케이�
 
 // ---------- 시나리오: A→B 넣은 뒤 C 넣을 때 중간 부모가 A(이미 경로에 있음) ----------
 describe('시나리오: A, B 넣은 뒤 C 추가 시 중간 부모 A가 이미 있을 때', () => {
-  it('경로를 [A,B,C]로 쓰면 순환이 아님 (ReportPage에서 중간 부모 생략 시 기대 동작)', () => {
+  it('경로를 [A,B,C]로 쓰면 순환이 아님 (QueryStudioPage에서 중간 부모 생략 시 기대 동작)', () => {
     const pathWhenWeSkipIntermediate = ['A', 'B', 'C']
     const r = detectCircularReference(pathWhenWeSkipIntermediate)
     expect(r.circular).toBe(false)

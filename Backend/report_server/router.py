@@ -17,7 +17,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Endpoints]
 ===========
-10. list_tables: GET /api/list-tables (allowed_tables)
+10. list_tables: GET /api/list-tables (스키마 내 테이블·뷰)
 11. describe_table: POST /api/describe-table (테이블 구조)
 12. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
 13. save_column_labels: POST /api/column-labels (라벨 저장)
@@ -56,7 +56,6 @@ from fastapi.responses import JSONResponse, Response
 
 from Backend.core import db
 from Backend.report_server import analysis_store
-from Env.config.loader import add_allowed_table as add_allowed_table_to_config
 from Backend.report_server.relationship_inference import infer_relationships
 from Backend.core.dependencies import get_db, get_config
 from Backend.report_server.join_path import determine_join_order, validate_join_order
@@ -381,11 +380,7 @@ def _get_or_compute_relationships_all(conn):
 @router.get("/list-tables")
 def list_tables(conn=Depends(get_db)):
     try:
-        allowed = list(db.get_allowed_tables())
         schema = db.get_table_schema()
-        if not allowed:
-            return {"tables": [], "count": 0}
-        placeholders = ", ".join(["%s"] * len(allowed))
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
@@ -394,11 +389,10 @@ def list_tables(conn=Depends(get_db)):
                 pg_size_pretty(pg_total_relation_size((table_schema || '.' || table_name)::regclass)) AS size
             FROM information_schema.tables
             WHERE table_schema = %s
-              AND table_type = 'BASE TABLE'
-              AND table_name IN (""" + placeholders + """)
+              AND table_type IN ('BASE TABLE', 'VIEW')
             ORDER BY table_name
             """,
-            (schema,) + tuple(allowed),
+            (schema,),
         )
         rows = cur.fetchall()
         cur.close()
@@ -540,10 +534,10 @@ def api_join_order(body: JoinOrderRequest, conn=Depends(get_db)):
             return JSONResponse(status_code=400, content={"error": "base_table 필요", "join_order": [], "warnings": [], "errors": ["base_table이 비어 있습니다."]})
         allowed = list(db.get_allowed_tables())
         if base_table not in allowed:
-            return JSONResponse(status_code=400, content={"error": "base_table이 허용 목록에 없음", "join_order": [], "warnings": [], "errors": [f"테이블 '{base_table}'을 사용할 수 없습니다."]})
+            return JSONResponse(status_code=400, content={"error": "base_table이 스키마에 없음", "join_order": [], "warnings": [], "errors": [f"테이블 '{base_table}'을 메인 스키마에서 찾을 수 없습니다."]})
         for t in required_tables:
             if t not in allowed:
-                return JSONResponse(status_code=400, content={"error": "required_tables에 허용되지 않은 테이블 있음", "join_order": [], "warnings": [], "errors": [f"테이블 '{t}'을 사용할 수 없습니다."]})
+                return JSONResponse(status_code=400, content={"error": "required_tables에 없는 테이블 있음", "join_order": [], "warnings": [], "errors": [f"테이블 '{t}'을 메인 스키마에서 찾을 수 없습니다."]})
         fk_list = _get_or_compute_relationships_all(conn)
         join_order = determine_join_order(base_table, required_tables, fk_list)
         validation = validate_join_order(join_order, max_depth=4)
@@ -675,15 +669,6 @@ def _save_table_worker():
                 cur_create.close()
                 conn_create.close()
                 conn_create = None
-                added, _ = add_allowed_table_to_config(table_name)
-                if added:
-                    try:
-                        from Env import config
-                        if hasattr(config, "backend") and hasattr(config.backend, "allowed_tables") and isinstance(config.backend.allowed_tables, list):
-                            if table_name not in config.backend.allowed_tables:
-                                config.backend.allowed_tables.append(table_name)
-                    except Exception:
-                        pass
                 conn_up = db.get_db_connection()
                 cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(

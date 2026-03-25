@@ -1,5 +1,5 @@
 /**
- * report/__tests__/joinRules.test.js
+ * query_studio/__tests__/joinRules.test.js
  * ==================================
  * 조인 기능 검사용 통합 테스트 (Claude 등 검토용)
  *

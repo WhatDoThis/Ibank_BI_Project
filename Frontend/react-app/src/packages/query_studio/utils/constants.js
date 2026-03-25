@@ -1,5 +1,5 @@
 /**
- * report/utils/constants.js (리포트 쿼리 빌더 상수)
+ * query_studio/utils/constants.js (쿼리 스튜디오 상수)
  * =================================================
  * WHERE/HAVING 연산자 한글 라벨(OPERATOR_LABELS), 집계 함수 목록(AGG_FUNCTIONS).
  *

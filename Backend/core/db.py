@@ -10,7 +10,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 2. get_db_config: config.backend에서 DB 연결용 dict 반환 (필수 키 없으면 ValueError)
 3. get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict 반환
 4. get_system_table_schema: 시스템 DB의 table_schema (ETL 메타 등)
-5. get_allowed_tables: 허용 테이블 목록 (allowed_tables)
+5. get_allowed_tables: 메인 DB table_schema의 BASE TABLE·VIEW 이름 집합 (information_schema)
 6. get_table_schema: 테이블 스키마명 (table_schema)
 7. _table_exists, _query_table_columns, _query_primary_key_columns: 내부 공통 SQL 헬퍼 (conn 인자로 커넥션 1회 사용)
 8. get_table_columns: 테이블 컬럼명 목록 (information_schema, 허용 테이블만)
@@ -26,7 +26,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 18. is_new_dash_physical_table: ibank_1·ibank_1_0~4·ibank_*_star_1|2 여부 (dash_db 집계·Star JSONB 테이블)
 19. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
 20. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
-21. validate_table_name: 허용 패턴·허용 테이블 검증
+21. validate_table_name: 이름 패턴·스키마 내 실제 존재 여부 검증
 22. validate_column_name: 컬럼명 허용 패턴 검증
 
 [Package Usage]
@@ -270,13 +270,27 @@ def get_system_table_schema():
 
 # 5.
 def get_allowed_tables():
-    """허용 테이블 목록. config.backend.allowed_tables 만 사용. 없으면 ValueError."""
-    tables = getattr(config.backend, 'allowed_tables', None)
-    if tables is None:
-        raise ValueError('Env/config/config.json 에 backend.allowed_tables 가 없습니다.')
-    if isinstance(tables, list):
-        return set(tables)
-    raise ValueError('Env/config/config.json 의 backend.allowed_tables 는 배열이어야 합니다.')
+    """
+    메인 비즈니스 DB의 table_schema에 존재하는 테이블·뷰 이름 집합.
+    config 의 화이트리스트는 사용하지 않으며, DB 메타데이터만 사용한다.
+    """
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s
+              AND table_type IN ('BASE TABLE', 'VIEW')
+            """,
+            (schema,),
+        )
+        return {row["table_name"] for row in cur.fetchall()}
+    finally:
+        cur.close()
+        conn.close()
 
 
 # 6.
@@ -561,7 +575,7 @@ def is_new_dash_physical_table(table_name: str) -> bool:
 def validate_dashboard_data_table_name(table_name):
     """
     대시보드·뉴 대시보드 API용 테이블명 검증.
-    뉴 대시보드 물리 테이블(ibank_1 계열)은 allowed_tables 없이 패턴만 검증, 그 외는 validate_table_name.
+    뉴 대시보드 물리 테이블(ibank_1 계열)은 패턴만 검증, 그 외는 validate_table_name(메인 스키마 존재 여부).
     """
     if not table_name:
         raise ValueError("테이블 이름이 필요합니다")
@@ -590,14 +604,18 @@ def format_value(value):
 
 # 21.
 def validate_table_name(table_name):
-    """테이블 이름 검증."""
+    """테이블 이름 형식 검증 후 메인 스키마에 존재하는지 확인."""
     if not table_name:
         raise ValueError('테이블 이름이 필요합니다')
     if not re.match(r'^[a-zA-Z0-9_]+$', table_name):
         raise ValueError(f'잘못된 테이블 이름: {table_name}')
-    allowed = get_allowed_tables()
-    if allowed and table_name not in allowed:
-        raise ValueError(f'허용되지 않은 테이블: {table_name}')
+    schema = get_table_schema()
+    conn = get_db_connection()
+    try:
+        if not _table_exists(conn, schema, table_name):
+            raise ValueError(f'테이블을 찾을 수 없습니다: {table_name}')
+    finally:
+        conn.close()
     return table_name
 
 

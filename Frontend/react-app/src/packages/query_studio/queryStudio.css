@@ -1,6 +1,6 @@
 /**
- * report/report.css (리포트 쿼리 빌더 전용 스타일)
- * ================================================
+ * query_studio/queryStudio.css (쿼리 스튜디오 전용 스타일)
+ * ========================================================
  * main 1.css 및 app 1.js 인라인 스타일 통합. 기준축/피벗/HAVING/날짜단위/집계 등 UI.
  *
  * [적용 범위]
@@ -242,7 +242,7 @@
   margin: 0 2px;
 }
 
-.btn-report-secondary {
+.btn-query-studio-secondary {
   padding: 6px 12px;
   border-radius: 4px;
   font-size: 12px;
@@ -252,7 +252,7 @@
   color: #374151;
   cursor: pointer;
 }
-.btn-report-secondary:hover {
+.btn-query-studio-secondary:hover {
   background: #f3f4f6;
   border-color: #9ca3af;
 }
