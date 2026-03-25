@@ -101,6 +101,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 5.1 역할
 - **FastAPI** REST API: 리포트·대시보드·**뉴 대시보드**(`/api/new-dashboard`)·**캠페인 대시보드**(`/api/campaign-dashboard`)·**마케팅 대시보드**(`/api/new-dashboard2`)·**ETL**(`/api/etl`, `/api/etl/batch`). 위젯보드는 별도 라우터 없이 리포트·대시보드 API를 사용한다.
+- **인증·인가**: 애플리케이션 코드에 로그인·세션·JWT·역할(RBAC)은 **없다**(엔드포인트는 인증 헤더 없이 호출 가능한 형태). 운영 환경에서는 **Nginx `allow`/`deny`**, VPN, 별도 게이트웨이 등 **상위 레이어**에서 접근을 제한하는 전제다. 상세·에러 응답 규약은 **03_개발가이드.md §9·§10**.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성

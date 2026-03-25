@@ -13,6 +13,8 @@
 - **PostgreSQL** 연동: 비즈니스 DB(리포트·대시보드·allowed_tables), 선택 시 **시스템 DB**(ETL 메타·etl_connections, etl_tables, etl_jobs 등), **뉴 대시보드 전용 DB**(backend.dash_db — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
+- **인증**: 앱 레벨 로그인·JWT·RBAC **없음**(공개 API 형태). 운영 시 Nginx 등 상위에서 접근 제한. **03_개발가이드.md §9**.
+- **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **03_개발가이드.md §10**.
 
 ### 1.2 기술 스택
 

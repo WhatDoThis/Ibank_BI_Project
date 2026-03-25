@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+47. 2026-03-23 docs/main 리뷰 보강(인증·에러·ER·dash·배포·로그·테스트)
 46. 2026-03-23 docs/main 갱신·03_개발가이드(AI용) 추가
 45. 2026-03-23 core db·dependencies [Package Usage] 1~22·1~2 정리
 44. 2026-03-23 dashboard_service [Package Usage] 함수 1~11 대응
@@ -49,6 +50,17 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+47. 2026-03-23 docs/main 리뷰 보강(인증·에러·ER·dash·배포·로그·테스트)
+Purpose: 코드 없이 구현 방향을 잡을 때 빠졌던 **인증 유무·에러 포맷·메인 DB 도메인 요약·dash_db 컬럼·배포 토폴로지·로깅·테스트 명령**을 문서에 반영.
+
+Changes:
+
+- `docs/main/03_개발가이드.md`: §9~§16 신설(인증, 에러+프론트 파싱, allowed_tables 예시 표, dash_db·member-summary 컬럼, mermaid 배포도, 로깅, pytest/vitest 표)
+- `docs/main/00_PRD.md`: §5.1 인증·03 교차 참조
+- `docs/main/02_BACKEND_GUIDE.md`: §1.1 인증·에러 한 줄 + 03 참조
+
+Changed files: docs/main/03_개발가이드.md, docs/main/00_PRD.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
 
 46. 2026-03-23 docs/main 갱신·03_개발가이드(AI용) 추가
 Purpose: 로그 #42~#45(백엔드 리패키징·core Package Usage 등) 이후 **docs/main**을 현행 구조에 맞게 정리하고, 코드 전체 없이 시스템 이해·확장 질의에 쓰는 **03_개발가이드.md**를 신설. **docs/README.md**에 03 링크 추가.
