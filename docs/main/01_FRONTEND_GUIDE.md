@@ -1,6 +1,6 @@
 # 프론트엔드 개발 가이드
 
-본 문서는 **docs/main** 내 프론트엔드 전용 명세이며, **현재 코드 기준** 경로·패키지·API만 기술한다. 구현 위치: `Frontend/react-app`. 작업 이력은 **docs/log/log.md** 참고.
+본 문서는 **docs/main** 내 프론트엔드 전용 명세이며, **현재 코드 기준** 경로·패키지·API만 기술한다. 구현 위치: `Frontend/react-app`. 작업 이력은 **docs/log/log.md** 참고. 백엔드 패키지와의 대응·전체 지도는 **03_개발가이드.md** 참고.
 
 ---
 
@@ -283,6 +283,7 @@ Frontend/react-app/
 | 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 |
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 (본 문서) |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·API·설정·etl_server |
+| 03_개발가이드.md | 시스템 아키텍처·프론트↔백 매핑·확장 시 탐색 경로 (AI·온보딩) |
 
 - **docs/report**: 배포·보조 설계·체크리스트. **동작 정의의 기준은 docs/main** 이다.
 - **문서 이력**: 본 파일에 날짜별 수정 타임라인을 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다. **현재 구조**: 패키지별 `packages/<도메인>/api/*Client.js`, `shared/api/http.js`, `app/navConfig.js`·`app/routes.jsx`, **campaign_dashboard** (`/campaign-dashboard`).

@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+46. 2026-03-23 docs/main 갱신·03_개발가이드(AI용) 추가
+45. 2026-03-23 core db·dependencies [Package Usage] 1~22·1~2 정리
 44. 2026-03-23 dashboard_service [Package Usage] 함수 1~11 대응
 43. 2026-03-23 Backend/core 모듈 docstring [Package Usage] 추가
 42. 2026-03-23 백엔드 리패키징(core·report_server·legacy_dashboard·api_server 슬림)
@@ -47,6 +49,27 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+46. 2026-03-23 docs/main 갱신·03_개발가이드(AI용) 추가
+Purpose: 로그 #42~#45(백엔드 리패키징·core Package Usage 등) 이후 **docs/main**을 현행 구조에 맞게 정리하고, 코드 전체 없이 시스템 이해·확장 질의에 쓰는 **03_개발가이드.md**를 신설. **docs/README.md**에 03 링크 추가.
+
+Changes:
+
+- 00_PRD: §2.1 백엔드 패키지 서술(core·report_server·legacy_dashboard·호스트), §5.2, §7 문서 표·역할 문구
+- 01/02: 서두·§7 문서 구성에 03 반영, 02 부록 A.3 Phase 2·1 경로 정리
+- 신설: `docs/main/03_개발가이드.md`(레이어, DB 매트릭스, 프론트↔API, 작업별 체크리스트, mermaid)
+- docs/README: main 문서 표에 03 행 추가
+
+Changed files: docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md, docs/main/03_개발가이드.md, docs/README.md, docs/log/log.md
+
+45. 2026-03-23 core db·dependencies [Package Usage] 1~22·1~2 정리
+Purpose: `Backend/core/db.py`는 [Main Functions] 1~22와 동일 번호로 [Package Usage] 기술(직접 호출 패키지·스크립트·내부 전용·미사용 명시). `dependencies.py`는 1.get_db, 2.get_config. `core/__init__.py`는 각 파일의 [Package Usage] 참조로 정리.
+
+Changes:
+
+- `Backend/core/db.py`, `dependencies.py`, `__init__.py` docstring 갱신
+
+Changed files: Backend/core/db.py, Backend/core/dependencies.py, Backend/core/__init__.py, docs/log/log.md
 
 44. 2026-03-23 dashboard_service [Package Usage] 함수 1~11 대응
 Purpose: [Main Functions] 번호와 맞추어 각 함수가 어떤 Backend 패키지 라우터에서 호출되는지(또는 내부 전용인지) [Package Usage]에 1.~11.로 기술.

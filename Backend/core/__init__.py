@@ -11,7 +11,7 @@ api_server·report_server·legacy_dashboard·new_dash_server·campaign_dash_serv
 
 [Package Usage]
 ===========
-1. db: Backend/api_server, Backend/report_server, Backend/etl_server, Backend/new_dash_server, Backend/campaign_dash_server, Backend/core(내부), scripts
-2. dependencies: Backend/api_server/routers, Backend/report_server
+1. db: 함수·패키지 대응은 db.py의 [Package Usage] (1.~22.) 참고
+2. dependencies: 함수·패키지 대응은 dependencies.py의 [Package Usage] (1.~2.) 참고
 3. dashboard_service: 함수·패키지 대응은 dashboard_service.py의 [Package Usage] (1.~11.) 참고
 """

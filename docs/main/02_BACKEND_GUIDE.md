@@ -1,7 +1,7 @@
 # 백엔드 개발 가이드
 
 본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/report_server`, `Backend/legacy_dashboard_server`, `Backend/api_server`(호스트 앱), `Backend/etl_server`, `Backend/new_dash_server`, `Backend/campaign_dash_server`, `Backend/new_dash_server2`.  
-**목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
+**목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. 레이어·의존 방향·작업 유형별 탐색은 **03_개발가이드.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
 
 ---
 
@@ -434,8 +434,9 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 | 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 |
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 (본 문서) |
+| 03_개발가이드.md | 레이어·의존 방향·DB 연결 매트릭스·확장 체크리스트 (AI·온보딩) |
 
-- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE.**
+- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE·03_개발가이드.**
 
 **문서 이력**: 날짜별 수정 타임라인은 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다.
 
@@ -467,8 +468,8 @@ BI용 일별 회원 집계(예: `ibank_1_0`, `base_date`)를 사용한다. **구
 | Phase | 대상 | 내용 |
 |-------|------|------|
 | 0 | 계획서 | 문서 작성 |
-| 1 | db.py, Env | 설정·DB 검증 |
-| 2 | dashboard_service.py | 변경 없음 |
+| 1 | core/db.py, Env | 설정·DB 검증 |
+| 2 | core/dashboard_service.py | 변경 없음 |
 | 3 | routes.py | Flask → FastAPI APIRouter, 동일 경로·응답 |
 | 4 | main.py | FastAPI 앱·CORS·라우터·uvicorn |
 | 5 | run.py | 의존성 오류 시 fastapi/uvicorn 안내 |

@@ -2,7 +2,7 @@
 
 ## 문서 정보
 - **카테고리**: 요구사항·아키텍처 요약 (현행 구현 기준)
-- **역할**: 제품 범위·구조·설정·기능을 한 곳에서 요약한다. **세부 경로·API·파일 목록**은 **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**를 본다.
+- **역할**: 제품 범위·구조·설정·기능을 한 곳에서 요약한다. **세부 경로·API·파일 목록**은 **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**를 본다. 코드 없이 구조·개발 방향을 잡을 때는 **03_개발가이드.md**를 함께 본다.
 - **비고**: **docs/main** 은 항상 **최신 동작**을 기술한다(로드맵·Phase·예정 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 를 본다. **docs/report** 는 설계·배포·체크리스트 등 보조 문서이며, 동작 정의의 기준은 **docs/main** 이다.
 
 ---
@@ -32,7 +32,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
 - **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/navConfig.js`, `src/app/routes.jsx`. **packages**: report, dashboard, **widgetboard**, **new-dashboard**, **campaign_dashboard**, **new-dashboard2**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend/api_server**: main.py(FastAPI·uvicorn), db.py, dependencies.py, schemas.py, routers/(health·report·dashboard), dashboard_service.py. **Backend/etl_server**: 단일 ETL API(`/api/etl`, `/api/etl/batch`). **Backend/new_dash_server**, **Backend/campaign_dash_server**, **Backend/new_dash_server2**: 뉴 대시보드·캠페인 대시보드·마케팅 대시보드 API. 상세는 **02_BACKEND_GUIDE.md**.
+- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(공유 `db`, `dependencies`, `dashboard_service`), **report_server**(노코드 리포트 `/api`), **legacy_dashboard_server**(구 대시보드 `/api/dashboard`), **api_server**(호스트·CORS·`health`만 로컬 라우터), **etl_server**(`/api/etl`, `/api/etl/batch`), **new_dash_server**, **campaign_dash_server**, **new_dash_server2**. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **03_개발가이드.md**.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -105,7 +105,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 5.2 API 엔드포인트·구성
 - 엔드포인트·접두사·바디 규칙은 **02_BACKEND_GUIDE.md §4** (뉴 대시보드 §4.6·§4.6.1, 캠페인 §4.6.2, 마케팅 §4.7, ETL §4.4·§4.5·§6). ETL 운영·COPY·설정 모달 보조 설명은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
-- main.py·db·routers·dependencies·schemas·dashboard_service 역할은 **02_BACKEND_GUIDE.md §5** 참고.
+- 호스트·코어·리포트·구 대시보드 모듈 역할은 **02_BACKEND_GUIDE.md §5** 참고. (리포트 스키마는 `report_server/schemas.py`, 구 대시보드 스키마는 `legacy_dashboard_server/schemas.py`.)
 
 ---
 
@@ -169,11 +169,12 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 | 문서 | 용도 |
 |------|------|
-| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 (본 문서, 간결·세부는 01/02 참고) |
+| 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 (본 문서, 간결·세부는 01/02/03 참고) |
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 |
+| 03_개발가이드.md | AI·온보딩용 시스템 아키텍처·레이어·“어디를 고칠지” 지도 (코드 전체 없이 방향 수립) |
 
-- docs/report: 배포·실행 로그 등. 개발 요구사항·대외 소개는 docs/main(PRD·01·02)만 사용.
+- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 docs/main**(PRD·01·02·03).
 
 ---
 

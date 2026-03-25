@@ -31,10 +31,28 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 
 [Package Usage]
 ===========
-1. Backend/api_server (main.py 기동 로그, routers/health), Backend/report_server (router, analysis_store), Backend/etl_server (router·service·load·batch 등)
-2. Backend/new_dash_server, Backend/campaign_dash_server
-3. Backend/core (dependencies, dashboard_service 내부 import)
-4. scripts (DB 점검·스키마 덤프·allowlist 등)
+1. _PooledConnection: Backend/core/db.py 내부(get_db_connection 등이 풀 연결 반환 시)
+2. get_db_config: Backend/api_server/main.py, scripts/check_db_connections.py
+3. get_system_db_config: scripts/check_db_connections.py
+4. get_system_table_schema: Backend/etl_server(다수 모듈), scripts/check_db_connections.py
+5. get_allowed_tables: Backend/api_server/main.py, Backend/report_server/router.py, Backend/core/dashboard_service.py
+6. get_table_schema: Backend/report_server/router.py, analysis_store.py, Backend/etl_server/service.py(get_target_db_connection), scripts/create_I1_derived_tables.py, dump_four_tables_schema.py
+7. _table_exists, _query_table_columns, _query_primary_key_columns: Backend/core/db.py 내부(다른 db 함수에서 호출)
+8. get_table_columns: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
+9. get_table_columns_with_types: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_all_tables_columns_with_types 등)
+10. get_all_tables_columns_with_types: Backend/report_server/router.py
+11. get_primary_key_columns: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
+12. table_exists_in_schema: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
+13. get_table_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
+14. get_primary_key_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
+15. get_db_connection: Backend/core/dependencies.py, Backend/report_server/router.py, analysis_store.py, scripts/*.py
+16. get_db_connection_system: Backend/etl_server(광범위), Backend/etl_server/batch_executor_db.py, batch_executor_file.py, scripts/check_db_connections.py
+17. get_dash_db_config: Backend/core/db.py 내부(get_db_connection_dash 풀·fallback). get_dash_table_schema·get_db_connection_dash: Backend/core/dashboard_service.py, Backend/new_dash_server/router.py, Backend/campaign_dash_server/router.py
+18. is_new_dash_physical_table: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_table_columns_with_types·validate_dashboard_data_table_name)
+19. validate_dashboard_data_table_name: Backend/core/dashboard_service.py, Backend/new_dash_server/router.py, Backend/campaign_dash_server/router.py
+20. format_value: Backend/report_server/router.py
+21. validate_table_name: Backend/report_server/router.py, Backend/core/dashboard_service.py
+22. validate_column_name: Backend/report_server/router.py
 
 [Dependencies]
 =========
