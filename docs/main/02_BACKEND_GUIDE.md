@@ -103,7 +103,12 @@ Backend/
 
 - **위치**: `Env/config/config.json` (또는 config.json.example 복사 후 수정).
 - **로드**: `Env/__init__.py` → loader.load_config() → config.backend, config.frontend.
-- **백엔드 사용**: main.py(api_host, api_port), **Backend.core.db**(db_host, db_port, db_name, db_user, db_password, allowed_tables, table_schema), **report_server** 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**(db_host, db_port, db_name, db_user, db_password, table_schema).
+- **백엔드 사용**: main.py(api_host, api_port), **Backend.core.db** — 메인 연결은 **backend.main_db**(db_host, db_port, db_name, db_user, db_password, table_schema). 레거시 평면 `backend.db_*` 도 호환. **report_server** 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**.
+
+### 3.1.1 메인 DB (main_db)
+
+- **backend.main_db**: Report·execute-query 등 **기본 비즈니스 PostgreSQL**. 키 구조는 **system_db**와 동일.
+- **로드**: `Backend.core.db` 의 `get_db_config()`, `get_table_schema()` — `main_db` 우선, 없으면 레거시 평면 키.
 
 ### 3.2 시스템 DB (ETL)
 

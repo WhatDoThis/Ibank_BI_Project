@@ -7,11 +7,11 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 [Main Functions / Classes]
 ===========
 1. _PooledConnection: 풀에서 빌린 연결 래퍼 (close 시 putconn)
-2. get_db_config: config.backend에서 DB 연결용 dict 반환 (필수 키 없으면 ValueError)
+2. _resolve_main_db / get_db_config: config.backend.main_db(또는 레거시 평면 db_*)에서 메인 DB dict
 3. get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict 반환
 4. get_system_table_schema: 시스템 DB의 table_schema (ETL 메타 등)
 5. get_allowed_tables: 메인 DB table_schema의 BASE TABLE·VIEW 이름 집합 (information_schema)
-6. get_table_schema: 테이블 스키마명 (table_schema)
+6. get_table_schema: main_db.table_schema(또는 레거시 backend.table_schema)
 7. _table_exists, _query_table_columns, _query_primary_key_columns: 내부 공통 SQL 헬퍼 (conn 인자로 커넥션 1회 사용)
 8. get_table_columns: 테이블 컬럼명 목록 (information_schema, 허용 테이블만)
 9. get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
@@ -136,27 +136,40 @@ except ImportError:
 
 
 # 2.
-def get_db_config():
-    """config.backend 에서만 DB 설정 읽기. 없거나 비어 있으면 ValueError."""
+def _resolve_main_db():
+    """메인 비즈니스 DB 설정 객체. backend.main_db 우선, 없으면 레거시(평면 db_*·table_schema)."""
     backend = config.backend
-    host = getattr(backend, 'db_host', None)
-    port = getattr(backend, 'db_port', None)
-    database = getattr(backend, 'db_name', None)
-    user = getattr(backend, 'db_user', None)
-    password = getattr(backend, 'db_password', None)
+    main = getattr(backend, "main_db", None)
+    if main is not None:
+        return main
+    return backend
+
+
+def get_db_config():
+    """config.backend.main_db(또는 레거시 backend db_*)에서 DB 설정 읽기. 없거나 비어 있으면 ValueError."""
+    src = _resolve_main_db()
+    host = getattr(src, "db_host", None)
+    port = getattr(src, "db_port", None)
+    database = getattr(src, "db_name", None)
+    user = getattr(src, "db_user", None)
+    password = getattr(src, "db_password", None)
+
+    loc = "backend.main_db"
+    if getattr(config.backend, "main_db", None) is None:
+        loc = "backend (레거시 평면 키)"
 
     if not host or not str(host).strip():
-        raise ValueError('Env/config/config.json 에 backend.db_host 가 없거나 비어 있습니다.')
+        raise ValueError(f"Env/config/config.json 의 {loc}.db_host 가 없거나 비어 있습니다.")
     if database is None or not str(database).strip():
-        raise ValueError('Env/config/config.json 에 backend.db_name 이 없거나 비어 있습니다.')
+        raise ValueError(f"Env/config/config.json 의 {loc}.db_name 이 없거나 비어 있습니다.")
     if not user or not str(user).strip():
-        raise ValueError('Env/config/config.json 에 backend.db_user 가 없거나 비어 있습니다.')
-    if port is None or port == '':
-        raise ValueError('Env/config/config.json 에 backend.db_port 가 없습니다.')
+        raise ValueError(f"Env/config/config.json 의 {loc}.db_user 가 없거나 비어 있습니다.")
+    if port is None or port == "":
+        raise ValueError(f"Env/config/config.json 의 {loc}.db_port 가 없습니다.")
     try:
         port = int(port)
     except (TypeError, ValueError):
-        raise ValueError('Env/config/config.json 의 backend.db_port 는 숫자여야 합니다.')
+        raise ValueError(f"Env/config/config.json 의 {loc}.db_port 는 숫자여야 합니다.")
 
     return {
         'host': str(host).strip(),
@@ -295,10 +308,14 @@ def get_allowed_tables():
 
 # 6.
 def get_table_schema():
-    """테이블 스키마. config.backend.table_schema 만 사용. 없으면 ValueError."""
-    schema = getattr(config.backend, 'table_schema', None)
+    """테이블 스키마. backend.main_db.table_schema 우선, 레거시 backend.table_schema. 없으면 ValueError."""
+    src = _resolve_main_db()
+    schema = getattr(src, "table_schema", None)
     if schema is None or not str(schema).strip():
-        raise ValueError('Env/config/config.json 에 backend.table_schema 가 없거나 비어 있습니다.')
+        raise ValueError(
+            "Env/config/config.json 에 backend.main_db.table_schema "
+            "(또는 레거시 backend.table_schema) 가 없거나 비어 있습니다."
+        )
     return str(schema).strip()
 
 

@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+49. 2026-03-24 README·02 가이드 main_db 문서 정합
+48. 2026-03-24 config backend.main_db — 메인 DB 설정 중첩·core.db 로드
 47. 2026-03-23 docs/main 리뷰 보강(인증·에러·ER·dash·배포·로그·테스트)
 46. 2026-03-23 docs/main 갱신·03_개발가이드(AI용) 추가
 45. 2026-03-23 core db·dependencies [Package Usage] 1~22·1~2 정리
@@ -50,6 +52,27 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+49. 2026-03-24 README·02 가이드 main_db 문서 정합
+Purpose: 루트 README 설정 절과 02 백엔드 가이드에 **main_db** 중첩 구조·레거시 호환을 명시.
+
+Changes:
+
+- `README.md`: backend bullet을 main_db 기준으로 수정
+- `docs/main/02_BACKEND_GUIDE.md`: §3.1.1 메인 DB(main_db) 소절 추가
+
+Changed files: README.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+48. 2026-03-24 config backend.main_db — 메인 DB 설정 중첩·core.db 로드
+Purpose: 비즈니스 DB 연결 정보를 system_db와 동일하게 `backend.main_db` 객체로 통일. 기존 평면 `backend.db_*` 는 `core.db` 에서 레거시 호환.
+
+Changes:
+
+- `Backend/core/db.py`: `_resolve_main_db`, `get_db_config`·`get_table_schema` 가 main_db 우선
+- `Env/config/config.json`, `config.json.example`: main_db 블록
+- `scripts/check_db_connections.py`, `Env/config/loader.py` 주석, `docs/main`(00_PRD, 02, 03)
+
+Changed files: Backend/core/db.py, Env/config/config.json, Env/config/config.json.example, Env/config/loader.py, scripts/check_db_connections.py, docs/main/00_PRD.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_개발가이드.md, docs/log/log.md
 
 47. 2026-03-23 docs/main 리뷰 보강(인증·에러·ER·dash·배포·로그·테스트)
 Purpose: 코드 없이 구현 방향을 잡을 때 빠졌던 **인증 유무·에러 포맷·메인 DB 도메인 요약·dash_db 컬럼·배포 토폴로지·로깅·테스트 명령**을 문서에 반영.

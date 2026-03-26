@@ -15,8 +15,13 @@ def main():
     print("1. Env config 로드 확인...")
     from Env import config
     backend = config.backend
-    print(f"   backend.db_host = {getattr(backend, 'db_host', 'N/A')}")
-    print(f"   backend.db_name = {getattr(backend, 'db_name', 'N/A')}")
+    main = getattr(backend, "main_db", None)
+    if main is not None:
+        print(f"   backend.main_db.db_host = {getattr(main, 'db_host', 'N/A')}")
+        print(f"   backend.main_db.db_name = {getattr(main, 'db_name', 'N/A')}")
+    else:
+        print(f"   backend.db_host (레거시) = {getattr(backend, 'db_host', 'N/A')}")
+        print(f"   backend.db_name (레거시) = {getattr(backend, 'db_name', 'N/A')}")
     sys_db = getattr(backend, 'system_db', None)
     if sys_db:
         print(f"   backend.system_db.db_host = {getattr(sys_db, 'db_host', 'N/A')}")

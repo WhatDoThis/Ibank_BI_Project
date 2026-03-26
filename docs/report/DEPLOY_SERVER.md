@@ -68,7 +68,7 @@ grep -E "static_port|api_port" /root/report/Env/config/config.json
 - **frontend.static_port** 가 **3500** 이어야 함. (8080이면 nginx는 3500으로 요청하는데 앱은 8080에서 대기 → 502)
 - **backend.api_port** 가 **8500** 이어야 함.
 
-**DB/API 설정**: `Env/config/config.json` 이 **환경 변수보다 우선**합니다. config.json 의 `backend.db_host`, `db_name`, `api_base_url` 등을 수정한 뒤에는 **반드시 `sudo systemctl restart report-api report-front`** 로 재시작해야 반영됩니다. (환경 변수 DB_HOST 등이 설정돼 있어도 config.json 값이 사용됩니다.)
+**DB/API 설정**: `Env/config/config.json` 이 **환경 변수보다 우선**합니다. config.json 의 `backend.main_db`(db_host, db_name 등), `api_base_url` 등을 수정한 뒤에는 **반드시 `sudo systemctl restart report-api report-front`** 로 재시작해야 반영됩니다. (환경 변수 DB_HOST 등이 설정돼 있어도 config.json 값이 사용됩니다.)
 
 ### ② report-front 서비스 상태
 

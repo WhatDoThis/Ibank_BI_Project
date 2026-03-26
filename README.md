@@ -96,7 +96,7 @@ python run.py front
 API·웹 서버 설정은 **Env/config/config.json** 에서 합니다.  
 `Env/config/config.json.example` 을 복사해 `config.json` 으로 만든 뒤 값을 채우면 됩니다.
 
-- **backend**: api_host, api_port, db_host, db_port, db_name, db_user, db_password, table_schema, query_timeout_seconds, claude_api_key, claude_api_url (노출 테이블은 `table_schema` 기준 DB 메타데이터)  
+- **backend**: api_host, api_port, **main_db**(db_host, db_port, db_name, db_user, db_password, table_schema — Report 등 메인 비즈니스 DB), query_timeout_seconds, claude_api_key, claude_api_url (노출 테이블은 **main_db.table_schema** 기준 DB 메타데이터; 구버전 평면 `db_*`/`table_schema` 는 `Backend.core.db` 에서 호환)  
   - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb** ZIP 압축 해제 총량 상한·기본 2GB) 선택  
   - **뉴 대시보드·캠페인 대시보드**: **dash_db** — `ibank_1` / `ibank_1_*` / `ibank_*_star_1|2` 등 집계용 물리 테이블
 - **frontend**: static_port, main_page, api_base_url, static_dir (기본: `Frontend/react-app/dist`)

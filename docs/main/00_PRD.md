@@ -59,12 +59,14 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
   "backend": {
     "api_host": "0.0.0.0",
     "api_port": 5001,
-    "db_host": "",
-    "db_port": 5432,
-    "db_name": "",
-    "db_user": "",
-    "db_password": "",
-    "table_schema": "public",
+    "main_db": {
+      "db_host": "",
+      "db_port": 5432,
+      "db_name": "",
+      "db_user": "",
+      "db_password": "",
+      "table_schema": "public"
+    },
     "query_timeout_seconds": 10,
     "claude_api_key": "",
     "claude_api_url": "https://api.anthropic.com/v1/messages"
@@ -79,7 +81,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ```
 
 - `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
-- **쿼리 스튜디오·리포트 API 노출 테이블**: `backend.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거).
+- **쿼리 스튜디오·리포트 API 노출 테이블**: `backend.main_db.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거). 레거시: 평면 `backend.db_*`·`backend.table_schema` 도 `Backend.core.db` 가 인식한다.
 - **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(파일 크기·행 수·배치 상한·**ZIP 압축 해제 총량 상한**) 선택. **etl_limits 미지정 시** etl_server2 기본값 적용(파일 50MB·행 10만·배치 5만·**ZIP 총량 2GB** 등). **max_zip_extract_total_mb**: add-files-zip 시 압축 해제 전 총 용량 상한(MB), 초과 시 전체 실패(ZIP bomb 방지). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
 - **뉴 대시보드 물리 테이블**: backend.**dash_db**(예: `ibank_dash_data`) — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 집계·서브 테이블. 메인 `db_name`과 분리. 상세는 **02_BACKEND_GUIDE.md §3.2.1·§4.6**.
 - **Linux 배포 시**: Nginx에서 프론트는 `/ibank-bi/`, API는 `/report_api/` 등으로 프록시할 경우 `frontend.api_base_url` 은 **API 쪽 URL** (예: `https://도메인/report_api`) 로 설정.
