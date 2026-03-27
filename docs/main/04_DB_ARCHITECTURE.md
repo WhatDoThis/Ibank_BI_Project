@@ -98,10 +98,11 @@ user_name                varchar(50)     NOT NULL      이름
 user_nickname            varchar(50)                   닉네임 (표시용)
 user_phone               varchar(20)                   연락처
 user_active_yn           varchar(1)      DEFAULT 'Y'   계정 활성 여부
-user_dvsn                varchar(20)     NOT NULL      역할 구분
+user_dvsn                varchar(20)     NOT NULL      조직 역할(5단계):
                                                        sa_dev / super_admin /
-                                                       etl_manager / admin /
-                                                       operator / user
+                                                       admin / operator / user
+etl_yn                   varchar(1)      NOT NULL      ETL 인프라 API 자격
+                                                 DEFAULT 'N'  Y/N (역할과 독립)
 auth_yn                  varchar(1)      DEFAULT 'N'   이메일 인증 완료 여부
 scnd_auth_token          varchar(255)                  2차 인증 토큰 (해시)
 scnd_auth_expire_dtm     timestamp                     2차 인증 만료일시
@@ -137,8 +138,13 @@ exprtn_dtm                    timestamp     NOT NULL      코드 만료일시
 used_yn                       varchar(1)    DEFAULT 'N'   사용 여부
                                                           (Y=가입완료, 폐기)
 code_create_user_id           int4          FK→user_info  초대한 사람
+invite_etl_yn                 varchar(1)    DEFAULT 'N'   가입 시 부여할 ETL 자격(SA·SA_DEV 초대만 Y)
+invite_project_info_id        int4          NULL          자동 멤버(프로젝트)
+invite_pmssn_master_id        int4          NULL          자동 멤버(역할, 프로젝트와 쌍 필수)
 create_dtm                    timestamp     NOT NULL      생성일시
 update_dtm                    timestamp     NOT NULL      수정일시
+
+※ 제약: `(invite_project_info_id, invite_pmssn_master_id)` 는 **둘 다 NULL** 이거나 **둘 다 NOT NULL**(CHECK). 초대 확장 컬럼·CHECK는 운영 DB에 수동 DDL로 적용(저장소에 마이그레이션 파일 없음).
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

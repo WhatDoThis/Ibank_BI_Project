@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/navConfig, app/AuthContext, app/etlAccess
+ * - react-router-dom, app/navConfig, app/AuthContext, app/etlAccess, app/adminAccess(requiresDeptAdmin), NotificationBell
  */
 
 import { useMemo } from 'react'
@@ -17,7 +17,9 @@ import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
 
 import { NAV_ITEMS } from './navConfig.js'
 import { useAuth } from './AuthContext.jsx'
+import { canAccessDeptSettings, canAccessOrgAdmin } from './adminAccess.js'
 import { canAccessEtl } from './etlAccess.js'
+import { NotificationBell } from './NotificationBell.jsx'
 
 const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || ''
 
@@ -35,8 +37,12 @@ export function ProtectedLayout() {
 
   const navItems = useMemo(() => {
     if (!me) return []
-    if (canAccessEtl(me)) return NAV_ITEMS
-    return NAV_ITEMS.filter((item) => item.to !== '/etl')
+    return NAV_ITEMS.filter((item) => {
+      if (item.to === '/etl' && !canAccessEtl(me)) return false
+      if (item.requiresOrgAdmin && !canAccessOrgAdmin(me)) return false
+      if (item.requiresDeptAdmin && !canAccessDeptSettings(me)) return false
+      return true
+    })
   }, [me])
 
   if (!loading && !me) {
@@ -82,23 +88,32 @@ export function ProtectedLayout() {
             {label}
           </NavLink>
         ))}
-        <span style={{ marginLeft: 'auto', fontSize: 13, opacity: 0.9 }}>
-          {me?.email}
-        </span>
-        <button
-          type="button"
-          onClick={handleLogout}
+        <div
           style={{
-            background: 'rgba(255,255,255,0.2)',
-            border: 'none',
-            color: 'white',
-            padding: '6px 12px',
-            borderRadius: 6,
-            cursor: 'pointer',
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
           }}
         >
-          로그아웃
-        </button>
+          <NotificationBell />
+          <span style={{ fontSize: 13, opacity: 0.9 }}>{me?.email}</span>
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              border: 'none',
+              color: 'white',
+              padding: '6px 12px',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            로그아웃
+          </button>
+        </div>
       </nav>
       <main className="app-main" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         <Outlet />

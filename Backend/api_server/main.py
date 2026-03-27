@@ -17,7 +17,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 4. notification_router: /api/notifications — Backend.notification_server.router
 5. admin_router: /api/admin — Backend.admin_server.router
 6. report_router: /api/* — Backend.report_server.router (엔드포인트별 require_permission)
-7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev·etl_manager)
+7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
 8. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
    (구 /api/dashboard·뉴 대시보드·마케팅 대시보드 라우터는 미등록 — 패키지는 저장소에 보존, 재연결 시 main에 include)
 

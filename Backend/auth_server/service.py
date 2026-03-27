@@ -5,11 +5,11 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 
 [Main Functions]
 ===========
-1. invite_validate_row: 초대코드 행 조회
-2. signup_with_invite: 초대 가입(invite_target_dvsn→user_dvsn, validate_password_strength)
+1. invite_validate_row: 초대코드 행 조회(프로젝트명·역할명 JOIN)
+2. signup_with_invite: 초대 가입(user_dvsn·etl_yn·U 시 프로젝트 멤버)
 3. create_org_and_user: 부서+슈퍼어드민 트랜잭션(validate_password_strength)
 4. login_send_code: 1단계 비번 검증·OTP 저장·pre_auth 발급
-5. verify_login_complete: 2단계·세션·토큰
+5. verify_login_complete: 2단계·세션·토큰(세션 INSERT 후 토큰 1회 생성)
 6. refresh_session_tokens: 슬라이딩 리프레시(project claim 유지)
 7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급
 8. logout_one_session: 세션 1건 만료
@@ -21,6 +21,7 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 
 [Dependencies]
 =========
+- Backend.admin_server.service_projects.validate_invite_user_project
 - Backend.auth_server.security, Backend.core.auth_config
 """
 
@@ -32,14 +33,13 @@ from typing import Any
 
 import jwt
 
+from Backend.admin_server import service_projects as admin_projects
 from Backend.auth_server import email_service, security
 from Backend.core import auth_config
 
 _log = logging.getLogger(__name__)
 
-_SIGNUP_DVSN_ALLOWED = frozenset(
-    {"super_admin", "admin", "operator", "user", "etl_manager"}
-)
+_SIGNUP_DVSN_ALLOWED = frozenset({"super_admin", "admin", "operator", "user"})
 
 
 def _norm_email(email: str) -> str:
@@ -52,10 +52,23 @@ def invite_validate_row(conn, code: str) -> dict[str, Any] | None:
     try:
         cur.execute(
             """
-            SELECT e.email_invite_code_master_id, e.invite_target_email, e.invite_target_dvsn,
-                   e.exprtn_dtm, e.used_yn, d.dptmt_name, d.dptmt_info_id
+            SELECT e.email_invite_code_master_id,
+                   e.invite_target_email,
+                   e.invite_target_dvsn,
+                   e.exprtn_dtm,
+                   e.used_yn,
+                   d.dptmt_name,
+                   d.dptmt_info_id,
+                   e.code_create_user_id,
+                   COALESCE(e.invite_etl_yn, 'N') AS invite_etl_yn,
+                   e.invite_project_info_id,
+                   e.invite_pmssn_master_id,
+                   pi.project_name AS invite_project_name,
+                   pm.pmssn_name AS invite_pmssn_name
             FROM email_invite_code_master e
             JOIN dptmt_info d ON d.dptmt_info_id = e.dptmt_info_id
+            LEFT JOIN project_info pi ON pi.project_info_id = e.invite_project_info_id
+            LEFT JOIN pmssn_master pm ON pm.pmssn_master_id = e.invite_pmssn_master_id
             WHERE e.email_invite_code = %s
             """,
             (code.strip(),),
@@ -87,6 +100,12 @@ def signup_with_invite(conn, invite_code: str, email: str, password: str, nickna
     if effective_dvsn not in _SIGNUP_DVSN_ALLOWED:
         raise ValueError("초대 코드의 역할 정보가 올바르지 않습니다.")
     dptmt_id = row["dptmt_info_id"]
+    etl_inv = (row.get("invite_etl_yn") or "N").strip().upper()
+    if etl_inv not in ("Y", "N"):
+        etl_inv = "N"
+    raw_proj = row.get("invite_project_info_id")
+    raw_pmssn = row.get("invite_pmssn_master_id")
+    inviter_uid = row.get("code_create_user_id")
     cur = conn.cursor()
     try:
         cur.execute(
@@ -102,13 +121,30 @@ def signup_with_invite(conn, invite_code: str, email: str, password: str, nickna
             """
             INSERT INTO user_info (
                 user_email, pswd_hash, user_active_yn, user_dvsn, auth_yn,
-                dptmt_info_id, user_nickname, create_dtm
-            ) VALUES (%s, %s, 'Y', %s, 'Y', %s, %s, NOW())
+                dptmt_info_id, user_nickname, etl_yn, create_dtm
+            ) VALUES (%s, %s, 'Y', %s, 'Y', %s, %s, %s, NOW())
             RETURNING user_id
             """,
-            (email_n, p_hash, effective_dvsn, dptmt_id, nick),
+            (email_n, p_hash, effective_dvsn, dptmt_id, nick, etl_inv),
         )
-        uid = cur.fetchone()["user_id"]
+        uid = int(cur.fetchone()["user_id"])
+        if (
+            effective_dvsn == "user"
+            and raw_proj is not None
+            and raw_pmssn is not None
+            and inviter_uid is not None
+        ):
+            admin_projects.validate_invite_user_project(
+                conn, int(dptmt_id), int(raw_proj), int(raw_pmssn)
+            )
+            cur.execute(
+                """
+                INSERT INTO project_ptcpnt_info (
+                    ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
+                ) VALUES (%s, %s, %s, %s, NOW())
+                """,
+                (uid, int(inviter_uid), int(raw_proj), int(raw_pmssn)),
+            )
         cur.execute(
             "UPDATE email_invite_code_master SET used_yn = 'Y', update_dtm = NOW() WHERE email_invite_code = %s",
             (invite_code.strip(),),
@@ -281,39 +317,31 @@ def verify_login_complete(
             "UPDATE user_info SET scnd_auth_token = NULL, scnd_auth_expire_dtm = NULL, last_login_dtm = NOW(), last_login_ip = %s, update_dtm = NOW() WHERE user_id = %s",
             ((client_ip or "")[:45], user_id),
         )
-        access_t, access_exp = security.create_access_token(
-            user_id, row["dptmt_info_id"], 0
-        )
-        refresh_t, refresh_exp = security.create_refresh_token(user_id, 0)
         cur.execute(
             """
             INSERT INTO session_log (
                 session_create_user_id, access_token_encrypt, refresh_token_encrypt,
                 access_exprtn_dtm, refresh_exprtn_dtm, create_dtm, update_dtm
-            ) VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            ) VALUES (%s, '', '', NOW(), NOW(), NOW(), NOW())
             RETURNING session_log_id
             """,
-            (
-                user_id,
-                security.hash_token(access_t),
-                security.hash_token(refresh_t),
-                access_exp,
-                refresh_exp,
-            ),
+            (user_id,),
         )
         sid = cur.fetchone()["session_log_id"]
+
         access_t, access_exp = security.create_access_token(
             user_id, row["dptmt_info_id"], sid, None
         )
         refresh_t, refresh_exp = security.create_refresh_token(user_id, sid)
+
         cur.execute(
             """
             UPDATE session_log SET
-                access_token_encrypt = %s,
+                access_token_encrypt  = %s,
                 refresh_token_encrypt = %s,
-                access_exprtn_dtm = %s,
-                refresh_exprtn_dtm = %s,
-                update_dtm = NOW()
+                access_exprtn_dtm     = %s,
+                refresh_exprtn_dtm    = %s,
+                update_dtm            = NOW()
             WHERE session_log_id = %s
             """,
             (
@@ -544,7 +572,8 @@ def get_user_profile(conn, user_id: int) -> dict[str, Any]:
     try:
         cur.execute(
             """
-            SELECT u.user_id, u.user_email, u.user_nickname, u.user_dvsn, u.dptmt_info_id, d.dptmt_name
+            SELECT u.user_id, u.user_email, u.user_nickname, u.user_dvsn,
+                   COALESCE(u.etl_yn, 'N') AS etl_yn, u.dptmt_info_id, d.dptmt_name
             FROM user_info u
             LEFT JOIN dptmt_info d ON d.dptmt_info_id = u.dptmt_info_id
             WHERE u.user_id = %s

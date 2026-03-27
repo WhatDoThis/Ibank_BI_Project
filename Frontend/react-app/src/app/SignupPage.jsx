@@ -61,8 +61,12 @@ export default function SignupPage() {
         )
         return
       }
-      const parts = [row.dptmt_name, row.email].filter(Boolean)
-      setInviteHint(parts.length ? `부서: ${parts.join(' · ')}` : '초대가 유효합니다.')
+      const parts = [row.dptmt_name, row.email, row.invite_target_dvsn].filter(Boolean)
+      const extra = []
+      if (row.invite_etl_yn === 'Y') extra.push('ETL 자격 포함')
+      if (row.has_project_attachment) extra.push('프로젝트 자동 등록')
+      const base = parts.length ? `부서·역할: ${parts.join(' · ')}` : '초대가 유효합니다.'
+      setInviteHint(extra.length ? `${base} (${extra.join(', ')})` : base)
     } catch {
       setInviteHint('초대 코드 확인에 실패했습니다.')
     }

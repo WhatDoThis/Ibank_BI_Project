@@ -6,7 +6,7 @@
  * [Main Functions]
  * ===========
  * - postLogin, postVerifyLogin, postLogout, postSignup, postCreateOrg, getInviteValidate
- * - getMe, getProjects, postSelectProject
+ * - getMe, patchMe, patchPassword, getLoginHistory, getProjects, postSelectProject
  *
  * [Dependencies]
  * =========
@@ -89,6 +89,21 @@ export async function postLogout() {
 
 export async function getMe() {
   return request('GET', '/api/auth/me')
+}
+
+export async function patchMe(body) {
+  return request('PATCH', '/api/auth/me', body)
+}
+
+export async function patchPassword(currentPassword, newPassword) {
+  return request('PATCH', '/api/auth/me/password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+}
+
+export async function getLoginHistory() {
+  return request('GET', '/api/auth/me/login-history')
 }
 
 export async function getProjects() {

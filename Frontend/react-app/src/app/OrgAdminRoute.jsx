@@ -1,23 +1,23 @@
 /**
- * app/EtlAccessRoute.jsx (ETL 라우트 가드)
- * ======================================
- * sa_dev 또는 etl_yn=Y 가 아니면 `/` 로 이동. ProtectedLayout 하위에서만 사용.
+ * app/OrgAdminRoute.jsx (조직 어드민 라우트 가드)
+ * ============================================
+ * admin·super_admin·sa_dev 만 /admin/* 하위 접근.
  *
  * [Main Functions]
  * ===========
- * - EtlAccessRoute
+ * - OrgAdminRoute
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/AuthContext, app/etlAccess
+ * - react-router-dom, app/AuthContext, app/adminAccess
  */
 
 import { Navigate } from 'react-router-dom'
 
 import { useAuth } from './AuthContext.jsx'
-import { canAccessEtl } from './etlAccess.js'
+import { canAccessOrgAdmin } from './adminAccess.js'
 
-export function EtlAccessRoute({ children }) {
+export function OrgAdminRoute({ children }) {
   const { me, loading } = useAuth()
 
   if (loading) {
@@ -28,7 +28,7 @@ export function EtlAccessRoute({ children }) {
     )
   }
 
-  if (!canAccessEtl(me)) {
+  if (!canAccessOrgAdmin(me)) {
     return <Navigate to="/" replace />
   }
 

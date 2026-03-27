@@ -1,7 +1,7 @@
 /**
  * app/AuthContext.jsx (인증 컨텍스트)
  * ================================
- * /api/auth/me 로 프로필 로드·refreshMe·logout. S5/S6 공용.
+ * /api/auth/me 로 프로필 로드·refreshMe·logout. S5/S6·마이페이지(S7) 공용.
  *
  * [Main Functions]
  * ===========

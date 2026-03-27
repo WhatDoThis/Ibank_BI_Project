@@ -1,7 +1,7 @@
 /**
  * app/routes.jsx (앱 라우트 집합)
  * ===============================
- * /login·/signup·/create-org 공개, 그 외 ProtectedLayout. ETL은 EtlAccessRoute(sa_dev·etl_manager).
+ * 공개: login·signup·create-org. ProtectedLayout. /mypage. /admin/users·/admin/org(SuperAdminRoute). ETL EtlAccessRoute.
  *
  * [Main]
  * 1. AppRoutes — 전체 Route 트리
@@ -18,9 +18,14 @@ import LoginPage from '@/app/LoginPage.jsx'
 import SignupPage from '@/app/SignupPage.jsx'
 import CreateOrgPage from '@/app/CreateOrgPage.jsx'
 import HomePage from '@/app/HomePage.jsx'
+import MyPage from '@/app/MyPage.jsx'
+import AdminUsersPage from '@/app/AdminUsersPage.jsx'
+import AdminOrgPage from '@/app/AdminOrgPage.jsx'
 import { ProtectedLayout } from '@/app/ProtectedLayout.jsx'
 import { NeedProjectRoute } from '@/app/NeedProjectRoute.jsx'
 import { EtlAccessRoute } from '@/app/EtlAccessRoute.jsx'
+import { OrgAdminRoute } from '@/app/OrgAdminRoute.jsx'
+import { SuperAdminRoute } from '@/app/SuperAdminRoute.jsx'
 
 export function AppRoutes() {
   return (
@@ -30,6 +35,23 @@ export function AppRoutes() {
       <Route path="/create-org" element={<CreateOrgPage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<HomePage />} />
+        <Route path="/mypage" element={<MyPage />} />
+        <Route
+          path="/admin/users"
+          element={
+            <OrgAdminRoute>
+              <AdminUsersPage />
+            </OrgAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/org"
+          element={
+            <SuperAdminRoute>
+              <AdminOrgPage />
+            </SuperAdminRoute>
+          }
+        />
         <Route path="/report" element={<Navigate to="/query-studio" replace />} />
         <Route
           path="/query-studio"

@@ -7,8 +7,9 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 ===========
 1. default_manager_pmssn_master_id(pmssn_list 문자열·레거시 PK 정규화)
 2. list_projects_in_dept / list_projects_for_participant / create_project_with_creator_member
-3. update_project(운영자 시 active_yn 금지) / deactivate_project
+3. update_project(동적 SET·active 변경 시 비활성 프로젝트 허용) / deactivate_project
 4. list_members / add_member / update_member_role / remove_member(운영자는 U만)
+5. validate_invite_user_project(초대 U·프로젝트·pmssn 정합 검증)
 
 [Dependencies]
 =========
@@ -44,6 +45,21 @@ def default_manager_pmssn_master_id(cur) -> int:
 
 
 def _assert_project_owned(cur, dptmt_info_id: int, project_info_id: int) -> None:
+    cur.execute(
+        "SELECT project_info_id, dptmt_info_id, active_yn FROM project_info WHERE project_info_id = %s",
+        (project_info_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise ValueError("프로젝트를 찾을 수 없습니다.")
+    if int(row["dptmt_info_id"]) != dptmt_info_id:
+        raise ValueError("다른 부서의 프로젝트입니다.")
+    if (row.get("active_yn") or "").upper() != "Y":
+        raise ValueError("비활성 프로젝트에는 작업할 수 없습니다.")
+
+
+def _assert_project_owned_allow_inactive(cur, dptmt_info_id: int, project_info_id: int) -> None:
+    """active_yn 변경·비활성화 등 관리 작업용 — 비활성 프로젝트도 허용."""
     cur.execute(
         "SELECT project_info_id, dptmt_info_id FROM project_info WHERE project_info_id = %s",
         (project_info_id,),
@@ -178,24 +194,34 @@ def update_project(
 ) -> None:
     cur = conn.cursor()
     try:
-        _assert_project_owned(cur, dptmt_info_id, project_info_id)
+        if active_yn is not None:
+            _assert_project_owned_allow_inactive(cur, dptmt_info_id, project_info_id)
+        else:
+            _assert_project_owned(cur, dptmt_info_id, project_info_id)
+
         if (actor_dvsn or "").strip().lower() == "operator" and active_yn is not None:
             raise ValueError("프로젝트 운영자는 활성 여부를 변경할 수 없습니다.")
+
+        sets: list[str] = []
+        params: list[Any] = []
         if project_name is not None:
-            cur.execute(
-                "UPDATE project_info SET project_name = %s, update_dtm = NOW() WHERE project_info_id = %s",
-                ((project_name or "").strip(), project_info_id),
-            )
+            sets.append("project_name = %s")
+            params.append((project_name or "").strip())
         if project_dscrtn is not None:
-            cur.execute(
-                "UPDATE project_info SET project_dscrtn = %s, update_dtm = NOW() WHERE project_info_id = %s",
-                (project_dscrtn, project_info_id),
-            )
+            sets.append("project_dscrtn = %s")
+            params.append(project_dscrtn)
         if active_yn is not None:
-            cur.execute(
-                "UPDATE project_info SET active_yn = %s, update_dtm = NOW() WHERE project_info_id = %s",
-                ((active_yn or "")[:1], project_info_id),
-            )
+            sets.append("active_yn = %s")
+            params.append((active_yn or "")[:1])
+        if not sets:
+            conn.commit()
+            return
+        sets.append("update_dtm = NOW()")
+        params.append(project_info_id)
+        cur.execute(
+            f"UPDATE project_info SET {', '.join(sets)} WHERE project_info_id = %s",
+            params,
+        )
         conn.commit()
     except ValueError:
         conn.rollback()
@@ -210,7 +236,7 @@ def update_project(
 def deactivate_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
     cur = conn.cursor()
     try:
-        _assert_project_owned(cur, dptmt_info_id, project_info_id)
+        _assert_project_owned_allow_inactive(cur, dptmt_info_id, project_info_id)
         cur.execute(
             "UPDATE project_info SET active_yn = 'N', update_dtm = NOW() WHERE project_info_id = %s",
             (project_info_id,),
@@ -276,7 +302,6 @@ def add_member(
             (project_info_id, ptcpnt_user_id),
         )
         if cur.fetchone():
-            conn.rollback()
             raise ValueError("이미 프로젝트 멤버입니다.")
         cur.execute(
             """
@@ -400,5 +425,20 @@ def remove_member(
     except Exception:
         conn.rollback()
         raise
+    finally:
+        cur.close()
+
+
+# 5.
+def validate_invite_user_project(
+    conn,
+    invite_dptmt_id: int,
+    project_info_id: int,
+    pmssn_master_id: int,
+) -> None:
+    cur = conn.cursor()
+    try:
+        _assert_project_owned(cur, invite_dptmt_id, project_info_id)
+        _assert_pmssn_for_project(cur, project_info_id, pmssn_master_id)
     finally:
         cur.close()

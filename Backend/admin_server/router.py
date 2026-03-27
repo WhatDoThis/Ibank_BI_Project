@@ -5,7 +5,7 @@ Backend.admin_server.router (/api/admin)
 
 [Endpoints]
 ===========
-1. users, users/search(operator 동일 부서), users/invite, users/{id}/suspend|activate|role
+1. users, users/search, users/invite, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
 2. roles CRUD
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
@@ -72,10 +72,62 @@ def admin_users_invite(
             body.email,
             body.dptmt_info_id,
             body.invite_target_dvsn,
+            body.invite_etl_yn,
+            body.invite_project_info_id,
+            body.invite_pmssn_master_id,
         )
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "초대 메일을 발송했습니다."}
+
+
+@router.get("/invite/departments")
+def admin_invite_departments(
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    items = service_users.list_departments_for_invite(
+        conn,
+        str(actor.get("user_dvsn") or ""),
+        int(actor["dptmt_info_id"]),
+    )
+    return {"items": items}
+
+
+@router.get("/invite/projects")
+def admin_invite_projects(
+    dptmt_info_id: int = Query(..., ge=1),
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.assert_invite_dptmt_allowed(
+            conn,
+            str(actor.get("user_dvsn") or ""),
+            int(actor["dptmt_info_id"]),
+            dptmt_info_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": service_projects.list_projects_in_dept(conn, dptmt_info_id)}
+
+
+@router.get("/invite/roles")
+def admin_invite_roles(
+    dptmt_info_id: int = Query(..., ge=1),
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.assert_invite_dptmt_allowed(
+            conn,
+            str(actor.get("user_dvsn") or ""),
+            int(actor["dptmt_info_id"]),
+            dptmt_info_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": service_roles.list_roles_for_dept(conn, dptmt_info_id)}
 
 
 @router.patch("/users/{user_id}/suspend")
@@ -132,6 +184,26 @@ def admin_user_role(
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "역할이 변경되었습니다."}
+
+
+@router.patch("/users/{user_id}/etl-access")
+def admin_user_etl_access(
+    user_id: int,
+    body: schemas.UserEtlYnBody,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.set_user_etl_flag(
+            conn,
+            int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
+            user_id,
+            body.etl_yn,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "ETL 자격이 반영되었습니다."}
 
 
 @router.get("/invite-codes")
@@ -293,6 +365,7 @@ def admin_projects_delete(
     actor: dict = Depends(require_org_admin),
     conn=Depends(get_system_db),
 ):
+    """소프트 삭제 — active_yn='N'으로 변경. 실제 row 삭제 아님."""
     try:
         service_projects.deactivate_project(conn, int(actor["dptmt_info_id"]), project_info_id)
     except ValueError as e:

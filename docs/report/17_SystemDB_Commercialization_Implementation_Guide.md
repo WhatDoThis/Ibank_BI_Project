@@ -54,7 +54,8 @@
 | | user_email | varchar(200) NOT NULL UNIQUE | 이메일 (로그인 계정) |
 | | pswd_hash | varchar(255) | 비밀번호 해시 (bcrypt) |
 | | user_active_yn | varchar(1) | 활성화 여부 |
-| | user_dvsn | varchar(30) | 사용자 구분 (`sa_dev` / `super_admin` / `etl_manager` / `admin` / `operator` / `user`) |
+| | user_dvsn | varchar(30) | 조직 역할 5단계 (`sa_dev` / `super_admin` / `admin` / `operator` / `user`) |
+| | etl_yn | varchar(1) | ETL 인프라 자격 `Y`/`N` (기본 `N`, `user_dvsn`과 독립) |
 | | auth_yn | varchar(1) | 인증 여부 |
 | | scnd_auth_token | varchar(500) | 2차 인증 코드 해시 (로그인 2차 인증) |
 | | scnd_auth_expire_dtm | timestamp | 2차 인증 만료일시 |
@@ -73,7 +74,7 @@
 | | create_dtm | timestamp | 생성일시 |
 | | update_dtm | timestamp | 수정일시 |
 
-**`user_dvsn` 값 (요약)**: `sa_dev`(개발 단일), `super_admin`(부서 SA), `etl_manager`(전사 ETL 전담), `admin`, `operator`, `user`. 상세·권한 매트릭스는 **`docs/main/05_Permission_ARCHITECTURE.md`**.
+**역할·자격 (요약)**: `user_dvsn` 5단계(`sa_dev`·`super_admin`·`admin`·`operator`·`user`). ETL 인프라 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_Permission_ARCHITECTURE.md` (v3)**.
 
 **`scnd_auth_token` / `scnd_auth_expire_dtm`**: 로그인 2차 인증. 로그인 시 6자리 코드 생성 → 해싱하여 저장 → 이메일 발송 → 유저 입력 → 검증 통과 시 토큰 발급. 인증 완료 후 컬럼은 NULL로 초기화.
 
@@ -91,13 +92,17 @@
 | | email_invite_code | varchar(255) NOT NULL UNIQUE | 초대 코드 (URL에 포함) |
 | | invite_target_email | varchar(200) NOT NULL | 초대 대상 이메일 |
 | FK | dptmt_info_id | int4 NOT NULL | 초대할 부서 |
+| | invite_target_dvsn | varchar(20) | 가입 시 `user_info.user_dvsn` |
+| | invite_etl_yn | varchar(1) DEFAULT 'N' | 가입시 ETL여부 |
+| | invite_project_info_id | int4 NULL | 자동멤버 프로젝트(역할과 쌍) |
+| | invite_pmssn_master_id | int4 NULL | 자동멤버 역할(프로젝트와 쌍) |
 | | exprtn_dtm | timestamp | 만료일시 |
 | | used_yn | varchar(1) | 사용 여부 (가입 완료 시 `Y`로 폐기) |
 | FK | code_create_user_id | int4 NOT NULL | 코드 생성자 (어드민) |
 | | create_dtm | timestamp | 생성일시 |
 | | update_dtm | timestamp | 수정일시 |
 
-**기존 DDL 대비 추가 컬럼**: `invite_target_email`, `dptmt_info_id`, `used_yn`.
+**기존 DDL 대비 추가 컬럼**: `invite_target_email`, `dptmt_info_id`, `used_yn` 및 상기 `invite_target_dvsn`·`invite_etl_yn`·`invite_project_info_id`·`invite_pmssn_master_id`. 운영 반영은 **수동 DDL**(프로젝트에 마이그레이션 파일 없음, CHECK: 프로젝트·역할 동시 NULL 또는 동시 NOT NULL).
 
 **동작**:
 
@@ -495,7 +500,7 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 | report.execute | `/report` | POST `execute-query`, `query-stats`, `explain-sql`, `save-query-as-table` |
 | dashboard | `/dashboard` (프론트), `/campaign-dashboard` → `/dashboard` 리다이렉트 | `/api/campaign-dashboard/*` 만 등록 (legacy·뉴·마케팅 대시보드 라우터는 main 미포함) |
 | widgetboard | `/widgetboard` | 전용 API 없음 (내부에서 report/dashboard API 호출 시 해당 권한도 필요) |
-| etl | `/etl` | 프로젝트 `pmssn` 기반이 아님. `require_etl_infrastructure`(`user_dvsn` ∈ {`sa_dev`,`etl_manager`})로 `/api/etl/*`, `/api/etl/batch/*` 보호 |
+| etl | `/etl` | 프로젝트 `pmssn` 기반이 아님. `require_etl_infrastructure`(`sa_dev` 또는 `etl_yn=Y`)로 `/api/etl/*`, `/api/etl/batch/*` 보호 |
 | admin | `/admin/*` | `/api/admin/*` |
 
 ### 4.4 확장
@@ -523,14 +528,14 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 
 | 카드 | 조건 |
 |------|------|
-| 리포트 | report.read (`etl_manager` 제외) |
-| 대시보드 / 뉴 / 캠페인 / 마케팅 | dashboard (`etl_manager` 제외) |
-| 위젯보드 | widgetboard (`etl_manager` 제외) |
-| ETL 인프라 | `user_dvsn` ∈ {`sa_dev`, `etl_manager`} — 프로젝트 `pmssn`과 무관 |
+| 리포트 | report.read (JWT·프로젝트·`require_permission`) |
+| 대시보드 / 뉴 / 캠페인 / 마케팅 | dashboard |
+| 위젯보드 | widgetboard |
+| ETL 인프라 | `sa_dev` 또는 `etl_yn=Y` — 프로젝트 `pmssn`과 무관 |
 | 유저 관리 | `user_dvsn` = admin 이상 (`sa_dev` 포함) |
 | 부서 관리 | `user_dvsn` = super_admin 또는 `sa_dev` |
 
-`etl_manager` 계정은 프로젝트 참여가 0건일 수 있다. 이 경우 상단 "내 프로젝트"는 빈 상태로 표시하고, 하단 "ETL 인프라" 카드를 기본 진입점으로 사용한다.
+`etl_yn=Y` 이어도 프로젝트 참여가 0건일 수 있다. 이 경우 상단 "내 프로젝트"는 빈 상태로 표시하고, 하단 "ETL 인프라" 카드를 기본 진입점으로 사용할 수 있다.
 
 ### 5.3 마이페이지 (`/mypage`)
 
@@ -622,7 +627,7 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 | new_dash_server | dashboard | |
 | campaign_dash_server | dashboard | |
 | new_dash_server2 | dashboard | |
-| etl_server | `require_etl_infrastructure` (`sa_dev`·`etl_manager`) | 프로젝트 선택 불필요 |
+| etl_server | `require_etl_infrastructure` (`sa_dev` 또는 `etl_yn=Y`) | 프로젝트 선택 불필요 |
 
 ### 6.6 `core/db.py` 변경
 
@@ -759,10 +764,13 @@ shared/components/
 | S2 | 완료(백엔드 1차) | `auth_server`·`/api/auth/*`·`get_system_db` — 게이트: API 스모크 통과 시 다음 |
 | S3 | 완료(백엔드 1차) | `project_server`·`admin_server`·`notification_server` + `main.py` 등록·refresh에 `project_info_id` 유지 |
 | S4 | 완료(백엔드 1차) | `auth_server/permissions`·report·대시보드·ETL `require_permission`·§4.2.1 |
-| **M1** | **다음(백엔드)** | **§13** — 전사 공통 `table_master`(부서 FK 없음)·매핑 조회·`get_allowed_tables` 개편·적재/쿼리스튜디오 훅·admin tables API·ETL은 `sa_dev`/`etl_manager` 전용(`Backend/auth_server/permissions`) |
+| **M1** | **다음(백엔드)** | **§13** — 전사 공통 `table_master`(부서 FK 없음)·매핑 조회·`get_allowed_tables` 개편·적재/쿼리스튜디오 훅·admin tables API·ETL은 `sa_dev`/`etl_yn=Y` 전용(`Backend/auth_server/permissions`) |
 | **M2** | 대기(프론트) | **§13** — 리포트 `table_label` 표시·어드민 프로젝트 테이블 매핑 UI (**S8**과 통합) |
-| S5 | **다음(병행 가능)** | Frontend auth (`M1`과 병행 시 리포트/ETL 동작 검증은 `M1` 완료 후 권장) |
-| S6~S10 | 대기 | http·가드·메인·알림·통합·문서 |
+| S5 | 완료(1차) | 로그인·가입·부서 생성·토큰 저장 |
+| S6 | 완료(1차) | `http.js` Bearer·401 refresh·`NeedProjectRoute`·ETL 가드 |
+| S7 | 완료(1차) | `/mypage` 닉네임·비밀번호·로그인 이력(메인 `/` 빠른 액세스 카드 등은 선택) |
+| S8 | 진행(1차) | 알림 벨·`/api/notifications`·부서 사용자 관리 `/admin/users`(초대·역할·프로젝트 어드민 등은 추가) |
+| S9~S10 | 대기 | 통합 테스트·문서 정합 |
 
 *(이 표는 섹션 완료 시마다 갱신한다.)*
 
@@ -774,9 +782,9 @@ shared/components/
 
 | 레이어 | 내용 |
 |--------|------|
-| **ETL API 진입** | `Backend.auth_server.permissions.require_etl_infrastructure` — **`user_dvsn` ∈ {`sa_dev`, `etl_manager`}** 만 허용. **프로젝트 선택·`pmssn` 불필요**. |
+| **ETL API 진입** | `Backend.auth_server.permissions.require_etl_infrastructure` — **`sa_dev` 또는 `etl_yn=Y`**. **프로젝트 선택·`pmssn` 불필요**. |
 | **ETL 메타 데이터** | **부서 스코프 없음**(전사 단일 풀). 목록·생성·수정 시 클라이언트가 보낸 `dptmt_info_id` 를 쓰지 않는다. |
-| **리포트·대시보드** | `require_permission` — `etl_manager` 는 403. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 `report.read` 등 프로젝트 기능 ID 자동 허용(**`docs/main/05`**). |
+| **리포트·대시보드** | `require_permission` — v3 매트릭스: `etl_manager` 역할 차단 없음. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 `report.read` 등 자동 허용(**`docs/main/05`**). |
 | **리포트 테이블 목록** | `project_info_id`(JWT) + **`table_project_mapping`·`table_master`** — 프로젝트 미선택 시 §4.2.1과 동일 403. |
 
 **우선순위·실행 순서 (코드)**:
@@ -793,7 +801,7 @@ shared/components/
 | **M1-8** | 대시보드 계열 | `dash`/`star` 마스터·매핑 | M1-1 |
 | **M2** | 프론트 | 리포트 UI·어드민 매핑 UI | S6·S8 |
 
-**기존 §10 일렬과의 관계**: **M1**은 S4 이후 마일스톤. ETL E2E는 **`require_etl_infrastructure`** 적용 후 **`sa_dev` 또는 `etl_manager`** 계정으로 검증한다.
+**기존 §10 일렬과의 관계**: **M1**은 S4 이후 마일스톤. ETL E2E는 **`require_etl_infrastructure`** 적용 후 **`sa_dev` 또는 `etl_yn=Y`** 계정으로 검증한다.
 
 ---
 
@@ -819,7 +827,7 @@ shared/components/
 - [ ] ETL 메타 4테이블·`table_master`의 **`dptmt_info_id` 제거**(과거 ALTER를 썼다면 FK·컬럼 DROP) — §13.1
 - [x] **`table_master`** + **`table_project_mapping`** CREATE + OWNER `ibankbi` (**운영 적용됨** — §13.2, 물리명 주의)
 - [x] `config.json`에서 `allowed_tables` 키 제거(레포 현행에 없음 — 신규 추가 금지)
-- [x] ETL API: `require_etl_infrastructure` (`sa_dev`·`etl_manager`) — `Backend/api_server/main.py`
+- [x] ETL API: `require_etl_infrastructure` (`sa_dev` 또는 `etl_yn=Y`) — `Backend/api_server/main.py`
 - [ ] `core/db.py` `get_allowed_tables()` → **프로젝트·매핑·마스터** 기반 조회(§13.2.7, §10.4 **M1-1**)
 - [ ] `etl_server` 적재 완료 시 **`table_master`** 자동 INSERT(전사 공통, **M1-4**)
 - [ ] `report_server` `list-tables` 프로젝트·매핑 기반 + `table_label`(**M1-5**)
@@ -865,9 +873,9 @@ shared/components/
 
 ### 13.0 운영 반영 상태·권한 원칙
 
-- **ETL API**: `Backend.auth_server.permissions.require_etl_infrastructure` — `user_dvsn` ∈ {`sa_dev`, `etl_manager`}. JWT에 `project_info_id` **불필요**.
+- **ETL API**: `Backend.auth_server.permissions.require_etl_infrastructure` — `sa_dev` 또는 `etl_yn=Y`. JWT에 `project_info_id` **불필요**.
 - **스키마**: `etl_connections`, `etl_tables`, `etl_storage_connections`, `batch_folder_connections`, **`table_master`** 에서 **`dptmt_info_id` 제거**(과거 §13.1 DDL을 적용했다면 §13.1에서 DROP).
-- **리포트·대시보드**: `require_permission`. `etl_manager` 는 프로젝트 기능 403. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 프로젝트 기능 ID 자동 허용(**§10.4**).
+- **리포트·대시보드**: `require_permission`. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 프로젝트 기능 ID 자동 허용(**§10.4**, **05 v3**).
 
 #### 13.0.1 운영 물리명·초기화 시 유의 (2026-03 반영)
 
@@ -1007,7 +1015,7 @@ ORDER BY m.table_name;
 ### 13.4 데이터 흐름 요약
 
 ```
-[sa_dev / etl_manager] — require_etl_infrastructure
+[sa_dev 또는 etl_yn=Y] — require_etl_infrastructure
     ↓ 적재
 [main_db] 물리 테이블
     ↓ 자동

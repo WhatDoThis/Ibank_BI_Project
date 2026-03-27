@@ -1,6 +1,14 @@
 # Log
 
 ## Log Index
+82. 2026-03-28 홈 §5.2 빠른 액세스·/admin/org·SuperAdminRoute·homeAccess
+81. 2026-03-27 Backend/migrations 제거(저장소에 마이그레이션 파일 금지)
+80. 2026-03-27 auth 초대 JOIN·로그인 토큰 1회·프로젝트 active·SA_DEV 유저관리
+79. 2026-03-27 초대 DDL 수동 적용·CHECK·migrations 폴더 제거
+78. 2026-03-27 초대 플로우 전면 개편(부서 트리·A→A 초대·ETL·U 프로젝트)
+77. 2026-03-28 ETL 자격 etl_yn 분리·5역할·문서 v3
+76. 2026-03-27 S8 알림 벨·notificationsClient·/admin/users·OrgAdminRoute
+75. 2026-03-27 S7 마이페이지(/mypage)·프로필·비밀번호·로그인 이력·authClient
 74. 2026-03-27 비밀번호 정책(10자·대소문자·숫자·특수문자) security·service·스키마·폼
 73. 2026-03-27 회원가입·부서생성 화면·ETL 네비·라우트(sa_dev·etl_manager)
 72. 2026-03-27 프론트 S5/S6 인증·프로젝트 선택·http Bearer·refresh
@@ -77,6 +85,84 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+82. 2026-03-28 홈 §5.2 빠른 액세스·/admin/org·SuperAdminRoute·homeAccess
+Purpose: `HomePage` 프로젝트·권한 기반 카드, `homeAccess.js`, `/admin/org` 부서명(GET/PATCH)·네비 `requiresDeptAdmin`.
+
+Changes:
+
+- home.css·HomePage, homeAccess.js, AdminOrgPage·admin-org.css, SuperAdminRoute
+- adminClient getAdminOrg·patchAdminOrg, adminAccess canAccessDeptSettings, nav·ProtectedLayout·routes
+
+Changed files: Frontend/react-app/src/app/HomePage.jsx, home.css, homeAccess.js, AdminOrgPage.jsx, admin-org.css, SuperAdminRoute.jsx, adminAccess.js, adminClient.js, navConfig.js, ProtectedLayout.jsx, routes.jsx, docs/log/log.md
+
+81. 2026-03-27 Backend/migrations 제거(저장소에 마이그레이션 파일 금지)
+Purpose: DDL은 채팅·수동 적용만. `Backend/migrations` 및 `20260327_invite_constraints.sql` 삭제, log #80 문구 정리, `.cursor/rules/project-conventions.mdc`에 금지 규칙 명시.
+
+Changed files: docs/log/log.md, .cursor/rules/project-conventions.mdc
+
+80. 2026-03-27 auth 초대 JOIN·로그인 토큰 1회·프로젝트 active·SA_DEV 유저관리
+Purpose: invite_validate에 프로젝트·역할명 JOIN, 로그인 세션 토큰 단일 생성, 비활성 프로젝트 작업 제한 및 비활성화 경로 허용, SA_DEV 타부서 유저 정지·역할, 숨김 부서 초대 제한, 초대 FK SQL 파일.
+
+Changes: `invite_validate_row`·`/invite/validate` 응답 확장, `verify_login_complete` 세션 플로우, `_assert_project_owned`·`update_project`·`deactivate_project`·`add_member`, `service_users` 헬퍼·초대 부서 필터, `DELETE /projects` docstring. (DB DDL은 저장소 마이그레이션 파일 없이 수동 적용.)
+
+Changed files: Backend/auth_server/service.py, Backend/auth_server/router.py, Backend/admin_server/service_projects.py, Backend/admin_server/service_users.py, Backend/admin_server/router.py, docs/log/log.md
+
+79. 2026-03-27 초대 DDL 수동 적용·CHECK·migrations 폴더 제거
+Purpose: DB 반영은 채팅/수동 SQL로 하고, 저장소 `Backend/migrations` 제거. 프로젝트·pmssn 쌍 CHECK를 DDL에 포함.
+
+Changes: `Backend/migrations` 삭제, `docs/main/04_DB_ARCHITECTURE.md`, `docs/report/17_…`, `docs/log/log.md` 경로 문구 정리.
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+78. 2026-03-27 초대 플로우 전면 개편(부서 트리·A→A 초대·ETL·U 프로젝트)
+Purpose: 초대 정책과 제품 UX(05·06)에 맞춰 백엔드·프론트·DB 문서를 정합.
+
+Changes:
+
+- Admin 초대 대상: A가 admin·operator·user 초대 가능. 부서: SA_DEV는 전체, SA·A는 본인 부서 서브트리만.
+- InviteBody: invite_etl_yn, invite_project_info_id, invite_pmssn_master_id. 가입 시 etl_yn·(U 선택 시) project_ptcpnt_info.
+- API: GET /api/admin/invite/departments, invite/projects, invite/roles. DB DDL은 수동 적용(마이그레이션 파일 없음).
+- AdminUsersPage 초대 폼, SignupPage 초대 검증 힌트 보강.
+
+Changed files: Backend/admin_server/service_users.py, Backend/admin_server/schemas.py, Backend/admin_server/router.py, Backend/admin_server/service_projects.py, Backend/auth_server/service.py, Backend/auth_server/router.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/AdminUsersPage.jsx, Frontend/react-app/src/app/SignupPage.jsx, Frontend/react-app/src/app/admin-users.css, docs/main/04_DB_ARCHITECTURE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+77. 2026-03-28 ETL 자격 etl_yn 분리·5역할·문서 v3
+Purpose: `user_dvsn`에서 `etl_manager` 역할을 제거하고 `user_info.etl_yn`으로 ETL 인프라 자격을 분리한다(05 v3·DDL은 운영 DB 적용 완료 가정). 프로젝트 기능과 ETL 자격 충돌을 없앤다.
+
+Changes:
+
+- `Backend/auth_server/permissions.py`: `user_has_etl_infrastructure_access`, `require_permission`에서 etl_manager 차단 제거
+- `Backend/admin_server/service_users.py`: 초대·역할 변경 5단계만, `set_user_etl_flag`, 부서 유저 목록에 `etl_yn`
+- `Backend/admin_server/router.py`, `schemas.py`: `PATCH /users/{id}/etl-access`, `UserEtlYnBody`
+- `Backend/auth_server/service.py`, `router.py`: `get_user_profile`·`/me`에 `etl_yn`, 가입 허용 dvsn에서 etl_manager 제거
+- 프론트 `etlAccess.js`·라우트 주석: `me.etl_yn` 반영
+- `docs/main/05_Permission_ARCHITECTURE.md` v3, `04_DB_ARCHITECTURE.md`, `06_CUSTOMER_JOURNEY.md`, `01_FRONTEND_GUIDE.md`, `docs/report/17_…` 정합
+- `python -m py_compile` 관련 모듈 검증
+
+Changed files: Backend/auth_server/permissions.py, service.py, router.py, Backend/admin_server/service_users.py, router.py, schemas.py, Backend/api_server/main.py, Frontend/react-app/src/app/etlAccess.js, EtlAccessRoute.jsx, navConfig.js, docs/main/05_Permission_ARCHITECTURE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/01_FRONTEND_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+76. 2026-03-27 S8 알림 벨·notificationsClient·/admin/users·OrgAdminRoute
+Purpose: 상단 알림(미읽음 폴링·패널·읽음)·조직 어드민 전용 사용자 목록·정지/활성. `adminAccess`·`orgAdmin` 네비 필터.
+
+Changes:
+
+- `notificationsClient.js`, `NotificationBell`·notification-bell.css
+- `adminClient.js`, `AdminUsersPage`·admin-users.css, `OrgAdminRoute`, `adminAccess.js`
+- ProtectedLayout·navConfig·routes·01·17
+
+Changed files: Frontend/react-app/src/shared/api/notificationsClient.js, adminClient.js, Frontend/react-app/src/app/NotificationBell.jsx, notification-bell.css, AdminUsersPage.jsx, admin-users.css, OrgAdminRoute.jsx, adminAccess.js, ProtectedLayout.jsx, navConfig.js, routes.jsx, docs/main/01_FRONTEND_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+75. 2026-03-27 S7 마이페이지(/mypage)·프로필·비밀번호·로그인 이력·authClient
+Purpose: `/mypage` 프로필(닉네임)·비밀번호 변경(성공 시 세션 무효·/login 플래시)·최근 로그인 10건. 네비·`patchMe`·`patchPassword`·`getLoginHistory`.
+
+Changes:
+
+- MyPage.jsx, mypage.css, routes, navConfig
+- authClient: PATCH me·me/password, GET login-history
+- LoginPage: 비밀번호 변경 후 재로그인 플래시
+
+Changed files: Frontend/react-app/src/app/MyPage.jsx, mypage.css, routes.jsx, navConfig.js, LoginPage.jsx, shared/api/authClient.js, docs/main/01_FRONTEND_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
 
 74. 2026-03-27 비밀번호 정책(10자·대소문자·숫자·특수문자) security·service·스키마·폼
 Purpose: 신규 비밀번호만 검증(가입·부서생성·PATCH /me/password). `security.validate_password_strength`, 로그인은 기존 비번 허용.

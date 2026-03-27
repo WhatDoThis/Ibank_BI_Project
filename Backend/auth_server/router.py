@@ -6,7 +6,7 @@ Backend.auth_server.router (/api/auth)
 [Endpoints]
 ===========
 1. POST /api/auth/signup, create-org, login, verify-login, refresh, logout
-2. GET/PATCH /api/auth/me(프로젝트 선택 시 permissions·SA/A 자동 권한 병합), PATCH password, GET login-history
+2. GET/PATCH /api/auth/me(permissions·etl_yn·SA/A 자동 권한 병합), PATCH password, GET login-history
 3. GET /api/auth/invite/validate
 
 [Dependencies]
@@ -151,6 +151,7 @@ def auth_me(
         "email": prof["user_email"],
         "nickname": prof.get("user_nickname"),
         "user_dvsn": prof.get("user_dvsn"),
+        "etl_yn": prof.get("etl_yn") or "N",
         "dptmt_info_id": prof.get("dptmt_info_id"),
         "dptmt_name": prof.get("dptmt_name"),
         "project_info_id": payload.get("project_info_id"),
@@ -210,4 +211,12 @@ def auth_invite_validate(code: str, conn=Depends(get_system_db)):
         "email": row.get("invite_target_email"),
         "dptmt_name": row.get("dptmt_name"),
         "invite_target_dvsn": row.get("invite_target_dvsn") or "user",
+        "invite_etl_yn": (row.get("invite_etl_yn") or "N").strip().upper(),
+        "has_project_attachment": bool(
+            row.get("invite_project_info_id") and row.get("invite_pmssn_master_id")
+        ),
+        "invite_project_info_id": row.get("invite_project_info_id"),
+        "invite_pmssn_master_id": row.get("invite_pmssn_master_id"),
+        "invite_project_name": row.get("invite_project_name"),
+        "invite_pmssn_name": row.get("invite_pmssn_name"),
     }
