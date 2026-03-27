@@ -48,7 +48,8 @@ export default function QueryStudioPage() {
   const [resultData, setResultData] = useState([])
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  const [totalCount, setTotalCount] = useState(0)
+  /** null: 아직 COUNT 안 함(실행만으로는 전체 건수 미조회) */
+  const [totalCount, setTotalCount] = useState(null)
   const [executedSql, setExecutedSql] = useState('')
   const [explanation, setExplanation] = useState(null)
   const [toast, setToast] = useState(null)
@@ -398,6 +399,7 @@ export default function QueryStudioPage() {
   )
 
   const [queryRunning, setQueryRunning] = useState(false)
+  const [countLoading, setCountLoading] = useState(false)
 
   const runExecuteQuery = useCallback(async () => {
     if (gridColumns.length === 0) {
@@ -418,21 +420,12 @@ export default function QueryStudioPage() {
     }
     setQueryRunning(true)
     try {
+      setTotalCount(null)
       const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs, joinOrder: joinOrderData?.join_order }
-      // 1) 먼저 쿼리문 생성·표시 후 실행 (joinOrder 있으면 A→B, A→C 브랜치 지원)
+      // 1) 먼저 쿼리문 생성·표시 후 실행 (joinOrder 있으면 A→B, A→C 브랜치 지원). 전체 건수 COUNT는 별도 버튼으로만 실행.
       const sql = generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, options)
       setExecutedSql(sql)
 
-      const countSQL = generateCountSQL(gridColumns, addedTables, filters, tableRelationships, options)
-      if (countSQL) {
-        try {
-          const countRes = await apiExecuteQuery(countSQL)
-          const raw = countRes.data?.[0]?.total
-          setTotalCount(typeof raw === 'number' ? raw : parseInt(raw, 10) || 0)
-        } catch {
-          setTotalCount(0)
-        }
-      }
       const res = await apiExecuteQuery(sql)
       setResultData(res.data || [])
       showToast('success', `${res.count ?? res.data?.length ?? 0}건 조회 완료`)
@@ -442,6 +435,34 @@ export default function QueryStudioPage() {
       setQueryRunning(false)
     }
   }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, joinOrderData, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
+
+  const runFetchTotalCount = useCallback(async () => {
+    if (gridColumns.length === 0) return
+    const pathValidation = validateJoinPath(addedTables, relationshipOptions, { join_order: joinOrderData?.join_order })
+    if (!pathValidation.valid) {
+      const errors = pathValidation.issues.filter((i) => i.severity === 'error')
+      const msg = errors.length === 1 ? errors[0].message : `조인 경로 오류 ${errors.length}건: ${errors.map((e) => e.message).join('; ')}`
+      showToast('error', msg)
+      return
+    }
+    const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs, joinOrder: joinOrderData?.join_order }
+    const countSQL = generateCountSQL(gridColumns, addedTables, filters, tableRelationships, options)
+    if (!countSQL) {
+      showToast('warning', '전체 건수용 COUNT 쿼리를 만들 수 없습니다')
+      return
+    }
+    setCountLoading(true)
+    try {
+      const countRes = await apiExecuteQuery(countSQL)
+      const raw = countRes.data?.[0]?.total
+      setTotalCount(typeof raw === 'number' ? raw : parseInt(raw, 10) || 0)
+      showToast('success', '전체 건수를 조회했습니다')
+    } catch (e) {
+      showToast('error', e.message || '전체 건수 조회 실패')
+    } finally {
+      setCountLoading(false)
+    }
+  }, [gridColumns, addedTables, filters, tableRelationships, joinConfigs, joinOrderData, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
 
   const runExecuteQueryRef = useRef(runExecuteQuery)
   runExecuteQueryRef.current = runExecuteQuery
@@ -795,7 +816,7 @@ export default function QueryStudioPage() {
     setOrderBy([])
     setResultData([])
     setCurrentPage(1)
-    setTotalCount(0)
+    setTotalCount(null)
     setExecutedSql('')
     setExplanation(null)
     showToast('success', '초기화되었습니다')
@@ -911,6 +932,8 @@ export default function QueryStudioPage() {
           currentPage={currentPage}
           pageSize={pageSize}
           totalCount={totalCount}
+          countLoading={countLoading}
+          onFetchTotalCount={runFetchTotalCount}
           executedSql={executedSql}
           explanation={explanation}
           onAddColumn={addColumn}

@@ -82,8 +82,10 @@ export default function MainArea({
   resultData = [],
   currentPage = 1,
   pageSize = 100,
-  totalCount = 0,
+  totalCount = null,
+  countLoading = false,
   executedSql = '',
+  onFetchTotalCount,
   explanation = null,
   onAddColumn,
   onAddTableColumns,
@@ -185,9 +187,15 @@ export default function MainArea({
     setAddOrderByColumnIndex(null)
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  const countKnown = totalCount != null
+  const totalPages = countKnown ? Math.max(1, Math.ceil(totalCount / pageSize)) : null
   const start = (currentPage - 1) * pageSize + 1
-  const end = Math.min(currentPage * pageSize, totalCount)
+  const end = countKnown ? Math.min(currentPage * pageSize, totalCount) : 0
+  const displayedStart = resultData.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const displayedEnd = resultData.length === 0 ? 0 : (currentPage - 1) * pageSize + resultData.length
+  const nextDisabledUnknown = !countKnown && resultData.length < pageSize
+  const nextDisabled = countKnown ? currentPage >= totalPages : nextDisabledUnknown
+  const lastDisabled = !countKnown || currentPage >= totalPages
   const usedOrderByIndexes = new Set(orderBy.map((ob) => ob.columnIndex))
   const availableOrderByColumns = gridColumns.map((c, i) => ({ c, i })).filter(({ i }) => !usedOrderByIndexes.has(i))
 
@@ -856,19 +864,37 @@ export default function MainArea({
           )}
         </div>
 
-        {gridColumns.length > 0 && totalCount > 0 && (
+        {gridColumns.length > 0 && executedSql.trim().length > 0 && (
           <div className="pagination-bar">
             <div className="pagination-info">
-              <span>{start}-{end}건</span>
-              <span style={{ color: 'var(--text-light)' }}> / 총 </span>
-              <span>{totalCount}건</span>
+              {countKnown ? (
+                <>
+                  <span>{totalCount === 0 ? '0건' : `${start}-${end}건`}</span>
+                  <span style={{ color: 'var(--text-light)' }}> / 총 </span>
+                  <span>{totalCount}건</span>
+                </>
+              ) : (
+                <>
+                  <span>{resultData.length === 0 ? '0건' : `${displayedStart}-${displayedEnd}건`}</span>
+                  <span style={{ color: 'var(--text-light)' }}> / 총 </span>
+                  <span title="전체 건수는 COUNT 쿼리를 실행합니다">—</span>
+                  <button
+                    type="button"
+                    className="btn-small secondary"
+                    onClick={() => onFetchTotalCount?.()}
+                    disabled={countLoading || !onFetchTotalCount}
+                  >
+                    {countLoading ? '조회 중…' : '전체 건수'}
+                  </button>
+                </>
+              )}
             </div>
             <div className="pagination-controls">
               <button type="button" className="btn-small secondary" disabled={currentPage === 1} onClick={() => onSetPage?.(1)}>⏮️ 처음</button>
               <button type="button" className="btn-small secondary" disabled={currentPage === 1} onClick={() => onSetPage?.(currentPage - 1)}>◀ 이전</button>
-              <span className="page-indicator">페이지 <span>{currentPage}</span> / <span>{totalPages}</span></span>
-              <button type="button" className="btn-small secondary" disabled={currentPage >= totalPages} onClick={() => onSetPage?.(currentPage + 1)}>다음 ▶</button>
-              <button type="button" className="btn-small secondary" disabled={currentPage >= totalPages} onClick={() => onSetPage?.(totalPages)}>마지막 ⏭️</button>
+              <span className="page-indicator">페이지 <span>{currentPage}</span> / <span>{countKnown ? totalPages : '?'}</span></span>
+              <button type="button" className="btn-small secondary" disabled={nextDisabled} onClick={() => onSetPage?.(currentPage + 1)}>다음 ▶</button>
+              <button type="button" className="btn-small secondary" disabled={lastDisabled} onClick={() => onSetPage?.(totalPages)}>마지막 ⏭️</button>
             </div>
             <div className="page-size-selector">
               <select value={pageSize} onChange={(e) => onSetPageSize?.(Number(e.target.value))}>
