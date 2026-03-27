@@ -5,7 +5,7 @@ config.json 로드 후 attribute 접근 가능한 객체로 변환.
 
 [Main Functions]
 ===========
-- load_config: Env/config/config.json 로드, config.backend(api_host, main_db, system_db 등) / config.frontend 반환
+- load_config: Env/config/config.json 로드, config.backend(api_host, main_db, system_db, jwt_*, smtp_*, app_url 등) / config.frontend 반환
 - _dict_to_namespace: 중첩 dict → SimpleNamespace 변환
 
 [Dependencies]

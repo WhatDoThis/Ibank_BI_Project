@@ -1,0 +1,90 @@
+/**
+ * app/AuthContext.jsx (인증 컨텍스트)
+ * ================================
+ * /api/auth/me 로 프로필 로드·refreshMe·logout. S5/S6 공용.
+ *
+ * [Main Functions]
+ * ===========
+ * - AuthProvider, useAuth
+ *
+ * [Dependencies]
+ * =========
+ * - shared/api/authClient.js, shared/auth/tokenStorage.js
+ */
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
+
+import { getMe, postLogout } from '@/shared/api/authClient.js'
+import { clearTokens, getAccessToken } from '@/shared/auth/tokenStorage.js'
+
+const AuthContext = createContext(null)
+
+export function AuthProvider({ children }) {
+  const [me, setMe] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const refreshMe = useCallback(async () => {
+    const at = getAccessToken()
+    if (!at) {
+      setMe(null)
+      return
+    }
+    try {
+      const data = await getMe()
+      setMe(data)
+    } catch (e) {
+      setMe(null)
+      if (e?.status === 401) clearTokens()
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        await refreshMe()
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshMe])
+
+  const logout = useCallback(async () => {
+    try {
+      await postLogout()
+    } catch {
+      clearTokens()
+    }
+    setMe(null)
+  }, [])
+
+  const value = useMemo(
+    () => ({
+      me,
+      loading,
+      isAuthenticated: !loading && !!me,
+      refreshMe,
+      logout,
+      setMe,
+    }),
+    [me, loading, refreshMe, logout],
+  )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
+  return ctx
+}

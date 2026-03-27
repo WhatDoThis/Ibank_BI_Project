@@ -18,7 +18,7 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 [Dependencies]
 =========
 - Backend.core.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
-- Env.config.loader.add_allowed_table
+- Backend.etl_server.table_master_hook (적재 완료 시 table_master UPSERT)
 - psycopg2 (copy_expert), pandas
 """
 
@@ -1748,8 +1748,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 # convert_timezone_columns가 이미 df를 타겟 TZ로 변환했으므로 추가 변환 불필요
                 etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
             if not row.get("storage_connection_id"):
-                from Env.config.loader import add_allowed_table
-                add_allowed_table(target_table)
+                from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+
+                upsert_table_master_after_load(target_table)
             if total_failed:
                 notice = f"적재 실패 {len(total_failed)}건 (총 {total_processed + len(total_failed)}건 중)"
                 details = "; ".join(f"row#{f['row_index']}: {f['error'][:80]}" for f in total_failed[:10])
@@ -1958,8 +1959,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 conn_main.close()
 
             if not row.get("storage_connection_id"):
-                from Env.config.loader import add_allowed_table
-                add_allowed_table(target_table)
+                from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+
+                upsert_table_master_after_load(target_table)
 
             if full_fetch_notice:
                 etl_service.update_job(job_id, "completed", rows_processed=rows_processed, notice=full_fetch_notice)

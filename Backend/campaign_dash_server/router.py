@@ -1,28 +1,25 @@
 """
 Backend.campaign_dash_server.router (캠페인 대시보드 API 라우터)
 ===============================================================
-ibank_*_star_1(발송 팩트·JSONB 인구·시간대)·ibank_*_star_2(회원 스냅샷·JSONB). new_dash_server와 동일 JSON 계약.
+ibank_*_star_1(발송 팩트·JSONB 인구·시간대)·ibank_*_star_2(회원 스냅샷·JSONB). main에 등록되는 유일 대시보드 API.
+table_id는 프로젝트별 table_master + table_project_mapping(main/dash/star) 기준으로 허용 여부 검사(M1-8).
 
-[Helpers]
-=========
-_calc_date_range, _calc_previous_range, _calc_change_pct
-_require_star_fact_table, _member_table_id_from_fact, _quoted_table
-_jsonb_as_dict, _snapshot_*, _row_date_iso
-_grade_json_keys, delivery/hourly JSONB SUM SQL 빌더
+[Main Functions]
+================
+1. _calc_date_range / _calc_previous_range / _calc_change_pct
+2. _require_star_fact_table / _member_table_id_from_fact / _quoted_table
+3. _assert_campaign_table — perm·is_table_allowed_for_project_dashboard
+4. _jsonb_as_dict, _snapshot_*, _row_date_iso, delivery/hourly JSONB 빌더
+5. GET 엔드포인트 — require_permission("dashboard"), table_id 검사
 
 [Endpoints]
 ===========
-GET /api/campaign-dashboard/summary
-GET /api/campaign-dashboard/trend
-GET /api/campaign-dashboard/trend-multi
-GET /api/campaign-dashboard/tables — *_star_1 만 목록
-GET /api/campaign-dashboard/member-summary
-GET /api/campaign-dashboard/delivery-demographics
-GET /api/campaign-dashboard/hourly
+GET /api/campaign-dashboard/member-summary, delivery-demographics, hourly, summary, trend, trend-multi, tables
 
 [Dependencies]
 ==============
 - Backend.core.dashboard_service, Backend.core.db
+- Backend.auth_server.permissions.require_permission
 - datetime, calendar, fastapi, json
 """
 
@@ -32,13 +29,21 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from Backend.auth_server.permissions import require_permission
 from Backend.core import dashboard_service, db
 from Backend.core.dashboard_service import CHANNEL_MAPPING
 
 router = APIRouter(prefix="/api/campaign-dashboard", tags=["campaign-dashboard"])
+
+_MSG_TABLE_FORBIDDEN = "프로젝트에 매핑된 테이블만 사용할 수 있습니다."
+
+
+def _assert_campaign_table(perm: dict, table_id: str) -> None:
+    if not db.is_table_allowed_for_project_dashboard(int(perm["project_info_id"]), table_id):
+        raise HTTPException(status_code=403, detail=_MSG_TABLE_FORBIDDEN)
 
 GRADE_COLS = ["a_grade_count", "b_grade_count", "c_grade_count", "d_grade_count", "e_grade_count"]
 GRADE_LABELS = ["A", "B", "C", "D", "E"]
@@ -231,8 +236,10 @@ def member_summary(
     table_id: str = Query(..., description="팩트 테이블 ID (예: ibank_1_star_1)"),
     target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
     period: str = Query("daily", description="daily | weekly | monthly"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_campaign_table(perm, table_id)
         fact_id = _require_star_fact_table(table_id)
         if not target_date:
             target_date = date.today().isoformat()
@@ -354,6 +361,8 @@ def member_summary(
             },
         }
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -367,8 +376,10 @@ def delivery_demographics(
     target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
     period: str = Query("daily", description="daily | weekly | monthly"),
     by_channel: bool = Query(False, description="True면 채널별 분리"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_campaign_table(perm, table_id)
         fact_id = _require_star_fact_table(table_id)
         if not target_date:
             target_date = date.today().isoformat()
@@ -432,6 +443,8 @@ def delivery_demographics(
             "date_range": date_range,
             "period": period,
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -446,8 +459,10 @@ def hourly(
     period: str = Query("daily", description="daily | weekly | monthly"),
     metric: str = Query("success", description="success | open | click"),
     by_channel: bool = Query(False, description="True면 채널별 분리"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_campaign_table(perm, table_id)
         fact_id = _require_star_fact_table(table_id)
         if not target_date:
             target_date = date.today().isoformat()
@@ -511,6 +526,8 @@ def hourly(
             "date_range": date_range,
             "period": period,
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -523,8 +540,10 @@ def summary(
     table_id: str = Query(..., description="팩트 테이블 ID (예: ibank_1_star_1)"),
     target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
     period: str = Query("daily", description="daily | weekly | monthly"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_campaign_table(perm, table_id)
         fact_id = _require_star_fact_table(table_id)
         if not target_date:
             target_date = date.today().isoformat()
@@ -554,6 +573,8 @@ def summary(
         result["period"] = period
         result["date_range_actual"] = date_range
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -567,8 +588,10 @@ def trend(
     end_date: Optional[str] = Query(None, description="종료 일자 YYYY-MM-DD"),
     days: int = Query(30, ge=1, le=365, description="최근 N일"),
     metric: str = Query("success_count", description="집계 지표"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_campaign_table(perm, table_id)
         fact_id = _require_star_fact_table(table_id)
         if not end_date:
             end_date = date.today().isoformat()
@@ -584,6 +607,8 @@ def trend(
             "metric": metric.strip(),
         }
         return dashboard_service.get_chart_data(req)
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -647,8 +672,10 @@ def trend_multi(
     period: str = Query("daily", description="daily | weekly | monthly"),
     count: int = Query(10, ge=1, le=52, description="주간/월간일 때 기간 개수"),
     by_channel: bool = Query(False, description="True면 채널별 분리"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_campaign_table(perm, table_id)
         fact_id = _require_star_fact_table(table_id)
         if not end_date:
             end_date = date.today().isoformat()
@@ -687,6 +714,8 @@ def trend_multi(
                 row["channel"] = CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})")
             rows.append(row)
         return {"rows": rows, "by_channel": by_channel, "period": period}
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -695,9 +724,9 @@ def trend_multi(
 
 # 20.
 @router.get("/tables")
-def campaign_dashboard_tables():
+def campaign_dashboard_tables(perm: dict = Depends(require_permission("dashboard"))):
     try:
-        aggregatable = dashboard_service.get_aggregatable_tables()
+        aggregatable = dashboard_service.get_aggregatable_tables(int(perm["project_info_id"]))
         star_facts = [t for t in aggregatable if str(t).endswith("_star_1")]
         tables = [{"id": t, "name": t} for t in star_facts]
         return {"tables": tables}

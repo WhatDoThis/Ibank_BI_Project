@@ -1,6 +1,31 @@
 # Log
 
 ## Log Index
+74. 2026-03-27 비밀번호 정책(10자·대소문자·숫자·특수문자) security·service·스키마·폼
+73. 2026-03-27 회원가입·부서생성 화면·ETL 네비·라우트(sa_dev·etl_manager)
+72. 2026-03-27 프론트 S5/S6 인증·프로젝트 선택·http Bearer·refresh
+71. 2026-03-27 대시보드 단일화(캠페인만 연동·구형 UI 패키지 제거)
+70. 2026-03-27 M1-8 대시보드 매핑 제한(campaign_dash 완료·core·legacy·new)
+69. 2026-03-27 권한·/me·정지활성·O검색·SMTP·pmssn 정규화
+68. 2026-03-27 6단계 역할 정합(operator·초대·가입·부서 role)
+67. 2026-03-27 ETL 적재 완료 table_master 훅(M1-4)
+66. 2026-03-26 M1 백엔드 핵심 보정(core/report/admin)
+65. 2026-03-26 문서 교차대조 정합 보정(17·04·06)
+64. 2026-03-26 Role 6단계·ETL 전사·permissions·docs/main 05/06
+63. 2026-03-26 ETL 메타 DB 분리(etl_db) 적용
+62. 2026-03-26 04_DB_ARCHITECTURE·17 §13 물리명 table_*·pmssn 시드 주의
+61. 2026-03-26 report 17 §13 ETL·테이블 마스터·§10.4 M1/M2·체크리스트
+60. 2026-03-26 S4 require_permission·report·dashboard·ETL·/me permissions
+59. 2026-03-26 S3 project·admin·notification 서버·main 통합·JWT 프로젝트 claim
+58. 2026-03-26 report 17 §10 우선순위·진행현황·권장 순서 명시
+57. 2026-03-26 auth_server S2 백엔드(/api/auth)·get_system_db
+56. 2026-03-26 allowed_tables 제거·main_db.table_schema 빈값=public
+55. 2026-03-26 상용화 S1 config·auth_config·get_allowed_tables 화이트리스트
+54. 2026-03-26 report 17 로그인·프로젝트·SMTP 등 구현 명세 보강
+53. 2026-03-26 상용화 가이드 §12·섹션 게이트·.cursor 서브에이전트
+52. 2026-03-26 report 17 운영 DB 반영·문서 정합
+51. 2026-03-26 report 17 시스템 DB 상용화 구현 가이드·인덱스
+50. 2026-03-26 원격 저장소 ibankbi 브랜치를 프로젝트 루트에 클론
 49. 2026-03-24 README·02 가이드 main_db 문서 정합
 48. 2026-03-24 config backend.main_db — 메인 DB 설정 중첩·core.db 로드
 47. 2026-03-23 docs/main 리뷰 보강(인증·에러·ER·dash·배포·로그·테스트)
@@ -52,6 +77,304 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+74. 2026-03-27 비밀번호 정책(10자·대소문자·숫자·특수문자) security·service·스키마·폼
+Purpose: 신규 비밀번호만 검증(가입·부서생성·PATCH /me/password). `security.validate_password_strength`, 로그인은 기존 비번 허용.
+
+Changes:
+
+- security.py: validate_password_strength + ASCII 특수문자 집합
+- service: signup·create_org·change_password 호출
+- schemas: password min_length 10
+- SignupPage·CreateOrgPage 라벨·minLength 10
+
+Changed files: Backend/auth_server/security.py, service.py, schemas.py, Frontend/react-app/src/app/SignupPage.jsx, CreateOrgPage.jsx, docs/log/log.md
+
+73. 2026-03-27 회원가입·부서생성 화면·ETL 네비·라우트(sa_dev·etl_manager)
+Purpose: 문서 17 §5.1 흐름 — `/signup`(초대 검증 blur)·`/create-org`, 로그인 하단 링크·플래시. ETL은 `user_dvsn` 이 sa_dev·etl_manager 일 때만 네비·`/etl` 접근.
+
+Changes:
+
+- authClient: postSignup, postCreateOrg, getInviteValidate
+- SignupPage, CreateOrgPage, EtlAccessRoute, etlAccess(canAccessEtl)
+- routes: 공개 signup·create-org, ETL 래핑
+- ProtectedLayout: ETL 네비 필터, LoginPage·login.css 링크·성공 안내
+
+Changed files: Frontend/react-app/src/shared/api/authClient.js, Frontend/react-app/src/app/SignupPage.jsx, CreateOrgPage.jsx, EtlAccessRoute.jsx, etlAccess.js, routes.jsx, ProtectedLayout.jsx, LoginPage.jsx, login.css, navConfig.js, docs/log/log.md
+
+72. 2026-03-27 프론트 S5/S6 인증·프로젝트 선택·http Bearer·refresh
+Purpose: 로그인(2단계)·JWT 저장·request/fetchOkJson에 Authorization·401 refresh·403 프로젝트 미선택 시 홈으로. 보호 레이아웃·프로젝트 필수 라우트·홈에서 프로젝트 선택.
+
+Changes:
+
+- shared/auth/tokenStorage.js, jwtUtils.js — 토큰·JWT project_info_id
+- shared/api/http.js — Bearer·tryRefreshOnce·프로젝트 403 안내
+- shared/api/authClient.js — login·verify·logout·me·projects·select
+- app/AuthContext.jsx, ProtectedLayout.jsx, NeedProjectRoute.jsx, LoginPage.jsx, HomePage.jsx, login.css, routes.jsx, App.jsx, navConfig.js
+
+Changed files: Frontend/react-app/src/shared/auth/tokenStorage.js, jwtUtils.js, Frontend/react-app/src/shared/api/http.js, authClient.js, Frontend/react-app/src/app/AuthContext.jsx, ProtectedLayout.jsx, NeedProjectRoute.jsx, LoginPage.jsx, HomePage.jsx, login.css, routes.jsx, App.jsx, navConfig.js, docs/log/log.md
+
+71. 2026-03-27 대시보드 단일화(캠페인만 연동·구형 UI 패키지 제거)
+Purpose: 운영 대시보드는 캠페인 대시보드만 사용. legacy·new_dash·new_dash2 라우터를 main에서 제거하고, 프론트에서 dashboard·new-dashboard·new-dashboard2 패키지 삭제. 라우트 `/dashboard`는 CampaignDashboardPage, `/campaign-dashboard`는 `/dashboard`로 리다이렉트.
+
+Changes:
+
+- Backend/api_server/main.py: campaign_dashboard_router만 대시보드 API로 등록
+- Backend/api_server/routers/__init__.py: dashboard_router 제거
+- Frontend: packages/dashboard, new-dashboard, new-dashboard2 삭제; routes.jsx·navConfig 정리
+- docs/main(00·01·02), README, report/17 권한 표, core docstring 정합
+
+Changed files: Backend/api_server/main.py, Backend/api_server/routers/__init__.py, Backend/api_server/routers/health.py, Backend/__init__.py, Backend/api_server/__init__.py, Backend/core/__init__.py, Backend/core/db.py, Backend/core/dashboard_service.py, Backend/campaign_dash_server/__init__.py, Backend/campaign_dash_server/router.py, Frontend/react-app/src/app/routes.jsx, Frontend/react-app/src/app/navConfig.js, Frontend/react-app/src/packages/campaign_dashboard/index.jsx, README.md, docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+70. 2026-03-27 M1-8 대시보드 매핑 제한(campaign_dash 완료·core·legacy·new)
+Purpose: legacy/new/campaign 대시보드에서 dash/star/main 물리 테이블을 table_master + table_project_mapping으로만 허용하고, 집계 테이블 목록은 프로젝트 기준 get_aggregatable_tables(project_info_id)로 제한한다.
+
+Changes:
+
+- core/db: is_table_allowed_for_project_dashboard, 캠페인 *_star_2는 대응 *_star_1 star 매핑 시 허용
+- core/dashboard_service: get_aggregatable_tables(project_info_id)
+- legacy_dashboard_server, new_dash_server, campaign_dash_server: require_permission("dashboard"), table_id 검사, /tables 프로젝트 필터
+
+Changed files: Backend/core/db.py, Backend/core/dashboard_service.py, Backend/legacy_dashboard_server/router.py, Backend/new_dash_server/router.py, Backend/campaign_dash_server/router.py
+
+69. 2026-03-27 권한·/me·정지활성·O검색·SMTP·pmssn 정규화
+Purpose: 05 매트릭스 §3 정지/활성 범위, §8 `/me` permissions 자동 역할 병합, `pmssn_list` 문자열 표준·레거시 PK 치환, operator 멤버 초대용 검색, 프로젝트 deps 패턴, SMTP STARTTLS 폴백을 반영한다.
+
+Changes:
+
+- `Backend/admin_server/service_users.py`: `suspend_user`/`activate_user`에 `actor_dvsn`·대상 역할 검증; `search_users_by_email` 동일 부서 스코프(운영자)
+- `Backend/admin_server/router.py`: 정지/활성 인자, `users/search`에 `require_org_admin_or_operator`
+- `Backend/admin_server/deps.py`: `require_project_admin_or_operator_participant`가 `Request.path_params`로 `project_info_id` 조회
+- `Backend/auth_server/permissions.py`: `resolve_pmssn_list_to_names`, `get_effective_permission_ids_for_me`
+- `Backend/auth_server/router.py`: `GET /me`에서 자동 역할 시 §8 기능 ID 병합
+- `Backend/admin_server/service_projects.py`: 기본 관리자 역할 선택 시 정규화된 `pmssn_list`로 `admin` 판별
+- `Backend/auth_server/email_service.py`: STARTTLS 실패 시 경고 후 평문 SMTP 계속
+- `docs/main/04_DB_ARCHITECTURE.md`: `pmssn_list` 저장 규칙·런타임 치환 문구
+- `python -m py_compile` 관련 모듈 검증
+
+Changed files: Backend/admin_server/service_users.py, router.py, deps.py, service_projects.py, Backend/auth_server/permissions.py, router.py, email_service.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+68. 2026-03-27 6단계 역할 정합(operator·초대·가입·부서 role)
+Purpose: `docs/main/05_Permission_ARCHITECTURE.md` 매트릭스와 불일치하던 백엔드를 맞춘다. operator 프로젝트 운영, `invite_target_dvsn` 저장·가입 반영, 부서 `user_dvsn` 변경 범위를 구현한다.
+
+Changes:
+
+- `Backend/admin_server/deps.py`: `require_org_admin_or_operator`, `require_project_admin_or_operator_participant` 추가
+- `Backend/admin_server/router.py`: 프로젝트 목록·PATCH·멤버 API에 운영자 경로 적용, 초대·역할 변경 서비스 인자 반영
+- `Backend/admin_server/service_projects.py`: 참여 프로젝트 목록, 운영자 `active_yn` 금지, 멤버 권한/강퇴 시 U만(운영자)
+- `Backend/admin_server/service_users.py`: 초대 허용 역할 검증·INSERT `invite_target_dvsn`, `set_user_dvsn` admin/SA/sa_dev 매트릭스
+- `Backend/admin_server/schemas.py`: `InviteBody.invite_target_dvsn`, `UserRoleBody` 설명
+- `Backend/auth_server/service.py`, `router.py`: 가입 시 `invite_target_dvsn`, 초대 검증 응답 필드
+- `python -m py_compile` 및 초대 검증 스모크 확인
+
+Changed files: Backend/admin_server/deps.py, router.py, service_projects.py, service_users.py, schemas.py, Backend/auth_server/service.py, router.py, docs/log/log.md
+
+67. 2026-03-27 ETL 적재 완료 table_master 훅(M1-4)
+Purpose: 상용화 가이드 17번 §10.4 M1-4·§13.2.5에 따라 ETL이 메인 DB에 적재를 완료하면 `system_db.table_master`에 `(db_type, table_name)` UPSERT를 수행하고, 레거시 `add_allowed_table`(no-op) 호출을 제거한다.
+
+Changes:
+
+- `Backend/etl_server/table_master_hook.py`: `upsert_table_master_after_load` 추가(system_db 연결, 실패 시 경고 로그만)
+- `Backend/etl_server/load_service.py`, `load_service.py` `run_file_upsert`: 기본 저장 DB 적재 시 훅 호출
+- `Backend/etl_server/db_load_service.py`: 스트리밍·비스트리밍 DB 적재 완료 시 훅 호출
+- `python -m py_compile` 위 파일 검증 완료
+
+Changed files: Backend/etl_server/table_master_hook.py, Backend/etl_server/load_service.py, Backend/etl_server/db_load_service.py, docs/log/log.md
+
+66. 2026-03-26 M1 백엔드 핵심 보정(core/report/admin)
+Purpose: 상용화 가이드 17번의 M1 요구사항(프로젝트별 허용 테이블 제어, 리포트 저장 후 마스터/매핑 반영, 어드민 테이블 매핑 API)을 코드에 반영해 S1/S3 잔여 불일치를 해소한다.
+
+Changes:
+
+- `Backend/core/db.py`: `project_info_id` + `db_type` 기반 허용 테이블 조회(`table_project_mapping`+`table_master`) 함수 추가 및 `get_allowed_tables` 호환 분기 반영
+- `Backend/report_server/router.py`: `/api/list-tables` 프로젝트 기반 필터링·프로젝트 미선택 403 보강, `save-query-as-table` 성공 후 `table_master`/`table_project_mapping` upsert 연계
+- `Backend/admin_server/router.py`, `service.py`, `schemas.py`, `service_tables.py`: 테이블 마스터 목록/수정 및 프로젝트-테이블 매핑 조회·추가·삭제 API 구현
+- 수정 파일 python 문법 컴파일(`py_compile`) 및 린트 확인 완료
+
+Changed files: Backend/core/db.py, Backend/report_server/router.py, Backend/admin_server/router.py, Backend/admin_server/service.py, Backend/admin_server/schemas.py, Backend/admin_server/service_tables.py, docs/log/log.md
+
+65. 2026-03-26 문서 교차대조 정합 보정(17·04·06)
+Purpose: 교차 리뷰에서 지적된 문서 불일치(구 role 표, ETL 권한 설명, 초대 role 검증 누락, `pmssn_list` 타입 표기, 고객 여정 주어 모호성)를 정리하고, 확인 항목(ETL 관계도 참조·E 메인 UX)을 명시한다.
+
+Changes:
+
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: §1.3 구 3단계 역할 표 제거 및 05 참조, §4.3 etl 행을 `require_etl_infrastructure` 기반으로 명확화, §6.4 초대 `invite_target_dvsn` 백엔드 검증 문구 추가
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: §0.13에 ETL 메타 구조는 04 참조 문구 추가, §5.2에 E(`etl_manager`) 프로젝트 0건일 때 ETL 카드 중심 UX 명시
+- `docs/main/04_DB_ARCHITECTURE.md`: `user_info`에 `pswd_update_dtm`, `pswd_expire_dtm`, `user_lock_expire_dtm`, `last_login_ip` 추가, `pmssn_master.pmssn_list` 예시를 문자열 키 배열로 통일
+- `docs/main/06_CUSTOMER_JOURNEY.md`: Phase 3 ⑫를 “부서 SA가 SA/A 초대”로 주어 명확화
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+64. 2026-03-26 Role 6단계·ETL 전사·permissions·docs/main 05/06
+Purpose: 6단계 역할·ETL 전사 공통·`table_master` 부서 FK 제거 정책을 docs/main·report 17에 반영하고, ETL API는 `sa_dev`/`etl_manager`만, 프로젝트 기능은 `etl_manager` 차단 및 SA/A 자동 권한을 코드에 적용한다.
+
+Changes:
+
+- docs/main: `05_Permission_ARCHITECTURE.md` v2, `06_CUSTOMER_JOURNEY.md` 신규, `04_DB_ARCHITECTURE.md`·`00_PRD.md`·`03_AI_DEVELOP_GUIDE.md` 갱신
+- docs/report: `17_SystemDB_Commercialization_Implementation_Guide.md` §10.4·§11.1·§13 전사 ETL로 정합, `00_ReportIndex.md` 17 설명
+- `Backend/auth_server/permissions.py`: `require_etl_infrastructure`, `require_permission`에 `etl_manager` 차단·`sa_dev`/`super_admin`/`admin` 프로젝트 기능 자동 허용
+- `Backend/api_server/main.py`: ETL 라우터 의존성 전환
+- `Backend/admin_server/deps.py`: `sa_dev`를 org·super 경로에 포함
+
+Changed files: docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_AI_DEVELOP_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/00_ReportIndex.md, docs/log/log.md, Backend/auth_server/permissions.py, Backend/api_server/main.py, Backend/admin_server/deps.py
+
+63. 2026-03-26 ETL 메타 DB 분리(etl_db) 적용
+Purpose: ETL 메타/테이블 조회 경로를 `system_db`에서 분리해 `etl_db`를 우선 사용하도록 전환하고, 인증·권한 계열은 기존 `system_db`를 유지한다.
+
+Changes:
+
+- `Backend/core/db.py`: `get_etl_db_config`, `get_db_connection_etl`, `get_system_table_schema_core`, `get_db_connection_system_core` 추가
+- `Backend/core/db.py`: `get_db_connection_system`/`get_system_table_schema`를 ETL 호환 경로(etl_db 우선, 미설정 시 system_db fallback)로 조정
+- `Backend/core/dependencies.py`: `get_system_db`를 `get_db_connection_system_core()`로 고정해 auth/admin/project/notification이 system_db를 사용하도록 분리
+
+Changed files: Backend/core/db.py, Backend/core/dependencies.py, docs/log/log.md
+
+62. 2026-03-26 04_DB_ARCHITECTURE·17 §13 물리명 table_*·pmssn 시드 주의
+Purpose: 운영 DB 실제 테이블명(`table_master`,`table_project_mapping`)과 가이드 초안명(`project_table_*`) 불일치 정리, 전체 TRUNCATE 후 `pmssn_master` 0건·시드 필수 명시. `docs/main/04_DB_ARCHITECTURE.md` 정리 및 03 가이드 링크.
+
+Changes:
+
+- `docs/main/04_DB_ARCHITECTURE.md`: 제목·설명·`pmssn_master` FK 컬럼명(`user_id`)·초기화 주의
+- `docs/main/03_개발가이드.md`: 04 참조 추가
+- `docs/report/17_…`: §13 물리명·DDL·쿼리·admin 경로·§13.0.1·§11.1 `pmssn_master` 재시드 항목, 헤더에 04 링크
+- `docs/report/00_ReportIndex.md`: 17 행 보강
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/main/03_개발가이드.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+61. 2026-03-26 report 17 §13 ETL·테이블 마스터·§10.4 M1/M2·체크리스트
+Purpose: 추가 업그레이드(ETL 메타 부서 FK, project_table_master/mapping, get_allowed_tables 개편, admin tables API, 프론트)를 계획서에 반영. DDL 적용 완료 가정·JWT `dptmt_info_id`+`etl` 권한 스코프 명시. 구현 우선순위 **M1(백엔드)→M2(프론트)** 및 S5 병행 주의를 §10.3·§10.4에 정리.
+
+Changes:
+
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: §10.3(M1/M2 행), §10.4(실행 재정립), §11.1 체크리스트, §13 전절 추가, §12.5 오탈자 수정
+- `docs/report/00_ReportIndex.md`: 17번 행 설명 보강
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+60. 2026-03-26 S4 require_permission·report·dashboard·ETL·/me permissions
+Purpose: 문서 17 S4 — `Backend/auth_server/permissions.py`로 JWT·프로젝트·`pmssn_list` 검증, 리포트 API별 `report.read`/`report.execute`, `main.py`에서 legacy/new/campaign/new2 대시보드·ETL 라우터에 `dashboard`/`etl` 권한, `/api/auth/me`에 선택 프로젝트 권한 목록 반영.
+
+Changes:
+
+- 신규: `Backend/auth_server/permissions.py` (`get_permission_ids_for_user_project`, `require_permission`)
+- `Backend/report_server/router.py`: 엔드포인트별 Depends
+- `Backend/api_server/main.py`: dashboard·etl·new_dashboard·campaign·new_dash2 `include_router(..., dependencies=[...])`
+- `Backend/auth_server/router.py`: GET `/me` → `permissions` 채움
+- `docs/report/17_…`: §10.3 S4 완료·S5 다음, §11 체크리스트
+
+Changed files: Backend/auth_server/permissions.py, Backend/report_server/router.py, Backend/api_server/main.py, Backend/auth_server/router.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+59. 2026-03-26 S3 project·admin·notification 서버·main 통합·JWT 프로젝트 claim
+Purpose: 문서 17 S3 — `/api/projects`·`/api/notifications`·`/api/admin` 백엔드 1차, `main.py` 라우터 순서(health→auth→projects→notifications→admin→report…) 반영, 프로젝트 선택·refresh 시 `project_info_id` 유지.
+
+Changes:
+
+- 신규: `Backend/project_server`, `Backend/notification_server`, `Backend/admin_server`(deps·schemas·service_*·router)
+- `Backend/auth_server/security.py`: `create_refresh_token` 선택적 `project_info_id`
+- `Backend/auth_server/service.py`: `refresh_session_tokens`가 refresh 클레임의 프로젝트 유지, `rotate_session_tokens_with_project` 추가
+- `Backend/api_server/main.py`: project·notification·admin 라우터 등록
+- `Backend/core/dependencies.py`: get_system_db 사용처 설명 갱신
+- `docs/report/17_…`: §10.3 S3 완료·S4 다음, §11 체크리스트 반영
+
+Changed files: Backend/project_server/, Backend/notification_server/, Backend/admin_server/, Backend/auth_server/security.py, Backend/auth_server/service.py, Backend/api_server/main.py, Backend/core/dependencies.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+58. 2026-03-26 report 17 §10 우선순위·진행현황·권장 순서 명시
+Purpose: 구현 순서가 의존·리스크 기준 우선순위와 일치하는지 점검하고, §10.0 원칙·§10.3 진행 표·S3→S4→S5 권장·체크리스트 정합을 반영한다.
+
+Changes:
+
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: §10.0, §10.3, 유연성 문구, 체크리스트 분리; §10 하위 번호 10.0→10.1→10.2→10.3 순으로 정돈
+- `.cursor/rules/tech-lead-orchestration.mdc`: §10.0 권장 일렬 순서(S3 전 S5 비권장) 한 줄
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md, .cursor/rules/tech-lead-orchestration.mdc
+
+57. 2026-03-26 auth_server S2 백엔드(/api/auth)·get_system_db
+Purpose: 문서 17 S2 — `Backend/auth_server`(router·service·schemas·security·email_service·deps), `GET/POST /api/auth/*`, `main.py`에 auth 라우터 등록, `dependencies.get_system_db`, `requirements.txt`에 PyJWT·bcrypt.
+
+Changes:
+
+- 신규: `Backend/auth_server/*` — signup, create-org, login, verify-login, refresh, logout, me, me/password, login-history, invite/validate
+- `Backend/core/dependencies.py`: `get_system_db`
+- `Backend/api_server/main.py`: `auth_router` 등록
+- `requirements.txt`: PyJWT, bcrypt
+- `docs/report/17_…`: 체크리스트 반영
+
+Changed files: Backend/auth_server/, Backend/core/dependencies.py, Backend/api_server/main.py, requirements.txt, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+56. 2026-03-26 allowed_tables 제거·main_db.table_schema 빈값=public
+Purpose: `allowed_tables` 설정 키 및 화이트리스트 로직 제거. `main_db.table_schema`가 비어 있으면 `public`으로 두고 해당 스키마의 테이블·뷰 전부 조회.
+
+Changes:
+
+- `Env/config/config.json`: `allowed_tables` 삭제, `main_db.table_schema` 빈 문자열
+- `Backend/core/db.py`: `get_allowed_tables` 단순화, `get_table_schema` 빈값→public
+- `Env/config/loader.py`, `docs/report/17_…` 정합
+
+Changed files: Env/config/config.json, Backend/core/db.py, Env/config/loader.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+55. 2026-03-26 상용화 S1 config·auth_config·get_allowed_tables 화이트리스트
+Purpose: 문서 17 S1 — `config.json`에 JWT·SMTP·`app_url`·`allowed_tables`·`jwt_pre_auth_expire_minutes` 추가, `Backend/core/auth_config.py` 신설, `get_allowed_tables`가 비어 있지 않은 `allowed_tables`와 DB 교집합 적용.
+
+Changes:
+
+- `Env/config/config.json`: 상용화 키 추가(`jwt_secret`은 로컬에서 채움)
+- `Backend/core/auth_config.py`: JWT·SMTP·app_url·개발 메일 스킵 판별
+- `Backend/core/db.py`: `get_allowed_tables` 화이트리스트 교집합
+- `Env/config/loader.py`: docstring 보강
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: 체크리스트 S1 반영
+
+Changed files: Env/config/config.json, Backend/core/auth_config.py, Backend/core/db.py, Env/config/loader.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+54. 2026-03-26 report 17 로그인·프로젝트·SMTP 등 구현 명세 보강
+Purpose: 리뷰 피드백 6건(pre_auth_token, create-org 트랜잭션, 프로젝트 미선택 403, 생성자 자동 멤버, 전역 유저 검색, SMTP 개발 모드)을 권장 방향으로 문서 17에 반영한다.
+
+Changes:
+
+- `pre_auth_token`·verify-login 바디, §2.3·§6.1·config `jwt_pre_auth_expire_minutes`
+- §2.1 create-org 4단계, §4.2.1, §3.2·§3.3, `GET /api/admin/users/search`, §2.7, §9·§11 체크리스트
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+53. 2026-03-26 상용화 가이드 §12·섹션 게이트·.cursor 서브에이전트
+Purpose: `IBANK_TEST_PROJECT_001\.cursor` 를 참고해 `Ibank_BI_Project`에 `.cursor`를 두고, 문서 17에 서브에이전트·병렬·컨텍스트 최적화 및 섹션별 담당자 게이트 흐름을 명시한다.
+
+Changes:
+
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: §10을 섹션(S0~S10)·게이트·병렬 표로 개편, §12 개발 운영 방식 추가, 서문에 `.cursor` 안내
+- `.cursor/` 복사·보강: `README.md`, `rules/tech-lead-orchestration.mdc`, `agents/be-impl.md` 상용화 패키지 범위
+- `docs/report/00_ReportIndex.md` 17번 설명 갱신
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/00_ReportIndex.md, .cursor/README.md, .cursor/rules/tech-lead-orchestration.mdc, .cursor/agents/be-impl.md, docs/log/log.md
+
+52. 2026-03-26 report 17 운영 DB 반영·문서 정합
+Purpose: `ibank_system_data`에 시스템 메타 10테이블·시드·인덱스·`ibankbi` 소유자 적용이 완료됨에 따라 가이드 문서를 “적용 완료” 기준으로 정합하고, 실제 DDL과 다른 컬럼 길이·NOT NULL·인덱스를 반영한다.
+
+Changes:
+
+- `17_SystemDB_Commercialization_Implementation_Guide.md`: DB 적용 현황·§0.0 요약, 표 컬럼 정의 정합, §0.11·§10 step1·§11 체크리스트 갱신
+- `00_ReportIndex.md`: 17번 행에 운영 반영·DDL 비수록 안내
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+51. 2026-03-26 report 17 시스템 DB 상용화 구현 가이드·인덱스
+Purpose: 시스템 DB(`ibank_system_data`) 메타·인증·권한·프로젝트·알림 상용화 설계를 report에 번호 17로 정리하고 인덱스를 갱신한다.
+
+Changes:
+
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md` 신규: DB 스키마·config·흐름·API·패키지·구현 순서·체크리스트 (2차 인증 컬럼 `scnd_auth_*`, `project_ptcpnt_info` UNIQUE, `notification_info` FK 등 검토 반영)
+- `docs/report/00_ReportIndex.md`에 17번 행 추가
+
+Changed files: docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+50. 2026-03-26 원격 저장소 ibankbi 브랜치를 프로젝트 루트에 클론
+Purpose: 잘못된 `ibankbi` 하위 폴더 클론을 제거하고, `Ibank_BI_Project` 폴더 루트에 `https://github.com/WhatDoThis/Ibank_BI_Project.git` 의 **ibankbi** 브랜치를 직접 받음.
+
+Changes:
+
+- 기존 `ibankbi/` 디렉터리 삭제 후 `git clone -b ibankbi … .` 로 루트에 저장소 배치
+- 현재 브랜치: `ibankbi`, 추적: `origin/ibankbi`
+
+Changed files: (워크스페이스 루트 `.git` 및 클론된 전체 트리), docs/log/log.md
 
 49. 2026-03-24 README·02 가이드 main_db 문서 정합
 Purpose: 루트 README 설정 절과 02 백엔드 가이드에 **main_db** 중첩 구조·레거시 호환을 명시.

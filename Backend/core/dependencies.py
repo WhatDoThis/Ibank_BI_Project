@@ -5,13 +5,15 @@ DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)�
 
 [Main Functions]
 ===========
-1. get_db: 요청당 DB 연결 생성(yield), 응답 후 자동 close
-2. get_config: config.backend 반환 (query_timeout_seconds, claude_api_key 등)
+1. get_db: 요청당 메인 DB 연결(yield), 응답 후 close
+2. get_config: config.backend 반환
+3. get_system_db: 요청당 system_db 고정 연결(yield) — auth·project·notification·admin
 
 [Package Usage]
 ===========
 1. get_db: Backend/api_server/routers/health.py, Backend/report_server/router.py(다수 엔드포인트 Depends)
 2. get_config: Backend/report_server/router.py(execute_query, save_query_as_table, explain_sql 등 Depends)
+3. get_system_db: Backend/auth_server, project_server, notification_server, admin_server router Depends (system_db 고정)
 
 [Dependencies]
 =========
@@ -47,3 +49,16 @@ def get_db() -> Generator:
 def get_config():
     """config.backend (Env/config/config.json)."""
     return config.backend
+
+
+# 3.
+def get_system_db() -> Generator:
+    """system_db 고정 연결. auth/admin/project/notification 서버용. 사용 후 close."""
+    conn = db.get_db_connection_system_core()
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
