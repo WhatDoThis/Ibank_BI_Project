@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+86. 2026-03-28 auth_server __init__ router 재export (include_router AttributeError 수정)
 85. 2026-03-28 전수검사 반영: admin list_projects role_name·SignupPage 초대 UX
 84. 2026-03-28 react-app src/app 카테고리 폴더(auth·home·admin·layout·guards)
 83. 2026-03-28 어드민 나머지: 역할·프로젝트·멤버·ProjectAdminRoute·adminClient
@@ -88,6 +89,13 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+86. 2026-03-28 auth_server __init__ router 재export (include_router AttributeError 수정)
+Purpose: `from Backend.auth_server import router` 가 `router.py` 모듈을 가져와 `include_router` 시 `routes` 없음 오류가 발생함. 다른 서버 패키지와 동일하게 `APIRouter` 인스턴스를 export.
+
+Changes: `auth_server/__init__.py`에서 `from Backend.auth_server.router import router`, `__all__`.
+
+Changed files: Backend/auth_server/__init__.py, docs/log/log.md
 
 85. 2026-03-28 전수검사 반영: admin list_projects role_name·SignupPage 초대 UX
 Purpose: B-7 어드민 참여 프로젝트 목록에 `role_name` 정합, B-6 초대 검증 시 프로젝트·역할명 표시.

@@ -316,7 +316,7 @@ ETL 적재 또는 쿼리로 생성된 테이블의 원장입니다.
 ───────────────────────  ──────────────  ────────────  ─────────────────
 table_master_id          serial          PK            테이블 고유번호
 db_type                  varchar(20)     NOT NULL      DB 구분
-                                                       (main / dash / star)
+                                                       (main / dash)
 table_name               varchar(100)    NOT NULL      물리 테이블명
 table_label              varchar(200)                  논리명 (UI 표시용)
 table_dscrtn             varchar(500)                  테이블 설명
