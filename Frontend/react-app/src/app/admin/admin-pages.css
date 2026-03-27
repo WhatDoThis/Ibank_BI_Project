@@ -1,0 +1,205 @@
+/**
+ * app/admin/admin-pages.css — AdminRoles·AdminProjects·AdminProjectMembers 공용
+ */
+
+.ap {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.ap__title {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+  color: #1e3932;
+}
+
+.ap__hint {
+  margin: 0 0 16px;
+  font-size: 0.875rem;
+  color: #666;
+  line-height: 1.5;
+}
+
+.ap__back {
+  display: inline-block;
+  margin-bottom: 16px;
+  color: #00754a;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.ap__back:hover {
+  text-decoration: underline;
+}
+
+.ap__error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #ffebee;
+  border-radius: 8px;
+  color: #c62828;
+  font-size: 0.875rem;
+}
+
+.ap__ok {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #e8f5e9;
+  border-radius: 8px;
+  color: #2e7d32;
+  font-size: 0.875rem;
+}
+
+.ap__form-block {
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+  background: #fafafa;
+}
+
+.ap__form-block h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.ap__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 0.875rem;
+}
+
+.ap__input,
+.ap__textarea,
+.ap__select {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  max-width: 100%;
+}
+
+.ap__textarea {
+  min-height: 88px;
+  font-family: inherit;
+}
+
+.ap__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.ap__btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.ap__btn:hover:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.ap__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ap__btn--primary {
+  background: #00754a;
+  color: #fff;
+  border-color: #00754a;
+}
+
+.ap__btn--primary:hover:not(:disabled) {
+  background: #006240;
+}
+
+.ap__btn--danger {
+  color: #c62828;
+  border-color: #ffcdd2;
+}
+
+.ap__table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ap__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ap__table th,
+.ap__table td {
+  border-bottom: 1px solid #eee;
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ap__table th {
+  background: #f5f5f5;
+}
+
+.ap__mono {
+  font-size: 0.78rem;
+  color: #444;
+  word-break: break-all;
+}
+
+.ap__modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ap__modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.ap__modal h3 {
+  margin: 0 0 12px;
+}
+
+.ap__search-hits {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ap__search-hit {
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.ap__search-hit:hover {
+  background: #f1f8f4;
+}

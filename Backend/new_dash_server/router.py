@@ -24,7 +24,7 @@ GET /api/new-dashboard/hourly — 시간대별 집계 (success|open|click)
 
 [Dependencies]
 ==============
-- Backend.core.dashboard_service, Backend.core.db
+- Backend.core.dashboard_service, Backend.core.db, Backend.auth_server.permissions
 - datetime, calendar, fastapi
 """
 
@@ -33,13 +33,22 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from Backend.auth_server.permissions import require_permission
 from Backend.core import dashboard_service, db
 from Backend.core.dashboard_service import CHANNEL_MAPPING
 
 router = APIRouter(prefix="/api/new-dashboard", tags=["new-dashboard"])
+
+_MSG_TABLE_FORBIDDEN = "프로젝트에 매핑된 테이블만 사용할 수 있습니다."
+
+
+# 0. 프로젝트·table_master 매핑(M1-8)
+def _assert_dashboard_table(perm: dict, table_id: str) -> None:
+    if not db.is_table_allowed_for_project_dashboard(int(perm["project_info_id"]), table_id):
+        raise HTTPException(status_code=403, detail=_MSG_TABLE_FORBIDDEN)
 
 
 # 1.
@@ -189,8 +198,10 @@ def member_summary(
     table_id: str = Query(..., description="테이블 ID (예: ibank_1)"),
     target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
     period: str = Query("daily", description="daily | weekly | monthly"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_dashboard_table(perm, table_id)
         if not target_date:
             target_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
@@ -311,6 +322,8 @@ def member_summary(
             },
         }
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -324,8 +337,10 @@ def delivery_demographics(
     target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
     period: str = Query("daily", description="daily | weekly | monthly"),
     by_channel: bool = Query(False, description="True면 채널별 분리"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_dashboard_table(perm, table_id)
         if not target_date:
             target_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
@@ -391,6 +406,8 @@ def delivery_demographics(
             "date_range": date_range,
             "period": period,
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -412,8 +429,10 @@ def hourly(
     period: str = Query("daily", description="daily | weekly | monthly"),
     metric: str = Query("success", description="success | open | click"),
     by_channel: bool = Query(False, description="True면 채널별 분리"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
+        _assert_dashboard_table(perm, table_id)
         if not target_date:
             target_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
@@ -480,6 +499,8 @@ def hourly(
             "date_range": date_range,
             "period": period,
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -492,9 +513,11 @@ def summary(
     table_id: str = Query(..., description="테이블 ID"),
     target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
     period: str = Query("daily", description="daily | weekly | monthly"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     """기간별 요약 KPI·aggregated_data·증감률. period에 따라 date_range 계산."""
     try:
+        _assert_dashboard_table(perm, table_id)
         if not target_date:
             target_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
@@ -526,6 +549,8 @@ def summary(
         result["period"] = period
         result["date_range_actual"] = date_range
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -539,9 +564,11 @@ def trend(
     end_date: Optional[str] = Query(None, description="종료 일자 YYYY-MM-DD"),
     days: int = Query(30, ge=1, le=365, description="최근 N일"),
     metric: str = Query("success_count", description="집계 지표"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     """단일 메트릭 일자별 추이."""
     try:
+        _assert_dashboard_table(perm, table_id)
         if not end_date:
             end_date = date.today().isoformat()
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -557,6 +584,8 @@ def trend(
         }
         result = dashboard_service.get_chart_data(req)
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -624,9 +653,11 @@ def trend_multi(
     period: str = Query("daily", description="daily | weekly | monthly"),
     count: int = Query(10, ge=1, le=52, description="주간/월간일 때 기간 개수"),
     by_channel: bool = Query(False, description="True면 채널별 분리, False면 전체 합산"),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     """기간별 복수 메트릭. period=daily: 일별 N일, weekly: 주별 N주, monthly: 월별 N개월. by_channel=True면 채널별."""
     try:
+        _assert_dashboard_table(perm, table_id)
         if not end_date:
             end_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
@@ -664,6 +695,8 @@ def trend_multi(
                 row["channel"] = CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})")
             rows.append(row)
         return {"rows": rows, "by_channel": by_channel, "period": period}
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -672,10 +705,10 @@ def trend_multi(
 
 # 16.
 @router.get("/tables")
-def new_dashboard_tables():
+def new_dashboard_tables(perm: dict = Depends(require_permission("dashboard"))):
     """집계 가능 테이블 목록."""
     try:
-        aggregatable = dashboard_service.get_aggregatable_tables()
+        aggregatable = dashboard_service.get_aggregatable_tables(int(perm["project_info_id"]))
         tables = [{"id": t, "name": t} for t in aggregatable]
         return {"tables": tables}
     except Exception as e:

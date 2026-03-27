@@ -14,17 +14,22 @@ FastAPI 라우터. prefix /api/dashboard. 집계·필터 옵션·테이블 목�
 
 [Dependencies]
 =========
-- Backend.core.dashboard_service, Backend.legacy_dashboard_server.schemas
+- Backend.core.dashboard_service, Backend.core.db, Backend.auth_server.permissions
+- Backend.legacy_dashboard_server.schemas
 - fastapi
 """
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from Backend.auth_server.permissions import require_permission
 from Backend.core import dashboard_service
+from Backend.core import db
 from Backend.legacy_dashboard_server.schemas import ChartDataRequest, DashboardDataRequest
+
+_MSG_TABLE_FORBIDDEN = "프로젝트에 매핑된 테이블만 사용할 수 있습니다."
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -41,10 +46,16 @@ def _parse_int_list(value: Optional[str]):
 
 # 2.
 @router.post("/data")
-def dashboard_data(body: DashboardDataRequest):
+def dashboard_data(
+    body: DashboardDataRequest,
+    perm: dict = Depends(require_permission("dashboard")),
+):
     try:
+        tid = body.table_id.strip()
+        if not db.is_table_allowed_for_project_dashboard(int(perm["project_info_id"]), tid):
+            raise HTTPException(status_code=403, detail=_MSG_TABLE_FORBIDDEN)
         req = {
-            "table_id": body.table_id.strip(),
+            "table_id": tid,
             "date_range": [str(body.date_range[0]), str(body.date_range[1])],
             "campaign_ids": body.campaign_ids,
             "workflow_ids": body.workflow_ids,
@@ -58,6 +69,8 @@ def dashboard_data(body: DashboardDataRequest):
         }
         result = dashboard_service.get_dashboard_data(req)
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -71,11 +84,14 @@ def dashboard_filter_options(
     campaign_ids: Optional[str] = Query(None),
     workflow_ids: Optional[str] = Query(None),
     channels: Optional[str] = Query(None),
+    perm: dict = Depends(require_permission("dashboard")),
 ):
     try:
         table_id = (table_id or "").strip()
         if not table_id:
             return JSONResponse(status_code=400, content={"error": "table_id가 필요합니다"})
+        if not db.is_table_allowed_for_project_dashboard(int(perm["project_info_id"]), table_id):
+            raise HTTPException(status_code=403, detail=_MSG_TABLE_FORBIDDEN)
         result = dashboard_service.get_filter_options(
             table_id,
             campaign_ids=_parse_int_list(campaign_ids),
@@ -83,6 +99,8 @@ def dashboard_filter_options(
             channels=_parse_int_list(channels),
         )
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -91,9 +109,9 @@ def dashboard_filter_options(
 
 # 4.
 @router.get("/tables")
-def dashboard_tables():
+def dashboard_tables(perm: dict = Depends(require_permission("dashboard"))):
     try:
-        aggregatable = dashboard_service.get_aggregatable_tables()
+        aggregatable = dashboard_service.get_aggregatable_tables(int(perm["project_info_id"]))
         tables = [{"id": t, "name": t} for t in aggregatable]
         return {"tables": tables}
     except Exception as e:
@@ -112,10 +130,16 @@ def dashboard_required_columns():
 
 # 6.
 @router.post("/chart-data")
-def dashboard_chart_data(body: ChartDataRequest):
+def dashboard_chart_data(
+    body: ChartDataRequest,
+    perm: dict = Depends(require_permission("dashboard")),
+):
     try:
+        tid = body.table_id.strip()
+        if not db.is_table_allowed_for_project_dashboard(int(perm["project_info_id"]), tid):
+            raise HTTPException(status_code=403, detail=_MSG_TABLE_FORBIDDEN)
         req = {
-            "table_id": body.table_id.strip(),
+            "table_id": tid,
             "date_range": [str(body.date_range[0]), str(body.date_range[1])],
             "campaign_ids": body.campaign_ids,
             "workflow_ids": body.workflow_ids,
@@ -125,6 +149,8 @@ def dashboard_chart_data(body: ChartDataRequest):
         }
         result = dashboard_service.get_chart_data(req)
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:

@@ -12,23 +12,25 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 [라우터]
 ===========
 1. health_router: GET /health, GET /, GET /api, GET /api/ (api_server/routers/health)
-2. report_router: /api/* — Backend.report_server.router
-3. dashboard_router: /api/dashboard/* — Backend.legacy_dashboard_server.router
-4. etl_router: /api/etl/* (단일 ETL: 메타·업로드·연결·Job·배치 등)
-5. new_dashboard_router: /api/new-dashboard/* (summary, trend, trend-multi, tables)
-6. campaign_dashboard_router: /api/campaign-dashboard/* (Star JSONB 테이블용, new-dashboard 동형)
-7. new_dash2_router: /api/new-dashboard2/* (overview, star, frequency, coupon, campaign-segments, store, trend, product-master)
+2. auth_router: /api/auth/* — Backend.auth_server.router
+3. project_router: /api/projects — Backend.project_server.router
+4. notification_router: /api/notifications — Backend.notification_server.router
+5. admin_router: /api/admin — Backend.admin_server.router
+6. report_router: /api/* — Backend.report_server.router (엔드포인트별 require_permission)
+7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
+8. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
+   (구 /api/dashboard·뉴 대시보드·마케팅 대시보드 라우터는 미등록 — 패키지는 저장소에 보존, 재연결 시 main에 include)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.core.db, Backend.api_server.routers, Backend.etl_server.router, Backend.new_dash_server, Backend.campaign_dash_server, Backend.new_dash_server2
+- Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.etl_server.router, Backend.campaign_dash_server
 - fastapi, uvicorn
 """
 
 import os
 import sys
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -41,11 +43,14 @@ except ImportError:
     from Env import config
 
 from Backend.core import db
-from Backend.api_server.routers import health_router, report_router, dashboard_router
+from Backend.auth_server import router as auth_router
+from Backend.auth_server.permissions import require_etl_infrastructure, require_permission
+from Backend.project_server import router as project_router
+from Backend.notification_server import router as notification_router
+from Backend.admin_server import router as admin_router
+from Backend.api_server.routers import health_router, report_router
 from Backend.etl_server import router as etl_router
-from Backend.new_dash_server import router as new_dashboard_router
 from Backend.campaign_dash_server import router as campaign_dashboard_router
-from Backend.new_dash_server2 import router as new_dash2_router
 
 from contextlib import asynccontextmanager
 
@@ -79,12 +84,19 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(auth_router)
+app.include_router(project_router)
+app.include_router(notification_router)
+app.include_router(admin_router)
 app.include_router(report_router)
-app.include_router(dashboard_router)
-app.include_router(etl_router)
-app.include_router(new_dashboard_router)
-app.include_router(campaign_dashboard_router)
-app.include_router(new_dash2_router)
+app.include_router(
+    etl_router,
+    dependencies=[Depends(require_etl_infrastructure)],
+)
+app.include_router(
+    campaign_dashboard_router,
+    dependencies=[Depends(require_permission("dashboard"))],
+)
 
 
 # 2.

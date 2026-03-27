@@ -1,0 +1,133 @@
+/**
+ * app/mypage/mypage.css — MyPage 전용
+ */
+
+.mypage {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.mypage__title {
+  margin: 0 0 24px;
+  font-size: 1.35rem;
+  color: #1e3932;
+}
+
+.mypage__section {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px 20px 24px;
+  margin-bottom: 20px;
+}
+
+.mypage__section-title {
+  margin: 0 0 16px;
+  font-size: 1rem;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 8px;
+}
+
+.mypage__row {
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.mypage__row strong {
+  display: inline-block;
+  min-width: 100px;
+  color: #666;
+  font-weight: 500;
+}
+
+.mypage__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 0.875rem;
+  color: #333;
+}
+
+.mypage__input {
+  padding: 10px 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+  max-width: 400px;
+}
+
+.mypage__input:read-only {
+  background: #f5f5f5;
+  color: #555;
+}
+
+.mypage__input:focus {
+  outline: none;
+  border-color: #00754a;
+  box-shadow: 0 0 0 2px rgba(0, 117, 74, 0.2);
+}
+
+.mypage__submit {
+  margin-top: 8px;
+  padding: 10px 18px;
+  background: #00754a;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mypage__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mypage__error {
+  margin: 0 0 8px;
+  color: #c62828;
+  font-size: 0.875rem;
+}
+
+.mypage__ok {
+  margin: 0 0 8px;
+  color: #2e7d32;
+  font-size: 0.875rem;
+}
+
+.mypage__hint {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.mypage__table-wrap {
+  overflow-x: auto;
+}
+
+.mypage__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.mypage__table th,
+.mypage__table td {
+  border: 1px solid #e0e0e0;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.mypage__table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.mypage__muted {
+  color: #888;
+  font-size: 0.875rem;
+}

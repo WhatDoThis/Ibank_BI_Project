@@ -1,12 +1,12 @@
 """
 Backend.core.dashboard_service (대시보드 비즈니스 로직)
 ======================================================
-캠페인/일자/워크플로우/채널별 GROUP BY 집계·KPI·필터 옵션·차트 데이터 조회. legacy_dashboard·new_dash_server·campaign_dash_server에서 공통 호출.
+캠페인/일자/워크플로우/채널별 GROUP BY 집계·KPI·필터 옵션·차트 데이터 조회. HTTP는 campaign_dash_server만 연동; 구형 라우터 재연결 시 동일 모듈 재사용 가능.
 
 [Main Functions]
 ===========
 1. get_required_columns: DASHBOARD_REQUIRED_COLUMNS 기반 필수 컬럼 목록 (API·안내용)
-2. get_aggregatable_tables: 필수 컬럼·타입 만족 테이블만 반환 (대시보드 셀렉트용)
+2. get_aggregatable_tables: 프로젝트별 table_master·매핑(main∪dash∪star) 후보만 대상으로 필수 컬럼·타입 검사
 3. _full_table_name: table_id → schema.table
 4. _build_group_by_clause: group_by 설정 → GROUP BY 절
 5. _build_where_clause: campaign/workflow/channel 필터 → WHERE 절
@@ -19,17 +19,17 @@ Backend.core.dashboard_service (대시보드 비즈니스 로직)
 
 [Package Usage]
 ===========
-1. get_required_columns: Backend/legacy_dashboard_server
-2. get_aggregatable_tables: Backend/legacy_dashboard_server, Backend/new_dash_server, Backend/campaign_dash_server
+1. get_required_columns: (구 legacy 라우터용; main 미등록 시 API 미호출)
+2. get_aggregatable_tables: Backend/campaign_dash_server
 3. _full_table_name: (모듈 내부 전용)
 4. _build_group_by_clause: (모듈 내부 전용)
 5. _build_where_clause: (모듈 내부 전용)
 6. _row_to_aggregated: (모듈 내부 전용)
-7. get_dashboard_data: Backend/legacy_dashboard_server, Backend/new_dash_server, Backend/campaign_dash_server
+7. get_dashboard_data: Backend/campaign_dash_server
 8. _calculate_kpi: (모듈 내부 전용)
 9. _build_filter_linked_where: (모듈 내부 전용)
-10. get_filter_options: Backend/legacy_dashboard_server
-11. get_chart_data: Backend/legacy_dashboard_server, Backend/new_dash_server, Backend/campaign_dash_server
+10. get_filter_options: (구 legacy 라우터용; main 미등록 시 API 미호출)
+11. get_chart_data: Backend/campaign_dash_server
 
 [Dependencies]
 =========
@@ -77,12 +77,12 @@ def get_required_columns():
 
 
 # 2.
-def get_aggregatable_tables():
-    """allowed_tables 중 필수 컬럼을 모두 가지고, 각 컬럼 타입이 허용 타입인 테이블만 반환 (대시보드 셀렉트용). ibank_1 계열도 dash_db에서 체크."""
-    allowed = db.get_allowed_tables()
-    # 뉴 대시보드 물리 테이블(ibank_1)도 체크 대상에 추가 (allowed_tables에 없어도 dash_db에서 조회)
-    dash_candidates = ["ibank_1", "ibank_1_star_1"]
-    all_candidates = sorted(set(allowed) | set(dash_candidates))
+def get_aggregatable_tables(project_info_id: int):
+    """table_project_mapping·table_master 기준 main∪dash∪star 후보만 두고, 필수 컬럼·타입을 만족하는 테이블만 반환."""
+    main_s = db.get_allowed_tables_by_project(int(project_info_id), "main")
+    dash_s = db.get_allowed_tables_by_project(int(project_info_id), "dash")
+    star_s = db.get_allowed_tables_by_project(int(project_info_id), "star")
+    all_candidates = sorted(main_s | dash_s | star_s)
     required_count = len(DASHBOARD_REQUIRED_COLUMNS)
     result = []
     for table_name in all_candidates:

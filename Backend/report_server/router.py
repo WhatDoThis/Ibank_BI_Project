@@ -17,7 +17,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Endpoints]
 ===========
-10. list_tables: GET /api/list-tables (스키마 내 테이블·뷰)
+10. list_tables: GET /api/list-tables (현재 프로젝트에 매핑된 허용 테이블)
 11. describe_table: POST /api/describe-table (테이블 구조)
 12. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
 13. save_column_labels: POST /api/column-labels (라벨 저장)
@@ -32,7 +32,8 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Dependencies]
 =========
-- Backend.core.db, Backend.core.dependencies, Backend.report_server.schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
+- Backend.core.db, Backend.core.dependencies, Backend.auth_server.permissions.require_permission
+- Backend.report_server.schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
 - fastapi, psycopg2, psycopg2.extras.RealDictCursor, requests
 """
 
@@ -51,12 +52,13 @@ import psycopg2
 from psycopg2 import sql as pg_sql
 from psycopg2.extras import RealDictCursor
 import requests
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from Backend.core import db
 from Backend.report_server import analysis_store
 from Backend.report_server.relationship_inference import infer_relationships
+from Backend.auth_server.permissions import require_permission
 from Backend.core.dependencies import get_db, get_config
 from Backend.report_server.join_path import determine_join_order, validate_join_order
 from Backend.report_server.join_metrics import join_accuracy_score
@@ -378,35 +380,52 @@ def _get_or_compute_relationships_all(conn):
 
 # 10.
 @router.get("/list-tables")
-def list_tables(conn=Depends(get_db)):
+def list_tables(
+    _perm: dict = Depends(require_permission("report.read")),
+    conn=Depends(get_db),
+):
     try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+
+        allowed_rows = db.get_allowed_tables(
+            project_info_id=int(project_info_id),
+            db_type="main",
+            include_meta=True,
+        )
+        allowed_map = {row["table_name"]: row for row in allowed_rows}
+        allowed_names = list(allowed_map.keys())
+        if not allowed_names:
+            return {"tables": [], "count": 0}
+
         schema = db.get_table_schema()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute(
-            """
-            SELECT
-                table_name,
-                pg_size_pretty(pg_total_relation_size((table_schema || '.' || table_name)::regclass)) AS size
-            FROM information_schema.tables
-            WHERE table_schema = %s
-              AND table_type IN ('BASE TABLE', 'VIEW')
-            ORDER BY table_name
-            """,
-            (schema,),
-        )
-        rows = cur.fetchall()
-        cur.close()
         data = _load_labels_file()
         table_labels_saved = data.get("table_labels") or {}
         tables = []
-        for row in rows:
-            tname = row["table_name"]
+        for tname in allowed_names:
+            size_pretty = None
+            try:
+                cur.execute(
+                    "SELECT pg_size_pretty(pg_total_relation_size(%s::regclass)) AS size",
+                    (f"{schema}.{tname}",),
+                )
+                size_row = cur.fetchone() or {}
+                size_pretty = size_row.get("size")
+            except Exception:
+                size_pretty = None
+            row_meta = allowed_map.get(tname) or {}
             tables.append({
                 "table_name": tname,
-                "size": row.get("size"),
-                "table_label": table_labels_saved.get(tname) or DEFAULT_TABLE_LABELS.get(tname) or tname,
+                "size": size_pretty,
+                "table_label": row_meta.get("table_label") or table_labels_saved.get(tname) or DEFAULT_TABLE_LABELS.get(tname) or tname,
+                "table_dscrtn": row_meta.get("table_dscrtn"),
             })
+        cur.close()
         return {"tables": tables, "count": len(tables)}
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=503, content={"error": str(e), "message": "DB 설정 없음"})
     except psycopg2.OperationalError as e:
@@ -417,7 +436,11 @@ def list_tables(conn=Depends(get_db)):
 
 # 11.
 @router.post("/describe-table")
-def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
+def describe_table(
+    body: DescribeTableRequest,
+    _perm: dict = Depends(require_permission("report.read")),
+    conn=Depends(get_db),
+):
     try:
         table_name = db.validate_table_name(body.table_name)
         schema = db.get_table_schema()
@@ -459,7 +482,10 @@ def describe_table(body: DescribeTableRequest, conn=Depends(get_db)):
 
 # 12.
 @router.get("/column-labels")
-def get_column_labels(table_name: str = Query(..., description="테이블명")):
+def get_column_labels(
+    table_name: str = Query(..., description="테이블명"),
+    _perm: dict = Depends(require_permission("report.read")),
+):
     """테이블별 컬럼 라벨·테이블 라벨 조회."""
     try:
         table_name = db.validate_table_name(table_name)
@@ -473,7 +499,10 @@ def get_column_labels(table_name: str = Query(..., description="테이블명")):
 
 # 13.
 @router.post("/column-labels")
-def save_column_labels(body: ColumnLabelsRequest):
+def save_column_labels(
+    body: ColumnLabelsRequest,
+    _perm: dict = Depends(require_permission("report.read")),
+):
     """테이블·컬럼 라벨 저장. 사용자가 수정한 라벨만 저장(기본값 덮어씀)."""
     try:
         table_name = db.validate_table_name(body.table_name)
@@ -506,7 +535,11 @@ def save_column_labels(body: ColumnLabelsRequest):
 
 # 14.
 @router.get("/table-relationships")
-def table_relationships(conn=Depends(get_db), mode: str = Query("fk", description="fk=FK만(문서기본), all=FK+_id추론")):
+def table_relationships(
+    _perm: dict = Depends(require_permission("report.read")),
+    conn=Depends(get_db),
+    mode: str = Query("fk", description="fk=FK만(문서기본), all=FK+_id추론"),
+):
     """개선된 관계 분석. mode=all이면 저장된 분석 결과가 있고 allowlist가 같으면 그대로 사용, 없으면 분석 후 저장."""
     try:
         mode = (mode or "fk").strip().lower()
@@ -522,7 +555,11 @@ def table_relationships(conn=Depends(get_db), mode: str = Query("fk", descriptio
 
 # 15.
 @router.post("/join-order")
-def api_join_order(body: JoinOrderRequest, conn=Depends(get_db)):
+def api_join_order(
+    body: JoinOrderRequest,
+    _perm: dict = Depends(require_permission("report.read")),
+    conn=Depends(get_db),
+):
     """
     JOIN 자동 생성 명세: base_table 기준 required_tables의 JOIN 순서 + 엣지 정보.
     반환: join_order (각 단계 table, from_table, from_column, to_table, to_column), warnings, errors
@@ -590,6 +627,45 @@ _save_table_worker_conn_err_sleep_sec = 10
 
 
 # 16.
+def _upsert_table_master_and_mapping(
+    project_info_id: int,
+    db_type: str,
+    table_name: str,
+) -> None:
+    """table_master(table_name, db_type)와 table_project_mapping(project, table)을 upsert."""
+    conn = db.get_db_connection_system_core()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(
+            """
+            INSERT INTO table_master (db_type, table_name, create_dtm, update_dtm)
+            VALUES (%s, %s, NOW(), NOW())
+            ON CONFLICT (db_type, table_name)
+            DO UPDATE SET update_dtm = NOW()
+            RETURNING table_master_id
+            """,
+            (str(db_type or "main").strip().lower(), table_name),
+        )
+        row = cur.fetchone()
+        table_master_id = int(row["table_master_id"])
+        cur.execute(
+            """
+            INSERT INTO table_project_mapping (project_info_id, table_master_id, create_dtm)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (project_info_id, table_master_id) DO NOTHING
+            """,
+            (int(project_info_id), table_master_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# 17.
 def _ensure_queue_table(conn):
     """큐 테이블이 없으면 생성 (allowed_tables와 무관, 내부용)."""
     schema = db.get_table_schema()
@@ -600,6 +676,7 @@ def _ensure_queue_table(conn):
                 CREATE TABLE IF NOT EXISTS {schema_table} (
                     id UUID PRIMARY KEY,
                     table_name VARCHAR(255) NOT NULL,
+                    project_info_id INT4 NOT NULL,
                     query TEXT NOT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'queued',
                     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -610,12 +687,18 @@ def _ensure_queue_table(conn):
                 )
             """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
         )
+        cur.execute(
+            pg_sql.SQL(
+                "ALTER TABLE {schema_table} "
+                "ADD COLUMN IF NOT EXISTS project_info_id INT4"
+            ).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
+        )
         conn.commit()
     finally:
         cur.close()
 
 
-# 17.
+# 18.
 def _save_table_worker():
     """큐 테이블에서 status='queued'인 행을 확인해 하나씩 CREATE TABLE 실행."""
     global _save_table_worker_last_conn_err_log
@@ -630,7 +713,7 @@ def _save_table_worker():
             cur = conn_sel.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 pg_sql.SQL("""
-                    SELECT id, table_name, query
+                    SELECT id, table_name, query, project_info_id
                     FROM {schema_table}
                     WHERE status = 'queued'
                     ORDER BY created_at
@@ -647,6 +730,7 @@ def _save_table_worker():
             job_id = str(row["id"])
             table_name = row["table_name"]
             query = row["query"]
+            project_info_id = int(row["project_info_id"])
             cur = conn_sel.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 pg_sql.SQL("UPDATE {schema_table} SET status = 'running', started_at = NOW() WHERE id = %s").format(
@@ -669,6 +753,11 @@ def _save_table_worker():
                 cur_create.close()
                 conn_create.close()
                 conn_create = None
+                _upsert_table_master_and_mapping(
+                    project_info_id=project_info_id,
+                    db_type="main",
+                    table_name=table_name,
+                )
                 conn_up = db.get_db_connection()
                 cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(
@@ -758,13 +847,22 @@ _save_table_worker_thread = threading.Thread(target=_save_table_worker, daemon=T
 _save_table_worker_thread.start()
 
 
-# 18.
+# 19.
 @router.post("/save-query-as-table")
-def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg=Depends(get_config)):
+def save_query_as_table(
+    body: SaveQueryAsTableRequest,
+    _perm: dict = Depends(require_permission("report.execute")),
+    conn=Depends(get_db),
+    cfg=Depends(get_config),
+):
     """
     쿼리 결과를 테이블로 저장. 요청은 큐 테이블(report_save_queue)에 INSERT 후 즉시 반환. 워커가 큐를 확인해 CREATE TABLE 실행.
     """
     try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+
         table_name = (body.table_name or "").strip()
         if not table_name:
             return JSONResponse(status_code=400, content={"error": "테이블명을 입력하세요."})
@@ -796,10 +894,10 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
         try:
             cur.execute(
                 pg_sql.SQL("""
-                    INSERT INTO {schema_table} (id, table_name, query, status)
-                    VALUES (%s, %s, %s, 'queued')
+                    INSERT INTO {schema_table} (id, table_name, project_info_id, query, status)
+                    VALUES (%s, %s, %s, %s, 'queued')
                 """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
-                (str(job_id), table_name, query),
+                (str(job_id), table_name, int(project_info_id), query),
             )
             conn.commit()
         finally:
@@ -810,6 +908,8 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
             "status": "queued",
             "message": "저장이 큐 테이블에 등록되었습니다. 백그라운드에서 순서대로 처리됩니다.",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         traceback.print_exc()
         if conn:
@@ -822,7 +922,11 @@ def save_query_as_table(body: SaveQueryAsTableRequest, conn=Depends(get_db), cfg
 
 # 19.
 @router.get("/save-query-as-table/status/{job_id}")
-def save_query_as_table_status(job_id: str, conn=Depends(get_db)):
+def save_query_as_table_status(
+    job_id: str,
+    _perm: dict = Depends(require_permission("report.read")),
+    conn=Depends(get_db),
+):
     """백그라운드 저장 작업 상태 조회 (큐 테이블에서 조회)."""
     try:
         _ensure_queue_table(conn)
@@ -857,7 +961,12 @@ def save_query_as_table_status(job_id: str, conn=Depends(get_db)):
 
 # 20.
 @router.post("/execute-query")
-def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(get_config)):
+def execute_query(
+    body: ExecuteQueryRequest,
+    _perm: dict = Depends(require_permission("report.execute")),
+    conn=Depends(get_db),
+    cfg=Depends(get_config),
+):
     try:
         query = (body.query or "").strip()
         _log("request: len=%s startswith_SELECT=%s", len(query), query.upper().startswith("SELECT"))
@@ -917,7 +1026,11 @@ def execute_query(body: ExecuteQueryRequest, conn=Depends(get_db), cfg=Depends(g
 
 # 21.
 @router.post("/explain-sql")
-def explain_sql(body: ExplainSqlRequest, cfg=Depends(get_config)):
+def explain_sql(
+    body: ExplainSqlRequest,
+    _perm: dict = Depends(require_permission("report.execute")),
+    cfg=Depends(get_config),
+):
     try:
         query = body.get_query()
         if not query:
@@ -974,7 +1087,11 @@ def explain_sql(body: ExplainSqlRequest, cfg=Depends(get_config)):
 
 # 22.
 @router.post("/get-column-values")
-def get_column_values(body: GetColumnValuesRequest, conn=Depends(get_db)):
+def get_column_values(
+    body: GetColumnValuesRequest,
+    _perm: dict = Depends(require_permission("report.read")),
+    conn=Depends(get_db),
+):
     try:
         table_name = db.validate_table_name(body.table_name)
         column_name = db.validate_column_name(body.column_name)
@@ -1001,7 +1118,11 @@ def get_column_values(body: GetColumnValuesRequest, conn=Depends(get_db)):
 
 # 23.
 @router.post("/query-stats")
-def query_stats(body: QueryStatsRequest, conn=Depends(get_db)):
+def query_stats(
+    body: QueryStatsRequest,
+    _perm: dict = Depends(require_permission("report.execute")),
+    conn=Depends(get_db),
+):
     try:
         query = (body.query or "").strip()
         if not query or not query.upper().startswith("SELECT"):

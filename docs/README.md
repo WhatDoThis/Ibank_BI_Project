@@ -7,7 +7,7 @@
 | 파일 | 내용 |
 |------|------|
 | [00_PRD.md](main/00_PRD.md) | 제품 범위·아키텍처 요약·설정·기능 개요 |
-| [01_FRONTEND_GUIDE.md](main/01_FRONTEND_GUIDE.md) | React 앱 구조·`packages/*`·`app/routes.jsx`·패키지별 API 클라이언트·라우트 |
+| [01_FRONTEND_GUIDE.md](main/01_FRONTEND_GUIDE.md) | React 앱 구조·`app/*`·`packages/*`·패키지별 API 클라이언트·라우트 |
 | [02_BACKEND_GUIDE.md](main/02_BACKEND_GUIDE.md) | FastAPI·라우터·`etl_server`·뉴/캠페인/마케팅 대시보드 API·설정 |
 | [03_개발가이드.md](main/03_개발가이드.md) | AI·온보딩용 아키텍처 지도, 레이어·DB 매트릭스, 작업 유형별 탐색 경로 |
 

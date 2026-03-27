@@ -1,0 +1,133 @@
+/**
+ * app/home/home.css — HomePage 전용 (§5.2 빠른 액세스)
+ */
+
+.home {
+  padding: 24px 16px 48px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.home__title {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+  color: #1e3932;
+}
+
+.home__lead {
+  color: #555;
+  font-size: 0.95rem;
+  margin: 0 0 24px;
+  line-height: 1.5;
+}
+
+.home__section-title {
+  margin: 28px 0 12px;
+  font-size: 1.05rem;
+  color: #333;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 8px;
+}
+
+.home__section-title:first-of-type {
+  margin-top: 0;
+}
+
+.home__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.home__card {
+  display: block;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid #c8e6c9;
+  background: #f1f8f4;
+  color: #1e3932;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.home__card:hover {
+  background: #e8f5e9;
+  border-color: #00754a;
+}
+
+.home__card-desc {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #555;
+  line-height: 1.35;
+}
+
+.home__card--muted {
+  border-color: #e0e0e0;
+  background: #fafafa;
+  color: #888;
+  cursor: default;
+  pointer-events: none;
+}
+
+.home__note {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0 0 16px;
+}
+
+.home__error {
+  color: #c62828;
+  margin: 0 0 12px;
+}
+
+.home__continue {
+  margin-bottom: 20px;
+}
+
+.home__continue button {
+  padding: 10px 16px;
+  background: #00754a;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.home__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.home__project {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home__project-btn {
+  padding: 8px 14px;
+  background: #1e3932;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.home__project-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

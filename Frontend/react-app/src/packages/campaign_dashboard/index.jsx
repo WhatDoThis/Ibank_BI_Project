@@ -1,7 +1,7 @@
 /**
  * campaign_dashboard (캠페인 대시보드 패키지)
  * ===========================================
- * Star 스키마(ibank_*_star_1/2) 연동. /campaign-dashboard 라우트.
+ * Star 스키마(ibank_*_star_1/2) 연동. 라우트 `/dashboard`(구 `/campaign-dashboard`는 `/dashboard`로 리다이렉트).
  *
  * [Main]
  * 1. default export: CampaignDashboardPage
