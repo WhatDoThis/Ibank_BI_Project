@@ -1,5 +1,5 @@
 /**
- * app/AdminUsersPage.jsx (부서 사용자 관리 S8)
+ * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
  * GET /api/admin/users, 초대 폼(/users/invite·/invite/*), PATCH suspend|activate.
  *
@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, app/AuthContext
+ * - shared/api/adminClient, app/auth/AuthContext
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -24,7 +24,7 @@ import {
   postAdminInvite,
 } from '@/shared/api/adminClient.js'
 
-import { useAuth } from './AuthContext.jsx'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './admin-users.css'
 
 function formatDtm(v) {

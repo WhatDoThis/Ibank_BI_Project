@@ -1,11 +1,11 @@
 /**
- * app/CreateOrgPage.jsx (부서·최초 계정 생성)
- * =======================================
- * POST /api/auth/create-org — org_name, email, password, nickname. 성공 시 /login 이동.
+ * app/auth/SignupPage.jsx (초대 코드 회원가입)
+ * ====================================
+ * POST /api/auth/signup — invite_code, email, password, nickname. 성공 시 로그인 안내·/login 이동.
  *
  * [Main Functions]
  * ===========
- * - CreateOrgPage
+ * - SignupPage
  *
  * [Dependencies]
  * =========
@@ -15,18 +15,19 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
-import { postCreateOrg } from '@/shared/api/authClient.js'
+import { getInviteValidate, postSignup } from '@/shared/api/authClient.js'
 
 import { useAuth } from './AuthContext.jsx'
 import './login.css'
 
-export default function CreateOrgPage() {
+export default function SignupPage() {
   const { me, loading } = useAuth()
   const navigate = useNavigate()
-  const [orgName, setOrgName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [nickname, setNickname] = useState('')
+  const [inviteHint, setInviteHint] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -42,20 +43,53 @@ export default function CreateOrgPage() {
     return <Navigate to="/" replace />
   }
 
+  async function handleBlurInvite() {
+    const c = inviteCode.trim()
+    if (!c) {
+      setInviteHint('')
+      return
+    }
+    try {
+      const row = await getInviteValidate(c)
+      if (!row.valid) {
+        setInviteHint(
+          row.reason === 'used'
+            ? '이미 사용된 초대 코드입니다.'
+            : row.reason === 'expired'
+              ? '만료된 초대 코드입니다.'
+              : '초대 코드를 찾을 수 없습니다.',
+        )
+        return
+      }
+      const parts = [row.dptmt_name, row.email, row.invite_target_dvsn].filter(Boolean)
+      const extra = []
+      if (row.invite_etl_yn === 'Y') extra.push('ETL 자격 포함')
+      if (row.has_project_attachment) {
+        const pName = row.invite_project_name || '프로젝트'
+        const rName = row.invite_pmssn_name || '역할'
+        extra.push(`${pName} 프로젝트에 ${rName} 역할로 자동 등록`)
+      }
+      const base = parts.length ? `부서·역할: ${parts.join(' · ')}` : '초대가 유효합니다.'
+      setInviteHint(extra.length ? `${base} (${extra.join(', ')})` : base)
+    } catch {
+      setInviteHint('초대 코드 확인에 실패했습니다.')
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setBusy(true)
     try {
-      await postCreateOrg({
-        org_name: orgName.trim(),
+      await postSignup({
+        invite_code: inviteCode.trim(),
         email: email.trim(),
         password,
         nickname: nickname.trim(),
       })
-      navigate('/login', { replace: true, state: { createOrgOk: true } })
+      navigate('/login', { replace: true, state: { signupOk: true } })
     } catch (err) {
-      setError(err?.message || '생성 실패')
+      setError(err?.message || '가입 실패')
     } finally {
       setBusy(false)
     }
@@ -64,22 +98,23 @@ export default function CreateOrgPage() {
   return (
     <div className="login-page">
       <div className="login-page__card">
-        <h1 className="login-page__title">부서 새로 만들기</h1>
-        <p className="login-page__hint">최초 부서명과 관리자 계정을 만듭니다.</p>
+        <h1 className="login-page__title">초대 코드로 가입</h1>
         <form onSubmit={handleSubmit} className="login-page__form">
           <label className="login-page__label">
-            부서(조직) 이름
+            초대 코드
             <input
               type="text"
-              value={orgName}
-              onChange={(ev) => setOrgName(ev.target.value)}
+              value={inviteCode}
+              onChange={(ev) => setInviteCode(ev.target.value)}
+              onBlur={handleBlurInvite}
               required
-              maxLength={100}
               className="login-page__input"
+              autoComplete="off"
             />
           </label>
+          {inviteHint ? <p className="login-page__hint">{inviteHint}</p> : null}
           <label className="login-page__label">
-            이메일 (관리자)
+            이메일
             <input
               type="email"
               autoComplete="email"
@@ -112,13 +147,13 @@ export default function CreateOrgPage() {
           </label>
           {error ? <p className="login-page__error">{error}</p> : null}
           <button type="submit" disabled={busy} className="login-page__submit">
-            {busy ? '처리 중…' : '부서 만들기'}
+            {busy ? '처리 중…' : '가입하기'}
           </button>
         </form>
         <p className="login-page__links">
           <Link to="/login">로그인</Link>
           {' · '}
-          <Link to="/signup">초대 코드로 가입</Link>
+          <Link to="/create-org">부서 새로 만들기</Link>
         </p>
       </div>
     </div>

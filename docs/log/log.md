@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+85. 2026-03-28 전수검사 반영: admin list_projects role_name·SignupPage 초대 UX
+84. 2026-03-28 react-app src/app 카테고리 폴더(auth·home·admin·layout·guards)
+83. 2026-03-28 어드민 나머지: 역할·프로젝트·멤버·ProjectAdminRoute·adminClient
 82. 2026-03-28 홈 §5.2 빠른 액세스·/admin/org·SuperAdminRoute·homeAccess
 81. 2026-03-27 Backend/migrations 제거(저장소에 마이그레이션 파일 금지)
 80. 2026-03-27 auth 초대 JOIN·로그인 토큰 1회·프로젝트 active·SA_DEV 유저관리
@@ -85,6 +88,31 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+85. 2026-03-28 전수검사 반영: admin list_projects role_name·SignupPage 초대 UX
+Purpose: B-7 어드민 참여 프로젝트 목록에 `role_name` 정합, B-6 초대 검증 시 프로젝트·역할명 표시.
+
+Changes: `list_projects_for_participant`에 `pmssn_master` LEFT JOIN·`role_name`. SignupPage `has_project_attachment` 문구에 `invite_project_name`·`invite_pmssn_name` 반영.
+
+Changed files: Backend/admin_server/service_projects.py, Frontend/react-app/src/app/auth/SignupPage.jsx, docs/log/log.md
+
+84. 2026-03-28 react-app src/app 카테고리 폴더(auth·home·admin·layout·guards)
+Purpose: SPA 전용 화면을 `app/` 하위 도메인 폴더로 정리. `packages/*` 는 기능 번들 유지.
+
+Changes: `auth/`, `home/`, `mypage/`, `admin/`, `layout/`, `guards/` 로 이동, `App.jsx`·`routes.jsx`·`@/app/...` 수정, PRD·01·03·project-conventions.
+
+Changed files: Frontend/react-app/src/app/**, Frontend/react-app/src/App.jsx, docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/03_AI_DEVELOP_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/README.md, .cursor/rules/project-conventions.mdc, docs/log/log.md
+
+83. 2026-03-28 어드민 나머지: 역할·프로젝트·멤버·ProjectAdminRoute·adminClient
+Purpose: `/admin/roles` 커스텀 CRUD, `/admin/projects` 생성·수정·비활성(어드민), `/admin/projects/:id/members` 검색·멤버·역할. operator 는 프로젝트 화면만. `admin-pages.css`, 홈·네비 연동.
+
+Changes:
+
+- adminClient: roles·projects·members·users/search
+- AdminRolesPage, AdminProjectsPage, AdminProjectMembersPage, ProjectAdminRoute, canAccessProjectAdminPages
+- routes, nav, ProtectedLayout, HomePage, docs
+
+Changed files: Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/adminAccess.js, admin-pages.css, AdminRolesPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, ProjectAdminRoute.jsx, routes.jsx, navConfig.js, ProtectedLayout.jsx, HomePage.jsx, docs/main/01_FRONTEND_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
 
 82. 2026-03-28 홈 §5.2 빠른 액세스·/admin/org·SuperAdminRoute·homeAccess
 Purpose: `HomePage` 프로젝트·권한 기반 카드, `homeAccess.js`, `/admin/org` 부서명(GET/PATCH)·네비 `requiresDeptAdmin`.

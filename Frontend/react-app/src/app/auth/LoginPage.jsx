@@ -1,5 +1,5 @@
 /**
- * app/LoginPage.jsx (이메일·비밀번호·2차 인증코드 로그인)
+ * app/auth/LoginPage.jsx (이메일·비밀번호·2차 인증코드 로그인)
  * ===================================================
  * POST /api/auth/login → verify-login. 하단 링크·플래시(signup·create-org·비밀번호 변경 후 재로그인). 성공 시 refreshMe 후 `/` 이동.
  *
@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/AuthContext, shared/api/authClient
+ * - react-router-dom, ./AuthContext, shared/api/authClient
  */
 
 import { useState } from 'react'

@@ -691,7 +691,7 @@ shared/components/
 | `core/db.py` | main_db 키 경로 변경 |
 | `shared/api/http.js` | Authorization 헤더 + 401 refresh |
 | `app/routes.jsx` | ProtectedRoute + 신규 라우트 |
-| `app/navConfig.js` | requiredPermission + 필터링 |
+| `app/layout/navConfig.js` | requiredPermission + 필터링 |
 | `App.jsx` | AuthProvider + NotificationBell |
 | `Env/config/config.json` | main_db 묶음 + jwt/smtp |
 | `auth_server/email_service.py` | SMTP 미설정 시 콘솔 출력·발송 스킵(§2.7) |
@@ -769,7 +769,7 @@ shared/components/
 | S5 | 완료(1차) | 로그인·가입·부서 생성·토큰 저장 |
 | S6 | 완료(1차) | `http.js` Bearer·401 refresh·`NeedProjectRoute`·ETL 가드 |
 | S7 | 완료(1차) | `/mypage` 닉네임·비밀번호·로그인 이력(메인 `/` 빠른 액세스 카드 등은 선택) |
-| S8 | 진행(1차) | 알림 벨·`/api/notifications`·부서 사용자 관리 `/admin/users`(초대·역할·프로젝트 어드민 등은 추가) |
+| S8 | 완료(1차) | 알림·`/admin/users`·`/admin/roles`·`/admin/projects`·멤버·`/admin/org`·홈 빠른 액세스(테이블 마스터 UI는 M2) |
 | S9~S10 | 대기 | 통합 테스트·문서 정합 |
 
 *(이 표는 섹션 완료 시마다 갱신한다.)*

@@ -1,5 +1,5 @@
 /**
- * app/homeAccess.js (홈 빠른 액세스 권한)
+ * app/home/homeAccess.js (홈 빠른 액세스 권한)
  * =====================================
  * /api/auth/me 의 permissions·프로젝트 claim·역할로 카드 노출 판단.
  *

@@ -1,5 +1,5 @@
 /**
- * app/MyPage.jsx (마이페이지 S7)
+ * app/mypage/MyPage.jsx (마이페이지 S7)
  * =============================
  * 프로필(닉네임)·비밀번호·로그인 이력. PATCH /api/auth/me·/me/password·GET login-history.
  * 비밀번호 변경 성공 시 세션 무효 → 토큰 제거 후 /login.
@@ -10,7 +10,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/AuthContext, shared/api/authClient, shared/auth/tokenStorage
+ * - react-router-dom, app/auth/AuthContext, shared/api/authClient, shared/auth/tokenStorage
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -23,7 +23,7 @@ import {
 } from '@/shared/api/authClient.js'
 import { clearTokens } from '@/shared/auth/tokenStorage.js'
 
-import { useAuth } from './AuthContext.jsx'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './mypage.css'
 
 function formatDtm(iso) {

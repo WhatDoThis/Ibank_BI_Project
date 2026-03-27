@@ -1,5 +1,5 @@
 /**
- * app/NeedProjectRoute.jsx (프로젝트 선택 필수 라우트)
+ * app/guards/NeedProjectRoute.jsx (프로젝트 선택 필수 라우트)
  * ================================================
  * JWT에 project_info_id 없으면 `/` 로 이동. 리포트·대시보드 등에 사용.
  *

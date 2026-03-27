@@ -27,7 +27,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/navConfig.js`, `src/app/routes.jsx`. **packages**: report, **campaign_dashboard**, **widgetboard**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/layout/navConfig.js`, `src/app/routes.jsx`. **앱 페이지**: `src/app/auth|home|mypage|admin|layout|guards/`. **packages**: report, **campaign_dashboard**, **widgetboard**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
 - **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(공유 `db`, `dependencies`, `dashboard_service`), **report_server**(노코드 리포트 `/api`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard` — 등록되는 유일 대시보드 API). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 저장소 보존·main 미등록. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **03_AI_DEVELOP_GUIDE.md**.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.

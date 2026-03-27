@@ -1,5 +1,5 @@
 /**
- * app/SuperAdminRoute.jsx (슈퍼어드민·SA_DEV 전용 가드)
+ * app/guards/SuperAdminRoute.jsx (슈퍼어드민·SA_DEV 전용 가드)
  * ==================================================
  * 부서 설정 등 require_super_admin API 화면. super_admin·sa_dev 만 통과.
  *
@@ -9,13 +9,13 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/AuthContext, app/adminAccess
+ * - react-router-dom, app/auth/AuthContext, app/admin/adminAccess
  */
 
 import { Navigate } from 'react-router-dom'
 
-import { useAuth } from './AuthContext.jsx'
-import { canAccessDeptSettings } from './adminAccess.js'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
+import { canAccessDeptSettings } from '@/app/admin/adminAccess.js'
 
 export function SuperAdminRoute({ children }) {
   const { me, loading } = useAuth()

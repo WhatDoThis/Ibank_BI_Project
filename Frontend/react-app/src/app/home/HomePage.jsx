@@ -1,7 +1,7 @@
 /**
- * app/HomePage.jsx (프로젝트 선택 + §5.2 빠른 액세스)
+ * app/home/HomePage.jsx (프로젝트 선택 + §5.2 빠른 액세스)
  * =================================================
- * GET /api/projects, 선택 시 select. 하단 카드는 JWT 프로젝트·me.permissions·역할.
+ * GET /api/projects, select. 빠른 액세스: homeAccess·etlAccess·adminAccess(역할·프로젝트·운영자).
  *
  * [Main Functions]
  * ===========
@@ -10,7 +10,7 @@
  * [Dependencies]
  * =========
  * - react-router-dom, shared/api/authClient, shared/auth/jwtUtils·tokenStorage
- * - app/homeAccess, app/etlAccess, app/adminAccess, app/AuthContext
+ * - ./homeAccess, app/guards/etlAccess, app/admin/adminAccess, app/auth/AuthContext
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -19,15 +19,19 @@ import { Link, useNavigate } from 'react-router-dom'
 import { getAccessToken } from '@/shared/auth/tokenStorage.js'
 import { hasProjectClaim } from '@/shared/auth/jwtUtils.js'
 import { getProjects, postSelectProject } from '@/shared/api/authClient.js'
-import { canAccessDeptSettings, canAccessOrgAdmin } from '@/app/adminAccess.js'
-import { canAccessEtl } from '@/app/etlAccess.js'
+import {
+  canAccessDeptSettings,
+  canAccessOrgAdmin,
+  canAccessProjectAdminPages,
+} from '@/app/admin/adminAccess.js'
+import { canAccessEtl } from '@/app/guards/etlAccess.js'
 import {
   canAccessDashboard,
   canAccessQueryStudio,
   canAccessWidgetboard,
-} from '@/app/homeAccess.js'
+} from '@/app/home/homeAccess.js'
 
-import { useAuth } from './AuthContext.jsx'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './home.css'
 
 export default function HomePage() {
@@ -75,6 +79,8 @@ export default function HomePage() {
   const showWidget = hasProject && canAccessWidgetboard(me)
   const showEtl = canAccessEtl(me)
   const showUsers = canAccessOrgAdmin(me)
+  const showRoles = canAccessOrgAdmin(me)
+  const showProjects = canAccessProjectAdminPages(me)
   const showDept = canAccessDeptSettings(me)
   const anyProjectCard = showQuery || showDash || showWidget
 
@@ -165,7 +171,7 @@ export default function HomePage() {
       <h3 className="home__section-title" style={{ fontSize: '0.95rem' }}>
         관리 · 인프라
       </h3>
-      {showEtl || showUsers || showDept ? (
+      {showEtl || showUsers || showRoles || showProjects || showDept ? (
         <div className="home__cards">
           {showEtl ? (
             <Link to="/etl" className="home__card">
@@ -177,6 +183,18 @@ export default function HomePage() {
             <Link to="/admin/users" className="home__card">
               사용자 관리
               <span className="home__card-desc">같은 부서 사용자</span>
+            </Link>
+          ) : null}
+          {showRoles ? (
+            <Link to="/admin/roles" className="home__card">
+              역할 관리
+              <span className="home__card-desc">시스템·커스텀 역할</span>
+            </Link>
+          ) : null}
+          {showProjects ? (
+            <Link to="/admin/projects" className="home__card">
+              프로젝트 관리
+              <span className="home__card-desc">프로젝트·멤버 (운영자 포함)</span>
             </Link>
           ) : null}
           {showDept ? (

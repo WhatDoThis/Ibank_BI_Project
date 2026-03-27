@@ -1,7 +1,7 @@
 /**
- * app/routes.jsx (앱 라우트 집합)
+ * app/routes.jsx (앱 라우트 집합 — 페이지는 auth/home/mypage/admin/layout/guards)
  * ===============================
- * 공개: login·signup·create-org. ProtectedLayout. /mypage. /admin/users·/admin/org(SuperAdminRoute). ETL EtlAccessRoute.
+ * app/layout/ProtectedLayout. /admin: … ETL은 app/guards/EtlAccessRoute.
  *
  * [Main]
  * 1. AppRoutes — 전체 Route 트리
@@ -14,18 +14,22 @@ import WidgetboardPage from '@/packages/widgetboard'
 import ETLPage from '@/packages/etl'
 import CampaignDashboardPage from '@/packages/campaign_dashboard'
 
-import LoginPage from '@/app/LoginPage.jsx'
-import SignupPage from '@/app/SignupPage.jsx'
-import CreateOrgPage from '@/app/CreateOrgPage.jsx'
-import HomePage from '@/app/HomePage.jsx'
-import MyPage from '@/app/MyPage.jsx'
-import AdminUsersPage from '@/app/AdminUsersPage.jsx'
-import AdminOrgPage from '@/app/AdminOrgPage.jsx'
-import { ProtectedLayout } from '@/app/ProtectedLayout.jsx'
-import { NeedProjectRoute } from '@/app/NeedProjectRoute.jsx'
-import { EtlAccessRoute } from '@/app/EtlAccessRoute.jsx'
-import { OrgAdminRoute } from '@/app/OrgAdminRoute.jsx'
-import { SuperAdminRoute } from '@/app/SuperAdminRoute.jsx'
+import LoginPage from '@/app/auth/LoginPage.jsx'
+import SignupPage from '@/app/auth/SignupPage.jsx'
+import CreateOrgPage from '@/app/auth/CreateOrgPage.jsx'
+import HomePage from '@/app/home/HomePage.jsx'
+import MyPage from '@/app/mypage/MyPage.jsx'
+import AdminUsersPage from '@/app/admin/AdminUsersPage.jsx'
+import AdminOrgPage from '@/app/admin/AdminOrgPage.jsx'
+import AdminRolesPage from '@/app/admin/AdminRolesPage.jsx'
+import AdminProjectsPage from '@/app/admin/AdminProjectsPage.jsx'
+import AdminProjectMembersPage from '@/app/admin/AdminProjectMembersPage.jsx'
+import { ProtectedLayout } from '@/app/layout/ProtectedLayout.jsx'
+import { NeedProjectRoute } from '@/app/guards/NeedProjectRoute.jsx'
+import { EtlAccessRoute } from '@/app/guards/EtlAccessRoute.jsx'
+import { OrgAdminRoute } from '@/app/guards/OrgAdminRoute.jsx'
+import { SuperAdminRoute } from '@/app/guards/SuperAdminRoute.jsx'
+import { ProjectAdminRoute } from '@/app/guards/ProjectAdminRoute.jsx'
 
 export function AppRoutes() {
   return (
@@ -50,6 +54,30 @@ export function AppRoutes() {
             <SuperAdminRoute>
               <AdminOrgPage />
             </SuperAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/roles"
+          element={
+            <OrgAdminRoute>
+              <AdminRolesPage />
+            </OrgAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/projects"
+          element={
+            <ProjectAdminRoute>
+              <AdminProjectsPage />
+            </ProjectAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/projects/:projectId/members"
+          element={
+            <ProjectAdminRoute>
+              <AdminProjectMembersPage />
+            </ProjectAdminRoute>
           }
         />
         <Route path="/report" element={<Navigate to="/query-studio" replace />} />

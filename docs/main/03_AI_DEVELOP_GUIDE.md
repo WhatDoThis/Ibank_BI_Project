@@ -110,7 +110,7 @@ flowchart LR
 
 ## 4. 프론트엔드 ↔ API 매핑
 
-- **라우트·네비**: `Frontend/react-app/src/app/routes.jsx`, `navConfig.js`.
+- **라우트·네비**: `Frontend/react-app/src/app/routes.jsx`, `app/layout/navConfig.js`.
 - **패키지별 API 클라이언트**: `packages/<도메인>/api/*Client.js` + `shared/api/http.js` + `shared/config/api.js`.
 - **CSS**: 패키지별 전용 파일만 사용(패키지 간 공유 금지) — **01_FRONTEND_GUIDE §6**.
 

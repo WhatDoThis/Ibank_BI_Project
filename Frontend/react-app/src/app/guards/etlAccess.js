@@ -1,5 +1,5 @@
 /**
- * app/etlAccess.js (ETL 인프라 접근 판별)
+ * app/guards/etlAccess.js (ETL 인프라 접근 판별)
  * =====================================
  * 백엔드 require_etl_infrastructure 와 동일: user_dvsn=sa_dev 또는 etl_yn=Y 일 때만 ETL 허용.
  *

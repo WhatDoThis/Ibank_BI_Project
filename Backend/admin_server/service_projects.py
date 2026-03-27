@@ -6,7 +6,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 [Main Functions]
 ===========
 1. default_manager_pmssn_master_id(pmssn_list 문자열·레거시 PK 정규화)
-2. list_projects_in_dept / list_projects_for_participant / create_project_with_creator_member
+2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·role_name) / create_project_with_creator_member
 3. update_project(동적 SET·active 변경 시 비활성 프로젝트 허용) / deactivate_project
 4. list_members / add_member / update_member_role / remove_member(운영자는 U만)
 5. validate_invite_user_project(초대 U·프로젝트·pmssn 정합 검증)
@@ -125,10 +125,12 @@ def list_projects_for_participant(
         cur.execute(
             """
             SELECT pi.project_info_id, pi.dptmt_info_id, pi.project_name, pi.project_dscrtn,
-                   pi.active_yn, pi.create_dtm
+                   pi.active_yn, pi.create_dtm,
+                   m.pmssn_name AS role_name
             FROM project_info pi
             INNER JOIN project_ptcpnt_info p
               ON p.project_info_id = pi.project_info_id AND p.ptcpnt_user_id = %s
+            LEFT JOIN pmssn_master m ON m.pmssn_master_id = p.pmssn_master_id
             WHERE pi.dptmt_info_id = %s
             ORDER BY pi.project_name
             """,

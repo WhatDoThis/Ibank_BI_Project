@@ -1,5 +1,5 @@
 /**
- * app/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
+ * app/layout/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
  * ============================================
  * 미인증 시 /login. 상단 네비·Outlet.
  *
@@ -9,16 +9,20 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/navConfig, app/AuthContext, app/etlAccess, app/adminAccess(requiresDeptAdmin), NotificationBell
+ * - react-router-dom, ./navConfig, app/auth/AuthContext, app/guards/etlAccess, app/admin/adminAccess, NotificationBell
  */
 
 import { useMemo } from 'react'
 import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
 
 import { NAV_ITEMS } from './navConfig.js'
-import { useAuth } from './AuthContext.jsx'
-import { canAccessDeptSettings, canAccessOrgAdmin } from './adminAccess.js'
-import { canAccessEtl } from './etlAccess.js'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
+import {
+  canAccessDeptSettings,
+  canAccessOrgAdmin,
+  canAccessProjectAdminPages,
+} from '@/app/admin/adminAccess.js'
+import { canAccessEtl } from '@/app/guards/etlAccess.js'
 import { NotificationBell } from './NotificationBell.jsx'
 
 const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || ''
@@ -41,6 +45,7 @@ export function ProtectedLayout() {
       if (item.to === '/etl' && !canAccessEtl(me)) return false
       if (item.requiresOrgAdmin && !canAccessOrgAdmin(me)) return false
       if (item.requiresDeptAdmin && !canAccessDeptSettings(me)) return false
+      if (item.requiresProjectAdmin && !canAccessProjectAdminPages(me)) return false
       return true
     })
   }, [me])

@@ -1,5 +1,5 @@
 /**
- * app/NotificationBell.jsx (알림 벨 S8)
+ * app/layout/NotificationBell.jsx (알림 벨 S8)
  * ===================================
  * 미읽음 수 폴링·패널에서 목록·건당 읽음·전체 읽음.
  *

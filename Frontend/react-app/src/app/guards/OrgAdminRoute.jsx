@@ -1,5 +1,5 @@
 /**
- * app/OrgAdminRoute.jsx (조직 어드민 라우트 가드)
+ * app/guards/OrgAdminRoute.jsx (조직 어드민 라우트 가드)
  * ============================================
  * admin·super_admin·sa_dev 만 /admin/* 하위 접근.
  *
@@ -9,13 +9,13 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/AuthContext, app/adminAccess
+ * - react-router-dom, app/auth/AuthContext, app/admin/adminAccess
  */
 
 import { Navigate } from 'react-router-dom'
 
-import { useAuth } from './AuthContext.jsx'
-import { canAccessOrgAdmin } from './adminAccess.js'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
+import { canAccessOrgAdmin } from '@/app/admin/adminAccess.js'
 
 export function OrgAdminRoute({ children }) {
   const { me, loading } = useAuth()

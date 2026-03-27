@@ -8,7 +8,7 @@
 
 ### 1.1 역할
 
-- **인증(S5/S6/S7)**: `/login` — 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login`. `/signup`(초대 코드)·`/create-org`(부서 생성)는 공개 라우트. `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET login-history`). **S8**: `NotificationBell`·`notificationsClient`·`/admin/users`(`OrgAdminRoute`)·`/admin/org` 부서명(`SuperAdminRoute`·`adminClient.getAdminOrg`/`patchAdminOrg`). **`/` 홈**: `app/homeAccess.js` 로 `me.permissions` 기반 빠른 액세스 카드(프로젝트 선택·JWT claim 연동). 토큰은 `localStorage`, API는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 `refresh` 후 1회 재시도. `/` — `GET /api/projects`·`POST /api/projects/{id}/select`. 리포트·대시보드·위젯 경로는 JWT에 `project_info_id` 없으면 `/` 로 유도(`NeedProjectRoute`). ETL은 `me.etl_yn=Y` 또는 `user_dvsn=sa_dev` 일 때만 네비·`/etl` (`EtlAccessRoute`).
+- **인증(S5/S6/S7)**: `/login` — 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login`. `/signup`(초대 코드)·`/create-org`(부서 생성)는 공개 라우트. `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET login-history`). **S8**: `NotificationBell`·`notificationsClient`·`/admin/users`(`OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`). **`adminClient.js`** 에 roles·projects·members·invite·search. **`/` 홈**: `homeAccess.js`·`adminAccess.js`(프로젝트 관리 카드는 operator 포함). 토큰은 `localStorage`, API는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 `refresh` 후 1회 재시도. `/` — `GET /api/projects`·`POST /api/projects/{id}/select`. 리포트·대시보드·위젯 경로는 JWT에 `project_info_id` 없으면 `/` 로 유도(`NeedProjectRoute`). ETL은 `me.etl_yn=Y` 또는 `user_dvsn=sa_dev` 일 때만 네비·`/etl` (`EtlAccessRoute`).
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
 - **패키지**: report, **campaign_dashboard**(대시보드 UI 단일), **widgetboard**, **etl**. **공용 최소**: `shared/config/api.js`(베이스 URL), `shared/api/http.js`(JSON `request`·`fetchOkJson`). **패키지별 API**는 각 `packages/<이름>/api/*Client.js` 에 둔다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
@@ -229,4 +229,4 @@ Frontend/react-app/
 | 03_AI_DEVELOP_GUIDE.md | 시스템 아키텍처·프론트↔백 매핑·확장 시 탐색 경로 (AI·온보딩) |
 
 - **docs/report**: 배포·보조 설계·체크리스트. **동작 정의의 기준은 docs/main** 이다.
-- **문서 이력**: 본 파일에 날짜별 수정 타임라인을 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다. **현재 구조**: 패키지별 `packages/<도메인>/api/*Client.js`, `shared/api/http.js`, `app/navConfig.js`·`app/routes.jsx`, **campaign_dashboard** (`/dashboard`).
+- **문서 이력**: 본 파일에 날짜별 수정 타임라인을 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다. **현재 구조**: 패키지별 `packages/<도메인>/api/*Client.js`, `shared/api/http.js`, `app/layout/navConfig.js`·`app/routes.jsx`, SPA 화면은 `app/auth|home|mypage|admin|layout|guards/`, **campaign_dashboard** (`/dashboard`).

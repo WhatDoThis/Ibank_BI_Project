@@ -1,5 +1,5 @@
 /**
- * app/AdminOrgPage.jsx (부서 정보 — super_admin·sa_dev)
+ * app/admin/AdminOrgPage.jsx (부서 정보 — super_admin·sa_dev)
  * ===================================================
  * GET/PATCH /api/admin/org — 소속 부서명 수정.
  *
