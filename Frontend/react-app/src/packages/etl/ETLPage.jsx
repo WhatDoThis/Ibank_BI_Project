@@ -33,6 +33,7 @@ import JobLogPanel from './components/JobLogPanel';
 import AddFileModal from './components/AddFileModal';
 import JobHistoryPanel from './components/JobHistoryPanel';
 import PreviewModal from './components/PreviewModal';
+import { PageHeader } from '@/app/layout/PageHeader.jsx';
 import './etl.css';
 
 const VALID_TABS = ['file', 'db', 'folder', 'storage', 'history'];
@@ -332,31 +333,33 @@ function ETLPage() {
     </ul>
   );
 
+  const etlLead =
+    sourceType === 'file'
+      ? '파일을 업로드해 우리 DB에 적재합니다. CSV·Excel·Parquet 파일을 선택한 뒤 타겟 테이블을 지정하고 업로드하세요.'
+      : sourceType === 'db'
+        ? '외부 DB(PostgreSQL·MySQL·Oracle) 연결을 등록한 뒤, 소스 테이블을 선택해 우리 DB에 적재합니다.'
+        : sourceType === 'folder'
+          ? '원격 폴더(SFTP/S3)를 등록하고, 파일명_ib_yyyyMMddHHmmss 형식 파일을 주기적으로 감지해 지정 DB에 자동 적재하는 배치를 설정합니다.'
+          : sourceType === 'storage'
+            ? '적재 대상(저장 DB) PostgreSQL 연결을 등록합니다. 연결 테스트로 접속·권한 확인 후 등록하세요.'
+            : 'ETL Job 실행 이력을 확인하고 삭제할 수 있습니다.';
+
   return (
     <div className="etl-page">
-      <header className="etl-page__header">
-        <h1 className="etl-page__title">ETL</h1>
-        <p className="etl-page__desc">
-          {sourceType === 'file' && '파일을 업로드해 우리 DB에 적재합니다. CSV·Excel·Parquet 파일을 선택한 뒤 타겟 테이블을 지정하고 업로드하세요.'}
-          {sourceType === 'db' && '외부 DB(PostgreSQL·MySQL·Oracle) 연결을 등록한 뒤, 소스 테이블을 선택해 우리 DB에 적재합니다.'}
-          {sourceType === 'folder' && '원격 폴더(SFTP/S3)를 등록하고, 파일명_ib_yyyyMMddHHmmss 형식 파일을 주기적으로 감지해 지정 DB에 자동 적재하는 배치를 설정합니다.'}
-          {sourceType === 'storage' && '적재 대상(저장 DB) PostgreSQL 연결을 등록합니다. 연결 테스트로 접속·권한 확인 후 등록하세요.'}
-          {sourceType === 'history' && 'ETL Job 실행 이력을 확인하고 삭제할 수 있습니다.'}
-        </p>
-        <div className="etl-page__tip" role="region" aria-label="사용 방법">
-          <p className="etl-page__tip-title">처음 사용하시나요?</p>
-          {sourceType === 'file' && howToFile}
-          {sourceType === 'db' && howToDb}
-          {sourceType === 'folder' && (
-            <>
-              {howToFolder}
-              {folderConsiderations}
-            </>
-          )}
-          {sourceType === 'storage' && howToStorage}
-          {sourceType === 'history' && howToHistory}
-        </div>
-      </header>
+      <PageHeader description={etlLead} />
+      <div className="etl-page__tip" role="region" aria-label="사용 방법">
+        <p className="etl-page__tip-title">처음 사용하시나요?</p>
+        {sourceType === 'file' && howToFile}
+        {sourceType === 'db' && howToDb}
+        {sourceType === 'folder' && (
+          <>
+            {howToFolder}
+            {folderConsiderations}
+          </>
+        )}
+        {sourceType === 'storage' && howToStorage}
+        {sourceType === 'history' && howToHistory}
+      </div>
 
       <section className="etl-page__body">
         <SourceTypeSelector sourceType={sourceType} onChange={setSourceTypeAndUrl} />

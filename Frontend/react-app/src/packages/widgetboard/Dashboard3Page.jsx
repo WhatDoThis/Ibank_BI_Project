@@ -45,6 +45,7 @@ import {
   isDimensionType
 } from './utils/dataUtils'
 import './widgetboard.css'
+import { PageHeader } from '@/app/layout/PageHeader.jsx'
 
 const LAYOUT_STORAGE_KEY = 'widgetboard_layout'
 const CONFIGS_STORAGE_KEY = 'widgetboard_widget_configs'
@@ -586,25 +587,19 @@ export default function Dashboard3Page() {
 
   return (
     <div className="widgetboard">
-      <header className="widgetboard-header">
-        <div className="widgetboard-header-top">
-          <h1 className="widgetboard-title">위젯보드</h1>
-          <div className="widgetboard-header-actions">
-            <div className="date-filter">
-              <span className="date-filter-label">기간:</span>
-              <button type="button" className="btn-quick-date" onClick={() => applyQuickDate(7)}>최근 7일</button>
-              <button type="button" className="btn-quick-date" onClick={() => applyQuickDate(30)}>최근 30일</button>
-              <input type="date" value={dateRange.start} onChange={(e) => setDateRange((d) => ({ ...d, start: e.target.value }))} className="date-input" />
-              <span>~</span>
-              <input type="date" value={dateRange.end} onChange={(e) => setDateRange((d) => ({ ...d, end: e.target.value }))} className="date-input" />
-            </div>
-            <button type="button" className="btn-refresh" onClick={handleRefresh} title="전체 새로고침">⟳ 새로고침</button>
+      <PageHeader description="왼쪽에서 위젯을 드래그해 오른쪽에 놓으세요. 테이블은 test_report_ 로 시작하는 것만 선택할 수 있으며, 연결한 테이블 데이터로 자동 차트화됩니다.">
+        <div className="widgetboard-header-actions">
+          <div className="date-filter">
+            <span className="date-filter-label">기간:</span>
+            <button type="button" className="btn-quick-date" onClick={() => applyQuickDate(7)}>최근 7일</button>
+            <button type="button" className="btn-quick-date" onClick={() => applyQuickDate(30)}>최근 30일</button>
+            <input type="date" value={dateRange.start} onChange={(e) => setDateRange((d) => ({ ...d, start: e.target.value }))} className="date-input" />
+            <span>~</span>
+            <input type="date" value={dateRange.end} onChange={(e) => setDateRange((d) => ({ ...d, end: e.target.value }))} className="date-input" />
           </div>
+          <button type="button" className="btn-refresh" onClick={handleRefresh} title="전체 새로고침">⟳ 새로고침</button>
         </div>
-        <p className="widgetboard-hint">
-          왼쪽에서 위젯을 드래그해 오른쪽에 놓으세요. 테이블은 <strong>test_report_</strong> 로 시작하는 것만 선택할 수 있으며, 연결한 테이블 데이터로 자동 차트화됩니다.
-        </p>
-      </header>
+      </PageHeader>
 
       <div className="widgetboard-body">
         <aside className="widgetboard-sidebar">

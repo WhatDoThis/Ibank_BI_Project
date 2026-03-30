@@ -4,28 +4,29 @@
  * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, react-grid-layout 오버라이드.
  */
 .widgetboard {
-  padding: 16px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
   min-height: 100%;
-  background: var(--bg-secondary, #f1f5f9);
+  background: transparent;
+  font-family: var(--font-sans);
+  box-sizing: border-box;
 }
-.widgetboard-header {
+
+.widgetboard > .ibank-page-header {
   margin-bottom: 16px;
-}
-.widgetboard-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--text-primary, #0f172a);
-}
-.widgetboard-hint {
-  font-size: 0.8125rem;
-  color: var(--text-light, #64748b);
-  margin-top: 4px;
 }
 
 .widgetboard-body {
   display: flex;
   gap: 16px;
-  min-height: calc(100vh - 120px);
+  min-height: calc(
+    100vh - var(--header-height) - var(--breadcrumb-height) - var(--page-outlet-vertical-total) - 80px
+  );
+  min-height: calc(
+    100dvh - var(--header-height) - var(--breadcrumb-height) - var(--page-outlet-vertical-total) - 80px
+  );
 }
 
 /* 왼쪽 사이드바 - 위젯 팔레트 */
@@ -33,18 +34,18 @@
   width: 200px;
   flex-shrink: 0;
   background: #fff;
-  border-radius: 10px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
   padding: 12px;
   height: fit-content;
 }
 .sidebar-title {
   font-weight: 600;
   font-size: 0.875rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--color-text);
   margin-bottom: 10px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--color-border-light);
 }
 .widget-palette {
   display: flex;
@@ -56,12 +57,12 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #e2e8f0);
-  background: var(--bg-tertiary, #f8fafc);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
+  background: var(--background);
   cursor: grab;
   font-size: 0.8125rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--color-text);
   transition: background 0.15s, box-shadow 0.15s;
 }
 .palette-item:hover {
@@ -84,13 +85,13 @@
   min-width: 0;
   min-height: 400px;
   background: #fff;
-  border-radius: 10px;
-  border: 2px dashed var(--border-color, #e2e8f0);
+  border-radius: var(--radius-card);
+  border: 2px dashed var(--color-border-light);
   padding: 16px;
   transition: border-color 0.15s, background 0.15s;
 }
 .widgetboard-canvas.drag-over {
-  border-color: var(--primary, #2563eb);
+  border-color: var(--color-action-primary);
   background: rgba(37, 99, 235, 0.04);
 }
 .canvas-empty {
@@ -98,7 +99,7 @@
   align-items: center;
   justify-content: center;
   min-height: 320px;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   font-size: 0.9375rem;
 }
 .canvas-empty p {
@@ -118,8 +119,8 @@
 .react-grid-item > .widget-inner {
   height: 100%;
   background: #fff;
-  border-radius: 10px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
@@ -129,9 +130,9 @@
   padding: 10px 12px;
   font-weight: 600;
   font-size: 0.875rem;
-  color: var(--text-primary, #0f172a);
-  background: var(--bg-tertiary, #f8fafc);
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  color: var(--color-text);
+  background: var(--background);
+  border-bottom: 1px solid var(--color-border-light);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -146,33 +147,33 @@
 .widget-datasource {
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
 }
 .btn-change-datasource {
   padding: 4px 8px;
   font-size: 0.75rem;
   border-radius: 6px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--color-border-light);
   background: #fff;
-  color: var(--primary, #2563eb);
+  color: var(--color-action-primary);
   cursor: pointer;
 }
 .btn-change-datasource:hover {
-  background: var(--bg-tertiary, #f8fafc);
+  background: var(--background);
 }
 .react-grid-item .widget-body {
   flex: 1;
   padding: 12px;
   overflow: auto;
   font-size: 0.8125rem;
-  color: var(--text-secondary, #475569);
+  color: var(--color-text-muted);
 }
 .btn-link-datasource {
   padding: 10px 16px;
-  border-radius: 8px;
-  border: 1px dashed var(--primary, #2563eb);
+  border-radius: var(--radius-card);
+  border: 1px dashed var(--color-action-primary);
   background: rgba(37, 99, 235, 0.06);
-  color: var(--primary, #2563eb);
+  color: var(--color-action-primary);
   font-size: 0.875rem;
   cursor: pointer;
 }
@@ -180,7 +181,7 @@
   background: rgba(37, 99, 235, 0.12);
 }
 .widget-placeholder {
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 .widget-kpi .widget-body {
@@ -189,7 +190,7 @@
   justify-content: center;
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--primary, #2563eb);
+  color: var(--color-action-primary);
 }
 .widget-chart .widget-body {
   display: flex;
@@ -200,7 +201,7 @@
 .widget-kpi-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--primary, #2563eb);
+  color: var(--color-action-primary);
 }
 .widget-chart-wrap {
   width: 100%;
@@ -208,11 +209,11 @@
   min-height: 120px;
 }
 .widget-loading {
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 .widget-error {
-  color: var(--error, #dc2626);
+  color: var(--color-danger);
   font-size: 0.8125rem;
 }
 .widget-table .widget-body {
@@ -230,11 +231,11 @@
 .widget-data-table th,
 .widget-data-table td {
   padding: 6px 8px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--color-border-light);
   text-align: left;
 }
 .widget-data-table th {
-  background: var(--bg-tertiary, #f8fafc);
+  background: var(--background);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -244,7 +245,7 @@
 .widget-table-more {
   padding: 6px 8px;
   font-size: 0.75rem;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
 }
 .widget-note .widget-body {
   font-size: 0.875rem;
@@ -273,7 +274,7 @@
 }
 .modal-header {
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--color-border-light);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -282,7 +283,7 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  color: var(--color-text);
 }
 .modal-close {
   width: 32px;
@@ -291,13 +292,13 @@
   background: transparent;
   font-size: 1.5rem;
   line-height: 1;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   cursor: pointer;
   border-radius: 6px;
 }
 .modal-close:hover {
-  background: var(--bg-tertiary, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  background: var(--background);
+  color: var(--color-text);
 }
 .modal-body {
   padding: 16px 20px;
@@ -306,7 +307,7 @@
 .modal-loading,
 .modal-empty {
   margin: 0;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 .table-list {
@@ -324,11 +325,11 @@
   width: 100%;
   padding: 10px 12px;
   text-align: left;
-  border: 1px solid var(--border-color, #e2e8f0);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
   background: #fff;
   font-size: 0.875rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--color-text);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -336,13 +337,13 @@
   gap: 8px;
 }
 .table-list-btn:hover {
-  background: var(--bg-tertiary, #f8fafc);
-  border-color: var(--primary, #2563eb);
-  color: var(--primary, #2563eb);
+  background: var(--background);
+  border-color: var(--color-action-primary);
+  color: var(--color-action-primary);
 }
 .table-size {
   font-size: 0.75rem;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
 }
 
 /* 헤더 액션 (기간 필터, 새로고침) */
@@ -367,40 +368,40 @@
   font-size: 0.875rem;
 }
 .date-filter-label {
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
 }
 .btn-quick-date {
   padding: 6px 12px;
   font-size: 0.8125rem;
   border-radius: 6px;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--color-border-light);
   background: #fff;
-  color: var(--text-primary, #0f172a);
+  color: var(--color-text);
   cursor: pointer;
 }
 .btn-quick-date:hover {
-  background: var(--bg-tertiary, #f8fafc);
-  border-color: var(--primary, #2563eb);
-  color: var(--primary, #2563eb);
+  background: var(--background);
+  border-color: var(--color-action-primary);
+  color: var(--color-action-primary);
 }
 .date-input {
   padding: 6px 10px;
   font-size: 0.8125rem;
-  border: 1px solid var(--border-color, #e2e8f0);
+  border: 1px solid var(--color-border-light);
   border-radius: 6px;
 }
 .btn-refresh {
   padding: 8px 14px;
   font-size: 0.875rem;
-  border-radius: 8px;
-  border: 1px solid var(--primary, #2563eb);
-  background: var(--primary, #2563eb);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-action-primary);
+  background: var(--color-action-primary);
   color: #fff;
   cursor: pointer;
 }
 .btn-refresh:hover {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
+  background: var(--color-action-primary-hover);
+  border-color: var(--color-action-primary-hover);
 }
 
 /* 위젯 헤더 버튼 (설정/복제/삭제) */
@@ -411,18 +412,18 @@
   font-size: 0.875rem;
   border: none;
   background: transparent;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   cursor: pointer;
   border-radius: 4px;
 }
 .btn-widget-settings:hover,
 .btn-widget-duplicate:hover {
-  background: var(--bg-tertiary, #f8fafc);
-  color: var(--text-primary, #0f172a);
+  background: var(--background);
+  color: var(--color-text);
 }
 .btn-widget-delete:hover {
-  background: #fee2e2;
-  color: #dc2626;
+  background: rgba(254, 86, 85, 0.12);
+  color: var(--color-danger);
 }
 
 /* Note 위젯 textarea */
@@ -432,15 +433,15 @@
   padding: 8px;
   font-size: 0.875rem;
   line-height: 1.5;
-  border: 1px solid var(--border-color, #e2e8f0);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
   resize: vertical;
   font-family: inherit;
 }
 
 /* 테이블 정렬 헤더 */
 .widget-data-table th.sort-active {
-  color: var(--primary, #2563eb);
+  color: var(--color-action-primary);
   cursor: pointer;
 }
 .widget-data-table th[title="클릭 시 정렬"] {
@@ -459,28 +460,28 @@
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--text-primary, #0f172a);
+  color: var(--color-text);
   margin-bottom: 6px;
 }
 .settings-row select {
   padding: 8px 12px;
   font-size: 0.875rem;
-  border: 1px solid var(--border-color, #e2e8f0);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
   min-width: 180px;
 }
 .settings-textarea {
   width: 100%;
   padding: 10px;
   font-size: 0.875rem;
-  border: 1px solid var(--border-color, #e2e8f0);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
   resize: vertical;
   font-family: inherit;
 }
 .settings-hint {
   font-size: 0.75rem;
-  color: var(--text-light, #64748b);
+  color: var(--color-text-muted);
   margin: 4px 0 8px;
 }
 .settings-columns {
@@ -505,8 +506,8 @@
 .column-order-item {
   padding: 8px 12px;
   font-size: 0.8125rem;
-  background: var(--bg-tertiary, #f8fafc);
-  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--background);
+  border: 1px solid var(--color-border-light);
   border-radius: 6px;
   cursor: grab;
 }
@@ -514,7 +515,7 @@
   cursor: grabbing;
 }
 .column-order-item:hover {
-  border-color: var(--primary, #2563eb);
+  border-color: var(--color-action-primary);
 }
 .settings-sort-dir {
   margin-left: 8px;

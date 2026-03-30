@@ -24,6 +24,7 @@ import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils
 import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
+import { PageHeader } from '@/app/layout/PageHeader.jsx'
 
 const DEFAULT_PAGE_SIZE = 100
 
@@ -886,7 +887,9 @@ export default function QueryStudioPage() {
 
   return (
     <>
-      <div className="container">
+      <div className="qs-page">
+        <PageHeader description="왼쪽에서 테이블·컬럼을 끌어 그리드에 놓고, 조건을 구성한 뒤 실행합니다." />
+        <div className="container query-studio qs-page__workspace">
         <Sidebar
           tables={tables}
           onOpenColumnLabelsModal={openColumnLabelsModal}
@@ -967,6 +970,7 @@ export default function QueryStudioPage() {
           autoExecute={autoExecute}
           onToggleAutoExecute={() => setAutoExecute((v) => !v)}
         />
+        </div>
       </div>
       {showColumnLabelsModal && (
         <div

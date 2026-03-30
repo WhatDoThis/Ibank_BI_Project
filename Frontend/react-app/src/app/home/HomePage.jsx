@@ -25,6 +25,7 @@ import {
   canAccessProjectAdminPages,
 } from '@/app/admin/adminAccess.js'
 import { canAccessEtl } from '@/app/guards/etlAccess.js'
+import { PageHeader } from '@/app/layout/PageHeader.jsx'
 import {
   canAccessDashboard,
   canAccessQueryStudio,
@@ -86,10 +87,7 @@ export default function HomePage() {
 
   return (
     <div className="home">
-      <h1 className="home__title">내 프로젝트</h1>
-      <p className="home__lead">
-        작업할 프로젝트를 선택하세요. 선택 후 리포트·대시보드 등에서 해당 프로젝트 권한이 적용됩니다.
-      </p>
+      <PageHeader description="작업할 프로젝트를 선택하세요. 선택 후 리포트·대시보드 등에서 해당 프로젝트 권한이 적용됩니다." />
 
       {hasProject ? (
         <div className="home__continue">

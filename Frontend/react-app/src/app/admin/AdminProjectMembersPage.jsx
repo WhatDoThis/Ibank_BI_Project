@@ -177,8 +177,10 @@ export default function AdminProjectMembersPage() {
       <Link to="/admin/projects" className="ap__back">
         ← 프로젝트 목록
       </Link>
-      <h1 className="ap__title">프로젝트 멤버 (ID {pid})</h1>
-      <p className="ap__hint">같은 부서 사용자를 검색해 초대하고, 프로젝트 역할(pmssn)을 부여합니다.</p>
+      <h1 className="ap__title">프로젝트 멤버</h1>
+      <p className="ap__hint">
+        프로젝트 ID <strong>{pid}</strong>. 같은 부서 사용자를 검색해 초대하고, 프로젝트 역할(pmssn)을 부여합니다.
+      </p>
       {error ? <p className="ap__error">{error}</p> : null}
       {ok ? <p className="ap__ok">{ok}</p> : null}
 

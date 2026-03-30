@@ -1,21 +1,14 @@
 /**
  * app/layout/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
- * ============================================
- * 미인증 시 /login. 상단 네비·Outlet.
- *
- * [Main Functions]
- * ===========
- * - ProtectedLayout
- *
- * [Dependencies]
- * =========
- * - react-router-dom, ./navConfig, app/auth/AuthContext, app/guards/etlAccess, app/admin/adminAccess, NotificationBell
+ * Analytica 셸: 좌측 주 메뉴(풀 라벨) + 고정 헤더·브레드크럼 + 스크롤 본문
+ * docs/ui/UI_UX_재사용_가이드.md §2·§5
  */
 
 import { useMemo } from 'react'
-import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { NAV_ITEMS } from './navConfig.js'
+import { pageTitleFromPath } from './pageTitles.js'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import {
   canAccessDeptSettings,
@@ -25,19 +18,18 @@ import {
 import { canAccessEtl } from '@/app/guards/etlAccess.js'
 import { NotificationBell } from './NotificationBell.jsx'
 
+import '@/styles/app-shell.css'
+import '@/styles/ibank-scrollbars.css'
+
 const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || ''
 
-const navLinkStyle = ({ isActive }) => ({
-  color: isActive ? '#FFF95B' : 'white',
-  textDecoration: 'none',
-  opacity: isActive ? 1 : 0.85,
-})
-
-const navLinkClass = ({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')
+const navLinkClass = ({ isActive }) =>
+  isActive ? 'ibank-sidebar-link active' : 'ibank-sidebar-link'
 
 export function ProtectedLayout() {
   const { loading, me, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const navItems = useMemo(() => {
     if (!me) return []
@@ -50,16 +42,14 @@ export function ProtectedLayout() {
     })
   }, [me])
 
+  const headerTitle = pageTitleFromPath(location.pathname)
+
   if (!loading && !me) {
     return <Navigate to="/login" replace />
   }
 
   if (loading) {
-    return (
-      <div className="app-loading" style={{ padding: 24 }}>
-        로딩 중…
-      </div>
-    )
+    return <div className="app-loading--shell">로딩 중…</div>
   }
 
   async function handleLogout() {
@@ -68,61 +58,55 @@ export function ProtectedLayout() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      <nav
-        className="app-nav"
-        style={{
-          flexShrink: 0,
-          padding: '14px 16px',
-          background: 'var(--primary)',
-          color: 'white',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <img
-          src={`${ROUTER_BASENAME}/starbucks-logo.png`}
-          alt="스타벅스 CRM"
-          className="app-brand"
-          style={{ height: 14, objectFit: 'contain', display: 'block' }}
-        />
-        {navItems.map(({ to, label }) => (
-          <NavLink key={to} to={to} className={navLinkClass} style={navLinkStyle}>
-            {label}
-          </NavLink>
-        ))}
-        <div
-          style={{
-            marginLeft: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <NotificationBell />
-          <span style={{ fontSize: 13, opacity: 0.9 }}>{me?.email}</span>
-          <button
-            type="button"
-            onClick={handleLogout}
-            style={{
-              background: 'rgba(255,255,255,0.2)',
-              border: 'none',
-              color: 'white',
-              padding: '6px 12px',
-              borderRadius: 6,
-              cursor: 'pointer',
-            }}
-          >
-            로그아웃
-          </button>
+    <div className="ibank-app-shell">
+      <aside className="ibank-sidebar" aria-label="주 메뉴">
+        <div className="ibank-sidebar-brand">
+          <img
+            src={`${ROUTER_BASENAME}/starbucks-logo.png`}
+            alt=""
+            width={40}
+            height={32}
+          />
         </div>
-      </nav>
-      <main className="app-main" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        <Outlet />
-      </main>
+        <nav className="ibank-sidebar-nav">
+          {navItems.map(({ to, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={navLinkClass}
+              title={label}
+              end={to === '/'}
+            >
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="ibank-shell-main-col">
+        <header className="ibank-shell-header">
+          <h1 className="ibank-shell-header-title">{headerTitle}</h1>
+          <div className="ibank-shell-header-actions">
+            <NotificationBell />
+            <span className="ibank-shell-user">{me?.email}</span>
+            <button type="button" className="ibank-shell-logout" onClick={handleLogout}>
+              로그아웃
+            </button>
+          </div>
+        </header>
+
+        <div className="ibank-shell-breadcrumb" aria-label="breadcrumb">
+          <span>IBank BI</span>
+          <span className="ibank-bc-sep">/</span>
+          <span className="ibank-bc-current">{headerTitle}</span>
+        </div>
+
+        <main className="ibank-shell-body">
+          <div className="ibank-outlet">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   )
 }

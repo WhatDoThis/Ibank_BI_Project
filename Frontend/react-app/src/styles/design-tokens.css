@@ -1,0 +1,66 @@
+/**
+ * Analytica 스타일 토큰 — docs/ui/UI_UX_재사용_가이드.md §2·§4
+ * 레거시 변수(--primary 등)와 병행해 기존 CSS가 깨지지 않게 매핑
+ */
+:root {
+  /* 좌측 주 메뉴(풀 라벨 표시용 폭) */
+  --nav-width: 180px;
+  --header-height: 60px;
+  --breadcrumb-height: 35px;
+  --main-top-offset: 96px;
+  --main-height-trim: 100px;
+  --header-breadcrumb-offset: 61px;
+
+  --color-text: #030303;
+  --color-text-muted: #7f7f7f;
+  --color-border: #c2c2c2;
+  --color-border-light: #e5e5e5;
+  --color-border-input: rgb(229, 229, 229);
+
+  --color-action-primary: #00704a;
+  --color-action-primary-hover: #005237;
+  --color-accent: #c37aff;
+  --color-accent-pressed: #a855f7;
+  --color-danger: #fe5655;
+
+  --radius-card: 10px;
+  --radius-pill: 25px;
+  --radius-btn-sm: 5px;
+  --radius-btn-lg: 20px;
+
+  /* 본문 영역: .ibank-outlet 한 곳에서만 패딩·최대 폭 적용 (페이지 루트에 max-width 중복 금지) */
+  --page-max-width: 1280px;
+  --page-padding-x: 24px;
+  --page-padding-y: 20px;
+  --page-padding-bottom: 32px;
+  /* 쿼리 스튜디오 .container min-height = 뷰포트 − 헤더·브레드크럼 − 아울렛 상하 패딩 */
+  --page-outlet-vertical-total: calc(
+    var(--page-padding-y) + var(--page-padding-bottom)
+  );
+
+  /* 쿼리 스튜디오 좌측 테이블 목록 폭 */
+  --qs-sidebar-width: 360px;
+
+  /* 좌측 내비: 브랜드 초록 톤(보라/시안 Analytica 그라데이션 대체) */
+  --sidebar-gradient: linear-gradient(180deg, #0d9668 0%, #00704a 45%, #005237 100%);
+  --login-bg-gradient: linear-gradient(135deg, #0d9668 0%, #00704a 50%, #0a8f6e 100%);
+
+  --font-sans: 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
+  --font-size-label: 14px;
+  --font-size-hint: 12px;
+
+  /* 기존 main.css·패키지 호환 */
+  --primary: var(--color-action-primary);
+  --primary-light: #e8f4ef;
+  --background: #f5f7fa;
+  --border: var(--color-border-light);
+  --text: var(--color-text);
+  --text-light: var(--color-text-muted);
+  --disabled: #999;
+
+  /* 스크롤바 — 얇은 트랙·브랜드 톤 썸 */
+  --scrollbar-size: 8px;
+  --scrollbar-track: #e8eaed;
+  --scrollbar-thumb: rgba(0, 112, 74, 0.35);
+  --scrollbar-thumb-hover: rgba(0, 82, 55, 0.55);
+}

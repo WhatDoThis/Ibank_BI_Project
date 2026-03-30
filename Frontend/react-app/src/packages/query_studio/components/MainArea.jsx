@@ -248,7 +248,7 @@ export default function MainArea({
         onClick={() => setShowRelationshipDiagram(true)}
         title="현재 테이블 기준 관계도 (족보)"
       >
-        📊 테이블 관계도
+        테이블 관계도
       </button>
       <div className="join-conditions-bar__pairs">
         {joinPairs.map(({ prevTable, currTable }) => {
@@ -357,48 +357,65 @@ export default function MainArea({
 
   return (
     <>
-    <div className="main-area">
-      <div className="grid-area">
+    <div className="main-area qs-main">
+      {gridColumns.length > 0 && (
+        <header className="qs-toolbar">
+          <div className="qs-toolbar__left">
+            {typeof onClearAll === 'function' && (
+              <button type="button" className="btn btn-query-studio-secondary" onClick={onClearAll}>
+                초기화
+              </button>
+            )}
+            {onOpenSaveAsTableModal && (
+              <button type="button" className="btn btn-query-studio-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
+                결과 저장
+              </button>
+            )}
+          </div>
+          <div className="qs-toolbar__right">
+            {typeof onToggleAutoExecute === 'function' && (
+              <label className="qs-toolbar__auto">
+                <input type="checkbox" checked={autoExecute} onChange={onToggleAutoExecute} />
+                <span>자동 실행</span>
+              </label>
+            )}
+            {typeof onExecute === 'function' && (
+              <button type="button" className="btn btn-primary btn-execute" onClick={onExecute} disabled={queryRunning}>
+                {queryRunning ? (
+                  <>
+                    <span className="btn-execute-spinner" aria-hidden />
+                    실행 중…
+                  </>
+                ) : (
+                  '실행'
+                )}
+              </button>
+            )}
+          </div>
+        </header>
+      )}
+
+      {gridColumns.length > 0 && joinPairs.length > 0 && (
+        <div className="qs-join-strip" role="region" aria-label="조인 조건">
+          {joinConditionsBlock}
+        </div>
+      )}
+
+      <div className="qs-workspace">
+        <div className="grid-area qs-grid-area">
         {gridColumns.length > 0 && (
-          <div className={`filter-order-bar ${filterOrderBarOpen ? 'filter-order-bar--open' : ''}`}>
-            <div className="filter-order-bar__header" onClick={() => setFilterOrderBarOpen((v) => !v)} role="button" tabIndex={0}>
-              <span className="filter-order-bar__toggle-icon">{filterOrderBarOpen ? '▼' : '▶'}</span>
-              <span className="filter-order-bar__title">조건·정렬 설정</span>
-              <span className="filter-order-bar__actions-spacer" />
-              <div className="filter-order-bar__actions" onClick={(e) => e.stopPropagation()}>
-                {typeof onClearAll === 'function' && (
-                  <button type="button" className="btn btn-query-studio-secondary" onClick={onClearAll}>
-                    초기화
-                  </button>
-                )}
-                {typeof onToggleAutoExecute === 'function' && (
-                  <label className="btn-query-studio-auto-toggle" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={autoExecute} onChange={onToggleAutoExecute} />
-                    자동 실행
-                  </label>
-                )}
-                {typeof onExecute === 'function' && (
-                  <button type="button" className="btn btn-primary btn-execute" onClick={onExecute} disabled={queryRunning}>
-                    {queryRunning ? (
-                      <>
-                        <span className="btn-execute-spinner" aria-hidden />
-                        실행 중…
-                      </>
-                    ) : (
-                      '실행'
-                    )}
-                  </button>
-                )}
-                {onOpenSaveAsTableModal && (
-                  <button type="button" className="btn btn-query-studio-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
-                    💾 저장
-                  </button>
-                )}
-              </div>
-            </div>
+          <div className={`qs-filters-panel ${filterOrderBarOpen ? 'qs-filters-panel--open' : ''}`}>
+            <button
+              type="button"
+              className="qs-filters-toggle"
+              onClick={() => setFilterOrderBarOpen((v) => !v)}
+              aria-expanded={filterOrderBarOpen}
+            >
+              <span className="qs-filters-toggle__chev" aria-hidden>{filterOrderBarOpen ? '▼' : '▶'}</span>
+              <span className="qs-filters-toggle__text">조건, 정렬, 피벗, HAVING</span>
+            </button>
             {filterOrderBarOpen && (
-              <div className="filter-order-bar__dropdown-content">
-                {joinConditionsBlock}
+              <div className="qs-filters-body">
             {isGroupByActive && (
               <>
                 <div className="groupby-row">
@@ -642,7 +659,7 @@ export default function MainArea({
         {addHavingPopup && (
           <div className="filter-popup" style={{ position: 'fixed', left: 20, top: 80, zIndex: 1000 }}>
             <div className="filter-header">
-              <span>📊 HAVING 조건 추가</span>
+              <span>HAVING 조건 추가</span>
               <span className="filter-close" onClick={() => setAddHavingPopup(null)} role="button">×</span>
             </div>
             <div className="filter-body">
@@ -697,12 +714,12 @@ export default function MainArea({
           onDrop={handleDrop}
         >
           <div className={`drop-overlay ${dropOverlayActive ? 'active' : ''}`}>
-            <div className="drop-message">👇 컬럼 또는 테이블 이름을 여기에 드롭하세요</div>
+            <div className="drop-message">컬럼 또는 테이블을 이 영역에 놓으세요</div>
           </div>
 
           {gridColumns.length === 0 && (
             <div className="empty-state">
-              <div className="empty-icon">📊</div>
+              <div className="empty-icon" aria-hidden />
               <div className="empty-title">왼쪽에서 컬럼 또는 테이블 이름을 드래그하세요</div>
               <div className="empty-desc">개별 컬럼을 드래그하거나, 테이블 이름을 드래그하면<br />해당 테이블의 컬럼이 한 번에 추가됩니다</div>
             </div>
@@ -890,11 +907,11 @@ export default function MainArea({
               )}
             </div>
             <div className="pagination-controls">
-              <button type="button" className="btn-small secondary" disabled={currentPage === 1} onClick={() => onSetPage?.(1)}>⏮️ 처음</button>
-              <button type="button" className="btn-small secondary" disabled={currentPage === 1} onClick={() => onSetPage?.(currentPage - 1)}>◀ 이전</button>
+              <button type="button" className="btn-small secondary" disabled={currentPage === 1} onClick={() => onSetPage?.(1)}>처음</button>
+              <button type="button" className="btn-small secondary" disabled={currentPage === 1} onClick={() => onSetPage?.(currentPage - 1)}>이전</button>
               <span className="page-indicator">페이지 <span>{currentPage}</span> / <span>{countKnown ? totalPages : '?'}</span></span>
-              <button type="button" className="btn-small secondary" disabled={nextDisabled} onClick={() => onSetPage?.(currentPage + 1)}>다음 ▶</button>
-              <button type="button" className="btn-small secondary" disabled={lastDisabled} onClick={() => onSetPage?.(totalPages)}>마지막 ⏭️</button>
+              <button type="button" className="btn-small secondary" disabled={nextDisabled} onClick={() => onSetPage?.(currentPage + 1)}>다음</button>
+              <button type="button" className="btn-small secondary" disabled={lastDisabled} onClick={() => onSetPage?.(totalPages)}>마지막</button>
             </div>
             <div className="page-size-selector">
               <select value={pageSize} onChange={(e) => onSetPageSize?.(Number(e.target.value))}>
@@ -907,26 +924,31 @@ export default function MainArea({
         )}
       </div>
 
-      <div className="sql-panel">
-        <div className="sql-header">
-          <span>📄 실행된 SQL</span>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button type="button" className="btn-small" onClick={onExplainSql}>🤖 해석</button>
-            <button type="button" className="btn-small" onClick={onCopySql}>📋 복사</button>
+      <div className="sql-panel qs-sql-panel" role="region" aria-label="실행 SQL">
+        <div className="sql-header qs-sql-header">
+          <span className="qs-sql-header__title">실행 SQL</span>
+          <div className="qs-sql-header__actions">
+            <button type="button" className="btn-small secondary qs-sql-header__btn" onClick={onExplainSql}>
+              해석
+            </button>
+            <button type="button" className="btn-small secondary qs-sql-header__btn" onClick={onCopySql}>
+              복사
+            </button>
           </div>
         </div>
-        <textarea readOnly value={executedSql} placeholder="SQL 쿼리가 여기에 표시됩니다" id="sqlDisplay" style={{ flex: 1, minHeight: 80, padding: 10, border: 'none', resize: 'none', fontFamily: 'monospace', fontSize: 11, background: '#f9f9f9' }} />
+        <textarea readOnly value={executedSql} placeholder="실행 후 SQL이 여기에 표시됩니다" id="sqlDisplay" className="qs-sql-textarea" />
         {explanation != null && (
           <div className="explanation-area">
             <div className="explanation-header">
-              <span>💬 Claude 해석</span>
+              <span>쿼리 해석</span>
               <span className="explanation-close" onClick={onCloseExplanation} role="button" tabIndex={0}>×</span>
             </div>
             <div className={`explanation-content ${explanation === 'loading' ? 'loading' : ''}`}>
-              {explanation === 'loading' ? '🤖 Claude가 쿼리를 해석하는 중...' : explanation}
+              {explanation === 'loading' ? '해석 중…' : explanation}
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
 
@@ -940,7 +962,7 @@ export default function MainArea({
       >
         <div className="relationship-diagram-modal" onClick={(e) => e.stopPropagation()}>
           <div className="relationship-diagram-header">
-            <span>📊 테이블 관계도 (족보)</span>
+            <span>테이블 관계도</span>
             <button type="button" className="relationship-diagram-close" onClick={() => setShowRelationshipDiagram(false)} aria-label="닫기">×</button>
           </div>
           <div className="relationship-diagram-body">

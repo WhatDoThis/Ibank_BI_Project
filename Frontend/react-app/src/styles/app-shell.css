@@ -1,0 +1,269 @@
+/**
+ * Analytica형 앱 셸 — 좌측 주 메뉴(그라데이션) + 상단 헤더·브레드크럼 + 스크롤 본문
+ * docs/ui/UI_UX_재사용_가이드.md §2·§5
+ */
+
+.ibank-app-shell {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.ibank-sidebar {
+  width: var(--nav-width);
+  flex-shrink: 0;
+  background: var(--sidebar-gradient);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 12px 0 16px;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  z-index: 10;
+}
+
+.ibank-sidebar-brand {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 0 12px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+  margin-bottom: 8px;
+}
+
+.ibank-sidebar-brand img {
+  max-width: 40px;
+  max-height: 32px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--radius-btn-sm);
+  padding: 4px;
+}
+
+.ibank-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.ibank-sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-btn-sm);
+  font-size: var(--font-size-hint);
+  font-weight: 600;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: none;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  white-space: normal;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ibank-sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.ibank-sidebar-link.active {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+
+.ibank-shell-main-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--background);
+}
+
+.ibank-shell-header {
+  flex-shrink: 0;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--color-text);
+  box-sizing: border-box;
+}
+
+.ibank-shell-header-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+}
+
+.ibank-shell-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ibank-shell-user {
+  font-size: var(--font-size-hint);
+  color: var(--color-text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ibank-shell-logout {
+  padding: 6px 14px;
+  border-radius: var(--radius-btn-lg);
+  border: 2px solid var(--color-action-primary);
+  background: #fff;
+  color: var(--color-action-primary);
+  font-size: var(--font-size-hint);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ibank-shell-logout:hover {
+  background: var(--color-action-primary);
+  color: #fff;
+}
+
+.ibank-shell-breadcrumb {
+  flex-shrink: 0;
+  min-height: var(--breadcrumb-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+  font-size: var(--font-size-hint);
+  color: var(--color-text-muted);
+  background: #fff;
+  border-bottom: 1px solid var(--color-border-light);
+  box-sizing: border-box;
+}
+
+.ibank-bc-sep {
+  color: var(--color-border);
+  user-select: none;
+}
+
+.ibank-bc-current {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.ibank-shell-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 페이지 공통: 가로 패딩·최대 폭 정렬 (가운데 정렬, 좁은 화면은 100%) */
+.ibank-outlet {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  padding: var(--page-padding-y) var(--page-padding-x) var(--page-padding-bottom);
+  box-sizing: border-box;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-loading--shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+  background: var(--background);
+}
+
+/* NeedProjectRoute 등 가드 메시지 — 아울렛 패딩과 중복 없음 */
+.need-project-gate {
+  max-width: min(520px, 100%);
+  margin: 0 auto;
+  padding: 0;
+  font-family: var(--font-sans);
+}
+.need-project-gate h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.need-project-gate p {
+  margin: 0 0 20px;
+  color: var(--color-text-muted);
+  line-height: 1.55;
+  font-size: var(--font-size-label);
+}
+.need-project-gate a {
+  color: var(--color-action-primary);
+  font-weight: 600;
+  font-size: var(--font-size-label);
+}
+
+/* 본문 상단: 페이지명 + 설명 (PageHeader.jsx) */
+.ibank-page-header {
+  margin-bottom: 20px;
+}
+
+.ibank-page-header__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ibank-page-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.ibank-page-header__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ibank-page-lead {
+  margin: 10px 0 0;
+  max-width: 62ch;
+  font-size: var(--font-size-hint);
+  color: var(--color-text-muted);
+  line-height: 1.55;
+}

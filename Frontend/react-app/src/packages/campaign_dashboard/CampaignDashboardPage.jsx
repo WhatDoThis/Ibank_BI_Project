@@ -29,6 +29,7 @@ import GradeDonutChart from './components/GradeDonutChart'
 import ChannelStackBarChart from './components/ChannelStackBarChart'
 import ChannelConsentBars from './components/ChannelConsentBars'
 import HourlyBarChart from './components/HourlyBarChart'
+import { PageHeader } from '@/app/layout/PageHeader.jsx'
 
 // 1.
 function todayStr() {
@@ -144,26 +145,28 @@ export default function CampaignDashboardPage() {
   const dateRangeActual = summaryData?.date_range_actual ?? null
 
   return (
-    <div className="new-dashboard-page">
-      <SummaryHeader
-        tables={tables}
-        tableId={tableId}
-        onTableChange={setTableId}
-        targetDate={targetDate}
-        onDateChange={handleDateChange}
-        period={period}
-        onPeriodChange={setPeriod}
-        dateRangeActual={dateRangeActual}
-        onPrev={() => moveDate(-1)}
-        onNext={() => moveDate(1)}
-        onRefresh={loadData}
-        loading={loading}
-      />
+    <>
+      <PageHeader description="캠페인·발송 KPI와 회원·채널 지표를 기간·테이블 기준으로 조회합니다." />
+      <div className="new-dashboard-page">
+        <SummaryHeader
+          tables={tables}
+          tableId={tableId}
+          onTableChange={setTableId}
+          targetDate={targetDate}
+          onDateChange={handleDateChange}
+          period={period}
+          onPeriodChange={setPeriod}
+          dateRangeActual={dateRangeActual}
+          onPrev={() => moveDate(-1)}
+          onNext={() => moveDate(1)}
+          onRefresh={loadData}
+          loading={loading}
+        />
 
-      {error && <div className="new-dashboard-page__error">{error}</div>}
+        {error && <div className="new-dashboard-page__error">{error}</div>}
 
-      {(kpi || memberData) && (
-        <>
+        {(kpi || memberData) && (
+          <>
           {/* ━━━ 섹션 1: 회원 현황 KPI (1행 4열) ━━━ */}
           {memberData && (
             <section className="nd-section">
@@ -284,12 +287,13 @@ export default function CampaignDashboardPage() {
             <h2 className="nd-section__title">캠페인 발송 순위</h2>
             <CampaignRankTable data={aggregatedData} />
           </section>
-        </>
-      )}
+          </>
+        )}
 
-      {!kpi && !memberData && !loading && !error && (
-        <div className="new-dashboard-page__empty">조회된 데이터가 없습니다.</div>
-      )}
-    </div>
+        {!kpi && !memberData && !loading && !error && (
+          <div className="new-dashboard-page__empty">조회된 데이터가 없습니다.</div>
+        )}
+      </div>
+    </>
   )
 }

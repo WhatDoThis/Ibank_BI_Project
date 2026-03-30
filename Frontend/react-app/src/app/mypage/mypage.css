@@ -3,15 +3,20 @@
  */
 
 .mypage {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .mypage__title {
   margin: 0 0 24px;
-  font-size: 1.35rem;
-  color: #1e3932;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  color: var(--color-text);
 }
 
 .mypage__section {
