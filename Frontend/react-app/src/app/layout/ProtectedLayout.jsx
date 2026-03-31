@@ -62,10 +62,11 @@ export function ProtectedLayout() {
       <aside className="ibank-sidebar" aria-label="주 메뉴">
         <div className="ibank-sidebar-brand">
           <img
-            src={`${ROUTER_BASENAME}/starbucks-logo.png`}
-            alt=""
+            src={`${ROUTER_BASENAME}/ibank-bi-logo.svg`}
+            alt="IBank BI"
             width={40}
             height={32}
+            decoding="async"
           />
         </div>
         <nav className="ibank-sidebar-nav">
