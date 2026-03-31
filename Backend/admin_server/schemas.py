@@ -1,13 +1,14 @@
 """
 Backend.admin_server.schemas (어드민 API 요청 바디)
 ================================================
-Pydantic 모델.
+어드민 API 요청/응답 Pydantic 모델.
 
 [Classes]
 ===========
-- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody, TransferOwnershipBody
+- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody, TransferOwnershipBody, UserManageUpdateBody
 - RoleCreateBody, RoleUpdateBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody, TableMasterPatchBody, ProjectTableAddBody
+- PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 
 [Dependencies]
 =========
@@ -55,6 +56,10 @@ class UserEtlYnBody(BaseModel):
     etl_yn: Literal["Y", "N"] = Field(..., description="ETL 인프라 자격")
 
 
+class PermissionOptionResponse(BaseModel):
+    items: list[str] = Field(default_factory=list, description="권한 상세 키 목록")
+
+
 class RoleCreateBody(BaseModel):
     pmssn_name: str = Field(..., max_length=100)
     pmssn_list: list[str] = Field(default_factory=list)
@@ -83,6 +88,29 @@ class MemberAddBody(BaseModel):
 
 class MemberRoleBody(BaseModel):
     pmssn_master_id: int
+
+
+class RoleUsageRow(BaseModel):
+    project_info_id: int
+    project_name: str
+    ptcpnt_user_id: int
+    user_nickname: str | None = None
+    user_email: str
+
+
+class RoleUsageListResponse(BaseModel):
+    items: list[RoleUsageRow] = Field(default_factory=list)
+
+
+class UserRoleUsageRow(BaseModel):
+    project_info_id: int
+    project_name: str
+    pmssn_master_id: int
+    pmssn_name: str
+
+
+class UserRoleUsageListResponse(BaseModel):
+    items: list[UserRoleUsageRow] = Field(default_factory=list)
 
 
 class OrgPatchBody(BaseModel):
@@ -131,3 +159,18 @@ class TransferOwnershipBody(BaseModel):
     resource_id: int = Field(..., ge=1)
     from_user_id: int = Field(..., ge=1, description="현재 생성자·등록자")
     to_user_id: int = Field(..., ge=1, description="이관 받을 사용자(sa_dev·sa·a·동일 부서)")
+
+
+class ProjectAssignmentBody(BaseModel):
+    project_info_id: int = Field(..., ge=1)
+    pmssn_master_id: int = Field(..., ge=1)
+
+
+class UserManageUpdateBody(BaseModel):
+    dptmt_info_id: int | None = Field(None, ge=0)
+    user_dvsn: Literal["sa", "a", "o", "u"] | None = None
+    project_info_ids: list[int] | None = None
+    project_assignments: list[ProjectAssignmentBody] | None = Field(
+        None,
+        description="[{project_info_id, pmssn_master_id}] 참여 프로젝트별 부여 권한",
+    )

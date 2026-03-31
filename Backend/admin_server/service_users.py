@@ -22,6 +22,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 12. list_ownership_transfer_targets — 부서 내 sa_dev·sa·a 활성 사용자(소스 제외, 부서 트리 검증)
 13. transfer_resource_ownership — project_create_user_id·pmssn_master.user_id 이관
 14. user_has_transferable_ownership — 정지 전 생성자 자산(project·커스텀 역할) 존재 여부
+15. get_user_change_options / update_user_management — 부서·역할·프로젝트 참여 변경
 
 [Dependencies]
 =========
@@ -54,6 +55,7 @@ _INVITE_TARGETS_BY_ACTOR: dict[str, tuple[str, ...]] = {
 
 # 프로젝트·부서 커스텀 역할 생성자 이관 허용 수신자(05 문서: 프로젝트/역할 생성 가능 역할)
 _OWNERSHIP_TRANSFER_ELIGIBLE: frozenset[str] = frozenset({"sa_dev", "sa", "a"})
+_DVSN_RANK: dict[str, int] = {"u": 1, "o": 2, "a": 3, "sa": 4, "sa_dev": 5}
 
 
 def _norm_email(email: str) -> str:
@@ -169,7 +171,7 @@ def list_users_for_admin_ui(
     actor_dvsn: str,
     actor_dptmt_id: int,
 ) -> list[dict[str, Any]]:
-    """sa_dev는 전사 user, 그 외 어드민은 동일 부서만. 정렬: 부서 트리 그룹 → 역할(sa_dev·sa·a·o·u) → 동일 역할 시 etl Y 우선 → 이메일."""
+    """sa_dev는 전사 user, 그 외 어드민은 본인 부서 트리(본인+하위). 정렬: 부서 트리 그룹 → 역할(sa_dev·sa·a·o·u) → 동일 역할 시 etl Y 우선 → 이메일."""
     ad = (actor_dvsn or "").strip().lower()
     cur = conn.cursor()
     try:
@@ -218,7 +220,22 @@ def list_users_for_admin_ui(
             cur.execute(sel + order)
         else:
             cur.execute(
-                sel + " WHERE u.dptmt_info_id = %s " + order,
+                sel
+                + """
+                INNER JOIN (
+                    WITH RECURSIVE sub AS (
+                        SELECT dptmt_info_id
+                        FROM dptmt_info
+                        WHERE dptmt_info_id = %s
+                        UNION ALL
+                        SELECT d.dptmt_info_id
+                        FROM dptmt_info d
+                        INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                    )
+                    SELECT dptmt_info_id FROM sub
+                ) scope ON scope.dptmt_info_id = u.dptmt_info_id
+                """
+                + order,
                 (int(actor_dptmt_id),),
             )
         out: list[dict[str, Any]] = []
@@ -422,10 +439,28 @@ def _assert_same_dept(conn, actor_dptmt: int, target_user_id: int) -> None:
         cur.close()
 
 
+def _assert_target_in_managed_tree(conn, actor_dptmt: int, target_user_id: int) -> None:
+    """대상 사용자가 actor_dptmt 본인 또는 하위 부서 트리에 속하는지 검증."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT dptmt_info_id FROM user_info WHERE user_id = %s",
+            (target_user_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("사용자를 찾을 수 없습니다.")
+        target_dptmt = int(row["dptmt_info_id"])
+        if not _dptmt_id_in_managed_subtree(conn, int(actor_dptmt), target_dptmt):
+            raise ValueError("다른 부서 사용자입니다.")
+    finally:
+        cur.close()
+
+
 def _assert_target_exists_or_same_dept(
     conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int
 ) -> None:
-    """SA_DEV는 부서 제한 없이 대상 존재만 확인, 나머지는 동일 부서 검증."""
+    """SA_DEV는 부서 제한 없이 대상 존재만 확인, 나머지는 본인+하위 부서 트리 검증."""
     ad = (actor_dvsn or "").strip().lower()
     if ad == "sa_dev":
         cur = conn.cursor()
@@ -439,7 +474,7 @@ def _assert_target_exists_or_same_dept(
         finally:
             cur.close()
         return
-    _assert_same_dept(conn, actor_dptmt, target_user_id)
+    _assert_target_in_managed_tree(conn, actor_dptmt, target_user_id)
 
 
 def _assert_suspend_activate_target(actor_dvsn: str, target_user_dvsn: str) -> None:
@@ -621,7 +656,7 @@ def set_user_etl_flag(
     if ad not in ("sa_dev", "sa"):
         raise ValueError("ETL 자격 변경 권한이 없습니다.")
     if ad == "sa":
-        _assert_same_dept(conn, actor_dptmt, target_user_id)
+        _assert_target_in_managed_tree(conn, actor_dptmt, target_user_id)
     cur = conn.cursor()
     try:
         cur.execute(
@@ -1317,6 +1352,396 @@ def transfer_resource_ownership(
             conn.commit()
             return
         raise ValueError("지원하지 않는 리소스 유형입니다.")
+    except ValueError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def _role_change_allowed_for_actor(actor_dvsn: str) -> tuple[str, ...]:
+    ad = (actor_dvsn or "").strip().lower()
+    if ad == "sa_dev":
+        return ("sa", "a", "o", "u")
+    if ad == "sa":
+        return ("sa", "a", "o", "u")
+    if ad == "a":
+        return ("a", "o", "u")
+    return ()
+
+
+def _assert_target_role_manageable(actor_dvsn: str, target_dvsn: str) -> None:
+    ad = canon_user_dvsn(actor_dvsn)
+    td = canon_user_dvsn(target_dvsn)
+    if not ad or not td:
+        raise ValueError("허용되지 않은 역할 코드입니다.")
+    if _DVSN_RANK.get(td, 0) > _DVSN_RANK.get(ad, 0):
+        raise ValueError("본인보다 상위 역할 사용자는 변경할 수 없습니다.")
+
+
+def _list_departments_for_change(conn, actor_dvsn: str, actor_dptmt_id: int) -> list[dict[str, Any]]:
+    ad = (actor_dvsn or "").strip().lower()
+    cur = conn.cursor()
+    try:
+        if ad == "sa_dev":
+            cur.execute(
+                """
+                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
+                FROM dptmt_info
+                ORDER BY dptmt_name NULLS LAST
+                """
+            )
+            return [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            """
+            WITH RECURSIVE sub AS (
+                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
+                FROM dptmt_info WHERE dptmt_info_id = %s
+                UNION ALL
+                SELECT d.dptmt_info_id, d.dptmt_name, d.parent_dptmt_info_id
+                FROM dptmt_info d
+                INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
+            )
+            SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
+            FROM sub
+            ORDER BY dptmt_name NULLS LAST
+            """,
+            (int(actor_dptmt_id),),
+        )
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+def _user_has_role_change_blockers(cur, user_id: int) -> bool:
+    uid = int(user_id)
+    cur.execute("SELECT 1 FROM dptmt_info WHERE dptmt_create_user_id = %s LIMIT 1", (uid,))
+    if cur.fetchone():
+        return True
+    cur.execute("SELECT 1 FROM project_info WHERE project_create_user_id = %s LIMIT 1", (uid,))
+    if cur.fetchone():
+        return True
+    cur.execute(
+        """
+        SELECT 1 FROM pmssn_master
+        WHERE user_id = %s AND COALESCE(system_dflt_yn,'') <> 'Y'
+        LIMIT 1
+        """,
+        (uid,),
+    )
+    if cur.fetchone():
+        return True
+    # table_master는 생성자 FK가 없어 직접 판별 불가. 현재 스키마 기준으로는 프로젝트 생성자 소유만 검증.
+    return False
+
+
+def _default_project_member_pmssn(cur) -> int:
+    cur.execute(
+        """
+        SELECT pmssn_master_id, pmssn_name
+        FROM pmssn_master
+        WHERE COALESCE(system_dflt_yn,'') = 'Y' AND dptmt_info_id IS NULL
+        ORDER BY pmssn_master_id
+        """
+    )
+    rows = cur.fetchall()
+    if not rows:
+        raise ValueError("프로젝트 기본 역할(pmssn_master)이 없습니다.")
+    for r in rows:
+        if (r.get("pmssn_name") or "").strip() == "뷰어":
+            return int(r["pmssn_master_id"])
+    return int(rows[0]["pmssn_master_id"])
+
+
+def _list_project_role_options(cur, project_info_id: int) -> list[dict[str, Any]]:
+    cur.execute(
+        "SELECT dptmt_info_id FROM project_info WHERE project_info_id = %s",
+        (int(project_info_id),),
+    )
+    prow = cur.fetchone()
+    if not prow:
+        return []
+    dpt = int(prow["dptmt_info_id"])
+    cur.execute(
+        """
+        SELECT pmssn_master_id, pmssn_name
+        FROM pmssn_master
+        WHERE (COALESCE(system_dflt_yn,'') = 'Y' AND dptmt_info_id IS NULL)
+           OR dptmt_info_id = %s
+        ORDER BY system_dflt_yn DESC, pmssn_name
+        """,
+        (dpt,),
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def _assert_pmssn_allowed_for_project(cur, project_info_id: int, pmssn_master_id: int) -> None:
+    cur.execute(
+        "SELECT dptmt_info_id FROM project_info WHERE project_info_id = %s",
+        (int(project_info_id),),
+    )
+    prow = cur.fetchone()
+    if not prow:
+        raise ValueError("프로젝트를 찾을 수 없습니다.")
+    pdpt = int(prow["dptmt_info_id"])
+    cur.execute(
+        """
+        SELECT dptmt_info_id, COALESCE(system_dflt_yn,'') AS sy
+        FROM pmssn_master WHERE pmssn_master_id = %s
+        """,
+        (int(pmssn_master_id),),
+    )
+    mrow = cur.fetchone()
+    if not mrow:
+        raise ValueError("프로젝트 권한(pmssn_master)을 찾을 수 없습니다.")
+    mdpt = mrow.get("dptmt_info_id")
+    if (mrow.get("sy") or "").upper() == "Y" and mdpt is None:
+        return
+    if mdpt is not None and int(mdpt) == pdpt:
+        return
+    raise ValueError("해당 프로젝트에 부여할 수 없는 권한입니다.")
+
+
+def get_user_change_options(
+    conn,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    target_user_id: int,
+) -> dict[str, Any]:
+    tid = int(target_user_id)
+    _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT user_id, user_email, user_nickname, user_dvsn, dptmt_info_id
+            FROM user_info WHERE user_id = %s
+            """,
+            (tid,),
+        )
+        target = cur.fetchone()
+        if not target:
+            raise ValueError("사용자를 찾을 수 없습니다.")
+        _assert_target_role_manageable(actor_dvsn, target.get("user_dvsn") or "")
+        cur.execute(
+            """
+            SELECT p.project_info_id, p.project_name, p.dptmt_info_id, pp.pmssn_master_id,
+                   COALESCE(pm.pmssn_name,'') AS pmssn_name,
+                   CASE WHEN p.dptmt_info_id = %s THEN 'Y' ELSE 'N' END AS assignable_by_actor
+            FROM project_ptcpnt_info pp
+            INNER JOIN project_info p ON p.project_info_id = pp.project_info_id
+            LEFT JOIN pmssn_master pm ON pm.pmssn_master_id = pp.pmssn_master_id
+            WHERE pp.ptcpnt_user_id = %s
+            ORDER BY p.project_name
+            """,
+            (int(actor_dptmt), tid),
+        )
+        current_projects = [dict(r) for r in cur.fetchall()]
+        ad = (actor_dvsn or "").strip().lower()
+        if ad == "sa_dev":
+            cur.execute(
+                """
+                SELECT project_info_id, project_name, dptmt_info_id, 'Y' AS assignable_by_actor
+                FROM project_info
+                ORDER BY project_name
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT project_info_id, project_name, dptmt_info_id, 'Y' AS assignable_by_actor
+                FROM project_info
+                WHERE dptmt_info_id = %s
+                ORDER BY project_name
+                """,
+                (int(actor_dptmt),),
+            )
+        base_projects = [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+    proj_by_id: dict[int, dict[str, Any]] = {}
+    for r in base_projects:
+        proj_by_id[int(r["project_info_id"])] = r
+    for r in current_projects:
+        pid = int(r["project_info_id"])
+        if pid not in proj_by_id:
+            proj_by_id[pid] = {**r, "assignable_by_actor": "N"}
+        else:
+            proj_by_id[pid]["pmssn_master_id"] = r.get("pmssn_master_id")
+            proj_by_id[pid]["pmssn_name"] = r.get("pmssn_name")
+    cur2 = conn.cursor()
+    try:
+        for pid, obj in proj_by_id.items():
+            obj["role_options"] = _list_project_role_options(cur2, pid)
+    finally:
+        cur2.close()
+    return {
+        "target_user": dict(target),
+        "departments": _list_departments_for_change(conn, actor_dvsn, actor_dptmt),
+        "role_options": [
+            {"value": v, "label": v}
+            for v in _role_change_allowed_for_actor(actor_dvsn)
+        ],
+        "projects": sorted(proj_by_id.values(), key=lambda x: str(x.get("project_name") or "")),
+        "current_project_ids": sorted(int(r["project_info_id"]) for r in current_projects),
+        "current_project_assignments": [
+            {
+                "project_info_id": int(r["project_info_id"]),
+                "pmssn_master_id": int(r["pmssn_master_id"]) if r.get("pmssn_master_id") is not None else None,
+            }
+            for r in current_projects
+        ],
+    }
+
+
+def update_user_management(
+    conn,
+    actor_user_id: int,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    target_user_id: int,
+    dptmt_info_id: int | None = None,
+    user_dvsn: str | None = None,
+    project_info_ids: list[int] | None = None,
+    project_assignments: list[dict[str, int]] | None = None,
+) -> None:
+    tid = int(target_user_id)
+    _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT user_id, user_dvsn, dptmt_info_id
+            FROM user_info WHERE user_id = %s
+            """,
+            (tid,),
+        )
+        target = cur.fetchone()
+        if not target:
+            raise ValueError("사용자를 찾을 수 없습니다.")
+        _assert_target_role_manageable(actor_dvsn, target.get("user_dvsn") or "")
+
+        if dptmt_info_id is not None:
+            allow_ids = {
+                int(r["dptmt_info_id"])
+                for r in _list_departments_for_change(conn, actor_dvsn, actor_dptmt)
+            }
+            nd = int(dptmt_info_id)
+            if nd not in allow_ids:
+                raise ValueError("해당 부서로는 변경할 수 없습니다.")
+            cur.execute(
+                "UPDATE user_info SET dptmt_info_id = %s, update_dtm = NOW() WHERE user_id = %s",
+                (nd, tid),
+            )
+
+        if user_dvsn is not None:
+            nd = canon_user_dvsn(user_dvsn)
+            allowed = set(_role_change_allowed_for_actor(actor_dvsn))
+            if nd not in allowed:
+                raise ValueError("해당 역할로는 변경할 수 없습니다.")
+            if _user_has_role_change_blockers(cur, tid):
+                raise ValueError(
+                    "해당 사용자는 생성한 부서·프로젝트·역할 등의 생성물이 있어 역할을 변경할 수 없습니다."
+                )
+            cur.execute(
+                "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
+                (nd, tid),
+            )
+
+        desired_list = project_assignments if project_assignments is not None else None
+        if desired_list is None and project_info_ids is not None:
+            desired_list = [
+                {"project_info_id": int(x), "pmssn_master_id": _default_project_member_pmssn(cur)}
+                for x in (project_info_ids or [])
+            ]
+        if desired_list is not None:
+            desired_map: dict[int, int] = {}
+            for a in desired_list:
+                pid = int(a.get("project_info_id"))
+                mid = int(a.get("pmssn_master_id"))
+                desired_map[pid] = mid
+            desired = set(desired_map.keys())
+            if any(x <= 0 for x in desired):
+                raise ValueError("유효하지 않은 프로젝트 ID가 포함되어 있습니다.")
+            cur.execute(
+                """
+                SELECT project_info_id, pmssn_master_id
+                FROM project_ptcpnt_info
+                WHERE ptcpnt_user_id = %s
+                """,
+                (tid,),
+            )
+            current_rows = [dict(r) for r in cur.fetchall()]
+            current = {int(r["project_info_id"]) for r in current_rows}
+            current_role = {
+                int(r["project_info_id"]): int(r["pmssn_master_id"])
+                for r in current_rows
+                if r.get("pmssn_master_id") is not None
+            }
+            remove_ids = sorted(current - desired)
+            add_ids = sorted(desired - current)
+            same_ids = sorted(current & desired)
+            ad = (actor_dvsn or "").strip().lower()
+            if add_ids:
+                ph = ", ".join(["%s"] * len(add_ids))
+                cur.execute(
+                    f"SELECT project_info_id, dptmt_info_id FROM project_info WHERE project_info_id IN ({ph})",
+                    tuple(add_ids),
+                )
+                rows = {int(r["project_info_id"]): int(r["dptmt_info_id"]) for r in cur.fetchall()}
+                if len(rows) != len(add_ids):
+                    raise ValueError("존재하지 않는 프로젝트가 포함되어 있습니다.")
+                if ad != "sa_dev":
+                    for pid in add_ids:
+                        if rows[pid] != int(actor_dptmt):
+                            raise ValueError(
+                                "타부서 프로젝트 추가는 허용되지 않습니다. 타부서 프로젝트는 해당 관리자 초대로만 참여 가능합니다."
+                            )
+                for pid in add_ids:
+                    _assert_pmssn_allowed_for_project(cur, pid, desired_map[pid])
+                    cur.execute(
+                        """
+                        INSERT INTO project_ptcpnt_info (
+                            ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
+                        ) VALUES (%s, %s, %s, %s, NOW())
+                        ON CONFLICT (project_info_id, ptcpnt_user_id) DO NOTHING
+                        """,
+                        (tid, int(actor_user_id), pid, desired_map[pid]),
+                    )
+            for pid in same_ids:
+                if int(current_role.get(pid, 0)) == int(desired_map[pid]):
+                    continue
+                if ad != "sa_dev":
+                    cur.execute(
+                        "SELECT dptmt_info_id FROM project_info WHERE project_info_id = %s",
+                        (pid,),
+                    )
+                    prow = cur.fetchone()
+                    if not prow:
+                        raise ValueError("프로젝트를 찾을 수 없습니다.")
+                    if int(prow["dptmt_info_id"]) != int(actor_dptmt):
+                        raise ValueError("타부서 프로젝트 권한은 변경할 수 없습니다.")
+                _assert_pmssn_allowed_for_project(cur, pid, desired_map[pid])
+                cur.execute(
+                    """
+                    UPDATE project_ptcpnt_info
+                    SET pmssn_master_id = %s, update_dtm = NOW()
+                    WHERE project_info_id = %s AND ptcpnt_user_id = %s
+                    """,
+                    (desired_map[pid], pid, tid),
+                )
+            for pid in remove_ids:
+                cur.execute(
+                    """
+                    DELETE FROM project_ptcpnt_info
+                    WHERE project_info_id = %s AND ptcpnt_user_id = %s
+                    """,
+                    (pid, tid),
+                )
+        conn.commit()
     except ValueError:
         conn.rollback()
         raise

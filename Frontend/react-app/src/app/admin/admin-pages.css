@@ -138,6 +138,19 @@
   border-color: rgba(254, 86, 85, 0.35);
 }
 
+.ap__btn--link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-action-primary);
+  text-decoration: underline;
+}
+
+.ap__btn--link:hover:not(:disabled) {
+  background: transparent;
+  color: var(--color-action-primary-hover);
+}
+
 .ap__table-wrap {
   overflow-x: auto;
   border: 1px solid var(--color-border-light);
@@ -193,6 +206,50 @@
 
 .ap__modal h3 {
   margin: 0 0 12px;
+}
+
+.ap__modal--usage {
+  width: 100%;
+  max-width: 700px;
+  max-height: 90vh;
+}
+
+.ap__usage-wrap {
+  max-height: calc(90vh - 120px);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.ap__usage-table {
+  min-width: 640px;
+}
+
+.ap__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ap__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 9999px;
+  background: var(--primary-light);
+  font-size: 0.8rem;
+}
+
+.ap__chip-remove {
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.85rem;
+  line-height: 1;
 }
 
 .ap__search-hits {

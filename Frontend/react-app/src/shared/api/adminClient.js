@@ -8,11 +8,13 @@
  * - getAdminUsers, patchAdminUserSuspend, patchAdminUserActivate
  * - getAdminOrg, patchAdminOrg, getAdminOrgDepartments, postAdminOrgDepartment, patchAdminOrgDepartment, deleteAdminOrgDepartment
  * - getAdminRoles, postAdminRole, putAdminRole, deleteAdminRole
+ * - getAdminRolePermissionOptions, getAdminRoleUsages, getAdminRoleProjectParticipants, getAdminRoleUserUsages
  * - getAdminProjects, postAdminProject, patchAdminProject, deleteAdminProject
  * - getAdminProjectMembers, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
  * - getAdminUsersSearch
  * - getAdminInviteDepartments, getAdminInviteProjects, getAdminInviteRoles, postAdminInvite
  * - getAdminUserWorkAssets, getAdminOwnershipTransferTargets, postAdminTransferOwnership
+ * - getAdminUserChangeOptions, putAdminUserManagement
  *
  * [Dependencies]
  * =========
@@ -97,6 +99,15 @@ export async function postAdminTransferOwnership(body) {
   return request('POST', '/api/admin/users/transfer-ownership', body)
 }
 
+export async function getAdminUserChangeOptions(userId) {
+  return request('GET', `/api/admin/users/${userId}/change-options`)
+}
+
+/** @param {{ dptmt_info_id?: number|null, user_dvsn?: 'sa'|'a'|'o'|'u'|null, project_info_ids?: number[]|null, project_assignments?: {project_info_id:number, pmssn_master_id:number}[]|null }} body */
+export async function putAdminUserManagement(userId, body) {
+  return request('PUT', `/api/admin/users/${userId}/management`, body)
+}
+
 export async function getAdminUsersSearch(q) {
   const qq = encodeURIComponent((q || '').trim())
   return request('GET', `/api/admin/users/search?q=${qq}`)
@@ -118,6 +129,22 @@ export async function putAdminRole(pmssnMasterId, body) {
 
 export async function deleteAdminRole(pmssnMasterId) {
   return request('DELETE', `/api/admin/roles/${pmssnMasterId}`)
+}
+
+export async function getAdminRolePermissionOptions() {
+  return request('GET', '/api/admin/roles/permission-options')
+}
+
+export async function getAdminRoleUsages(pmssnMasterId) {
+  return request('GET', `/api/admin/roles/${pmssnMasterId}/usages`)
+}
+
+export async function getAdminRoleProjectParticipants(pmssnMasterId, projectInfoId) {
+  return request('GET', `/api/admin/roles/${pmssnMasterId}/projects/${projectInfoId}/participants`)
+}
+
+export async function getAdminRoleUserUsages(userId) {
+  return request('GET', `/api/admin/roles/users/${userId}/usages`)
 }
 
 export async function getAdminProjects() {

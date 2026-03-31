@@ -1,6 +1,15 @@
 # Log
 
 ## Log Index
+115. 2026-03-31 권한관리 화면 개편·사용현황 드릴다운 추가
+114. 2026-03-31 사용자관리 대상 검증을 부서트리 기준으로 통일
+113. 2026-03-31 사용자관리 조회 범위: 동일부서→부서트리(본인+하위)로 수정
+112. 2026-03-31 변경 모달 프로젝트별 권한 위임 선택 추가
+111. 2026-03-31 변경 모달 프로젝트 영역 empty-state 표시
+110. 2026-03-31 변경 모달 높이 확장(프로젝트 목록 가시성 개선)
+109. 2026-03-31 사용자관리 모달 가독성 재조정(1열·둥근 버튼·폭 축소)
+108. 2026-03-31 사용자관리 모달 UI/레이아웃 개선(부서추가 스타일 톤)
+107. 2026-03-31 사용자 변경 모달(부서·역할·프로젝트참여) 및 관리 API
 106. 2026-03-31 A→SA 행 목록 허용(정지·활성만 잠금)
 105. 2026-03-31 A가 SA 사용자 작업버튼 비활성
 104. 2026-03-31 사용자관리 SA_DEV 전역 목록·부서컬럼·정렬·정지-이관 검증
@@ -109,6 +118,104 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+115. 2026-03-31 권한관리 화면 개편·사용현황 드릴다운 추가
+Purpose: 역할 관리 화면을 권한 관리 중심으로 전환하고, 권한 상세목록 선택형 생성 UX와 사용현황 조회/드릴다운(프로젝트·사용자) 관리 흐름을 추가한다.
+
+Changes:
+
+- `/admin/roles` 메뉴·페이지 문구를 `권한 관리`로 변경하고, 생성 폼을 `프로젝트 권한 생성` + `권한 상세 목록` 선택형 UI로 개편
+- 권한 사용현황 API 추가: `permission-options`, `roles/{id}/usages`, `roles/{id}/projects/{id}/participants`, `roles/users/{id}/usages`
+- 권한 목록 응답에 `usage_count`를 포함해 사용중 여부를 표시하고, 사용중일 때만 목록 버튼 활성
+- 사용현황 모달(최대폭 700px, 스크롤 대응)에서 프로젝트/사용자 드릴다운, 권한 변경·강퇴 액션(컨펌 포함) 구현
+- 프론트-백엔드 경로 정합 수정: 사용자 드릴다운 API를 `/api/admin/roles/users/{user_id}/usages`로 일치
+
+Changed files: Backend/admin_server/router.py, Backend/admin_server/schemas.py, Backend/admin_server/service_roles.py, Frontend/react-app/src/app/layout/navConfig.js, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/shared/api/adminClient.js, docs/log/log.md
+
+114. 2026-03-31 사용자관리 대상 검증을 부서트리 기준으로 통일
+Purpose: 하위부서 사용자의 변경 모달에서 `다른 부서 사용자` 오류가 발생하던 문제를 해결한다. 조회와 동일하게 대상 사용자 검증도 본인+하위 부서 트리 기준으로 통일한다.
+
+Changes:
+
+- `service_users._assert_target_exists_or_same_dept`: non-sa_dev 검증을 동일부서에서 부서트리 검증(`_assert_target_in_managed_tree`)으로 변경
+- `set_user_etl_flag(sa)`도 동일부서 검증을 트리 검증으로 변경
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+113. 2026-03-31 사용자관리 조회 범위: 동일부서→부서트리(본인+하위)로 수정
+Purpose: 상위부서 SA 화면에서 하위부서로 이동된 사용자가 목록에서 사라지는 문제를 해결한다. 조회 기준을 부서 ID 단일값이 아닌 부서 트리 범위로 확장한다.
+
+Changes:
+
+- `list_users_for_admin_ui`: non-sa_dev 조회를 `u.dptmt_info_id = actor_dptmt_id`에서 재귀 CTE(scope) 기반 `본인+하위부서`로 변경
+- 정렬 규칙(부서 그룹/역할/etl/email)은 유지
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+112. 2026-03-31 변경 모달 프로젝트별 권한 위임 선택 추가
+Purpose: 프로젝트 참여 체크 시 해당 프로젝트에 부여 가능한 권한(pmssn)을 선택하고, 선택 권한을 프로젝트명 오른쪽 배지로 표시. 체크 해제 시 권한 선택도 초기화.
+
+Changes:
+
+- `change-options`: 프로젝트별 `role_options`, 현재 참여 권한(`current_project_assignments`) 응답 추가
+- `PUT /users/{id}/management`: `project_assignments[{project_info_id, pmssn_master_id}]` 반영(추가/권한변경/제거), 타부서 추가 차단 유지
+- 변경 모달 UI: 프로젝트 체크박스 + 하단 권한 셀렉트 + 우측 권한 배지, 해제 시 `project_roles` 자동 삭제
+
+Changed files: Backend/admin_server/service_users.py, router.py, schemas.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, Frontend/react-app/src/shared/api/adminClient.js, docs/log/log.md
+
+111. 2026-03-31 변경 모달 프로젝트 영역 empty-state 표시
+Purpose: 변경 모달의 프로젝트 패널에서 하단 잘림/무자료 상태를 구분하기 어렵던 UX를 개선한다.
+
+Changes:
+
+- `AdminUsersPage`: 프로젝트 목록이 비어 있으면 `참여 가능한 프로젝트가 없습니다.` 표시
+- `admin-users.css`: `admin-users__panel-scroll--change` 최소 높이(`min-height`) 추가로 패널 형태 고정
+- empty 상태용 텍스트 스타일(`admin-users__empty`) 추가
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+110. 2026-03-31 변경 모달 높이 확장(프로젝트 목록 가시성 개선)
+Purpose: 사용자 변경 모달의 상하 표시 영역이 짧아 프로젝트 참여 목록이 답답하게 보이던 문제를 개선한다.
+
+Changes:
+
+- `AdminUsersPage`: 변경 모달 프로젝트 목록 컨테이너에 `admin-users__panel-scroll--change` 클래스 적용
+- `admin-users.css`: 변경 모달 최대 높이 `95vh`, 변경 목록 스크롤 최대 높이 `52vh`로 확대
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+109. 2026-03-31 사용자관리 모달 가독성 재조정(1열·둥근 버튼·폭 축소)
+Purpose: 이메일 초대/변경 모달의 선택창을 1라인 1필드로 정리하고, 모달 폭을 과도하지 않게 조정. 버튼을 둥근 형태로 통일.
+
+Changes:
+
+- `admin-users.css`: `.admin-users__grid-2`를 1열로 변경(셀렉트 1줄 1개)
+- 모달 기본 폭 `460px`, 변경 모달 `520px`로 축소
+- 작업버튼/모달버튼/이관버튼/대상선택버튼의 border-radius를 pill 형태로 통일
+
+Changed files: Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+108. 2026-03-31 사용자관리 모달 UI/레이아웃 개선(부서추가 스타일 톤)
+Purpose: 이메일 초대/사용자 변경/이관 모달의 시각 품질을 부서관리 `부서 추가` 모달 톤에 맞춰 정돈하고, 필드 배치/가독성을 개선.
+
+Changes:
+
+- `AdminUsersPage`: 초대 모달 2열 레이아웃(부서·역할, 프로젝트·pmssn), 공통 모달 타이틀/힌트 클래스 정리
+- `admin-users.css`: 모달 오버레이/카드/스크롤 패널 스타일을 `admin-org` 톤으로 통일, 변경 모달 폭 확장, 반응형 1열 폴백
+- 이관 대상 버튼/스크롤 영역 대비 개선
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+107. 2026-03-31 사용자 변경 모달(부서·역할·프로젝트참여) 및 관리 API
+Purpose: 작업 컬럼에 `변경` 버튼을 추가해 사용자의 부서·역할·프로젝트 참여를 한 번에 조정한다. 백엔드에서 dvsn/부서/프로젝트 제약을 동일하게 검증한다.
+
+Changes:
+
+- `GET /api/admin/users/{id}/change-options`, `PUT /api/admin/users/{id}/management`
+- `service_users.get_user_change_options/update_user_management` 추가(본인이하 역할만, 역할 변경 시 생성물 차단, 프로젝트 추가 시 타부서 제한)
+- `AdminUsersPage` 변경 모달(UI)·체크박스 프로젝트 참여 변경 및 `adminClient` API 연동
+
+Changed files: Backend/admin_server/service_users.py, router.py, schemas.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, Frontend/react-app/src/shared/api/adminClient.js, docs/log/log.md
 
 106. 2026-03-31 A→SA 행 목록 허용(정지·활성만 잠금)
 Purpose: Admin(a)이 SA 사용자 행에서 작업물 조회·이관은 가능해야 하므로 목록 버튼은 활성 유지하고, 정지/활성만 비활성으로 제한.

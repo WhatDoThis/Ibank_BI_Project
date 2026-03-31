@@ -19,12 +19,14 @@ import {
   getAdminInviteProjects,
   getAdminInviteRoles,
   getAdminOwnershipTransferTargets,
+  getAdminUserChangeOptions,
   getAdminUserWorkAssets,
   getAdminUsers,
   patchAdminUserActivate,
   patchAdminUserSuspend,
   postAdminInvite,
   postAdminTransferOwnership,
+  putAdminUserManagement,
 } from '@/shared/api/adminClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
@@ -99,6 +101,15 @@ export default function AdminUsersPage() {
   const [transferTargets, setTransferTargets] = useState([])
   const [transferLoading, setTransferLoading] = useState(false)
   const [transferErr, setTransferErr] = useState('')
+  const [changeCtx, setChangeCtx] = useState(null)
+  const [changeLoading, setChangeLoading] = useState(false)
+  const [changeErr, setChangeErr] = useState('')
+  const [changeForm, setChangeForm] = useState({
+    dptmt_info_id: '',
+    user_dvsn: '',
+    project_info_ids: [],
+    project_roles: {},
+  })
 
   const load = useCallback(async () => {
     setError('')
@@ -312,6 +323,103 @@ export default function AdminUsersPage() {
     [transferCtx, expandedUid, load],
   )
 
+  const openChangeModal = useCallback(async (uid) => {
+    setChangeCtx({ userId: uid, options: null })
+    setChangeErr('')
+    setChangeLoading(true)
+    try {
+      const data = await getAdminUserChangeOptions(uid)
+      const currentIds = Array.isArray(data?.current_project_ids)
+        ? data.current_project_ids.map((x) => Number(x))
+        : []
+      const currentRoleMap = {}
+      ;(data?.current_project_assignments || []).forEach((a) => {
+        const pid = Number(a?.project_info_id)
+        const mid = Number(a?.pmssn_master_id)
+        if (Number.isFinite(pid) && Number.isFinite(mid) && pid > 0 && mid > 0) currentRoleMap[pid] = mid
+      })
+      setChangeCtx({ userId: uid, options: data || null })
+      setChangeForm({
+        dptmt_info_id: String(data?.target_user?.dptmt_info_id ?? ''),
+        user_dvsn: String(data?.target_user?.user_dvsn ?? ''),
+        project_info_ids: currentIds,
+        project_roles: currentRoleMap,
+      })
+    } catch (e) {
+      setChangeErr(e?.message || '변경 옵션을 불러오지 못했습니다.')
+    } finally {
+      setChangeLoading(false)
+    }
+  }, [])
+
+  const toggleProjectSelection = useCallback((projectId, checked) => {
+    const pid = Number(projectId)
+    setChangeForm((prev) => {
+      const set = new Set((prev.project_info_ids || []).map((x) => Number(x)))
+      const roles = { ...(prev.project_roles || {}) }
+      if (checked) {
+        set.add(pid)
+        if (!roles[pid]) {
+          const project = (changeCtx?.options?.projects || []).find((p) => Number(p.project_info_id) === pid)
+          const firstRole = Number(project?.role_options?.[0]?.pmssn_master_id || 0)
+          if (firstRole > 0) roles[pid] = firstRole
+        }
+      } else {
+        set.delete(pid)
+        delete roles[pid]
+      }
+      return {
+        ...prev,
+        project_info_ids: Array.from(set.values()).sort((a, b) => a - b),
+        project_roles: roles,
+      }
+    })
+  }, [changeCtx?.options?.projects])
+
+  const changeProjectRole = useCallback((projectId, pmssnId) => {
+    const pid = Number(projectId)
+    const mid = Number(pmssnId)
+    setChangeForm((prev) => ({
+      ...prev,
+      project_roles: {
+        ...(prev.project_roles || {}),
+        [pid]: mid,
+      },
+    }))
+  }, [])
+
+  const submitChange = useCallback(async () => {
+    if (!changeCtx?.userId) return
+    const selected = (changeForm.project_info_ids || []).map((x) => Number(x))
+    const hasMissingRole = selected.some((pid) => Number(changeForm.project_roles?.[pid] || 0) <= 0)
+    if (hasMissingRole) {
+      setChangeErr('체크한 프로젝트의 권한(pmssn)을 모두 선택하세요.')
+      return
+    }
+    if (!confirmCrud('해당 사용자의 부서/역할/프로젝트 참여를 변경할까요?')) return
+    setChangeErr('')
+    setChangeLoading(true)
+    try {
+      await putAdminUserManagement(changeCtx.userId, {
+        dptmt_info_id: Number(changeForm.dptmt_info_id),
+        user_dvsn: changeForm.user_dvsn,
+        project_info_ids: (changeForm.project_info_ids || []).map((x) => Number(x)),
+        project_assignments: (changeForm.project_info_ids || []).map((pid) => ({
+          project_info_id: Number(pid),
+          pmssn_master_id: Number(changeForm.project_roles?.[pid] || 0),
+        })),
+      })
+      setChangeCtx(null)
+      await load()
+      setExpandedUid(null)
+      setWorkByUser({})
+    } catch (e) {
+      setChangeErr(e?.message || '변경 실패')
+    } finally {
+      setChangeLoading(false)
+    }
+  }, [changeCtx, changeForm, load])
+
   async function handleSuspend(userId) {
     if (!confirmCrud('이 사용자를 비활성(정지) 처리할까요?')) return
     setBusyId(userId)
@@ -436,16 +544,16 @@ export default function AdminUsersPage() {
             aria-labelledby="admin-invite-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="admin-invite-title" className="admin-users__invite-title">
+            <h2 id="admin-invite-title" className="admin-users__modal-title">
               이메일 초대
             </h2>
-            <p className="admin-users__hint">
+            <p className="admin-users__modal-hint">
               {canSetEtlOnInvite
                 ? '부서(sa_dev는 전체, sa·a는 본인 부서 트리)를 선택한 뒤 역할·옵션을 지정합니다.'
                 : 'a(Admin)은 본인 부서 트리 내로만 초대할 수 있습니다.'}
             </p>
-            <form className="admin-users__invite-form" onSubmit={handleInviteSubmit}>
-              <label className="admin-users__field">
+            <form className="admin-users__invite-form admin-users__modal-form" onSubmit={handleInviteSubmit}>
+              <label className="admin-users__field admin-users__field--full">
                 이메일
                 <input
                   type="email"
@@ -456,35 +564,37 @@ export default function AdminUsersPage() {
                   autoComplete="off"
                 />
               </label>
-              <label className="admin-users__field">
-                가입 부서
-                <select
-                  required
-                  value={inviteDeptId}
-                  onChange={(e) => setInviteDeptId(e.target.value)}
-                  className="admin-users__select"
-                >
-                  {depts.map((d) => (
-                    <option key={String(d.dptmt_info_id)} value={String(d.dptmt_info_id)}>
-                      {d.dptmt_name || d.dptmt_info_id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="admin-users__field">
-                조직 역할 (가입 후 user_dvsn)
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="admin-users__select"
-                >
-                  {roleOpts.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="admin-users__grid-2">
+                <label className="admin-users__field">
+                  가입 부서
+                  <select
+                    required
+                    value={inviteDeptId}
+                    onChange={(e) => setInviteDeptId(e.target.value)}
+                    className="admin-users__select"
+                  >
+                    {depts.map((d) => (
+                      <option key={String(d.dptmt_info_id)} value={String(d.dptmt_info_id)}>
+                        {d.dptmt_name || d.dptmt_info_id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-users__field">
+                  조직 역할 (가입 후 user_dvsn)
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="admin-users__select"
+                  >
+                    {roleOpts.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               {canSetEtlOnInvite ? (
                 <label className="admin-users__check">
                   <input
@@ -496,7 +606,7 @@ export default function AdminUsersPage() {
                 </label>
               ) : null}
               {inviteRole === 'u' ? (
-                <>
+                <div className="admin-users__grid-2">
                   <label className="admin-users__field">
                     프로젝트 멤버 (선택)
                     <select
@@ -527,7 +637,7 @@ export default function AdminUsersPage() {
                       ))}
                     </select>
                   </label>
-                </>
+                </div>
               ) : null}
               <div className="admin-users__modal-actions">
                 <button type="button" className="admin-users__btn-muted" onClick={() => setInviteOpen(false)}>
@@ -553,6 +663,115 @@ export default function AdminUsersPage() {
         </div>
       ) : null}
 
+      {changeCtx ? (
+        <div className="admin-users__modal-backdrop" role="presentation" onClick={() => !changeLoading && setChangeCtx(null)}>
+          <div className="admin-users__modal admin-users__modal--change" onClick={(e) => e.stopPropagation()}>
+            <h3 className="admin-users__modal-title">사용자 변경</h3>
+            {changeErr ? <p className="admin-users__error">{changeErr}</p> : null}
+            {changeLoading && !changeCtx.options ? (
+              <p className="admin-users__hint">불러오는 중…</p>
+            ) : (
+              <>
+                <label className="admin-users__field">
+                  부서
+                  <select
+                    className="admin-users__select"
+                    value={changeForm.dptmt_info_id}
+                    onChange={(e) => setChangeForm((p) => ({ ...p, dptmt_info_id: e.target.value }))}
+                  >
+                    {(changeCtx.options?.departments || []).map((d) => (
+                      <option key={String(d.dptmt_info_id)} value={String(d.dptmt_info_id)}>
+                        {d.dptmt_name || d.dptmt_info_id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-users__field">
+                  역할
+                  <select
+                    className="admin-users__select"
+                    value={changeForm.user_dvsn}
+                    onChange={(e) => setChangeForm((p) => ({ ...p, user_dvsn: e.target.value }))}
+                  >
+                    {(changeCtx.options?.role_options || []).map((r) => (
+                      <option key={String(r.value)} value={String(r.value)}>
+                        {r.label || r.value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="admin-users__field">
+                  프로젝트 참여
+                  <div className="admin-users__panel-scroll admin-users__panel-scroll--change">
+                    {(changeCtx.options?.projects || []).length ? (
+                      (changeCtx.options?.projects || []).map((p) => {
+                        const pid = Number(p.project_info_id)
+                        const selected = (changeForm.project_info_ids || []).includes(pid)
+                        const assignable = String(p.assignable_by_actor || 'N').toUpperCase() === 'Y'
+                        const disabled = !assignable && !selected
+                        const selectedRoleId = Number(changeForm.project_roles?.[pid] || 0)
+                        const selectedRoleName =
+                          (p.role_options || []).find((r) => Number(r.pmssn_master_id) === selectedRoleId)?.pmssn_name ||
+                          (selected ? p.pmssn_name || '권한 미선택' : '')
+                        return (
+                          <div key={String(pid)} className="admin-users__proj-item">
+                            <label className="admin-users__check admin-users__proj-check">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                disabled={disabled}
+                                onChange={(e) => toggleProjectSelection(pid, e.target.checked)}
+                              />
+                              <span className="admin-users__proj-name">{p.project_name || pid}</span>
+                              {selected ? (
+                                <span className="admin-users__proj-role-badge">{selectedRoleName}</span>
+                              ) : null}
+                              {!assignable ? <span className="admin-users__hint"> (타부서 추가 불가)</span> : null}
+                            </label>
+                            {selected ? (
+                              <div className="admin-users__proj-role-row">
+                                <select
+                                  className="admin-users__select"
+                                  value={selectedRoleId ? String(selectedRoleId) : ''}
+                                  onChange={(e) => changeProjectRole(pid, e.target.value)}
+                                  disabled={!assignable}
+                                >
+                                  <option value="">— 권한 선택 —</option>
+                                  {(p.role_options || []).map((r) => (
+                                    <option key={String(r.pmssn_master_id)} value={String(r.pmssn_master_id)}>
+                                      {r.pmssn_name || r.pmssn_master_id}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <p className="admin-users__empty">참여 가능한 프로젝트가 없습니다.</p>
+                    )}
+                  </div>
+                </div>
+                <div className="admin-users__modal-actions">
+                  <button
+                    type="button"
+                    className="admin-users__btn-muted"
+                    disabled={changeLoading}
+                    onClick={() => setChangeCtx(null)}
+                  >
+                    취소
+                  </button>
+                  <button type="button" className="admin-users__btn-ok" disabled={changeLoading} onClick={submitChange}>
+                    {changeLoading ? '반영 중…' : '변경 반영'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {transferCtx ? (
         <div
           className="admin-users__modal-backdrop"
@@ -560,9 +779,9 @@ export default function AdminUsersPage() {
           onClick={() => !transferLoading && setTransferCtx(null)}
         >
           <div className="admin-users__modal admin-users__modal--transfer" onClick={(e) => e.stopPropagation()}>
-            <h3 className="admin-users__modal-subtitle">이관 대상 선택</h3>
-            <p className="admin-users__hint">{transferCtx.label}</p>
-            <p className="admin-users__hint">
+            <h3 className="admin-users__modal-title">이관 대상 선택</h3>
+            <p className="admin-users__modal-hint">{transferCtx.label}</p>
+            <p className="admin-users__modal-hint">
               동일 부서의 sa_dev·Super Admin·Admin만 표시됩니다. 본인은 포함·원 소유자는 제외됩니다.
             </p>
             {transferErr ? <p className="admin-users__error">{transferErr}</p> : null}
@@ -655,6 +874,14 @@ export default function AdminUsersPage() {
                             onClick={() => toggleWorkPanel(uid)}
                           >
                             {expanded ? '목록 닫기' : '목록'}
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-users__btn-change"
+                            disabled={actionDisabled}
+                            onClick={() => openChangeModal(uid)}
+                          >
+                            변경
                           </button>
                           {active ? (
                             <button

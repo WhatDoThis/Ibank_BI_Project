@@ -9,7 +9,7 @@
 export const NAV_ITEMS = [
   { to: '/', label: '프로젝트', sidebarLabel: '홈', icon: 'project' },
   { to: '/admin/users', label: '사용자 관리', sidebarLabel: '사용자', icon: 'users', requiresOrgAdmin: true },
-  { to: '/admin/roles', label: '역할 관리', sidebarLabel: '역할', icon: 'roles', requiresOrgAdmin: true },
+  { to: '/admin/roles', label: '권한 관리', sidebarLabel: '권한', icon: 'roles', requiresOrgAdmin: true },
   {
     to: '/admin/projects',
     label: '프로젝트 관리',

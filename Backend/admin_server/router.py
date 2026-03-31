@@ -5,8 +5,8 @@ Backend.admin_server.router (/api/admin)
 
 [Endpoints]
 ===========
-1. users, users/search, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, users/transfer-ownership, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
-2. roles CRUD
+1. users, users/search, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, users/transfer-ownership, users/{id}/change-options|management, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
+2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
 5. invite-codes, org, org/departments GET/POST/PATCH/DELETE (SA_DEV 전체·루트/하위 / SA 트리·하위만)
@@ -156,6 +156,47 @@ def admin_transfer_ownership(
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "이관했습니다."}
+
+
+@router.get("/users/{user_id}/change-options")
+def admin_user_change_options(
+    user_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        return service_users.get_user_change_options(
+            conn,
+            int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
+            user_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+
+
+@router.put("/users/{user_id}/management")
+def admin_user_management_update(
+    user_id: int,
+    body: schemas.UserManageUpdateBody,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.update_user_management(
+            conn,
+            int(actor["user_id"]),
+            int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
+            user_id,
+            body.dptmt_info_id,
+            body.user_dvsn,
+            body.project_info_ids,
+            [a.model_dump() for a in body.project_assignments] if body.project_assignments else None,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "사용자 변경사항이 반영되었습니다."}
 
 
 @router.get("/invite/departments")
@@ -416,6 +457,38 @@ def admin_roles_list(
     return {"items": service_roles.list_roles_for_dept(conn, did)}
 
 
+@router.get("/roles/permission-options")
+def admin_roles_permission_options(
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        items = service_roles.list_permission_options_for_dept(
+            conn,
+            int(actor["dptmt_info_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": items}
+
+
+@router.get("/roles/users/{user_id}/usages")
+def admin_user_role_usages(
+    user_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        items = service_roles.list_user_role_usages(
+            conn,
+            int(actor["dptmt_info_id"]),
+            user_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": items}
+
+
 @router.post("/roles")
 def admin_roles_create(
     body: schemas.RoleCreateBody,
@@ -466,6 +539,42 @@ def admin_roles_delete(
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "삭제되었습니다."}
+
+
+@router.get("/roles/{pmssn_master_id}/usages")
+def admin_role_usages(
+    pmssn_master_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        items = service_roles.list_role_usages(
+            conn,
+            int(actor["dptmt_info_id"]),
+            pmssn_master_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": items}
+
+
+@router.get("/roles/{pmssn_master_id}/projects/{project_info_id}/participants")
+def admin_role_project_participants(
+    pmssn_master_id: int,
+    project_info_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        items = service_roles.list_role_project_participants(
+            conn,
+            int(actor["dptmt_info_id"]),
+            pmssn_master_id,
+            project_info_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": items}
 
 
 # 4. [projects]
