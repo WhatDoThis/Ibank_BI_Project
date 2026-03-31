@@ -12,6 +12,7 @@
  * - getAdminProjectMembers, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
  * - getAdminUsersSearch
  * - getAdminInviteDepartments, getAdminInviteProjects, getAdminInviteRoles, postAdminInvite
+ * - getAdminUserWorkAssets, getAdminOwnershipTransferTargets, postAdminTransferOwnership
  *
  * [Dependencies]
  * =========
@@ -75,6 +76,25 @@ export async function getAdminInviteRoles(dptmtInfoId) {
 /** @param {{ email: string, dptmt_info_id?: number|null, invite_target_dvsn: string, invite_etl_yn?: 'Y'|'N', invite_project_info_id?: number, invite_pmssn_master_id?: number }} body */
 export async function postAdminInvite(body) {
   return request('POST', '/api/admin/users/invite', body)
+}
+
+/** @param {number} userId */
+export async function getAdminUserWorkAssets(userId) {
+  return request('GET', `/api/admin/users/${userId}/work-assets`)
+}
+
+/** @param {number} dptmtInfoId @param {number} excludeUserId */
+export async function getAdminOwnershipTransferTargets(dptmtInfoId, excludeUserId) {
+  const q = new URLSearchParams({
+    dptmt_info_id: String(dptmtInfoId),
+    exclude_user_id: String(excludeUserId),
+  })
+  return request('GET', `/api/admin/users/ownership-transfer-targets?${q}`)
+}
+
+/** @param {{ resource_type: 'project'|'pmssn_master', resource_id: number, from_user_id: number, to_user_id: number }} body */
+export async function postAdminTransferOwnership(body) {
+  return request('POST', '/api/admin/users/transfer-ownership', body)
 }
 
 export async function getAdminUsersSearch(q) {

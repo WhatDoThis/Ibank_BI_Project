@@ -104,6 +104,17 @@
 
 **기존 DDL 대비 추가 컬럼**: `invite_target_email`, `dptmt_info_id`, `used_yn` 및 상기 `invite_target_dvsn`·`invite_etl_yn`·`invite_project_info_id`·`invite_pmssn_master_id`. 운영 반영은 **수동 DDL**(프로젝트에 마이그레이션 파일 없음, CHECK: 프로젝트·역할 동시 NULL 또는 동시 NOT NULL).
 
+**PostgreSQL 수동 DDL 예시** (컬럼 누락 시 `UndefinedColumn` / 초대 API 500 방지):
+
+```sql
+ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_target_dvsn varchar(20);
+ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_etl_yn varchar(1) DEFAULT 'N';
+ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_project_info_id int4 NULL;
+ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_pmssn_master_id int4 NULL;
+```
+
+대상 DB: **system_db** (`ibank_system_data` 등 설정의 `backend.system_db`).
+
 **동작**:
 
 - 어드민이 이메일 주소를 입력하여 초대 → 코드 생성 + 초대 메일 발송 (코드가 포함된 가입 URL).

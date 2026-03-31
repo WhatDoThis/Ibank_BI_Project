@@ -1,6 +1,13 @@
 # Log
 
 ## Log Index
+106. 2026-03-31 A→SA 행 목록 허용(정지·활성만 잠금)
+105. 2026-03-31 A가 SA 사용자 작업버튼 비활성
+104. 2026-03-31 사용자관리 SA_DEV 전역 목록·부서컬럼·정렬·정지-이관 검증
+103. 2026-03-31 사용자 관리 UI(초대 모달·작업물 목록·이관 API)
+102. 2026-03-31 이메일 초대 500: email_invite_code_master 확장 컬럼 DDL·안내
+101. 2026-03-31 부서 비활성·삭제 전 FK성 참조 검사(프로젝트·초대·역할 등)
+100. 2026-03-31 부서 목록 부서구분(상위·하위) 열·SA 본인 부서 수정삭제 차단
 99. 2026-03-31 부서 삭제 하드·수정에 사용여부·목록에서 ID0 제거·내소속 읽기전용
 98. 2026-03-31 부서 관리 목록·상위표시·행 수정삭제·추가 모달·PATCH/DELETE API
 97. 2026-03-31 CRUD 전 confirmCrud(공용)·어드민·마이페이지·알림·위젯보드·ETL이력
@@ -102,6 +109,79 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+106. 2026-03-31 A→SA 행 목록 허용(정지·활성만 잠금)
+Purpose: Admin(a)이 SA 사용자 행에서 작업물 조회·이관은 가능해야 하므로 목록 버튼은 활성 유지하고, 정지/활성만 비활성으로 제한.
+
+Changes:
+
+- `AdminUsersPage`: `listDisabled`(본인/로딩만), `actionDisabled`(본인/로딩/`A->SA`) 분리
+- A가 SA 행에서 `목록`은 클릭 가능, `정지/활성`만 disabled
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+105. 2026-03-31 A가 SA 사용자 작업버튼 비활성
+Purpose: Admin(a)이 SA 사용자를 목록에서 볼 수는 있지만 작업 컬럼 버튼(목록/정지/활성)을 누르지 못하도록 잠금.
+
+Changes:
+
+- `AdminUsersPage`: `actorDvsn === 'a' && row.user_dvsn === 'sa'`인 경우 작업 버튼 disabled
+- 작업 컬럼 안내 문구 `A는 SA 관리 불가` 표시
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+104. 2026-03-31 사용자관리 SA_DEV 전역 목록·부서컬럼·정렬·정지-이관 검증
+Purpose: SA_DEV는 전사 user 표시, SA·A 등은 기존대로 동일 부서. 부서명·하위부서(상위 소속 시 상위명+하위명), 역할(sa_dev·sa·a·o·u)·동일 역할 시 etl Y 우선 정렬. 역할-상태 사이 ETL 컬럼. 생성 자산 있으면 정지 거부+alert.
+
+Changes:
+
+- `list_users_for_admin_ui`, `user_has_transferable_ownership`, `suspend_user` 사전 검증
+- `/api/admin/users` 응답 필드 dept_name·dept_sub_name
+- AdminUsersPage 테이블·colSpan·handleSuspend alert
+
+Changed files: Backend/admin_server/service_users.py, router.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, admin-users.css, docs/log/log.md
+
+103. 2026-03-31 사용자 관리 UI(초대 모달·작업물 목록·이관 API)
+Purpose: 사용자 목록을 메인으로 두고 우상단「사용자초대」모달로 이메일 초대. 행별「목록」으로 작업물 조회·생성자 이관(project·커스텀 pmssn).
+
+Changes:
+
+- `GET /api/admin/users/{id}/work-assets`, `GET .../ownership-transfer-targets`, `POST .../transfer-ownership`
+- `service_users`: 작업물 조회, 부서 내 sa_dev·sa·a 이관 후보, `project_create_user_id`·`pmssn_master.user_id` 갱신
+- `AdminUsersPage`·`admin-users.css`, `adminClient.js`, `TransferOwnershipBody`
+
+Changed files: Backend/admin_server/service_users.py, router.py, schemas.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, admin-users.css, shared/api/adminClient.js, docs/log/log.md
+
+102. 2026-03-31 이메일 초대 500: email_invite_code_master 확장 컬럼 DDL·안내
+Purpose: `POST /api/admin/users/invite`가 `invite_target_dvsn` 등 미존재 컬럼으로 500이 나던 문제를 system_db 수동 DDL로 해소하고, 동일 상황 시 400과 문서 안내로 대응.
+
+Changes:
+
+- system_db `email_invite_code_master`: `invite_target_dvsn`, `invite_etl_yn`, `invite_project_info_id`, `invite_pmssn_master_id` ADD COLUMN IF NOT EXISTS (프로젝트 설정 연결로 일회 적용)
+- `invite_user_by_email`: `psycopg2.errors.UndefinedColumn` → `ValueError`(문서 17 §0.3 DDL 안내)
+- `docs/report/17_…Implementation_Guide.md` §0.3: PostgreSQL 수동 DDL 예시 블록 추가
+
+Changed files: Backend/admin_server/service_users.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+101. 2026-03-31 부서 비활성·삭제 전 FK성 참조 검사(프로젝트·초대·역할 등)
+Purpose: `use_yn=N` 또는 행 삭제 시 `dptmt_info_id`를 참조하는 데이터가 있으면 거부. 부서명·코드만 변경은 허용.
+
+Changes:
+
+- `service_users._assert_department_clear_for_invalidate_or_remove`: 하위 부서·user_info·email_invite_code_master·project_info·pmssn_master 카운트
+- `update_department_in_org_settings` / `delete_department_in_org_settings`에서 호출
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+100. 2026-03-31 부서 목록 부서구분(상위·하위) 열·SA 본인 부서 수정삭제 차단
+Purpose: 부서 테이블 UX(상위 부서 칸 「—」만 표시, 부서구분 열·상위 강조) 및 Super Admin이 본인 소속 부서 행을 수정·삭제하지 못하도록 백엔드·프론트 정합.
+
+Changes:
+
+- `AdminOrgPage`: 부서구분 열, 상위/하위 타이포, SA 본인 행 작업 버튼 숨김·안내 문구
+- `service_users._assert_actor_can_manage_department`: sa일 때 `target == actor_dptmt_id` 거부
+
+Changed files: Frontend/react-app/src/app/admin/AdminOrgPage.jsx, Frontend/react-app/src/app/admin/admin-org.css, Backend/admin_server/service_users.py, docs/log/log.md
 
 99. 2026-03-31 부서 삭제 하드·수정에 사용여부·목록에서 ID0 제거·내소속 읽기전용
 Purpose: 삭제는 use_yn이 아니라 DB DELETE. 사용 안 함은 수정 모달의 use_yn. 부서 ID 0은 API 목록·화면에서 제외. 내 소속 카드는 부서명·코드만 읽기 전용. 목록에서 ID·상위 ID 컬럼 제거.

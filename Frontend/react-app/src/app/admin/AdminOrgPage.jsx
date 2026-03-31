@@ -3,10 +3,11 @@
  * ===================================================
  * GET /api/admin/org — 내 소속 부서명·코드 표시(읽기 전용).
  * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가·수정(사용여부 포함)·행 삭제(DB 삭제).
+ * 부서 목록: 부서구분(상위·하위) 열, 상위 부서 없으면 상위 부서 칸은 「—」. SA는 본인 소속 행 수정·삭제 UI 비표시(백엔드 동일 정책).
  *
  * [Main Functions]
  * ===========
- * - AdminOrgPage
+ * - AdminOrgPage, formatParentCell, deptKindLabel
  *
  * [Dependencies]
  * =========
@@ -31,11 +32,18 @@ import './admin-org.css'
 function formatParentCell(d) {
   const pid = d.parent_dptmt_info_id
   if (pid == null || pid === '' || Number(pid) === 0) {
-    return '— (최상위)'
+    return '—'
   }
   const pname = d.parent_dptmt_name ?? '—'
   const pcode = d.parent_dptmt_code ?? '—'
   return `${pname} · ${pcode}`
+}
+
+/** 상위: 루트 행(parent 없음·0). 하위: 그 외. */
+function deptKindLabel(d) {
+  const pid = d.parent_dptmt_info_id
+  if (pid == null || pid === '' || Number(pid) === 0) return '상위'
+  return '하위'
 }
 
 function useYnLabel(useYn) {
@@ -230,6 +238,14 @@ export default function AdminOrgPage() {
   }
 
   function openEditModal(row) {
+    if (
+      isSuperAdmin &&
+      !isSaDev &&
+      dptmtId != null &&
+      Number(row?.dptmt_info_id) === Number(dptmtId)
+    ) {
+      return
+    }
     setEditError('')
     setEditRow(row)
     setEditName(String(row?.dptmt_name ?? ''))
@@ -247,6 +263,15 @@ export default function AdminOrgPage() {
   async function submitEdit(e) {
     e.preventDefault()
     if (!editRow) return
+    if (
+      isSuperAdmin &&
+      !isSaDev &&
+      dptmtId != null &&
+      Number(editRow.dptmt_info_id) === Number(dptmtId)
+    ) {
+      setEditError('본인 소속(상위) 부서는 수정할 수 없습니다.')
+      return
+    }
     setEditError('')
     const n = editName.trim()
     const c = editCode.trim()
@@ -288,6 +313,14 @@ export default function AdminOrgPage() {
   }
 
   async function handleDeleteRow(row) {
+    if (
+      isSuperAdmin &&
+      !isSaDev &&
+      dptmtId != null &&
+      Number(row?.dptmt_info_id) === Number(dptmtId)
+    ) {
+      return
+    }
     const id = row.dptmt_info_id
     if (Number(id) === 0) return
     const label = row.dptmt_name || row.dptmt_code || '부서'
@@ -310,6 +343,23 @@ export default function AdminOrgPage() {
   const listTitle = isSaDev ? '전체 부서 목록' : '소속 부서 트리'
   const canManageDept = isSaDev || isSuperAdmin
 
+  /** SA는 본인 소속 부서 행만 수정·삭제 불가(sa_dev는 전 행 가능). */
+  const canManageDeptRow = useCallback(
+    (row) => {
+      if (!canManageDept) return false
+      if (isSaDev) return true
+      if (
+        isSuperAdmin &&
+        dptmtId != null &&
+        Number(row?.dptmt_info_id) === Number(dptmtId)
+      ) {
+        return false
+      }
+      return true
+    },
+    [canManageDept, isSaDev, isSuperAdmin, dptmtId],
+  )
+
   return (
     <div className="admin-org">
       <h1 className="admin-org__title">부서 관리</h1>
@@ -322,7 +372,8 @@ export default function AdminOrgPage() {
         ) : (
           <>
             Super Admin: <strong>본인 소속 부서를 루트로 한 트리</strong>만 표시됩니다.{' '}
-            <strong>추가</strong> 시 상위는 본인 부서로 고정됩니다. 부서 번호 0은 목록에 나오지 않습니다.
+            <strong>추가</strong> 시 상위는 본인 부서로 고정됩니다.{' '}
+            <strong>본인 소속(상위) 부서 행은 수정·삭제할 수 없고</strong>, 그 아래 하위 부서만 관리할 수 있습니다. 부서 번호 0은 목록에 나오지 않습니다.
           </>
         )}
       </p>
@@ -333,7 +384,15 @@ export default function AdminOrgPage() {
         <section className="admin-org__card" aria-label="내 소속 부서">
           <h2 className="admin-org__section-title">내 소속 부서</h2>
           <p className="admin-org__meta">
-            목록에서 해당 부서의 이름·코드·사용 여부는 <strong>수정</strong> 버튼으로 변경할 수 있습니다.
+            {isSaDev ? (
+              <>
+                목록에서 해당 부서의 이름·코드·사용 여부는 <strong>수정</strong> 버튼으로 변경할 수 있습니다.
+              </>
+            ) : (
+              <>
+                목록에서 <strong>하위 부서</strong>의 이름·코드·사용 여부만 <strong>수정</strong>할 수 있습니다. 본인 소속 부서는 이 카드에서 확인만 하세요.
+              </>
+            )}
           </p>
           <div className="admin-org__readonly-grid">
             <div>
@@ -370,6 +429,7 @@ export default function AdminOrgPage() {
             <table className="admin-org__table">
               <thead>
                 <tr>
+                  <th>부서구분</th>
                   <th>코드</th>
                   <th>부서명</th>
                   <th>상위 부서 (이름 · 코드)</th>
@@ -387,26 +447,45 @@ export default function AdminOrgPage() {
                         : ''
                     }
                   >
+                    <td>
+                      <span
+                        className={
+                          deptKindLabel(d) === '상위'
+                            ? 'admin-org__dept-kind admin-org__dept-kind--parent'
+                            : 'admin-org__dept-kind admin-org__dept-kind--child'
+                        }
+                      >
+                        {deptKindLabel(d)}
+                      </span>
+                    </td>
                     <td className="admin-org__mono">{d.dptmt_code ?? '—'}</td>
                     <td>{d.dptmt_name ?? '—'}</td>
                     <td className="admin-org__parent-cell">{formatParentCell(d)}</td>
                     <td>{useYnLabel(d.use_yn)}</td>
                     {canManageDept ? (
                       <td className="admin-org__actions">
-                        <button
-                          type="button"
-                          className="admin-org__btn-inline"
-                          onClick={() => openEditModal(d)}
-                        >
-                          수정
-                        </button>
-                        <button
-                          type="button"
-                          className="admin-org__btn-inline admin-org__btn-inline--danger"
-                          onClick={() => handleDeleteRow(d)}
-                        >
-                          삭제
-                        </button>
+                        {canManageDeptRow(d) ? (
+                          <>
+                            <button
+                              type="button"
+                              className="admin-org__btn-inline"
+                              onClick={() => openEditModal(d)}
+                            >
+                              수정
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-org__btn-inline admin-org__btn-inline--danger"
+                              onClick={() => handleDeleteRow(d)}
+                            >
+                              삭제
+                            </button>
+                          </>
+                        ) : (
+                          <span className="admin-org__meta admin-org__meta--inline">
+                            —
+                          </span>
+                        )}
                       </td>
                     ) : null}
                   </tr>

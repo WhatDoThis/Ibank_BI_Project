@@ -5,7 +5,7 @@ Backend.admin_server.router (/api/admin)
 
 [Endpoints]
 ===========
-1. users, users/search, users/invite, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
+1. users, users/search, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, users/transfer-ownership, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
 2. roles CRUD
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
@@ -54,8 +54,13 @@ def admin_users_list(
 ):
     if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
         return {"items": []}
-    did = int(actor["dptmt_info_id"])
-    return {"items": service_users.list_users_same_dept(conn, did)}
+    return {
+        "items": service_users.list_users_for_admin_ui(
+            conn,
+            str(actor.get("user_dvsn") or ""),
+            int(actor["dptmt_info_id"]),
+        )
+    }
 
 
 @router.get("/users/search")
@@ -93,6 +98,64 @@ def admin_users_invite(
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "초대 메일을 발송했습니다."}
+
+
+@router.get("/users/ownership-transfer-targets")
+def admin_ownership_transfer_targets(
+    dptmt_info_id: int = Query(..., ge=0),
+    exclude_user_id: int = Query(..., ge=1),
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        items = service_users.list_ownership_transfer_targets(
+            conn,
+            str(actor.get("user_dvsn") or ""),
+            int(actor["dptmt_info_id"]),
+            dptmt_info_id,
+            exclude_user_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": items}
+
+
+@router.get("/users/{user_id}/work-assets")
+def admin_user_work_assets(
+    user_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        return service_users.get_user_work_assets(
+            conn,
+            int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
+            user_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+
+
+@router.post("/users/transfer-ownership")
+def admin_transfer_ownership(
+    body: schemas.TransferOwnershipBody,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.transfer_resource_ownership(
+            conn,
+            int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
+            body.resource_type,
+            body.resource_id,
+            body.from_user_id,
+            body.to_user_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "이관했습니다."}
 
 
 @router.get("/invite/departments")

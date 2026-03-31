@@ -1,5 +1,6 @@
 /**
  * app/admin/admin-org.css — AdminOrgPage 전용
+ * 부서 테이블·모달·부서구분(상위 굵게·큰 글자 / 하위 작게) 스타일
  */
 
 .admin-org {
@@ -199,6 +200,28 @@
 .admin-org__parent-cell {
   max-width: 280px;
   word-break: break-word;
+}
+
+/* 목록 부서구분: 상위(루트) 강조 */
+.admin-org__dept-kind {
+  display: inline-block;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.admin-org__dept-kind--parent {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.admin-org__dept-kind--child {
+  font-weight: 500;
+  font-size: 0.8125rem;
+}
+
+.admin-org__meta--inline {
+  margin: 0;
+  display: inline-block;
 }
 
 .admin-org__mono {

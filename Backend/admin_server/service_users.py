@@ -6,21 +6,28 @@ Backend.admin_server.service_users (유저·초대·부서)
 
 [Main Functions]
 ===========
-1. list_users_same_dept
+1. list_users_same_dept(단순 동일 부서)
+1b. list_users_for_admin_ui(sa_dev 전역·부서명/정렬·ETL 목록용)
 2. search_users_by_email (operator 시 동일 부서만)
-3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트)
+3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, UndefinedColumn 시 DDL 안내)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
 4. suspend_user / activate_user (_assert_target_exists_or_same_dept·SA_DEV 우회)
 5. set_user_dvsn_admin_user (a/sa/sa_dev·a·o·u 부여)
 6. set_user_etl_flag (sa·sa_dev·etl_yn)
 7. list_invite_codes_for_dept
 8. get_department / update_department_name
-9. list_departments_for_org_settings(id≠0·미사용 포함) / create_department / update_department_in_org_settings(이름·코드·use_yn) / delete_department_in_org_settings(행 DELETE)
+9. list_departments_for_org_settings(id≠0·미사용 포함) / create_department / update_department_in_org_settings(이름·코드·use_yn) / delete_department_in_org_settings(행 DELETE·sa는 본인 부서 행 금지)
+10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 역할) 검사
+11. get_user_work_assets — 생성·참여 프로젝트, 커스텀 역할, 연결 테이블 요약(이관 가능 플래그)
+12. list_ownership_transfer_targets — 부서 내 sa_dev·sa·a 활성 사용자(소스 제외, 부서 트리 검증)
+13. transfer_resource_ownership — project_create_user_id·pmssn_master.user_id 이관
+14. user_has_transferable_ownership — 정지 전 생성자 자산(project·커스텀 역할) 존재 여부
 
 [Dependencies]
 =========
-- secrets, logging
+- secrets, logging, psycopg2.errors(UndefinedColumn → 안내용 ValueError)
 - Backend.auth_server.email_service, Backend.core.auth_config
+- Backend.core.user_dvsn_codes.canon_user_dvsn
 - Backend.admin_server.service_projects.validate_invite_user_project
 """
 
@@ -30,9 +37,12 @@ import logging
 import secrets
 from typing import Any
 
+import psycopg2.errors
+
 from Backend.admin_server import service_projects
 from Backend.auth_server import email_service
 from Backend.core import auth_config
+from Backend.core.user_dvsn_codes import canon_user_dvsn
 
 _log = logging.getLogger(__name__)
 
@@ -41,6 +51,9 @@ _INVITE_TARGETS_BY_ACTOR: dict[str, tuple[str, ...]] = {
     "sa": ("sa", "a", "o", "u"),
     "a": ("a", "o", "u"),
 }
+
+# 프로젝트·부서 커스텀 역할 생성자 이관 허용 수신자(05 문서: 프로젝트/역할 생성 가능 역할)
+_OWNERSHIP_TRANSFER_ELIGIBLE: frozenset[str] = frozenset({"sa_dev", "sa", "a"})
 
 
 def _norm_email(email: str) -> str:
@@ -146,6 +159,75 @@ def list_users_same_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
             (dptmt_info_id,),
         )
         return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+# 1b.
+def list_users_for_admin_ui(
+    conn,
+    actor_dvsn: str,
+    actor_dptmt_id: int,
+) -> list[dict[str, Any]]:
+    """sa_dev는 전사 user, 그 외 어드민은 동일 부서만. 정렬: 부서 트리 그룹 → 역할(sa_dev·sa·a·o·u) → 동일 역할 시 etl Y 우선 → 이메일."""
+    ad = (actor_dvsn or "").strip().lower()
+    cur = conn.cursor()
+    try:
+        sel = """
+            SELECT
+                u.user_id,
+                u.user_email,
+                u.user_nickname,
+                u.user_dvsn,
+                COALESCE(u.etl_yn, 'N') AS etl_yn,
+                u.user_active_yn,
+                u.create_dtm,
+                u.dptmt_info_id,
+                CASE
+                    WHEN di.parent_dptmt_info_id IS NULL OR di.parent_dptmt_info_id = 0
+                    THEN di.dptmt_name
+                    ELSE COALESCE(pd.dptmt_name, di.dptmt_name)
+                END AS dept_name,
+                CASE
+                    WHEN di.parent_dptmt_info_id IS NULL OR di.parent_dptmt_info_id = 0
+                    THEN NULL
+                    ELSE di.dptmt_name
+                END AS dept_sub_name,
+                CASE LOWER(TRIM(COALESCE(u.user_dvsn, '')))
+                    WHEN 'sa_dev' THEN 0
+                    WHEN 'sa' THEN 1
+                    WHEN 'a' THEN 2
+                    WHEN 'o' THEN 3
+                    WHEN 'u' THEN 4
+                    ELSE 9
+                END AS _role_sort,
+                COALESCE(NULLIF(di.parent_dptmt_info_id, 0), di.dptmt_info_id) AS _tree_key
+            FROM user_info u
+            INNER JOIN dptmt_info di ON di.dptmt_info_id = u.dptmt_info_id
+            LEFT JOIN dptmt_info pd ON pd.dptmt_info_id = di.parent_dptmt_info_id
+        """
+        order = """
+            ORDER BY
+                _tree_key,
+                u.dptmt_info_id,
+                _role_sort,
+                CASE WHEN UPPER(TRIM(COALESCE(u.etl_yn, ''))) = 'Y' THEN 0 ELSE 1 END,
+                LOWER(u.user_email)
+        """
+        if ad == "sa_dev":
+            cur.execute(sel + order)
+        else:
+            cur.execute(
+                sel + " WHERE u.dptmt_info_id = %s " + order,
+                (int(actor_dptmt_id),),
+            )
+        out: list[dict[str, Any]] = []
+        for r in cur.fetchall():
+            d = dict(r)
+            d.pop("_role_sort", None)
+            d.pop("_tree_key", None)
+            out.append(d)
+        return out
     finally:
         cur.close()
 
@@ -294,6 +376,16 @@ def invite_user_by_email(
     except ValueError:
         conn.rollback()
         raise
+    except psycopg2.errors.UndefinedColumn as e:
+        conn.rollback()
+        _log.warning(
+            "[invite_user_by_email] DB column missing: %s",
+            getattr(e, "diag", None) and getattr(e.diag, "message_primary", str(e)) or str(e),
+        )
+        raise ValueError(
+            "DB에 email_invite_code_master 확장 컬럼(invite_target_dvsn·invite_etl_yn·프로젝트 컬럼 등)이 없습니다. "
+            "docs/report/17_SystemDB_Commercialization_Implementation_Guide.md §0.3 수동 DDL을 system_db에 적용한 뒤 다시 시도하세요."
+        ) from e
     except Exception:
         conn.rollback()
         raise
@@ -372,6 +464,30 @@ def _assert_suspend_activate_target(actor_dvsn: str, target_user_dvsn: str) -> N
     raise ValueError("정지·활성 처리 권한이 없습니다.")
 
 
+def user_has_transferable_ownership(conn, user_id: int) -> bool:
+    """project_create_user_id 또는 커스텀 pmssn 등록자면 정지 전 이관 필요."""
+    uid = int(user_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT 1 FROM project_info WHERE project_create_user_id = %s LIMIT 1",
+            (uid,),
+        )
+        if cur.fetchone():
+            return True
+        cur.execute(
+            """
+            SELECT 1 FROM pmssn_master
+            WHERE user_id = %s AND COALESCE(system_dflt_yn, '') <> 'Y'
+            LIMIT 1
+            """,
+            (uid,),
+        )
+        return cur.fetchone() is not None
+    finally:
+        cur.close()
+
+
 def suspend_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -> None:
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, target_user_id)
     cur = conn.cursor()
@@ -384,6 +500,11 @@ def suspend_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -
         if not row:
             raise ValueError("사용자를 찾을 수 없습니다.")
         _assert_suspend_activate_target(actor_dvsn, row.get("user_dvsn") or "")
+        if user_has_transferable_ownership(conn, int(target_user_id)):
+            raise ValueError(
+                "이관이 필요한 항목이 있습니다. 생성한 프로젝트 또는 커스텀 역할을 "
+                "「목록」에서 다른 사용자에게 이관한 뒤 정지할 수 있습니다."
+            )
         cur.execute(
             "UPDATE user_info SET user_active_yn = 'N', update_dtm = NOW() WHERE user_id = %s",
             (target_user_id,),
@@ -655,7 +776,7 @@ def list_departments_for_org_settings(
 def _assert_actor_can_manage_department(
     conn, eff: str, actor_dptmt_id: int, target_dptmt_id: int
 ) -> None:
-    """부서 0은 관리 불가. 그 외 행은 존재하면 수정·삭제 가능(use_yn 무관). sa는 트리 안만."""
+    """부서 0은 관리 불가. sa_dev는 존재 행 전부. sa는 본인 소속 부서(상위) 자신은 금지, 그 외 트리 내 하위만."""
     tid = int(target_dptmt_id)
     if tid == 0:
         raise ValueError("해당 부서는 관리할 수 없습니다.")
@@ -672,10 +793,92 @@ def _assert_actor_can_manage_department(
     if eff == "sa_dev":
         return
     if eff == "sa":
-        if not _dptmt_id_in_managed_subtree(conn, int(actor_dptmt_id), tid):
+        aid = int(actor_dptmt_id)
+        if tid == aid:
+            raise ValueError(
+                "본인 소속(상위) 부서는 수정·삭제할 수 없습니다. 하위 부서만 관리할 수 있습니다."
+            )
+        if not _dptmt_id_in_managed_subtree(conn, aid, tid):
             raise ValueError("해당 부서를 수정·삭제할 권한이 없습니다.")
         return
     raise ValueError("권한이 없습니다.")
+
+
+def _assert_department_clear_for_invalidate_or_remove(conn, tid: int) -> None:
+    """
+    # 10b. [부서 비활성·삭제]
+    부서명·코드만 변경 시에는 호출하지 않는다.
+    use_yn='N' 또는 DELETE 전: 이 부서 PK를 참조하는 행이 있으면 불가.
+    """
+    dptmt_id = int(tid)
+    if dptmt_id == 0:
+        return
+    cur = conn.cursor()
+    reasons: list[str] = []
+    try:
+        cur.execute(
+            """
+            SELECT COUNT(*)::int AS c FROM dptmt_info
+            WHERE parent_dptmt_info_id = %s
+            """,
+            (dptmt_id,),
+        )
+        row = cur.fetchone()
+        n = int((row.get("c", 0) if row else 0) or 0)
+        if n > 0:
+            reasons.append(f"하위 부서 {n}건")
+
+        cur.execute(
+            "SELECT COUNT(*)::int AS c FROM user_info WHERE dptmt_info_id = %s",
+            (dptmt_id,),
+        )
+        row = cur.fetchone()
+        n = int((row.get("c", 0) if row else 0) or 0)
+        if n > 0:
+            reasons.append(f"소속 사용자 {n}건")
+
+        cur.execute(
+            """
+            SELECT COUNT(*)::int AS c FROM email_invite_code_master
+            WHERE dptmt_info_id = %s
+            """,
+            (dptmt_id,),
+        )
+        row = cur.fetchone()
+        n = int((row.get("c", 0) if row else 0) or 0)
+        if n > 0:
+            reasons.append(f"초대(이메일 초대) {n}건")
+
+        cur.execute(
+            "SELECT COUNT(*)::int AS c FROM project_info WHERE dptmt_info_id = %s",
+            (dptmt_id,),
+        )
+        row = cur.fetchone()
+        n = int((row.get("c", 0) if row else 0) or 0)
+        if n > 0:
+            reasons.append(f"소속 프로젝트 {n}건")
+
+        cur.execute(
+            """
+            SELECT COUNT(*)::int AS c FROM pmssn_master
+            WHERE dptmt_info_id = %s
+            """,
+            (dptmt_id,),
+        )
+        row = cur.fetchone()
+        n = int((row.get("c", 0) if row else 0) or 0)
+        if n > 0:
+            reasons.append(f"부서 역할(pmssn_master) {n}건")
+    finally:
+        cur.close()
+
+    if not reasons:
+        return
+    raise ValueError(
+        "이 부서를 참조하는 데이터가 있어 비활성화하거나 삭제할 수 없습니다: "
+        + ", ".join(reasons)
+        + ". 참조를 정리한 뒤 다시 시도하거나, 부서명·코드만 수정하세요."
+    )
 
 
 def update_department_in_org_settings(
@@ -710,6 +913,8 @@ def update_department_in_org_settings(
     if has_code and not code:
         raise ValueError("부서 코드는 비울 수 없습니다.")
     _assert_actor_can_manage_department(conn, eff, int(actor_dptmt_id), int(dptmt_info_id))
+    if has_use and use_v == "N":
+        _assert_department_clear_for_invalidate_or_remove(conn, int(dptmt_info_id))
     if has_code and code:
         cur = conn.cursor()
         try:
@@ -772,29 +977,9 @@ def delete_department_in_org_settings(
     if tid == 0:
         raise ValueError("해당 부서는 삭제할 수 없습니다.")
     _assert_actor_can_manage_department(conn, eff, int(actor_dptmt_id), tid)
+    _assert_department_clear_for_invalidate_or_remove(conn, tid)
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT COUNT(*)::int AS c FROM dptmt_info
-            WHERE parent_dptmt_info_id = %s
-            """,
-            (tid,),
-        )
-        row = cur.fetchone()
-        if row and int(row.get("c", 0) or 0) > 0:
-            raise ValueError(
-                "하위 부서가 있어 삭제할 수 없습니다. 먼저 하위 부서를 처리하세요."
-            )
-        cur.execute(
-            "SELECT COUNT(*)::int AS c FROM user_info WHERE dptmt_info_id = %s",
-            (tid,),
-        )
-        row2 = cur.fetchone()
-        if row2 and int(row2.get("c", 0) or 0) > 0:
-            raise ValueError(
-                "해당 부서에 소속된 사용자가 있어 삭제할 수 없습니다."
-            )
         cur.execute(
             "DELETE FROM dptmt_info WHERE dptmt_info_id = %s",
             (tid,),
@@ -899,6 +1084,239 @@ def update_department_name(conn, dptmt_info_id: int, new_name: str) -> None:
             conn.rollback()
             raise ValueError("부서를 찾을 수 없습니다.")
         conn.commit()
+    except ValueError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+# 11.
+def get_user_work_assets(
+    conn,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    target_user_id: int,
+) -> dict[str, Any]:
+    """대상 사용자의 작업물 요약. table_master는 생성자 FK가 없어 조회만, ETL은 별도 DB·문자열 등록자만 있어 안내문만."""
+    tid = int(target_user_id)
+    _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT project_info_id, dptmt_info_id, project_name, active_yn, create_dtm
+            FROM project_info
+            WHERE project_create_user_id = %s
+            ORDER BY project_name
+            """,
+            (tid,),
+        )
+        created_projects = [
+            {
+                **dict(r),
+                "transferable": True,
+                "kind": "project",
+            }
+            for r in cur.fetchall()
+        ]
+        cur.execute(
+            """
+            SELECT pi.project_info_id, pi.dptmt_info_id, pi.project_name,
+                   COALESCE(pm.pmssn_name, '') AS pmssn_name, pi.active_yn
+            FROM project_ptcpnt_info p
+            JOIN project_info pi ON pi.project_info_id = p.project_info_id
+            LEFT JOIN pmssn_master pm ON pm.pmssn_master_id = p.pmssn_master_id
+            WHERE p.ptcpnt_user_id = %s
+              AND COALESCE(pi.project_create_user_id, -1) <> %s
+            ORDER BY pi.project_name
+            """,
+            (tid, tid),
+        )
+        participant_projects = [
+            {**dict(r), "transferable": False, "kind": "participant_project"}
+            for r in cur.fetchall()
+        ]
+        cur.execute(
+            """
+            SELECT pmssn_master_id, dptmt_info_id, pmssn_name, create_dtm
+            FROM pmssn_master
+            WHERE user_id = %s AND COALESCE(system_dflt_yn, '') <> 'Y'
+            ORDER BY pmssn_name
+            """,
+            (tid,),
+        )
+        created_custom_roles = [
+            {**dict(r), "transferable": True, "kind": "pmssn_master"}
+            for r in cur.fetchall()
+        ]
+        cur.execute(
+            """
+            SELECT DISTINCT m.table_master_id, m.db_type, m.table_name,
+                   COALESCE(m.table_label, '') AS table_label
+            FROM table_master m
+            INNER JOIN table_project_mapping tpm ON tpm.table_master_id = m.table_master_id
+            INNER JOIN project_info pi ON pi.project_info_id = tpm.project_info_id
+            WHERE pi.project_create_user_id = %s
+            ORDER BY m.table_name
+            """,
+            (tid,),
+        )
+        linked_tables = [
+            {
+                **dict(r),
+                "transferable": False,
+                "kind": "table",
+                "note": "table_master에 생성자 FK가 없어 이관 API는 제공하지 않습니다.",
+            }
+            for r in cur.fetchall()
+        ]
+    finally:
+        cur.close()
+    return {
+        "created_projects": created_projects,
+        "participant_projects": participant_projects,
+        "created_custom_roles": created_custom_roles,
+        "linked_tables": linked_tables,
+        "etl_assets_note": (
+            "ETL 원천·테이블·작업 메타는 etl_db 등 별도 연결에 있으며 등록자는 문자열 필드 위주라 "
+            "system_db 기준 생성자 이관은 지원하지 않습니다."
+        ),
+    }
+
+
+# 12.
+def list_ownership_transfer_targets(
+    conn,
+    actor_dvsn: str,
+    actor_dptmt_id: int,
+    dept_id: int,
+    exclude_user_id: int,
+) -> list[dict[str, Any]]:
+    assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt_id, int(dept_id))
+    ex = int(exclude_user_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT user_id, user_email, user_nickname, user_dvsn
+            FROM user_info
+            WHERE dptmt_info_id = %s
+              AND user_id <> %s
+              AND UPPER(TRIM(COALESCE(user_active_yn, ''))) = 'Y'
+            ORDER BY user_email
+            """,
+            (int(dept_id), ex),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        cd = canon_user_dvsn(r.get("user_dvsn"))
+        if cd in _OWNERSHIP_TRANSFER_ELIGIBLE:
+            out.append(r)
+    return out
+
+
+# 13.
+def transfer_resource_ownership(
+    conn,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    resource_type: str,
+    resource_id: int,
+    from_user_id: int,
+    to_user_id: int,
+) -> None:
+    rt = (resource_type or "").strip().lower()
+    rid = int(resource_id)
+    fid = int(from_user_id)
+    tid = int(to_user_id)
+    if fid == tid:
+        raise ValueError("동일 사용자로는 이관할 수 없습니다.")
+    _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, fid)
+    _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT user_id, dptmt_info_id, user_dvsn,
+                   UPPER(TRIM(COALESCE(user_active_yn,''))) AS ua
+            FROM user_info WHERE user_id = %s
+            """,
+            (tid,),
+        )
+        to_row = cur.fetchone()
+        if not to_row:
+            raise ValueError("이관 대상 사용자를 찾을 수 없습니다.")
+        if (to_row.get("ua") or "") != "Y":
+            raise ValueError("비활성 사용자에게는 이관할 수 없습니다.")
+        if canon_user_dvsn(to_row.get("user_dvsn")) not in _OWNERSHIP_TRANSFER_ELIGIBLE:
+            raise ValueError(
+                "이관 가능한 역할은 sa_dev·Super Admin(sa)·Admin(a) 만입니다."
+            )
+        to_dpt = int(to_row["dptmt_info_id"])
+        if rt == "project":
+            cur.execute(
+                """
+                SELECT project_info_id, dptmt_info_id, project_create_user_id
+                FROM project_info WHERE project_info_id = %s
+                """,
+                (rid,),
+            )
+            prow = cur.fetchone()
+            if not prow:
+                raise ValueError("프로젝트를 찾을 수 없습니다.")
+            if int(prow["project_create_user_id"]) != fid:
+                raise ValueError("해당 사용자가 생성자가 아닌 프로젝트입니다.")
+            pd = int(prow["dptmt_info_id"])
+            if to_dpt != pd:
+                raise ValueError("이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다.")
+            assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
+            cur.execute(
+                """
+                UPDATE project_info
+                SET project_create_user_id = %s, update_dtm = NOW()
+                WHERE project_info_id = %s
+                """,
+                (tid, rid),
+            )
+            conn.commit()
+            return
+        if rt == "pmssn_master":
+            cur.execute(
+                """
+                SELECT pmssn_master_id, dptmt_info_id, user_id, COALESCE(system_dflt_yn,'') AS sy
+                FROM pmssn_master WHERE pmssn_master_id = %s
+                """,
+                (rid,),
+            )
+            mrow = cur.fetchone()
+            if not mrow:
+                raise ValueError("역할을 찾을 수 없습니다.")
+            if (mrow.get("sy") or "").upper() == "Y":
+                raise ValueError("시스템 기본 역할은 이관할 수 없습니다.")
+            if int(mrow["user_id"]) != fid:
+                raise ValueError("해당 사용자가 등록자가 아닌 역할입니다.")
+            md = int(mrow["dptmt_info_id"] or 0)
+            if md and to_dpt != md:
+                raise ValueError("이관 대상은 역할 소속 부서와 동일한 부서 사용자여야 합니다.")
+            assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, md)
+            cur.execute(
+                """
+                UPDATE pmssn_master
+                SET user_id = %s, update_dtm = NOW()
+                WHERE pmssn_master_id = %s
+                """,
+                (tid, rid),
+            )
+            conn.commit()
+            return
+        raise ValueError("지원하지 않는 리소스 유형입니다.")
     except ValueError:
         conn.rollback()
         raise

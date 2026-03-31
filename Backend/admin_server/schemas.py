@@ -5,7 +5,7 @@ Pydantic 모델.
 
 [Classes]
 ===========
-- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody
+- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody, TransferOwnershipBody
 - RoleCreateBody, RoleUpdateBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody, TableMasterPatchBody, ProjectTableAddBody
 
@@ -121,3 +121,13 @@ class TableMasterPatchBody(BaseModel):
 
 class ProjectTableAddBody(BaseModel):
     table_master_id: int
+
+
+class TransferOwnershipBody(BaseModel):
+    resource_type: Literal["project", "pmssn_master"] = Field(
+        ...,
+        description="project=project_create_user_id, pmssn_master=user_id(커스텀 역할)",
+    )
+    resource_id: int = Field(..., ge=1)
+    from_user_id: int = Field(..., ge=1, description="현재 생성자·등록자")
+    to_user_id: int = Field(..., ge=1, description="이관 받을 사용자(sa_dev·sa·a·동일 부서)")
