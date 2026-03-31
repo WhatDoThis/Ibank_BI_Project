@@ -1,8 +1,8 @@
 /**
  * app/admin/AdminOrgPage.jsx (부서 정보 — sa·sa_dev)
  * ===================================================
- * GET/PATCH /api/admin/org — 소속 부서명 수정.
- * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가(모달)·행 수정·삭제.
+ * GET /api/admin/org — 내 소속 부서명·코드 표시(읽기 전용).
+ * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가·수정(사용여부 포함)·행 삭제(DB 삭제).
  *
  * [Main Functions]
  * ===========
@@ -13,12 +13,11 @@
  * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   getAdminOrg,
   getAdminOrgDepartments,
-  patchAdminOrg,
   postAdminOrgDepartment,
   patchAdminOrgDepartment,
   deleteAdminOrgDepartment,
@@ -31,12 +30,17 @@ import './admin-org.css'
 
 function formatParentCell(d) {
   const pid = d.parent_dptmt_info_id
-  if (pid == null || pid === '') {
+  if (pid == null || pid === '' || Number(pid) === 0) {
     return '— (최상위)'
   }
   const pname = d.parent_dptmt_name ?? '—'
   const pcode = d.parent_dptmt_code ?? '—'
-  return `${pid} · ${pname} · ${pcode}`
+  return `${pname} · ${pcode}`
+}
+
+function useYnLabel(useYn) {
+  const u = (useYn || 'Y').toString().trim().toUpperCase()
+  return u === 'N' ? '사용 안 함' : '사용'
 }
 
 export default function AdminOrgPage() {
@@ -46,11 +50,9 @@ export default function AdminOrgPage() {
   const isSuperAdmin = rawDvsn === 'sa'
 
   const [name, setName] = useState('')
+  const [myCode, setMyCode] = useState('')
   const [dptmtId, setDptmtId] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [ok, setOk] = useState('')
 
   const [departments, setDepartments] = useState([])
   const [deptLoading, setDeptLoading] = useState(true)
@@ -67,19 +69,26 @@ export default function AdminOrgPage() {
   const [editRow, setEditRow] = useState(null)
   const [editName, setEditName] = useState('')
   const [editCode, setEditCode] = useState('')
+  const [editUseYn, setEditUseYn] = useState('Y')
   const [editBusy, setEditBusy] = useState(false)
   const [editError, setEditError] = useState('')
 
+  const visibleDepartments = useMemo(
+    () => departments.filter((d) => Number(d?.dptmt_info_id) !== 0),
+    [departments],
+  )
+
   const load = useCallback(async () => {
-    setError('')
-    setOk('')
     setLoading(true)
     try {
       const data = await getAdminOrg()
       setName(data?.dptmt_name || '')
+      setMyCode(data?.dptmt_code || '')
       setDptmtId(data?.dptmt_info_id ?? null)
-    } catch (e) {
-      setError(e?.message || '불러오지 못했습니다.')
+    } catch {
+      setName('')
+      setMyCode('')
+      setDptmtId(null)
     } finally {
       setLoading(false)
     }
@@ -104,23 +113,6 @@ export default function AdminOrgPage() {
   useEffect(() => {
     loadDepartments()
   }, [loadDepartments])
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (!confirmCrud('소속 부서명을 저장할까요?')) return
-    setError('')
-    setOk('')
-    setSaving(true)
-    try {
-      await patchAdminOrg({ dptmt_name: name.trim() })
-      setOk('저장되었습니다.')
-      await load()
-    } catch (e) {
-      setError(e?.message || '저장 실패')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   function openAddModal() {
     setAddError('')
@@ -160,9 +152,16 @@ export default function AdminOrgPage() {
           setAddError('상위 부서가 올바르지 않습니다.')
           return
         }
+        const parentRow = visibleDepartments.find(
+          (x) => Number(x.dptmt_info_id) === pid,
+        )
+        const pLabel =
+          parentRow?.dptmt_name ||
+          parentRow?.dptmt_code ||
+          '선택한 상위 부서'
         if (
           !confirmCrud(
-            `하위 부서 "${n}"을(를) 상위 ID ${pid} 아래에 추가할까요?`,
+            `하위 부서 "${n}"을(를) 상위 "${pLabel}" 아래에 추가할까요?`,
           )
         ) {
           return
@@ -176,6 +175,7 @@ export default function AdminOrgPage() {
           })
           closeAddModal()
           await loadDepartments()
+          await load()
         } catch (err) {
           setAddError(err?.message || '추가 실패')
         } finally {
@@ -193,6 +193,7 @@ export default function AdminOrgPage() {
         })
         closeAddModal()
         await loadDepartments()
+        await load()
       } catch (err) {
         setAddError(err?.message || '추가 실패')
       } finally {
@@ -200,13 +201,13 @@ export default function AdminOrgPage() {
       }
       return
     }
-    if (!isSuperAdmin || dptmtId == null) {
+    if (!isSuperAdmin || dptmtId == null || Number(dptmtId) === 0) {
       setAddError('부서 정보를 불러올 수 없습니다.')
       return
     }
     if (
       !confirmCrud(
-        `본인 소속 부서(ID ${dptmtId}) 아래에 하위 부서 "${n}"을(를) 추가할까요?`,
+        `본인 소속 부서 "${name || '—'}" 아래에 하위 부서 "${n}"을(를) 추가할까요?`,
       )
     ) {
       return
@@ -220,6 +221,7 @@ export default function AdminOrgPage() {
       })
       closeAddModal()
       await loadDepartments()
+      await load()
     } catch (err) {
       setAddError(err?.message || '추가 실패')
     } finally {
@@ -232,6 +234,8 @@ export default function AdminOrgPage() {
     setEditRow(row)
     setEditName(String(row?.dptmt_name ?? ''))
     setEditCode(String(row?.dptmt_code ?? ''))
+    const u = (row?.use_yn || 'Y').toString().trim().toUpperCase()
+    setEditUseYn(u === 'N' ? 'N' : 'Y')
     setEditOpen(true)
   }
 
@@ -255,9 +259,13 @@ export default function AdminOrgPage() {
       return
     }
     const id = editRow.dptmt_info_id
+    if (Number(id) === 0) {
+      setEditError('해당 부서는 수정할 수 없습니다.')
+      return
+    }
     if (
       !confirmCrud(
-        `부서 ID ${id} "${n}" 정보를 수정할까요?`,
+        `부서 "${n}" 정보를 저장할까요?`,
       )
     ) {
       return
@@ -267,9 +275,11 @@ export default function AdminOrgPage() {
       await patchAdminOrgDepartment(id, {
         dptmt_name: n,
         dptmt_code: c,
+        use_yn: editUseYn,
       })
       closeEditModal()
       await loadDepartments()
+      await load()
     } catch (err) {
       setEditError(err?.message || '수정 실패')
     } finally {
@@ -279,10 +289,11 @@ export default function AdminOrgPage() {
 
   async function handleDeleteRow(row) {
     const id = row.dptmt_info_id
-    const label = row.dptmt_name || row.dptmt_code || String(id)
+    if (Number(id) === 0) return
+    const label = row.dptmt_name || row.dptmt_code || '부서'
     if (
       !confirmCrud(
-        `부서 "${label}"(ID ${id})을(를) 삭제할까요? 하위 부서나 소속 사용자가 있으면 삭제되지 않습니다.`,
+        `부서 "${label}"을(를) DB에서 완전히 삭제할까요? 하위 부서나 소속 사용자가 있으면 삭제되지 않습니다. 삭제 대신 비활성화만 하려면 수정에서「사용 안 함」을 선택하세요.`,
       )
     ) {
       return
@@ -290,6 +301,7 @@ export default function AdminOrgPage() {
     try {
       await deleteAdminOrgDepartment(id)
       await loadDepartments()
+      await load()
     } catch (err) {
       window.alert(err?.message || '삭제 실패')
     }
@@ -305,12 +317,12 @@ export default function AdminOrgPage() {
         {isSaDev ? (
           <>
             SA_DEV: 조직 전체 부서를 보고, <strong>추가</strong> 시 최상위·하위를 선택할 수 있습니다.
-            목록에서 <strong>수정·삭제</strong>는 확인 후 진행됩니다.
+            <strong>수정</strong>에서 사용 여부를 바꿀 수 있고, <strong>삭제</strong>는 DB에서 행을 제거합니다.
           </>
         ) : (
           <>
             Super Admin: <strong>본인 소속 부서를 루트로 한 트리</strong>만 표시됩니다.{' '}
-            <strong>추가</strong> 시 상위는 본인 부서로 고정되며, 다른 조직 부서는 보이지 않습니다.
+            <strong>추가</strong> 시 상위는 본인 부서로 고정됩니다. 부서 번호 0은 목록에 나오지 않습니다.
           </>
         )}
       </p>
@@ -318,28 +330,22 @@ export default function AdminOrgPage() {
       {loading ? (
         <p className="admin-org__meta">불러오는 중…</p>
       ) : (
-        <form className="admin-org__card" onSubmit={handleSubmit}>
+        <section className="admin-org__card" aria-label="내 소속 부서">
           <h2 className="admin-org__section-title">내 소속 부서</h2>
-          {dptmtId != null ? (
-            <p className="admin-org__meta">부서 ID: {dptmtId}</p>
-          ) : null}
-          <label className="admin-org__label">
-            부서명
-            <input
-              type="text"
-              className="admin-org__input"
-              value={name}
-              onChange={(ev) => setName(ev.target.value)}
-              maxLength={100}
-              required
-            />
-          </label>
-          {error ? <p className="admin-org__error">{error}</p> : null}
-          {ok ? <p className="admin-org__ok">{ok}</p> : null}
-          <button type="submit" className="admin-org__submit" disabled={saving}>
-            {saving ? '저장 중…' : '저장'}
-          </button>
-        </form>
+          <p className="admin-org__meta">
+            목록에서 해당 부서의 이름·코드·사용 여부는 <strong>수정</strong> 버튼으로 변경할 수 있습니다.
+          </p>
+          <div className="admin-org__readonly-grid">
+            <div>
+              <span className="admin-org__readonly-label">부서명</span>
+              <p className="admin-org__readonly-value">{name || '—'}</p>
+            </div>
+            <div>
+              <span className="admin-org__readonly-label">부서 코드</span>
+              <p className="admin-org__readonly-value admin-org__mono">{myCode || '—'}</p>
+            </div>
+          </div>
+        </section>
       )}
 
       <section className="admin-org__card admin-org__card--wide" aria-label="부서 목록">
@@ -357,27 +363,34 @@ export default function AdminOrgPage() {
         </div>
         {deptLoading ? (
           <p className="admin-org__meta">목록 불러오는 중…</p>
-        ) : departments.length === 0 ? (
+        ) : visibleDepartments.length === 0 ? (
           <p className="admin-org__meta">등록된 부서가 없습니다.</p>
         ) : (
           <div className="admin-org__table-wrap">
             <table className="admin-org__table">
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>코드</th>
                   <th>부서명</th>
-                  <th>상위 부서 (ID · 이름 · 코드)</th>
+                  <th>상위 부서 (이름 · 코드)</th>
+                  <th>사용 여부</th>
                   {canManageDept ? <th className="admin-org__th-actions">작업</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {departments.map((d) => (
-                  <tr key={String(d.dptmt_info_id)}>
-                    <td>{d.dptmt_info_id}</td>
+                {visibleDepartments.map((d) => (
+                  <tr
+                    key={String(d.dptmt_info_id)}
+                    className={
+                      (d.use_yn || 'Y').toString().trim().toUpperCase() === 'N'
+                        ? 'admin-org__row--inactive'
+                        : ''
+                    }
+                  >
                     <td className="admin-org__mono">{d.dptmt_code ?? '—'}</td>
                     <td>{d.dptmt_name ?? '—'}</td>
                     <td className="admin-org__parent-cell">{formatParentCell(d)}</td>
+                    <td>{useYnLabel(d.use_yn)}</td>
                     {canManageDept ? (
                       <td className="admin-org__actions">
                         <button
@@ -452,12 +465,12 @@ export default function AdminOrgPage() {
                       onChange={(ev) => setAddParentId(ev.target.value)}
                     >
                       <option value="">— 상위 부서 선택 —</option>
-                      {departments.map((d) => (
+                      {visibleDepartments.map((d) => (
                         <option
                           key={String(d.dptmt_info_id)}
                           value={String(d.dptmt_info_id)}
                         >
-                          {d.dptmt_info_id} · {d.dptmt_name || '—'} · {d.dptmt_code || '—'}
+                          {d.dptmt_name || '—'} · {d.dptmt_code || '—'}
                         </option>
                       ))}
                     </select>
@@ -467,7 +480,7 @@ export default function AdminOrgPage() {
             ) : (
               <p className="admin-org__meta">
                 상위 부서: <strong>{name || '—'}</strong>
-                {dptmtId != null ? ` (ID ${dptmtId})` : ''}
+                {myCode ? ` · ${myCode}` : ''}
               </p>
             )}
             <label className="admin-org__label">
@@ -535,7 +548,7 @@ export default function AdminOrgPage() {
                 submitEdit(ev)
               }}
             >
-            <h3 id="admin-org-edit-title">부서 수정 (ID {editRow.dptmt_info_id})</h3>
+            <h3 id="admin-org-edit-title">부서 수정</h3>
             <label className="admin-org__label">
               부서명
               <input
@@ -557,6 +570,17 @@ export default function AdminOrgPage() {
                 maxLength={80}
                 required
               />
+            </label>
+            <label className="admin-org__label">
+              사용 여부
+              <select
+                className="admin-org__input admin-org__select"
+                value={editUseYn}
+                onChange={(ev) => setEditUseYn(ev.target.value)}
+              >
+                <option value="Y">사용</option>
+                <option value="N">사용 안 함</option>
+              </select>
             </label>
             {editError ? <p className="admin-org__error">{editError}</p> : null}
             <div className="admin-org__modal-actions">

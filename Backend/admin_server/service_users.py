@@ -15,7 +15,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 6. set_user_etl_flag (sa·sa_dev·etl_yn)
 7. list_invite_codes_for_dept
 8. get_department / update_department_name
-9. list_departments_for_org_settings / create_department / update_department_in_org_settings / delete_department_in_org_settings
+9. list_departments_for_org_settings(id≠0·미사용 포함) / create_department / update_department_in_org_settings(이름·코드·use_yn) / delete_department_in_org_settings(행 DELETE)
 
 [Dependencies]
 =========
@@ -570,20 +570,22 @@ def get_department(conn, dptmt_info_id: int) -> dict[str, Any]:
 
 
 def _dptmt_id_in_managed_subtree(conn, root_dptmt_id: int, node_id: int) -> bool:
-    """node_id가 root_dptmt_id(포함) 또는 그 하위 부서이면 True."""
+    """node_id가 root_dptmt_id(포함) 또는 그 하위 부서이면 True. use_yn 무관, 부서 0 제외."""
     root = int(root_dptmt_id)
     node = int(node_id)
+    if root == 0 or node == 0:
+        return False
     cur = conn.cursor()
     try:
         cur.execute(
             """
             WITH RECURSIVE sub AS (
                 SELECT dptmt_info_id FROM dptmt_info
-                WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+                WHERE dptmt_info_id = %s
                 UNION ALL
                 SELECT d.dptmt_info_id FROM dptmt_info d
                 INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
-                WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+                WHERE d.dptmt_info_id <> 0
             )
             SELECT 1 FROM sub WHERE dptmt_info_id = %s LIMIT 1
             """,
@@ -598,8 +600,8 @@ def list_departments_for_org_settings(
     conn, actor_dvsn: str, actor_dptmt_id: int
 ) -> list[dict[str, Any]]:
     """
-    부서 관리 화면 목록.
-    SA_DEV: 전체(use_yn=Y). sa: 본인 소속 부서를 루트로 한 하위 트리만.
+    부서 관리 화면 목록. dptmt_info_id=0 행은 제외(어떤 역할도 미표시).
+    SA_DEV: 전체(사용/미사용 포함). sa: 본인 소속 부서 루트 하위 트리(use_yn 무관).
     """
     ad = (actor_dvsn or "").strip().lower()
     cur = conn.cursor()
@@ -612,32 +614,36 @@ def list_departments_for_org_settings(
                        d.sort_order, d.use_yn, d.create_dtm
                 FROM dptmt_info d
                 LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
-                WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+                WHERE d.dptmt_info_id <> 0
                 ORDER BY d.dptmt_info_id
                 """
             )
         elif ad == "sa":
+            aid = int(actor_dptmt_id)
+            if aid == 0:
+                return []
             cur.execute(
                 """
                 WITH RECURSIVE sub AS (
                     SELECT dptmt_info_id, dptmt_code, dptmt_name, parent_dptmt_info_id, sort_order, use_yn, create_dtm
                     FROM dptmt_info
-                    WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+                    WHERE dptmt_info_id = %s
                     UNION ALL
                     SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
                            d.sort_order, d.use_yn, d.create_dtm
                     FROM dptmt_info d
                     INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
-                    WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+                    WHERE d.dptmt_info_id <> 0
                 )
                 SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
                        p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
                        d.sort_order, d.use_yn, d.create_dtm
                 FROM sub d
                 LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
+                WHERE d.dptmt_info_id <> 0
                 ORDER BY d.dptmt_info_id
                 """,
-                (int(actor_dptmt_id),),
+                (aid,),
             )
         else:
             return []
@@ -649,15 +655,14 @@ def list_departments_for_org_settings(
 def _assert_actor_can_manage_department(
     conn, eff: str, actor_dptmt_id: int, target_dptmt_id: int
 ) -> None:
-    """sa_dev: 활성 부서만. sa: 본인 부서 트리 안만."""
+    """부서 0은 관리 불가. 그 외 행은 존재하면 수정·삭제 가능(use_yn 무관). sa는 트리 안만."""
     tid = int(target_dptmt_id)
+    if tid == 0:
+        raise ValueError("해당 부서는 관리할 수 없습니다.")
     cur = conn.cursor()
     try:
         cur.execute(
-            """
-            SELECT 1 FROM dptmt_info
-            WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
-            """,
+            "SELECT 1 FROM dptmt_info WHERE dptmt_info_id = %s",
             (tid,),
         )
         if not cur.fetchone():
@@ -678,6 +683,7 @@ def update_department_in_org_settings(
     dptmt_info_id: int,
     new_name: str | None,
     new_code: str | None,
+    new_use_yn: str | None,
     actor_dvsn: str,
     actor_dptmt_id: int,
 ) -> None:
@@ -686,10 +692,19 @@ def update_department_in_org_settings(
         raise ValueError("부서를 수정할 권한이 없습니다.")
     has_name = new_name is not None
     has_code = new_code is not None
-    if not has_name and not has_code:
-        raise ValueError("부서명 또는 부서 코드 중 하나 이상을 보내야 합니다.")
+    has_use = new_use_yn is not None
+    if not has_name and not has_code and not has_use:
+        raise ValueError(
+            "부서명·부서 코드·사용 여부 중 하나 이상을 보내야 합니다."
+        )
     name = (new_name or "").strip() if has_name else None
     code = (new_code or "").strip() if has_code else None
+    use_v = None
+    if has_use:
+        u = (new_use_yn or "").strip().upper()
+        if u not in ("Y", "N"):
+            raise ValueError("사용 여부는 Y 또는 N 이어야 합니다.")
+        use_v = u
     if has_name and not name:
         raise ValueError("부서명이 비어 있을 수 없습니다.")
     if has_code and not code:
@@ -720,6 +735,9 @@ def update_department_in_org_settings(
     if has_code:
         sets.append("dptmt_code = %s")
         params.append(code[:80] if code else "")
+    if has_use:
+        sets.append("use_yn = %s")
+        params.append(use_v)
     if not sets:
         raise ValueError("변경할 내용이 없습니다.")
     sets.append("update_dtm = NOW()")
@@ -751,13 +769,15 @@ def delete_department_in_org_settings(
     if eff not in ("sa_dev", "sa"):
         raise ValueError("부서를 삭제할 권한이 없습니다.")
     tid = int(dptmt_info_id)
+    if tid == 0:
+        raise ValueError("해당 부서는 삭제할 수 없습니다.")
     _assert_actor_can_manage_department(conn, eff, int(actor_dptmt_id), tid)
     cur = conn.cursor()
     try:
         cur.execute(
             """
             SELECT COUNT(*)::int AS c FROM dptmt_info
-            WHERE parent_dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+            WHERE parent_dptmt_info_id = %s
             """,
             (tid,),
         )
@@ -776,10 +796,7 @@ def delete_department_in_org_settings(
                 "해당 부서에 소속된 사용자가 있어 삭제할 수 없습니다."
             )
         cur.execute(
-            """
-            UPDATE dptmt_info SET use_yn = 'N', update_dtm = NOW()
-            WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
-            """,
+            "DELETE FROM dptmt_info WHERE dptmt_info_id = %s",
             (tid,),
         )
         if cur.rowcount == 0:
@@ -827,10 +844,12 @@ def create_department(
             raise ValueError("소속 부서 트리 안의 부서만 상위로 지정할 수 있습니다.")
     if pid is not None:
         pid = int(pid)
+        if pid == 0:
+            raise ValueError("상위 부서로 지정할 수 없습니다.")
         cur = conn.cursor()
         try:
             cur.execute(
-                "SELECT 1 FROM dptmt_info WHERE dptmt_info_id = %s AND COALESCE(use_yn,'Y') = 'Y'",
+                "SELECT 1 FROM dptmt_info WHERE dptmt_info_id = %s",
                 (pid,),
             )
             if not cur.fetchone():

@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+99. 2026-03-31 부서 삭제 하드·수정에 사용여부·목록에서 ID0 제거·내소속 읽기전용
 98. 2026-03-31 부서 관리 목록·상위표시·행 수정삭제·추가 모달·PATCH/DELETE API
 97. 2026-03-31 CRUD 전 confirmCrud(공용)·어드민·마이페이지·알림·위젯보드·ETL이력
 96. 2026-03-31 user_dvsn 단일 코드(sa_dev·sa·a·o·u)·비허용 시 빈 목록
@@ -101,6 +102,13 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+99. 2026-03-31 부서 삭제 하드·수정에 사용여부·목록에서 ID0 제거·내소속 읽기전용
+Purpose: 삭제는 use_yn이 아니라 DB DELETE. 사용 안 함은 수정 모달의 use_yn. 부서 ID 0은 API 목록·화면에서 제외. 내 소속 카드는 부서명·코드만 읽기 전용. 목록에서 ID·상위 ID 컬럼 제거.
+
+Changes: `delete_department_in_org_settings` DELETE. `OrgDepartmentPatchBody.use_yn`, `update_department_in_org_settings` 확장. `list_departments_for_org_settings`에서 id≠0·미사용 행 포함(SA_DEV/SA). `_dptmt_id_in_managed_subtree`·상위 검증 조정. `AdminOrgPage` 테이블·수정 모달·읽기 전용 카드.
+
+Changed files: Backend/admin_server/schemas.py, service_users.py, router.py, Frontend/react-app/src/shared/api/adminClient.js, app/admin/AdminOrgPage.jsx, app/admin/admin-org.css, docs/log/log.md
 
 98. 2026-03-31 부서 관리 목록·상위표시·행 수정삭제·추가 모달·PATCH/DELETE API
 Purpose: 부서 목록에서 상위 부서 ID만으로는 식별이 어려워 상위 부서명·코드 조인 표시. 행별 수정·삭제와 테이블 우측 상단 추가 버튼, SA_DEV는 추가 모달에서 최상위/하위 유형·상위 선택, SA는 본인 부서 고정 하위만 추가. 백엔드에 부서 단건 PATCH·DELETE 추가.

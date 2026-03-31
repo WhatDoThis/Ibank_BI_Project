@@ -265,3 +265,28 @@
   margin-top: 8px;
   flex-wrap: wrap;
 }
+
+.admin-org__readonly-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px 24px;
+}
+
+.admin-org__readonly-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.admin-org__readonly-value {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.admin-org__table tbody tr.admin-org__row--inactive td {
+  color: var(--color-text-muted);
+  background: rgba(0, 0, 0, 0.02);
+}

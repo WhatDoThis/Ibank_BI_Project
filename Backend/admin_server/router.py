@@ -314,6 +314,7 @@ def admin_org_departments_patch(
             int(dptmt_info_id),
             body.dptmt_name,
             body.dptmt_code,
+            body.use_yn,
             actor_dvsn=str(actor.get("user_dvsn") or ""),
             actor_dptmt_id=int(actor["dptmt_info_id"]),
         )

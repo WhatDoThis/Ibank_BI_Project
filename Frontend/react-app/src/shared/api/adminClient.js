@@ -49,7 +49,7 @@ export async function postAdminOrgDepartment(body) {
   return request('POST', '/api/admin/org/departments', body)
 }
 
-/** @param {{ dptmt_name?: string|null, dptmt_code?: string|null }} body */
+/** @param {{ dptmt_name?: string|null, dptmt_code?: string|null, use_yn?: 'Y'|'N'|null }} body */
 export async function patchAdminOrgDepartment(dptmtInfoId, body) {
   return request('PATCH', `/api/admin/org/departments/${dptmtInfoId}`, body)
 }

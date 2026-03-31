@@ -105,10 +105,13 @@ class OrgDepartmentCreateBody(BaseModel):
 
 
 class OrgDepartmentPatchBody(BaseModel):
-    """부서명·코드 수정(둘 중 하나 이상)."""
+    """부서명·코드·사용여부 수정(필드 중 하나 이상)."""
 
     dptmt_name: str | None = Field(None, max_length=100)
     dptmt_code: str | None = Field(None, max_length=80)
+    use_yn: Literal["Y", "N"] | None = Field(
+        None, description="Y=사용, N=사용 안 함(삭제와 별개)"
+    )
 
 
 class TableMasterPatchBody(BaseModel):
