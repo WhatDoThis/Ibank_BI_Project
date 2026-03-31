@@ -146,20 +146,25 @@
   color: #fff;
 }
 
-/* 접힘: 점만 · 펼침: 풀 라벨 (호버) */
-.ibank-sidebar-link__dot {
+/* 접힘: 아이콘만 · 펼침: 풀 라벨 (호버) */
+.ibank-sidebar-link__icon {
   display: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.75;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
+  color: inherit;
+  opacity: 0.88;
 }
 
-.ibank-sidebar-link.active .ibank-sidebar-link__dot {
+.ibank-sidebar-link__icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ibank-sidebar-link.active .ibank-sidebar-link__icon {
   opacity: 1;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+  filter: drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.9));
 }
 
 /* 로고 워드마크처럼 px 고정 + 한 줄(펼침 애니메이션 중 줄바꿈·체감 크기 변화 방지) */
@@ -180,15 +185,17 @@
   text-align: center;
 }
 
-.ibank-sidebar:not(:hover) .ibank-sidebar-link__dot {
-  display: block;
+.ibank-sidebar:not(:hover) .ibank-sidebar-link__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ibank-sidebar:not(:hover) .ibank-sidebar-link__full {
   display: none;
 }
 
-.ibank-sidebar:hover .ibank-sidebar-link__dot {
+.ibank-sidebar:hover .ibank-sidebar-link__icon {
   display: none;
 }
 
