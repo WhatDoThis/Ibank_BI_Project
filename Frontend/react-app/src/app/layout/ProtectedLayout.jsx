@@ -2,7 +2,7 @@
  * app/layout/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
  * Analytica 셸: 좌측 주 메뉴(풀 라벨) + 고정 헤더·브레드크럼 + 스크롤 본문
  * requiresProject 항목은 JWT에 프로젝트 클레임 없으면 비활성 표시(클릭 시 홈으로 튕김 방지)
- * 사이드바 브랜드: 접힘 시 starbucks-siren-mark.png, 펼침 시 starbucks-logo.png(워드마크).
+ * 사이드바 브랜드: 접힘 시 시린 마크, 펼침 시 워드마크. 네비 접힘 시 항목은 점만 표시.
  * docs/ui/UI_UX_재사용_가이드.md §2·§5
  */
 
@@ -84,13 +84,14 @@ export function ProtectedLayout() {
         </div>
         <nav className="ibank-sidebar-nav">
           {navItems.map((item) => {
-            const { to, label, sidebarLabel, requiresProject } = item
-            const short = sidebarLabel || label.slice(0, 2)
+            const { to, label, requiresProject } = item
             const blocked = requiresProject && !hasProjectClaim(getAccessToken())
             const linkBody = (
               <>
-                <span className="ibank-sidebar-link__short">{short}</span>
-                <span className="ibank-sidebar-link__full">{label}</span>
+                <span className="ibank-sidebar-link__dot" aria-hidden="true" />
+                <span className="ibank-sidebar-link__full" aria-hidden="true">
+                  {label}
+                </span>
               </>
             )
             if (blocked) {
@@ -111,6 +112,7 @@ export function ProtectedLayout() {
                 to={to}
                 className={navLinkClass}
                 title={label}
+                aria-label={label}
                 end={to === '/'}
               >
                 {linkBody}

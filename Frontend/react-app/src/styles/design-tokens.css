@@ -6,7 +6,7 @@
   /* 좌측 주 메뉴: 접힘 폭 / 펼침(호버만) 폭 */
   --nav-width-collapsed: 56px;
   --nav-width: 180px;
-  --header-height: 60px;
+  --header-height: 55px;
   --breadcrumb-height: 35px;
   --main-top-offset: 96px;
   --main-height-trim: 100px;

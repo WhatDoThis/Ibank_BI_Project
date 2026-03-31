@@ -21,7 +21,8 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 12px 0 16px;
+  /* 상단 패딩 없음: 브랜드 행 높이 = --header-height 로 헤더 하단선과 정렬 */
+  padding: 0 0 16px;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
   z-index: 20;
   overflow-x: hidden;
@@ -48,10 +49,12 @@
   display: flex;
   justify-content: flex-start;
   align-items: center;
-  padding: 0 10px 12px;
+  /* 접힘/펼침과 무관하게 헤더(.ibank-shell-header)와 동일 높이 → 아래 선이 항상 같은 y에 위치 */
+  height: var(--header-height);
+  min-height: var(--header-height);
+  padding: 0 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.35);
   margin-bottom: 8px;
-  min-height: 48px;
   box-sizing: border-box;
 }
 
@@ -104,17 +107,15 @@
   overflow-x: hidden;
 }
 
-.ibank-sidebar:not(:hover) .ibank-sidebar-nav {
-  padding-left: 6px;
-  padding-right: 6px;
-}
-
 .ibank-sidebar-link {
   display: flex;
   align-items: center;
   justify-content: flex-start;
   text-align: left;
+  /* 접힘/펼침 동일 셀 패딩 — 간격·행 높이 맞춤 */
   padding: 10px 12px;
+  min-height: 40px;
+  box-sizing: border-box;
   border-radius: var(--radius-btn-sm);
   font-size: var(--font-size-hint);
   font-weight: 600;
@@ -145,34 +146,49 @@
   color: #fff;
 }
 
-/* 접힘: 짧은 표기만 · 펼침: 풀 라벨 (마우스 호버만) */
-.ibank-sidebar-link__short {
+/* 접힘: 점만 · 펼침: 풀 라벨 (호버) */
+.ibank-sidebar-link__dot {
   display: none;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  line-height: 1.25;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+  flex-shrink: 0;
 }
 
+.ibank-sidebar-link.active .ibank-sidebar-link__dot {
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* 로고 워드마크처럼 px 고정 + 한 줄(펼침 애니메이션 중 줄바꿈·체감 크기 변화 방지) */
 .ibank-sidebar-link__full {
   display: inline;
+  font-size: var(--font-size-hint);
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .ibank-sidebar:not(:hover) .ibank-sidebar-link,
 .ibank-sidebar:not(:hover) .ibank-sidebar-link.ibank-sidebar-link--disabled {
   justify-content: center;
   text-align: center;
-  padding-left: 6px;
-  padding-right: 6px;
 }
 
-.ibank-sidebar:not(:hover) .ibank-sidebar-link__short {
-  display: inline;
+.ibank-sidebar:not(:hover) .ibank-sidebar-link__dot {
+  display: block;
 }
 
 .ibank-sidebar:not(:hover) .ibank-sidebar-link__full {
+  display: none;
+}
+
+.ibank-sidebar:hover .ibank-sidebar-link__dot {
   display: none;
 }
 
