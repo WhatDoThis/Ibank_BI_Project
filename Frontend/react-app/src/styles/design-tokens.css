@@ -3,7 +3,8 @@
  * 레거시 변수(--primary 등)와 병행해 기존 CSS가 깨지지 않게 매핑
  */
 :root {
-  /* 좌측 주 메뉴(풀 라벨 표시용 폭) */
+  /* 좌측 주 메뉴: 접힘 폭 / 펼침(호버만) 폭 */
+  --nav-width-collapsed: 56px;
   --nav-width: 180px;
   --header-height: 60px;
   --breadcrumb-height: 35px;
@@ -28,7 +29,7 @@
   --radius-btn-sm: 5px;
   --radius-btn-lg: 20px;
 
-  /* 본문 영역: .ibank-outlet 한 곳에서만 패딩·최대 폭 적용 (페이지 루트에 max-width 중복 금지) */
+  /* 본문 영역: .ibank-outlet 에 패딩·최대 폭, 세로 스크롤은 .ibank-outlet-scroll (스크롤바 우측 끝) */
   --page-max-width: 1280px;
   --page-padding-x: 24px;
   --page-padding-y: 20px;

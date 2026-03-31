@@ -14,15 +14,34 @@
 }
 
 .ibank-sidebar {
-  width: var(--nav-width);
-  flex-shrink: 0;
+  flex: none;
+  width: var(--nav-width-collapsed);
+  min-width: var(--nav-width-collapsed);
   background: var(--sidebar-gradient);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   padding: 12px 0 16px;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
-  z-index: 10;
+  z-index: 20;
+  overflow-x: hidden;
+  overflow-y: auto;
+  transition:
+    width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.22s ease;
+}
+
+.ibank-sidebar:hover {
+  width: var(--nav-width);
+  min-width: var(--nav-width);
+  box-shadow: 6px 0 20px rgba(0, 0, 0, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ibank-sidebar {
+    transition: none;
+  }
 }
 
 .ibank-sidebar-brand {
@@ -32,19 +51,47 @@
   padding: 0 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.35);
   margin-bottom: 8px;
-  min-height: 44px;
+  min-height: 48px;
   box-sizing: border-box;
 }
 
-/* 흰색 워드마크: 사이드바 어두운 배경 대비. 가로는 네비 폭 내 최대, 세로는 헤더·브랜드 행에 맞게 제한 */
-.ibank-sidebar-brand__logo {
+.ibank-sidebar:not(:hover) .ibank-sidebar-brand {
+  justify-content: center;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+/* 접힘: 시린 마크 · 펼침: 워드마크 PNG */
+.ibank-sidebar-brand__mark {
+  display: none;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.ibank-sidebar:not(:hover) .ibank-sidebar-brand__mark {
   display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  max-height: 36px;
+}
+
+/* 고정 박스: 사이드바 width 애니메이션과 무관하게 커지지 않음(100% 금지) */
+.ibank-sidebar-brand__wordmark {
+  display: none;
+  width: 136px;
+  height: 32px;
+  max-width: 136px;
   object-fit: contain;
   object-position: left center;
+  flex-shrink: 0;
+}
+
+.ibank-sidebar:hover .ibank-sidebar-brand__wordmark {
+  display: block;
+}
+
+.ibank-sidebar:hover .ibank-sidebar-brand__mark {
+  display: none;
 }
 
 .ibank-sidebar-nav {
@@ -55,6 +102,11 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.ibank-sidebar:not(:hover) .ibank-sidebar-nav {
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .ibank-sidebar-link {
@@ -91,6 +143,37 @@
   background: rgba(255, 255, 255, 0.28);
   border-color: rgba(255, 255, 255, 0.45);
   color: #fff;
+}
+
+/* 접힘: 짧은 표기만 · 펼침: 풀 라벨 (마우스 호버만) */
+.ibank-sidebar-link__short {
+  display: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.ibank-sidebar-link__full {
+  display: inline;
+}
+
+.ibank-sidebar:not(:hover) .ibank-sidebar-link,
+.ibank-sidebar:not(:hover) .ibank-sidebar-link.ibank-sidebar-link--disabled {
+  justify-content: center;
+  text-align: center;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.ibank-sidebar:not(:hover) .ibank-sidebar-link__short {
+  display: inline;
+}
+
+.ibank-sidebar:not(:hover) .ibank-sidebar-link__full {
+  display: none;
 }
 
 .ibank-shell-main-col {
@@ -215,17 +298,24 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* 페이지 공통: 가로 패딩·최대 폭 정렬 (가운데 정렬, 좁은 화면은 100%) */
-.ibank-outlet {
+/* 세로 스크롤: 메인 열 전체 폭 → 스크롤바가 화면(본문 영역) 맨 오른쪽에 붙음 */
+.ibank-outlet-scroll {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
-  max-width: var(--page-max-width);
-  margin-inline: auto;
-  padding: var(--page-padding-y) var(--page-padding-x) var(--page-padding-bottom);
-  box-sizing: border-box;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* 페이지 공통: 가로 패딩·최대 폭은 안쪽에서만 (스크롤은 바깥 .ibank-outlet-scroll) */
+.ibank-outlet {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  min-height: 100%;
+  padding: var(--page-padding-y) var(--page-padding-x) var(--page-padding-bottom);
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 .app-loading--shell {

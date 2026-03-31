@@ -2,7 +2,7 @@
  * app/layout/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
  * Analytica 셸: 좌측 주 메뉴(풀 라벨) + 고정 헤더·브레드크럼 + 스크롤 본문
  * requiresProject 항목은 JWT에 프로젝트 클레임 없으면 비활성 표시(클릭 시 홈으로 튕김 방지)
- * 사이드바 브랜드: public/starbucks-logo.png. 마이페이지는 상단 헤더(이메일~로그아웃 사이) 링크.
+ * 사이드바 브랜드: 접힘 시 starbucks-siren-mark.png, 펼침 시 starbucks-logo.png(워드마크).
  * docs/ui/UI_UX_재사용_가이드.md §2·§5
  */
 
@@ -66,25 +66,42 @@ export function ProtectedLayout() {
       <aside className="ibank-sidebar" aria-label="주 메뉴">
         <div className="ibank-sidebar-brand">
           <img
+            src={`${ROUTER_BASENAME}/starbucks-siren-mark.png`}
+            alt=""
+            className="ibank-sidebar-brand__mark"
+            width={40}
+            height={40}
+            decoding="async"
+          />
+          <img
             src={`${ROUTER_BASENAME}/starbucks-logo.png`}
-            alt="브랜드 로고"
-            className="ibank-sidebar-brand__logo"
+            alt="Starbucks"
+            className="ibank-sidebar-brand__wordmark"
+            width={160}
+            height={32}
             decoding="async"
           />
         </div>
         <nav className="ibank-sidebar-nav">
           {navItems.map((item) => {
-            const { to, label, requiresProject } = item
+            const { to, label, sidebarLabel, requiresProject } = item
+            const short = sidebarLabel || label.slice(0, 2)
             const blocked = requiresProject && !hasProjectClaim(getAccessToken())
+            const linkBody = (
+              <>
+                <span className="ibank-sidebar-link__short">{short}</span>
+                <span className="ibank-sidebar-link__full">{label}</span>
+              </>
+            )
             if (blocked) {
               return (
                 <span
                   key={to}
                   className="ibank-sidebar-link ibank-sidebar-link--disabled"
-                  title="홈에서 프로젝트를 선택한 뒤 이용할 수 있습니다."
+                  title={`${label} — 홈에서 프로젝트를 선택한 뒤 이용할 수 있습니다.`}
                   role="presentation"
                 >
-                  {label}
+                  {linkBody}
                 </span>
               )
             }
@@ -96,7 +113,7 @@ export function ProtectedLayout() {
                 title={label}
                 end={to === '/'}
               >
-                {label}
+                {linkBody}
               </NavLink>
             )
           })}
@@ -130,8 +147,10 @@ export function ProtectedLayout() {
         </div>
 
         <main className="ibank-shell-body">
-          <div className="ibank-outlet">
-            <Outlet />
+          <div className="ibank-outlet-scroll">
+            <div className="ibank-outlet">
+              <Outlet />
+            </div>
           </div>
         </main>
       </div>

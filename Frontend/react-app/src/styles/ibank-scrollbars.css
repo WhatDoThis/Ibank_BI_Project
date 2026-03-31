@@ -2,7 +2,7 @@
  * 로그인 후 셸(.ibank-app-shell) 내부 스크롤바 정리
  * — Firefox: scrollbar-width / scrollbar-color
  * — Chromium·Safari: ::-webkit-scrollbar
- * — 본문 아울렛: scrollbar-gutter로 스크롤 생길 때 폭 점프 완화
+ * — 본문 스크롤 래퍼(.ibank-outlet-scroll): scrollbar-gutter로 폭 점프 완화
  */
 
 /* Firefox (및 표준 계열) */
@@ -12,7 +12,7 @@
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
-.ibank-outlet {
+.ibank-outlet-scroll {
   scrollbar-gutter: stable;
 }
 
