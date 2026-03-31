@@ -43,30 +43,45 @@ def send_email(subject: str, body_text: str, to_addrs: list[str]) -> None:
     msg["From"] = settings["from_addr"] or "no-reply@localhost"
     msg["To"] = ", ".join(to_addrs)
     msg.set_content(body_text)
-    ctx = ssl.create_default_context()
+
     host = settings["host"]
     port = settings["port"]
     user = settings["user"]
     password = settings["password"]
+
+    # --- 465: 처음부터 SSL ---
     if port == 465:
+        ctx = ssl.create_default_context()
         with smtplib.SMTP_SSL(host, port, context=ctx) as smtp:
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
-    else:
-        with smtplib.SMTP(host, port) as smtp:
-            try:
-                smtp.starttls(context=ctx)
-            except Exception as ex:
-                _log.warning(
-                    "[email_service.send_email] STARTTLS 실패·무시 host=%s port=%s: %s",
-                    host,
-                    port,
-                    ex,
-                )
+        return
+
+    # --- 그 외 포트: 1차 STARTTLS(인증서 검증 스킵) 시도 ---
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with smtplib.SMTP(host, port, timeout=10) as smtp:
+            smtp.starttls(context=ctx)
             if user:
                 smtp.login(user, password)
             smtp.send_message(msg)
+            return
+    except Exception as ex:
+        _log.warning(
+            "[email_service] STARTTLS 연결 실패, 평문 재시도. host=%s port=%s: %s",
+            host,
+            port,
+            ex,
+        )
+
+    # --- 2차: 새 소켓으로 평문 발송 ---
+    with smtplib.SMTP(host, port, timeout=10) as smtp:
+        if user:
+            smtp.login(user, password)
+        smtp.send_message(msg)
 
 
 # 2.

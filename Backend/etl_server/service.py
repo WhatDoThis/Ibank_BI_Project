@@ -6,7 +6,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 [Main Functions]
 ===========
 1. _resolve_upload_path_for_delete: 삭제할 파일 경로 해석
-2. _get_db, _schema, _q, _sys_cursor: DB·스키마·쿼리·커서 헬퍼
+2. _get_db, _schema, _q, _table_columns_lower, _sys_cursor: DB·스키마·쿼리·information_schema·커서 헬퍼
 3. get_target_db_connection: 적재 대상 DB 연결
 4. _validate_identifier, _normalize_source_table_dots, _validate_source_table, parse_source_table_parts
 5. _connection_error_to_user_message, _connect_postgres, _connect_mysql, _connect_oracle
@@ -90,6 +90,28 @@ def _schema():
 def _q(schema_name: str, table_name: str) -> str:
     """스키마.테이블명 따옴표 감싸기."""
     return f'"{schema_name}"."{table_name}"'
+
+
+def _table_columns_lower(cur, schema_name: str, table_name: str) -> set:
+    """
+    information_schema 기준 테이블 컬럼명 소문자 집합.
+    시스템 DB DDL이 앱보다 낮을 때(예: storage_connection_id 미추가) 쿼리 분기용.
+    """
+    cur.execute(
+        """
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s
+        """,
+        (schema_name, table_name),
+    )
+    rows = cur.fetchall()
+    out = set()
+    for row in rows:
+        if isinstance(row, dict):
+            out.add(str(row.get("column_name", "")).lower())
+        else:
+            out.add(str(row[0]).lower())
+    return out
 
 
 @contextmanager
@@ -1117,20 +1139,39 @@ def list_etl_tables() -> list:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"""
-            SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
-                   t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
-                   t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
-                   t.column_mapping, t.on_row_error, t.index_definitions, t.diff_delete_orphans,
-                   c.connection_name, c.source_type,
-                   sc.connection_name AS storage_connection_name
-            FROM {_q(schema, "etl_tables")} t
-            LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
-            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON sc.storage_connection_id = t.storage_connection_id AND sc.is_active = TRUE
-            ORDER BY t.created_at DESC
-            """
-        )
+        tcols = _table_columns_lower(cur, schema, "etl_tables")
+        has_storage = "storage_connection_id" in tcols
+        if has_storage:
+            cur.execute(
+                f"""
+                SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
+                       t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
+                       t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
+                       t.column_mapping, t.on_row_error, t.index_definitions, t.diff_delete_orphans,
+                       c.connection_name, c.source_type,
+                       sc.connection_name AS storage_connection_name
+                FROM {_q(schema, "etl_tables")} t
+                LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
+                LEFT JOIN {_q(schema, "etl_storage_connections")} sc
+                  ON sc.storage_connection_id = t.storage_connection_id AND sc.is_active = TRUE
+                ORDER BY t.created_at DESC
+                """
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
+                       t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
+                       t.batch_size, t.batch_interval_seconds, t.status, t.created_at,
+                       NULL::integer AS storage_connection_id,
+                       t.column_mapping, t.on_row_error, t.index_definitions, t.diff_delete_orphans,
+                       c.connection_name, c.source_type,
+                       NULL::text AS storage_connection_name
+                FROM {_q(schema, "etl_tables")} t
+                LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
+                ORDER BY t.created_at DESC
+                """
+            )
         rows = cur.fetchall()
         return [dict(r) for r in rows]
     finally:

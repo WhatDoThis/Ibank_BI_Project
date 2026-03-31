@@ -310,23 +310,26 @@
     "jwt_pre_auth_expire_minutes": 5,
     "jwt_access_expire_minutes": 30,
     "jwt_refresh_expire_days": 7,
-    "smtp_host": "",
-    "smtp_port": 587,
-    "smtp_user": "",
-    "smtp_password": "",
-    "smtp_from": "no-reply@example.com",
-    "app_url": "https://도메인"
+    "smtp_info": {
+      "smtp_host": "",
+      "smtp_port": 587,
+      "smtp_user": "",
+      "smtp_password": "",
+      "smtp_from": "no-reply@example.com",
+      "app_url": "https://도메인/ibank-bi/"
+    }
   },
   "frontend": {
     "static_port": 8080,
     "main_page": "index.html",
     "api_base_url": "http://localhost:5001",
+    "app_url": "https://도메인/ibank-bi",
     "static_dir": "Frontend/react-app/dist"
   }
 }
 ```
 
-**기존 대비 변경**: 최상위 `db_host`/`db_name` 등 → `main_db` 객체로 묶음. `main_db.table_schema`는 비어 있으면 앱에서 `public`으로 간주. `jwt_secret`, **`jwt_pre_auth_expire_minutes`**, `jwt_access_*`, `jwt_refresh_*`, `smtp_*`, `app_url` 추가. `system_db`, `dash_db`, `star_db`, `etl_limits`는 `main_db`와 동일 레벨. **`smtp_host`가 비어 있으면** §2.7 개발 모드(콘솔 출력·발송 스킵).
+**기존 대비 변경**: 최상위 `db_host`/`db_name` 등 → `main_db` 객체로 묶음. `main_db.table_schema`는 비어 있으면 앱에서 `public`으로 간주. `jwt_secret`, **`jwt_pre_auth_expire_minutes`**, `jwt_access_*`, `jwt_refresh_*`, **`smtp_info`**(내부 `smtp_*`·초대 링크용 `app_url`; 초대 메일은 `{app_url}/signup`으로 조립되므로 `app_url`은 프론트 Vite `base`(`/ibank-bi/`)와 맞는 공개 베이스, 예: `https://호스트/ibank-bi`) 추가. 레거시 `backend` 평면 `smtp_*`·`app_url`도 `auth_config`에서 호환 읽기. **`frontend.app_url`(선택)** 은 위 둘이 비었을 때 초대용 공개 베이스(`frontend.api_base_url`은 리포트/API용이므로 초대 링크에 쓰지 않음). `system_db`, `dash_db`, `star_db`, `etl_limits`는 `main_db`와 동일 레벨. **`smtp_info.smtp_host`(또는 레거시 `smtp_host`)가 비어 있으면** §2.7 개발 모드(콘솔 출력·발송 스킵).
 
 ### 0.13 테이블 관계도
 
@@ -435,7 +438,7 @@ access_token 만료 → 프론트가 refresh_token으로 `POST /api/auth/refresh
 
 ### 2.7 개발 환경 — SMTP 미설정
 
-- `config.json`의 `smtp_host`가 **비어 있으면**(또는 명시적 `dev_skip_email: true` 같은 플래그를 둘 경우) **이메일 발송을 스킵**하고, **인증코드·초대 링크 안내를 서버 로그(콘솔)에 출력**한다. `auth_server/email_service.py`에서 분기.
+- `config.json`의 **`smtp_info.smtp_host`(또는 레거시 `smtp_host`)**가 **비어 있으면**(또는 명시적 `dev_skip_email: true` 같은 플래그를 둘 경우) **이메일 발송을 스킵**하고, **인증코드·초대 링크 안내를 서버 로그(콘솔)에 출력**한다. `auth_server/email_service.py`에서 분기.
 - 운영 환경에서는 반드시 SMTP 설정·발송으로 전환한다(로그만 의존 금지).
 
 ---

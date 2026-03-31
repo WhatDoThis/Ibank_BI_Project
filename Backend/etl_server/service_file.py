@@ -307,6 +307,64 @@ def get_folder_adapter(folder_connection_id: int):
 # ---------- batch_jobs, batch_run_history (§3.5, §3.6) ----------
 
 
+def _batch_job_select_parts(schema: str, jcols: set) -> tuple[str, str, str, str, str]:
+    """
+    batch_jobs 컬럼 존재 여부에 따라 SELECT(j.*)·JOIN(ec)·JOIN(sc)·source_name·storage_name SQL 조각.
+    구 DDL(09 v2)에는 connection_id·job_type·etl_table_id 등이 없을 수 있음.
+    """
+    col_casts = [
+        ("batch_job_id", "integer"),
+        ("folder_connection_id", "integer"),
+        ("storage_connection_id", "integer"),
+        ("job_name", "text"),
+        ("file_pattern", "text"),
+        ("file_extensions", "text"),
+        ("target_table", "text"),
+        ("pk_columns", "text"),
+        ("timestamp_format", "text"),
+        ("interval_minutes", "integer"),
+        ("is_active", "boolean"),
+        ("last_processed_ts", "text"),
+        ("last_run_at", "timestamp with time zone"),
+        ("last_run_status", "text"),
+        ("last_error_message", "text"),
+        ("column_mapping", "jsonb"),
+        ("index_definitions", "jsonb"),
+        ("created_at", "timestamp with time zone"),
+        ("updated_at", "timestamp with time zone"),
+        ("job_type", "text"),
+        ("connection_id", "integer"),
+        ("source_table", "text"),
+        ("incremental_column", "text"),
+        ("sync_mode", "text"),
+        ("last_synced_at", "timestamp with time zone"),
+        ("batch_size", "integer"),
+        ("batch_interval_seconds", "integer"),
+        ("on_row_error", "text"),
+        ("on_file_error", "text"),
+        ("etl_table_id", "integer"),
+        ("diff_delete_orphans", "boolean"),
+    ]
+    parts = []
+    for name, cast in col_casts:
+        if name in jcols:
+            parts.append(f"j.{name}")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    select_j = ", ".join(parts)
+    join_ec = ""
+    if "connection_id" in jcols:
+        join_ec = f"""
+            LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id"""
+    join_sc = ""
+    if "storage_connection_id" in jcols:
+        join_sc = f"""
+            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON j.storage_connection_id = sc.storage_connection_id"""
+    src_name = "ec.connection_name AS source_connection_name" if join_ec else "NULL::text AS source_connection_name"
+    sto_name = "sc.connection_name AS storage_connection_name" if join_sc else "NULL::text AS storage_connection_name"
+    return select_j, join_ec, join_sc, src_name, sto_name
+
+
 def list_batch_jobs(
     folder_connection_id: Optional[int] = None,
     is_active: Optional[bool] = None,
@@ -318,21 +376,17 @@ def list_batch_jobs(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
+        select_j, join_ec, join_sc, src_name, sto_name = _batch_job_select_parts(schema, jcols)
         sql = f"""
-            SELECT j.batch_job_id, j.folder_connection_id, j.storage_connection_id, j.job_name,
-                   j.file_pattern, j.file_extensions, j.target_table, j.pk_columns, j.timestamp_format,
-                   j.interval_minutes, j.is_active, j.last_processed_ts, j.last_run_at, j.last_run_status,
-                   j.last_error_message, j.column_mapping, j.index_definitions, j.created_at, j.updated_at,
-                   j.job_type, j.connection_id, j.source_table, j.incremental_column, j.sync_mode,
-                   j.last_synced_at, j.batch_size, j.batch_interval_seconds, j.on_row_error, j.on_file_error,
-                   j.etl_table_id, j.diff_delete_orphans,
+            SELECT {select_j},
                    c.connection_name, c.protocol,
-                   ec.connection_name AS source_connection_name,
-                   sc.connection_name AS storage_connection_name
+                   {src_name},
+                   {sto_name}
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
-            LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id
-            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON j.storage_connection_id = sc.storage_connection_id
+            {join_ec}
+            {join_sc}
             WHERE 1=1
             """
         params: List[Any] = []
@@ -342,7 +396,7 @@ def list_batch_jobs(
         if is_active is not None:
             sql += " AND j.is_active = %s"
             params.append(is_active)
-        if job_type is not None and (job_type or "").strip():
+        if job_type is not None and (job_type or "").strip() and "job_type" in jcols:
             sql += " AND j.job_type = %s"
             params.append((job_type or "").strip().lower())
         sql += " ORDER BY j.created_at DESC"
@@ -372,19 +426,26 @@ def _row_to_dict(r) -> dict:
 
 
 def get_batch_job(batch_job_id: int) -> Optional[dict]:
-    """배치 Job 1건 조회. DB 배치 시 source_connection_name은 etl_connections JOIN."""
+    """배치 Job 1건 조회. DB 배치 시 source_connection_name은 etl_connections JOIN(connection_id 컬럼 있을 때만)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
+        join_ec = ""
+        src_sel = "NULL::text AS source_connection_name"
+        if "connection_id" in jcols:
+            join_ec = f"""
+            LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id"""
+            src_sel = "ec.connection_name AS source_connection_name"
         cur.execute(
             f"""
             SELECT j.*, c.connection_name, c.protocol,
-                   ec.connection_name AS source_connection_name
+                   {src_sel}
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
-            LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id
+            {join_ec}
             WHERE j.batch_job_id = %s
             """,
             (batch_job_id,),
@@ -697,8 +758,19 @@ def list_batch_target_registry() -> List[dict]:
     _ensure_batch_target_registry_table(conn)
     cur = conn.cursor()
     try:
+        jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
+        sel_parts = ["j.target_table"]
+        if "storage_connection_id" in jcols:
+            sel_parts.append("j.storage_connection_id")
+        else:
+            sel_parts.append("NULL::integer AS storage_connection_id")
+        sel_parts.append("j.batch_job_id")
+        if "etl_table_id" in jcols:
+            sel_parts.append("j.etl_table_id")
+        else:
+            sel_parts.append("NULL::integer AS etl_table_id")
         cur.execute(
-            f"SELECT target_table, storage_connection_id, batch_job_id, etl_table_id FROM {_q(schema, 'batch_jobs')}"
+            f"SELECT {', '.join(sel_parts)} FROM {_q(schema, 'batch_jobs')} j"
         )
         for row in cur.fetchall():
             tt = (row.get("target_table") if hasattr(row, "get") else row[0]) or ""
@@ -714,6 +786,10 @@ def list_batch_target_registry() -> List[dict]:
                         conn.rollback()
                     except Exception:
                         pass
+        if "etl_table_id" in jcols:
+            etl_where = "WHERE j.etl_table_id IS NULL"
+        else:
+            etl_where = "WHERE TRUE"
         cur.execute(
             f"""
             SELECT r.id, r.target_table, r.storage_connection_id, r.batch_job_id, r.created_at, r.updated_at,
@@ -724,7 +800,7 @@ def list_batch_target_registry() -> List[dict]:
             LEFT JOIN {_q(schema, "batch_jobs")} j ON r.batch_job_id = j.batch_job_id
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
             LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON r.storage_connection_id = sc.storage_connection_id AND sc.is_active = TRUE
-            WHERE j.etl_table_id IS NULL
+            {etl_where}
             ORDER BY r.updated_at DESC
             """
         )

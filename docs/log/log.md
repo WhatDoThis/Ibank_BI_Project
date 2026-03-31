@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+92. 2026-03-31 셸 브랜드 로고(Starbucks)·마이페이지 상단 헤더 이동
+91. 2026-03-31 사이드바 프로젝트 필수 메뉴 비활성·ETL 구스키마 쿼리 호환
+90. 2026-03-31 초대용 app_url: localhost 폴백 제거·frontend.app_url·미설정 시 메일 생략
+89. 2026-03-31 smtp_info.app_url을 Vite base(/ibank-bi)에 맞춤·초대 폴백 수정
+88. 2026-03-31 backend smtp_info 구조 반영(auth_config·문서 17·loader)
+87. 2026-03-28 SMTP send_email 재시도 로직(STARTTLS 검증완화·새 소켓 평문 fallback·timeout)
 86. 2026-03-28 auth_server __init__ router 재export (include_router AttributeError 수정)
 85. 2026-03-28 전수검사 반영: admin list_projects role_name·SignupPage 초대 UX
 84. 2026-03-28 react-app src/app 카테고리 폴더(auth·home·admin·layout·guards)
@@ -89,6 +95,48 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+92. 2026-03-31 셸 브랜드 로고(Starbucks)·마이페이지 상단 헤더 이동
+Purpose: 업로드 PNG를 사이드바 브랜드 영역에 배치(흰 로고·어두운 사이드바 대비). 마이페이지는 좌측 메뉴 대신 이메일과 로그아웃 사이 링크로 이동.
+
+Changes: `public/starbucks-logo.png` 추가. `ProtectedLayout` 이미지 경로·`ibank-sidebar-brand__logo` 스타일. `navConfig`에서 마이페이지 항목 제거. `ibank-shell-mypage-link` 스타일(로그아웃과 동일 폰트 단위·굵기, 링크형).
+
+Changed files: Frontend/react-app/public/starbucks-logo.png, Frontend/react-app/src/app/layout/ProtectedLayout.jsx, Frontend/react-app/src/app/layout/navConfig.js, Frontend/react-app/src/styles/app-shell.css, docs/log/log.md
+
+91. 2026-03-31 사이드바 프로젝트 필수 메뉴 비활성·ETL 구스키마 쿼리 호환
+Purpose: 좌측 메뉴에서 쿼리스튜디오·대시보드·위젯 클릭 시 프로젝트 미선택이면 NeedProjectRoute가 `/`로만 돌려 “연결 안 됨”처럼 보임. 시스템 DB DDL이 앱보다 낮을 때 etl_tables.storage_connection_id·batch_jobs.connection_id 등으로 쿼리 실패.
+
+Changes: ProtectedLayout에서 `requiresProject`이고 JWT에 프로젝트 없으면 `NavLink` 대신 비활성 `span`+툴팁. `app-shell.css` `.ibank-sidebar-link--disabled`. `service._table_columns_lower`·`list_etl_tables` 분기(저장 DB 컬럼 없을 때 NULL). `service_file` 배치 목록·단건·레지스트리 조회를 batch_jobs 컬럼 존재에 맞춤. `router_file` 컬럼 누락 오류 안내 문구.
+
+Changed files: Frontend/react-app/src/app/layout/ProtectedLayout.jsx, Frontend/react-app/src/styles/app-shell.css, Backend/etl_server/service.py, Backend/etl_server/service_file.py, Backend/etl_server/router_file.py, docs/log/log.md
+
+90. 2026-03-31 초대용 app_url: localhost 폴백 제거·frontend.app_url·미설정 시 메일 생략
+Purpose: `_INVITE_APP_URL_FALLBACK`(localhost:8080/ibank-bi)는 리눅스·도메인 배포와 무관해 잘못된 초대 링크를 만들 수 있음. 공개 SPA 베이스는 설정으로만 결정.
+
+Changes: `get_app_url`에 `frontend.app_url` 단계 추가. `invite_user_by_email`은 URL 없으면 경고 로그만 남기고 초대 메일 미발송(코드는 DB에 유지). 예시·문서 17·`project-conventions`·`config.json.example`에 `frontend.app_url` 안내. `_INVITE_APP_URL_FALLBACK` 제거.
+
+Changed files: Backend/core/auth_config.py, Backend/admin_server/service_users.py, Env/config/loader.py, Env/config/config.json.example, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, .cursor/rules/project-conventions.mdc, docs/log/log.md
+
+89. 2026-03-31 smtp_info.app_url을 Vite base(/ibank-bi)에 맞춤·초대 폴백 수정
+Purpose: 초대 링크가 `get_app_url()/signup`으로 조립되는데, 설정에 다른 앱 경로(`acc_bi_assistant_with_wa`)가 들어 있으면 실제 SPA(`BrowserRouter` basename `/ibank-bi`)와 불일치함. 공개 베이스 URL 규칙을 코드·문서·설정에 명시.
+
+Changes: `Env/config/config.json`의 `smtp_info.app_url`을 `.../ibank-bi/`로 정정(호스트는 배포에 맞게 유지). `service_users` 초대 폴백을 `http://localhost:8080/ibank-bi`로 변경·모듈 주석. `auth_config.get_app_url` docstring·목록 설명. 문서 17 예시·설명 보강.
+
+Changed files: Env/config/config.json, Backend/admin_server/service_users.py, Backend/core/auth_config.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+88. 2026-03-31 backend smtp_info 구조 반영(auth_config·문서 17·loader)
+Purpose: `config.json`의 SMTP·초대 링크 URL을 `backend.smtp_info` 객체로 통일한 설정을 코드·문서에서 동일하게 읽도록 정합.
+
+Changes: `auth_config._smtp_config_source`·`get_smtp_settings`·`get_app_url`(smtp_info.app_url 우선)·docstring. `Env/config/loader.py` 주석. `17_SystemDB_Commercialization_Implementation_Guide.md` 예시 JSON 및 §2.7·설명 문구.
+
+Changed files: Backend/core/auth_config.py, Env/config/loader.py, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+87. 2026-03-28 SMTP send_email 재시도 로직(STARTTLS 검증완화·새 소켓 평문 fallback·timeout)
+Purpose: 로그인 2차 코드 메일 발송에서 STARTTLS 실패 이후 `Server not connected`가 나는 경로를 줄이기 위해, 새 소켓 평문 재시도와 timeout을 적용.
+
+Changes: `send_email` 교체 — 465 SSL 고정, 그 외 STARTTLS(`check_hostname=False`, `CERT_NONE`, timeout=10) 1차 시도 후 실패 시 새 SMTP 소켓으로 평문 재연결·send.
+
+Changed files: Backend/auth_server/email_service.py, docs/log/log.md
 
 86. 2026-03-28 auth_server __init__ router 재export (include_router AttributeError 수정)
 Purpose: `from Backend.auth_server import router` 가 `router.py` 모듈을 가져와 `include_router` 시 `routes` 없음 오류가 발생함. 다른 서버 패키지와 동일하게 `APIRouter` 인스턴스를 export.

@@ -197,9 +197,17 @@ def batch_index():
 
 
 def _batch_table_error_detail(e: Exception) -> str:
-    """배치 테이블 미존재 등 DB 오류 시 클라이언트용 안내 메시지."""
+    """배치 테이블 미존재·구스키마 등 DB 오류 시 클라이언트용 안내 메시지."""
     msg = str(e).strip()
-    if "does not exist" in msg or "relation" in msg.lower():
+    low = msg.lower()
+    if "column" in low and "does not exist" in low:
+        return (
+            "시스템 DB의 batch_jobs·etl_tables 등이 앱 버전보다 오래된 경우 발생할 수 있습니다. "
+            "설계서 09_ETL_SFTP_Connection·ETL 저장 DB(storage_connection_id) DDL을 적용하거나 "
+            "batch_jobs에 connection_id·job_type·etl_table_id 등 누락 컬럼을 추가해 주세요. 원본 오류: "
+            + msg
+        )
+    if "does not exist" in msg or "relation" in low:
         return (
             "배치용 테이블이 시스템 DB에 없습니다. "
             "설계서 09_ETL_SFTP_Connection의 batch_folder_connections, batch_folder_sftp, "

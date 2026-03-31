@@ -1,6 +1,8 @@
 /**
  * app/layout/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
  * Analytica 셸: 좌측 주 메뉴(풀 라벨) + 고정 헤더·브레드크럼 + 스크롤 본문
+ * requiresProject 항목은 JWT에 프로젝트 클레임 없으면 비활성 표시(클릭 시 홈으로 튕김 방지)
+ * 사이드바 브랜드: public/starbucks-logo.png. 마이페이지는 상단 헤더(이메일~로그아웃 사이) 링크.
  * docs/ui/UI_UX_재사용_가이드.md §2·§5
  */
 
@@ -10,6 +12,8 @@ import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-route
 import { NAV_ITEMS } from './navConfig.js'
 import { pageTitleFromPath } from './pageTitles.js'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
+import { hasProjectClaim } from '@/shared/auth/jwtUtils.js'
+import { getAccessToken } from '@/shared/auth/tokenStorage.js'
 import {
   canAccessDeptSettings,
   canAccessOrgAdmin,
@@ -62,25 +66,40 @@ export function ProtectedLayout() {
       <aside className="ibank-sidebar" aria-label="주 메뉴">
         <div className="ibank-sidebar-brand">
           <img
-            src={`${ROUTER_BASENAME}/ibank-bi-logo.svg`}
-            alt="IBank BI"
-            width={40}
-            height={32}
+            src={`${ROUTER_BASENAME}/starbucks-logo.png`}
+            alt="브랜드 로고"
+            className="ibank-sidebar-brand__logo"
             decoding="async"
           />
         </div>
         <nav className="ibank-sidebar-nav">
-          {navItems.map(({ to, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={navLinkClass}
-              title={label}
-              end={to === '/'}
-            >
-              {label}
-            </NavLink>
-          ))}
+          {navItems.map((item) => {
+            const { to, label, requiresProject } = item
+            const blocked = requiresProject && !hasProjectClaim(getAccessToken())
+            if (blocked) {
+              return (
+                <span
+                  key={to}
+                  className="ibank-sidebar-link ibank-sidebar-link--disabled"
+                  title="홈에서 프로젝트를 선택한 뒤 이용할 수 있습니다."
+                  role="presentation"
+                >
+                  {label}
+                </span>
+              )
+            }
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                className={navLinkClass}
+                title={label}
+                end={to === '/'}
+              >
+                {label}
+              </NavLink>
+            )
+          })}
         </nav>
       </aside>
 
@@ -90,6 +109,14 @@ export function ProtectedLayout() {
           <div className="ibank-shell-header-actions">
             <NotificationBell />
             <span className="ibank-shell-user">{me?.email}</span>
+            <NavLink
+              to="/mypage"
+              className={({ isActive }) =>
+                `ibank-shell-mypage-link${isActive ? ' ibank-shell-mypage-link--active' : ''}`
+              }
+            >
+              마이페이지
+            </NavLink>
             <button type="button" className="ibank-shell-logout" onClick={handleLogout}>
               로그아웃
             </button>

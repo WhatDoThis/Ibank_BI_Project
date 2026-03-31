@@ -2,6 +2,7 @@
 Backend.admin_server.service_users (유저·초대·부서)
 ================================================
 동일 부서 유저 목록, 전역 검색, 초대, 정지/활성, 역할(슈퍼), 초대코드 목록, org.
+초대 메일 링크는 auth_config.get_app_url() + `/signup`; 공개 베이스는 smtp_info.app_url·backend.app_url·frontend.app_url 중 설정(환경별·localhost 고정 없음).
 
 [Main Functions]
 ===========
@@ -17,18 +18,22 @@ Backend.admin_server.service_users (유저·초대·부서)
 
 [Dependencies]
 =========
-- secrets, Backend.auth_server.email_service, Backend.core.auth_config
+- secrets, logging
+- Backend.auth_server.email_service, Backend.core.auth_config
 - Backend.admin_server.service_projects.validate_invite_user_project
 """
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any
 
 from Backend.admin_server import service_projects
 from Backend.auth_server import email_service
 from Backend.core import auth_config
+
+_log = logging.getLogger(__name__)
 
 _INVITE_TARGETS_BY_ACTOR: dict[str, tuple[str, ...]] = {
     "sa_dev": ("super_admin", "admin", "operator", "user"),
@@ -293,12 +298,18 @@ def invite_user_by_email(
         raise
     finally:
         cur.close()
-    base = auth_config.get_app_url() or "http://localhost:8080"
-    url = f"{base.rstrip('/')}/signup?code={code}"
-    try:
-        email_service.send_invite_email(email_n, url)
-    except Exception:
-        pass
+    base = auth_config.get_app_url()
+    if not base:
+        _log.warning(
+            "[invite_user_by_email] 초대 메일 미발송(공개 SPA URL 없음). "
+            "smtp_info.app_url, backend.app_url 또는 frontend.app_url 을 설정하세요."
+        )
+    else:
+        url = f"{base.rstrip('/')}/signup?code={code}"
+        try:
+            email_service.send_invite_email(email_n, url)
+        except Exception:
+            pass
 
 
 # 4.
