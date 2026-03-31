@@ -10,7 +10,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/auth/AuthContext, shared/api/authClient, shared/auth/tokenStorage
+ * - react-router-dom, app/auth/AuthContext, shared/api/authClient, shared/auth/tokenStorage, shared/utils/crudConfirm
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -22,6 +22,7 @@ import {
   patchPassword,
 } from '@/shared/api/authClient.js'
 import { clearTokens } from '@/shared/auth/tokenStorage.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './mypage.css'
@@ -76,6 +77,7 @@ export default function MyPage() {
 
   async function handleProfileSubmit(e) {
     e.preventDefault()
+    if (!confirmCrud('닉네임을 저장할까요?')) return
     setProfileErr('')
     setProfileMsg('')
     setProfileBusy(true)
@@ -99,6 +101,13 @@ export default function MyPage() {
     }
     if (newPwd.length < 10) {
       setPwdErr('새 비밀번호는 10자 이상이어야 합니다.')
+      return
+    }
+    if (
+      !confirmCrud(
+        '비밀번호를 변경하면 모든 기기에서 로그아웃됩니다. 계속할까요?',
+      )
+    ) {
       return
     }
     setPwdBusy(true)

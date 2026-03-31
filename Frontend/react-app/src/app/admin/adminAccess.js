@@ -1,31 +1,40 @@
 /**
  * app/admin/adminAccess.js (조직 어드민 UI 판별)
  * ======================================
- * 백엔드 require_org_admin 과 동일: user_dvsn 이 admin·super_admin·sa_dev.
+ * user_dvsn 허용값: sa_dev, sa, a, o, u 만. 그 외는 canonUserDvsn 이 빈 문자열 → 메뉴·권한 없음.
+ * 백엔드 user_dvsn_codes·require_org_admin 과 동일 집합.
  *
  * [Main Functions]
  * ===========
- * - canAccessOrgAdmin, canAccessDeptSettings, canAccessProjectAdminPages(operator~)
+ * - canonUserDvsn, canAccessOrgAdmin, canAccessDeptSettings, canAccessProjectAdminPages(o 포함)
  *
  * [Dependencies]
  * =========
  * - 없음
  */
 
+const _ALLOWED_DVSN = new Set(['sa_dev', 'sa', 'a', 'o', 'u'])
+
+/** @param {{ user_dvsn?: string | null } | null} me */
+export function canonUserDvsn(me) {
+  const d = (me?.user_dvsn || '').trim().toLowerCase()
+  return _ALLOWED_DVSN.has(d) ? d : ''
+}
+
 /** @param {{ user_dvsn?: string | null } | null} me */
 export function canAccessOrgAdmin(me) {
-  const d = (me?.user_dvsn || '').trim().toLowerCase()
-  return d === 'admin' || d === 'super_admin' || d === 'sa_dev'
+  const c = canonUserDvsn(me)
+  return c === 'sa_dev' || c === 'sa' || c === 'a'
 }
 
-/** super_admin·sa_dev — 백엔드 require_super_admin 과 동일 */
+/** sa·sa_dev — 백엔드 require_super_admin 과 동일 */
 export function canAccessDeptSettings(me) {
-  const d = (me?.user_dvsn || '').trim().toLowerCase()
-  return d === 'super_admin' || d === 'sa_dev'
+  const c = canonUserDvsn(me)
+  return c === 'sa' || c === 'sa_dev'
 }
 
-/** admin·super_admin·sa_dev·operator — /api/admin/projects·멤버(참여 시) */
+/** sa_dev·sa·a·o — /api/admin/projects·멤버(참여 시) */
 export function canAccessProjectAdminPages(me) {
-  const d = (me?.user_dvsn || '').trim().toLowerCase()
-  return d === 'admin' || d === 'super_admin' || d === 'sa_dev' || d === 'operator'
+  const c = canonUserDvsn(me)
+  return c === 'sa_dev' || c === 'sa' || c === 'a' || c === 'o'
 }

@@ -9,13 +9,14 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/authClient
+ * - react-router-dom, shared/api/authClient, shared/utils/crudConfirm
  */
 
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { postCreateOrg } from '@/shared/api/authClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import { useAuth } from './AuthContext.jsx'
 import './login.css'
@@ -44,6 +45,7 @@ export default function CreateOrgPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (!confirmCrud('부서와 최초 관리자 계정을 생성할까요? 이 작업은 되돌리기 어렵습니다.')) return
     setError('')
     setBusy(true)
     try {

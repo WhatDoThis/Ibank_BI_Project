@@ -10,11 +10,12 @@
  *
  * [Dependencies]
  * =========
- * - React, @/packages/etl/api/etlClient.js (etl2ListJobs, etl2DeleteJob)
+ * - React, @/packages/etl/api/etlClient.js, @/shared/utils/crudConfirm.js
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { etl2ListJobs, etl2DeleteJob } from '@/packages/etl/api/etlClient.js';
+import { confirmCrud } from '@/shared/utils/crudConfirm.js';
 
 const STATUS_OPTIONS = [
   { value: 'completed', label: '완료' },
@@ -54,6 +55,7 @@ function JobHistoryPanel() {
 
   async function handleDelete(jobId) {
     if (deletingId != null) return;
+    if (!confirmCrud(`Job #${jobId} 이력을 삭제할까요?`)) return;
     setDeletingId(jobId);
     try {
       await etl2DeleteJob(jobId);

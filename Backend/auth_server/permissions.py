@@ -5,7 +5,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 2) require_permission: JWT access + system_db에서 project_ptcpnt_info·pmssn_master.pmssn_list 조회.
    `pmssn_list` 원소는 `pmssn_detail_name` 문자열이 표준; 레거시 PK 숫자 문자열은
    `pmssn_master_detail`로 치환한다. **구 `etl_manager` 역할 폐지** — 프로젝트 기능은 `user_dvsn·pmssn`만으로 판별.
-   `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 report.read 등 자동 허용(docs/main/05 v3).
+   `sa_dev`·`sa`·`a` 는 참여 프로젝트에서 report.read 등 자동 허용(docs/main/05 v3).
 3) get_effective_permission_ids_for_me: /api/auth/me용 — 자동 역할이면 §8 기능 ID를 permissions에 합침.
 
 [Main Functions]
@@ -23,6 +23,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 =========
 - fastapi Depends HTTPException
 - Backend.auth_server.deps.get_access_payload, Backend.core.dependencies.get_system_db
+- Backend.core.user_dvsn_codes.canon_user_dvsn
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from fastapi import Depends, HTTPException
 
 from Backend.auth_server.deps import get_access_payload
 from Backend.core.dependencies import get_system_db
+from Backend.core.user_dvsn_codes import canon_user_dvsn
 
 _MSG_NO_PROJECT = "프로젝트를 선택해주세요"
 _MSG_FORBIDDEN = "이 작업을 수행할 권한이 없습니다."
@@ -45,7 +47,7 @@ _MSG_ETL_INFRA = (
 _PROJECT_FEATURE_IDS = frozenset(
     {"report.read", "report.execute", "dashboard", "widgetboard"}
 )
-_AUTO_PROJECT_ROLES = frozenset({"sa_dev", "super_admin", "admin"})
+_AUTO_PROJECT_ROLES = frozenset({"sa_dev", "sa", "a"})
 
 
 # 1.
@@ -76,7 +78,7 @@ def user_has_etl_infrastructure_access(conn, user_id: int) -> bool:
         row = cur.fetchone()
         if not row:
             return False
-        dvsn = (row.get("user_dvsn") or "").strip().lower()
+        dvsn = canon_user_dvsn(row.get("user_dvsn"))
         if dvsn == "sa_dev":
             return True
         if dvsn == "etl_manager":
@@ -165,7 +167,7 @@ def get_effective_permission_ids_for_me(
     project_info_id: int,
     user_dvsn: str | None,
 ) -> list[str]:
-    dvsn = (user_dvsn or "").strip().lower()
+    dvsn = canon_user_dvsn(user_dvsn)
     base = get_permission_ids_for_user_project(conn, user_id, project_info_id)
     if dvsn in _AUTO_PROJECT_ROLES and is_project_participant(
         conn, user_id, project_info_id
@@ -194,7 +196,7 @@ def require_permission(*required: str) -> Callable[..., dict[str, Any]]:
         conn=Depends(get_system_db),
     ) -> dict[str, Any]:
         user_id = int(payload["user_id"])
-        dvsn = get_user_dvsn_lower(conn, user_id)
+        dvsn = canon_user_dvsn(get_user_dvsn_lower(conn, user_id))
 
         raw_pid = payload.get("project_info_id")
         if raw_pid is None:

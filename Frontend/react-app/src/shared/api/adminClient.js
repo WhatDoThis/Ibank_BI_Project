@@ -6,7 +6,7 @@
  * [Main Functions]
  * ===========
  * - getAdminUsers, patchAdminUserSuspend, patchAdminUserActivate
- * - getAdminOrg, patchAdminOrg
+ * - getAdminOrg, patchAdminOrg, getAdminOrgDepartments, postAdminOrgDepartment, patchAdminOrgDepartment, deleteAdminOrgDepartment
  * - getAdminRoles, postAdminRole, putAdminRole, deleteAdminRole
  * - getAdminProjects, postAdminProject, patchAdminProject, deleteAdminProject
  * - getAdminProjectMembers, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
@@ -38,6 +38,24 @@ export async function getAdminOrg() {
 
 export async function patchAdminOrg(body) {
   return request('PATCH', '/api/admin/org', body)
+}
+
+export async function getAdminOrgDepartments() {
+  return request('GET', '/api/admin/org/departments')
+}
+
+/** @param {{ dptmt_name: string, parent_dptmt_info_id?: number|null, dptmt_code?: string|null }} body */
+export async function postAdminOrgDepartment(body) {
+  return request('POST', '/api/admin/org/departments', body)
+}
+
+/** @param {{ dptmt_name?: string|null, dptmt_code?: string|null }} body */
+export async function patchAdminOrgDepartment(dptmtInfoId, body) {
+  return request('PATCH', `/api/admin/org/departments/${dptmtInfoId}`, body)
+}
+
+export async function deleteAdminOrgDepartment(dptmtInfoId) {
+  return request('DELETE', `/api/admin/org/departments/${dptmtInfoId}`)
 }
 
 export async function getAdminInviteDepartments() {

@@ -201,7 +201,7 @@ def update_project(
         else:
             _assert_project_owned(cur, dptmt_info_id, project_info_id)
 
-        if (actor_dvsn or "").strip().lower() == "operator" and active_yn is not None:
+        if (actor_dvsn or "").strip().lower() == "o" and active_yn is not None:
             raise ValueError("프로젝트 운영자는 활성 여부를 변경할 수 없습니다.")
 
         sets: list[str] = []
@@ -355,7 +355,7 @@ def update_member_role(
     try:
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
         _assert_pmssn_for_project(cur, project_info_id, pmssn_master_id)
-        if (actor_dvsn or "").strip().lower() == "operator":
+        if (actor_dvsn or "").strip().lower() == "o":
             cur.execute(
                 "SELECT user_dvsn FROM user_info WHERE user_id = %s",
                 (ptcpnt_user_id,),
@@ -363,9 +363,9 @@ def update_member_role(
             urow = cur.fetchone()
             if not urow:
                 raise ValueError("사용자를 찾을 수 없습니다.")
-            if (urow.get("user_dvsn") or "").strip().lower() != "user":
+            if (urow.get("user_dvsn") or "").strip().lower() != "u":
                 raise ValueError(
-                    "운영자는 일반 사용자(U)의 프로젝트 권한만 변경할 수 있습니다."
+                    "운영자는 일반 사용자(u)의 프로젝트 권한만 변경할 수 있습니다."
                 )
         cur.execute(
             """
@@ -398,7 +398,7 @@ def remove_member(
     cur = conn.cursor()
     try:
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
-        if (actor_dvsn or "").strip().lower() == "operator":
+        if (actor_dvsn or "").strip().lower() == "o":
             cur.execute(
                 "SELECT user_dvsn FROM user_info WHERE user_id = %s",
                 (ptcpnt_user_id,),
@@ -406,9 +406,9 @@ def remove_member(
             urow = cur.fetchone()
             if not urow:
                 raise ValueError("사용자를 찾을 수 없습니다.")
-            if (urow.get("user_dvsn") or "").strip().lower() != "user":
+            if (urow.get("user_dvsn") or "").strip().lower() != "u":
                 raise ValueError(
-                    "운영자는 일반 사용자(U)만 프로젝트에서 제외할 수 있습니다."
+                    "운영자는 일반 사용자(u)만 프로젝트에서 제외할 수 있습니다."
                 )
         cur.execute(
             """

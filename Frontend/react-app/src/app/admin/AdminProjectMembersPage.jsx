@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -23,6 +23,7 @@ import {
   patchAdminProjectMember,
   postAdminProjectMember,
 } from '@/shared/api/adminClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import './admin-pages.css'
 
@@ -107,6 +108,7 @@ export default function AdminProjectMembersPage() {
   async function handleAddMember(e) {
     e.preventDefault()
     if (pid == null || !pickUser || !addRoleId) return
+    if (!confirmCrud(`${pickUser.user_email || '선택한 사용자'}(을)를 프로젝트 멤버로 추가할까요?`)) return
     setBusy(true)
     setError('')
     setOk('')
@@ -147,7 +149,7 @@ export default function AdminProjectMembersPage() {
 
   async function handleRemove(ptcpntUserId) {
     if (pid == null) return
-    if (!window.confirm('이 멤버를 프로젝트에서 제거할까요?')) return
+    if (!confirmCrud('이 멤버를 프로젝트에서 제거할까요?')) return
     setBusy(true)
     setError('')
     try {

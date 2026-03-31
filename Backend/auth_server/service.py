@@ -39,7 +39,7 @@ from Backend.core import auth_config
 
 _log = logging.getLogger(__name__)
 
-_SIGNUP_DVSN_ALLOWED = frozenset({"super_admin", "admin", "operator", "user"})
+_SIGNUP_DVSN_ALLOWED = frozenset({"sa", "a", "o", "u"})
 
 
 def _norm_email(email: str) -> str:
@@ -94,7 +94,7 @@ def signup_with_invite(conn, invite_code: str, email: str, password: str, nickna
         raise ValueError("초대된 이메일과 일치하지 않습니다.")
     raw_dvsn = row.get("invite_target_dvsn")
     if raw_dvsn is None or str(raw_dvsn).strip() == "":
-        effective_dvsn = "user"
+        effective_dvsn = "u"
     else:
         effective_dvsn = str(raw_dvsn).strip().lower()
     if effective_dvsn not in _SIGNUP_DVSN_ALLOWED:
@@ -129,7 +129,7 @@ def signup_with_invite(conn, invite_code: str, email: str, password: str, nickna
         )
         uid = int(cur.fetchone()["user_id"])
         if (
-            effective_dvsn == "user"
+            effective_dvsn == "u"
             and raw_proj is not None
             and raw_pmssn is not None
             and inviter_uid is not None
@@ -189,7 +189,7 @@ def create_org_and_user(conn, org_name: str, email: str, password: str, nickname
             INSERT INTO user_info (
                 user_email, pswd_hash, user_active_yn, user_dvsn, auth_yn,
                 dptmt_info_id, user_nickname, create_dtm
-            ) VALUES (%s, %s, 'Y', 'super_admin', 'Y', %s, %s, NOW())
+            ) VALUES (%s, %s, 'Y', 'sa', 'Y', %s, %s, NOW())
             RETURNING user_id
             """,
             (email_n, p_hash, dptmt_id, nick),

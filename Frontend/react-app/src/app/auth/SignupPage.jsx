@@ -9,13 +9,14 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/authClient
+ * - react-router-dom, shared/api/authClient, shared/utils/crudConfirm
  */
 
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { getInviteValidate, postSignup } from '@/shared/api/authClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import { useAuth } from './AuthContext.jsx'
 import './login.css'
@@ -78,6 +79,7 @@ export default function SignupPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (!confirmCrud('입력한 정보로 회원가입을 완료할까요?')) return
     setError('')
     setBusy(true)
     try {

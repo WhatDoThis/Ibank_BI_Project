@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, app/auth/AuthContext
+ * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -23,6 +23,7 @@ import {
   patchAdminUserSuspend,
   postAdminInvite,
 } from '@/shared/api/adminClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './admin-users.css'
@@ -42,22 +43,22 @@ function isActive(row) {
 }
 
 const ROLE_OPTIONS_SA = [
-  { value: 'super_admin', label: 'Super Admin (부서장)' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'operator', label: 'Operator' },
-  { value: 'user', label: 'User' },
+  { value: 'sa', label: 'Super Admin (sa)' },
+  { value: 'a', label: 'Admin (a)' },
+  { value: 'o', label: 'Operator (o)' },
+  { value: 'u', label: 'User (u)' },
 ]
 
 const ROLE_OPTIONS_ADMIN = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'operator', label: 'Operator' },
-  { value: 'user', label: 'User' },
+  { value: 'a', label: 'Admin (a)' },
+  { value: 'o', label: 'Operator (o)' },
+  { value: 'u', label: 'User (u)' },
 ]
 
 function roleChoices(actorDvsn) {
   const d = (actorDvsn || '').toLowerCase()
-  if (d === 'sa_dev' || d === 'super_admin') return ROLE_OPTIONS_SA
-  if (d === 'admin') return ROLE_OPTIONS_ADMIN
+  if (d === 'sa_dev' || d === 'sa') return ROLE_OPTIONS_SA
+  if (d === 'a') return ROLE_OPTIONS_ADMIN
   return []
 }
 
@@ -71,7 +72,7 @@ export default function AdminUsersPage() {
   const [depts, setDepts] = useState([])
   const [inviteDeptId, setInviteDeptId] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('user')
+  const [inviteRole, setInviteRole] = useState('u')
   const [inviteEtl, setInviteEtl] = useState(false)
   const [inviteProjects, setInviteProjects] = useState([])
   const [invitePmssns, setInvitePmssns] = useState([])
@@ -99,7 +100,7 @@ export default function AdminUsersPage() {
   }, [load])
 
   const actorDvsn = (me?.user_dvsn || '').toLowerCase()
-  const canSetEtlOnInvite = actorDvsn === 'super_admin' || actorDvsn === 'sa_dev'
+  const canSetEtlOnInvite = actorDvsn === 'sa' || actorDvsn === 'sa_dev'
   const roleOpts = roleChoices(me?.user_dvsn)
 
   useEffect(() => {
@@ -127,12 +128,12 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     const rid = Number(inviteDeptId)
-    if (!Number.isFinite(rid) || rid < 1) {
+    if (!Number.isFinite(rid) || rid < 0) {
       setInviteProjects([])
       setInvitePmssns([])
       return
     }
-    if (inviteRole !== 'user') {
+    if (inviteRole !== 'u') {
       setInviteProjects([])
       setInvitePmssns([])
       setInviteProjectId('')
@@ -176,11 +177,11 @@ export default function AdminUsersPage() {
     setInviteMsg('')
     setError('')
     const did = Number(inviteDeptId)
-    if (!Number.isFinite(did) || did < 1) {
+    if (!Number.isFinite(did) || did < 0) {
       setInviteMsg('가입 부서를 선택하세요.')
       return
     }
-    if (inviteRole === 'user') {
+    if (inviteRole === 'u') {
       const pid = Number(inviteProjectId)
       const mid = Number(invitePmssnId)
       const needP = Number.isFinite(pid) && pid >= 1
@@ -190,6 +191,7 @@ export default function AdminUsersPage() {
         return
       }
     }
+    if (!confirmCrud('초대 메일을 발송할까요?')) return
     setInviteBusy(true)
     try {
       const body = {
@@ -200,7 +202,7 @@ export default function AdminUsersPage() {
       if (canSetEtlOnInvite) {
         body.invite_etl_yn = inviteEtl ? 'Y' : 'N'
       }
-      if (inviteRole === 'user' && inviteProjectId && invitePmssnId) {
+      if (inviteRole === 'u' && inviteProjectId && invitePmssnId) {
         body.invite_project_info_id = Number(inviteProjectId)
         body.invite_pmssn_master_id = Number(invitePmssnId)
       }
@@ -215,6 +217,7 @@ export default function AdminUsersPage() {
   }
 
   async function handleSuspend(userId) {
+    if (!confirmCrud('이 사용자를 비활성(정지) 처리할까요?')) return
     setBusyId(userId)
     setError('')
     try {
@@ -228,6 +231,7 @@ export default function AdminUsersPage() {
   }
 
   async function handleActivate(userId) {
+    if (!confirmCrud('이 사용자를 활성화할까요?')) return
     setBusyId(userId)
     setError('')
     try {
@@ -253,8 +257,8 @@ export default function AdminUsersPage() {
           <h2 className="admin-users__invite-title">이메일 초대</h2>
           <p className="admin-users__hint">
             {canSetEtlOnInvite
-              ? '부서(SA_DEV는 전체, SA·A는 본인 부서 트리)를 선택한 뒤 역할·옵션을 지정합니다.'
-              : 'Admin은 본인 부서 트리 내로만 초대할 수 있습니다.'}
+              ? '부서(sa_dev는 전체, sa·a는 본인 부서 트리)를 선택한 뒤 역할·옵션을 지정합니다.'
+              : 'a(Admin)은 본인 부서 트리 내로만 초대할 수 있습니다.'}
           </p>
           <form className="admin-users__invite-form" onSubmit={handleInviteSubmit}>
             <label className="admin-users__field">
@@ -307,7 +311,7 @@ export default function AdminUsersPage() {
                 가입 직후 ETL 인프라 자격 (etl_yn=Y)
               </label>
             ) : null}
-            {inviteRole === 'user' ? (
+            {inviteRole === 'u' ? (
               <>
                 <label className="admin-users__field">
                   프로젝트 멤버 (선택)

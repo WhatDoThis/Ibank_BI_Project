@@ -9,7 +9,7 @@ Backend.admin_server.router (/api/admin)
 2. roles CRUD
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
-5. invite-codes, org
+5. invite-codes, org, org/departments GET/POST/PATCH/DELETE (SA_DEV 전체·루트/하위 / SA 트리·하위만)
 
 [Dependencies]
 =========
@@ -21,8 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Backend.admin_server import schemas
 from Backend.admin_server.deps import (
+    get_authenticated_user_row,
     require_org_admin,
-    require_org_admin_or_operator,
     require_project_admin_or_operator_participant,
     require_super_admin,
 )
@@ -31,6 +31,13 @@ from Backend.admin_server import service_roles
 from Backend.admin_server import service_tables
 from Backend.admin_server import service_users
 from Backend.core.dependencies import get_system_db
+from Backend.core.user_dvsn_codes import (
+    ORG_ADMIN_DVSN,
+    ORG_OR_OPERATOR_DVSN,
+    PROJECT_ADMIN_DVSN,
+    SUPER_ORG_DVSN,
+    canon_user_dvsn,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -41,7 +48,12 @@ def _ve(e: ValueError) -> HTTPException:
 
 # 1. [users]
 @router.get("/users")
-def admin_users_list(actor: dict = Depends(require_org_admin), conn=Depends(get_system_db)):
+def admin_users_list(
+    actor: dict = Depends(get_authenticated_user_row),
+    conn=Depends(get_system_db),
+):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     did = int(actor["dptmt_info_id"])
     return {"items": service_users.list_users_same_dept(conn, did)}
 
@@ -49,11 +61,13 @@ def admin_users_list(actor: dict = Depends(require_org_admin), conn=Depends(get_
 @router.get("/users/search")
 def admin_users_search(
     q: str = Query("", min_length=0),
-    actor: dict = Depends(require_org_admin_or_operator),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
-    dvsn = (actor.get("user_dvsn") or "").strip().lower()
-    scope = int(actor["dptmt_info_id"]) if dvsn == "operator" else None
+    c = canon_user_dvsn(actor.get("user_dvsn"))
+    if c not in ORG_OR_OPERATOR_DVSN:
+        return {"items": []}
+    scope = int(actor["dptmt_info_id"]) if c == "o" else None
     return {"items": service_users.search_users_by_email(conn, q, scope_dptmt_id=scope)}
 
 
@@ -83,9 +97,11 @@ def admin_users_invite(
 
 @router.get("/invite/departments")
 def admin_invite_departments(
-    actor: dict = Depends(require_org_admin),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     items = service_users.list_departments_for_invite(
         conn,
         str(actor.get("user_dvsn") or ""),
@@ -96,10 +112,12 @@ def admin_invite_departments(
 
 @router.get("/invite/projects")
 def admin_invite_projects(
-    dptmt_info_id: int = Query(..., ge=1),
-    actor: dict = Depends(require_org_admin),
+    dptmt_info_id: int = Query(..., ge=0),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     try:
         service_users.assert_invite_dptmt_allowed(
             conn,
@@ -114,10 +132,12 @@ def admin_invite_projects(
 
 @router.get("/invite/roles")
 def admin_invite_roles(
-    dptmt_info_id: int = Query(..., ge=1),
-    actor: dict = Depends(require_org_admin),
+    dptmt_info_id: int = Query(..., ge=0),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     try:
         service_users.assert_invite_dptmt_allowed(
             conn,
@@ -208,9 +228,11 @@ def admin_user_etl_access(
 
 @router.get("/invite-codes")
 def admin_invite_codes(
-    actor: dict = Depends(require_org_admin),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     did = int(actor["dptmt_info_id"])
     return {"items": service_users.list_invite_codes_for_dept(conn, did)}
 
@@ -242,9 +264,90 @@ def admin_org_patch(
     return {"message": "부서 정보가 수정되었습니다."}
 
 
+@router.get("/org/departments")
+def admin_org_departments_list(
+    actor: dict = Depends(get_authenticated_user_row),
+    conn=Depends(get_system_db),
+):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in SUPER_ORG_DVSN:
+        return {"items": []}
+    return {
+        "items": service_users.list_departments_for_org_settings(
+            conn,
+            str(actor.get("user_dvsn") or ""),
+            int(actor["dptmt_info_id"]),
+        )
+    }
+
+
+@router.post("/org/departments")
+def admin_org_departments_create(
+    body: schemas.OrgDepartmentCreateBody,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        new_id = service_users.create_department(
+            conn,
+            int(actor["user_id"]),
+            body.dptmt_name,
+            body.parent_dptmt_info_id,
+            body.dptmt_code,
+            actor_dvsn=str(actor.get("user_dvsn") or ""),
+            actor_dptmt_id=int(actor["dptmt_info_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"dptmt_info_id": new_id, "message": "부서가 등록되었습니다."}
+
+
+@router.patch("/org/departments/{dptmt_info_id}")
+def admin_org_departments_patch(
+    dptmt_info_id: int,
+    body: schemas.OrgDepartmentPatchBody,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.update_department_in_org_settings(
+            conn,
+            int(dptmt_info_id),
+            body.dptmt_name,
+            body.dptmt_code,
+            actor_dvsn=str(actor.get("user_dvsn") or ""),
+            actor_dptmt_id=int(actor["dptmt_info_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "부서 정보가 수정되었습니다."}
+
+
+@router.delete("/org/departments/{dptmt_info_id}")
+def admin_org_departments_delete(
+    dptmt_info_id: int,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.delete_department_in_org_settings(
+            conn,
+            int(dptmt_info_id),
+            actor_dvsn=str(actor.get("user_dvsn") or ""),
+            actor_dptmt_id=int(actor["dptmt_info_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "부서가 삭제되었습니다."}
+
+
 # 3. [roles]
 @router.get("/roles")
-def admin_roles_list(actor: dict = Depends(require_org_admin), conn=Depends(get_system_db)):
+def admin_roles_list(
+    actor: dict = Depends(get_authenticated_user_row),
+    conn=Depends(get_system_db),
+):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     did = int(actor["dptmt_info_id"])
     return {"items": service_roles.list_roles_for_dept(conn, did)}
 
@@ -304,12 +407,14 @@ def admin_roles_delete(
 # 4. [projects]
 @router.get("/projects")
 def admin_projects_list(
-    actor: dict = Depends(require_org_admin_or_operator),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    c = canon_user_dvsn(actor.get("user_dvsn"))
+    if c not in PROJECT_ADMIN_DVSN:
+        return {"items": []}
     did = int(actor["dptmt_info_id"])
-    dvsn = (actor.get("user_dvsn") or "").strip().lower()
-    if dvsn == "operator":
+    if c == "o":
         items = service_projects.list_projects_for_participant(
             conn, int(actor["user_id"]), did
         )
@@ -378,10 +483,11 @@ def admin_tables_list(
     db_type: str | None = Query(None, description="main|dash|star"),
     q: str = Query("", min_length=0),
     limit: int = Query(300, ge=1, le=1000),
-    actor: dict = Depends(require_org_admin),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
-    _ = actor
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     try:
         items = service_tables.list_table_master(conn, db_type=db_type, q=q, limit=limit)
     except ValueError as e:
@@ -413,9 +519,11 @@ def admin_table_patch(
 def admin_project_tables_list(
     project_info_id: int,
     db_type: str | None = Query(None, description="main|dash|star"),
-    actor: dict = Depends(require_org_admin),
+    actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
     try:
         items = service_tables.list_project_tables(
             conn,

@@ -210,7 +210,7 @@ def auth_invite_validate(code: str, conn=Depends(get_system_db)):
         "valid": True,
         "email": row.get("invite_target_email"),
         "dptmt_name": row.get("dptmt_name"),
-        "invite_target_dvsn": row.get("invite_target_dvsn") or "user",
+        "invite_target_dvsn": row.get("invite_target_dvsn") or "u",
         "invite_etl_yn": (row.get("invite_etl_yn") or "N").strip().upper(),
         "has_project_attachment": bool(
             row.get("invite_project_info_id") and row.get("invite_pmssn_master_id")

@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+98. 2026-03-31 부서 관리 목록·상위표시·행 수정삭제·추가 모달·PATCH/DELETE API
+97. 2026-03-31 CRUD 전 confirmCrud(공용)·어드민·마이페이지·알림·위젯보드·ETL이력
+96. 2026-03-31 user_dvsn 단일 코드(sa_dev·sa·a·o·u)·비허용 시 빈 목록
+95. 2026-03-31 user_dvsn effective_dvsn 정규화 제거(원복)
+94. 2026-03-31 effective_dvsn·부서 정책(SA_DEV/SA)·UI·초대 dept≥0
+93. 2026-03-31 부서 초대 목록 ID0 포함·org/departments 추가·초대 API ge=0
 92. 2026-03-31 셸 브랜드 로고(Starbucks)·마이페이지 상단 헤더 이동
 91. 2026-03-31 사이드바 프로젝트 필수 메뉴 비활성·ETL 구스키마 쿼리 호환
 90. 2026-03-31 초대용 app_url: localhost 폴백 제거·frontend.app_url·미설정 시 메일 생략
@@ -95,6 +101,48 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+98. 2026-03-31 부서 관리 목록·상위표시·행 수정삭제·추가 모달·PATCH/DELETE API
+Purpose: 부서 목록에서 상위 부서 ID만으로는 식별이 어려워 상위 부서명·코드 조인 표시. 행별 수정·삭제와 테이블 우측 상단 추가 버튼, SA_DEV는 추가 모달에서 최상위/하위 유형·상위 선택, SA는 본인 부서 고정 하위만 추가. 백엔드에 부서 단건 PATCH·DELETE 추가.
+
+Changes: `list_departments_for_org_settings`에 `parent_dptmt_name`·`parent_dptmt_code` 조인. `update_department_in_org_settings`·`delete_department_in_org_settings`·`_assert_actor_can_manage_department`. `PATCH/DELETE /api/admin/org/departments/{id}`. `AdminOrgPage` 테이블·모달·`adminClient` patch/delete. `confirmCrud`로 추가·수정·삭제 확인.
+
+Changed files: Backend/admin_server/schemas.py, service_users.py, router.py, Frontend/react-app/src/shared/api/adminClient.js, app/admin/AdminOrgPage.jsx, app/admin/admin-org.css, docs/log/log.md
+
+97. 2026-03-31 CRUD 전 confirmCrud(공용)·어드민·마이페이지·알림·위젯보드·ETL이력
+Purpose: 저장·수정·삭제·초대 등 반영 전 `window.confirm` 일원화. 추후 커스텀 모달로 교체 시 `confirmCrud`만 갈아끼우면 됨.
+
+Changes: `shared/utils/crudConfirm.js` 추가. `AdminOrgPage`·`AdminUsersPage`·`AdminProjectsPage`·`AdminRolesPage`·`AdminProjectMembersPage`·`MyPage`·`NotificationBell`(전체 읽음)·`CreateOrgPage`·`SignupPage`·`JobHistoryPanel`·`Dashboard3Page`에 확인 문구 적용. 기존 `window.confirm` 일부를 `confirmCrud`로 치환.
+
+Changed files: Frontend/react-app/src/shared/utils/crudConfirm.js, app/admin/*.jsx, app/mypage/MyPage.jsx, app/layout/NotificationBell.jsx, app/auth/CreateOrgPage.jsx, SignupPage.jsx, packages/etl/components/JobHistoryPanel.jsx, packages/widgetboard/Dashboard3Page.jsx, docs/log/log.md
+
+96. 2026-03-31 user_dvsn 단일 코드(sa_dev·sa·a·o·u)·비허용 시 빈 목록
+Purpose: `user_dvsn`은 sa_dev·sa(Super Admin)·a·o·u 다섯 값만 유효. 레거시 `super_admin` 등은 canon 불일치 → 어드민 목록 GET은 `items: []`, 프론트는 `canonUserDvsn` 빈값으로 메뉴 비표시.
+
+Changes: `Backend/core/user_dvsn_codes.py`(ALLOWED·ORG_ADMIN·SUPER·PROJECT 집합, `canon_user_dvsn`). `deps`·`permissions`·`service_users`·`service_projects`·`auth_server/service`·`router`·`schemas` 전역 치환. 어드민 목록 GET 다수를 `get_authenticated_user_row`+canon 검사 후 빈 배열. 신규 부서 첫 유저 `sa`. 초대·가입 허용 `sa,a,o,u`.
+
+Changed files: Backend/core/user_dvsn_codes.py, Backend/admin_server/deps.py, router.py, service_users.py, service_projects.py, schemas.py, Backend/auth_server/service.py, router.py, permissions.py, Frontend/react-app/src/app/admin/adminAccess.js, AdminUsersPage.jsx, AdminOrgPage.jsx, AdminProjectsPage.jsx, guards/SuperAdminRoute.jsx, OrgAdminRoute.jsx, docs/log/log.md
+
+95. 2026-03-31 user_dvsn effective_dvsn 정규화 제거(원복)
+Purpose: DB `user_dvsn`은 정확히 `sa_dev`·`super_admin` 등 허용 값만 사용하기로 함. `sa_dev_*` 접두 매핑은 불필요.
+
+Changes: `Backend/core/dvsn_effective.py` 삭제. `admin_server/deps`·`auth_server/permissions`·`admin_server/service_users`에서 `(user_dvsn or "").strip().lower()` 직접 비교로 복귀. `assert_invite_dptmt_allowed` 호출 인자를 `actor_dvsn` 원문 전달로 정리. 프론트 `adminAccess`·`etlAccess`·`AdminUsersPage`·`AdminOrgPage`에서 `effectiveUserDvsn` 제거.
+
+Changed files: Backend/core/dvsn_effective.py(삭제), Backend/admin_server/deps.py, Backend/auth_server/permissions.py, Backend/admin_server/service_users.py, Frontend/react-app/src/app/admin/adminAccess.js, guards/etlAccess.js, AdminUsersPage.jsx, AdminOrgPage.jsx, docs/log/log.md
+
+94. 2026-03-31 effective_dvsn·부서 정책(SA_DEV/SA)·UI·초대 dept≥0
+Purpose: DB `user_dvsn`이 `sa_dev_kgh` 등 접미 형태일 때 프론트·백엔드가 `sa_dev`와 불일치해 메뉴·API가 막히는 문제. SA_DEV는 전체 부서+루트/하위 생성, Super Admin은 소속 트리만·루트 생성 금지·하위만.
+
+Changes: `Backend/core/dvsn_effective.py` `effective_dvsn`. `service_users` 초대·역할·ETL·부서 `list_departments_for_org_settings`·`create_department`(SA 루트 거부·트리 검증)·`assert_invite_dptmt_allowed` 등 정규화. `admin_server/deps`·`auth_server/permissions` 연동(기존). `router` org/departments 시그니처 반영. 프론트 `adminAccess.effectiveUserDvsn`·`etlAccess`·`AdminUsersPage`(초대 부서 ID `≥0`)·`AdminOrgPage`(역할별 최상위/하위 폼 분리).
+
+Changed files: Backend/core/dvsn_effective.py, Backend/admin_server/service_users.py, Backend/admin_server/router.py, Backend/admin_server/deps.py, Backend/auth_server/permissions.py, Frontend/react-app/src/app/admin/adminAccess.js, guards/etlAccess.js, AdminUsersPage.jsx, AdminOrgPage.jsx, docs/log/log.md
+
+93. 2026-03-31 부서 초대 목록 ID0 포함·org/departments 추가·초대 API ge=0
+Purpose: SA_DEV 초대 시 `dptmt_info_id > 0` 조건으로 부서 0이 빠져 가입 부서 셀렉트가 비는 문제. 부서 관리에 최상위/하위 부서 추가 UI·API 부재.
+
+Changes: `list_departments_for_invite`(sa_dev)에서 `> 0` 제거. `GET/POST /api/admin/org/departments`, `list_all_departments_super`·`create_department`. 초대 프로젝트/역할 쿼리 `dptmt_info_id` `ge=0`. `AdminOrgPage`·`adminClient`·`OrgDepartmentCreateBody`.
+
+Changed files: Backend/admin_server/service_users.py, router.py, schemas.py, Frontend/react-app/src/app/admin/AdminOrgPage.jsx, admin-org.css, shared/api/adminClient.js, docs/log/log.md
 
 92. 2026-03-31 셸 브랜드 로고(Starbucks)·마이페이지 상단 헤더 이동
 Purpose: 업로드 PNG를 사이드바 브랜드 영역에 배치(흰 로고·어두운 사이드바 대비). 마이페이지는 좌측 메뉴 대신 이메일과 로그아웃 사이 링크로 이동.

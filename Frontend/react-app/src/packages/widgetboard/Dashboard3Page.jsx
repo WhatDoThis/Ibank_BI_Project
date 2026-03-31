@@ -12,7 +12,7 @@
  *
  * [Dependencies]
  * =========
- * - React, react-grid-layout, recharts, echarts, @/packages/query_studio/api/queryStudioClient.js (listTables, describeTable, executeQuery), ./utils/dataUtils
+ * - React, react-grid-layout, recharts, echarts, @/packages/query_studio/api/queryStudioClient.js, ./utils/dataUtils, @/shared/utils/crudConfirm.js
  */
 import { useState, useCallback, useEffect, useRef } from 'react'
 import GridLayout from 'react-grid-layout/legacy'
@@ -46,6 +46,7 @@ import {
 } from './utils/dataUtils'
 import './widgetboard.css'
 import { PageHeader } from '@/app/layout/PageHeader.jsx'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 const LAYOUT_STORAGE_KEY = 'widgetboard_layout'
 const CONFIGS_STORAGE_KEY = 'widgetboard_widget_configs'
@@ -469,6 +470,7 @@ export default function Dashboard3Page() {
   }, [configs, loadTableData])
 
   const handleDelete = useCallback((widgetId) => {
+    if (!confirmCrud('이 위젯을 보드에서 제거할까요? (설정은 브라우저 저장소에서 삭제됩니다)')) return
     setLayout((prev) => prev.filter((it) => it.i !== widgetId))
     setConfigs((prev) => {
       const next = { ...prev }

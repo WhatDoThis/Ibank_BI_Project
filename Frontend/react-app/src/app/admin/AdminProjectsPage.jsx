@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient, app/adminAccess, app/AuthContext
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, app/adminAccess, app/AuthContext
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -21,6 +21,7 @@ import {
   patchAdminProject,
   postAdminProject,
 } from '@/shared/api/adminClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import { canAccessOrgAdmin } from '@/app/admin/adminAccess.js'
 
@@ -40,7 +41,7 @@ function formatDtm(v) {
 export default function AdminProjectsPage() {
   const { me } = useAuth()
   const isOrgAdmin = canAccessOrgAdmin(me)
-  const isOperator = (me?.user_dvsn || '').trim().toLowerCase() === 'operator'
+  const isOperator = (me?.user_dvsn || '').trim().toLowerCase() === 'o'
 
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -75,6 +76,7 @@ export default function AdminProjectsPage() {
 
   async function handleCreate(e) {
     e.preventDefault()
+    if (!confirmCrud('새 프로젝트를 생성할까요?')) return
     setError('')
     try {
       await postAdminProject({
@@ -99,6 +101,7 @@ export default function AdminProjectsPage() {
   async function handleSaveEdit(e) {
     e.preventDefault()
     if (edit == null) return
+    if (!confirmCrud('프로젝트 정보를 저장할까요?')) return
     setBusyId(edit)
     setError('')
     try {
@@ -120,7 +123,7 @@ export default function AdminProjectsPage() {
   }
 
   async function handleDeactivate(projectInfoId) {
-    if (!window.confirm('프로젝트를 비활성화할까요? (소프트 삭제)')) return
+    if (!confirmCrud('프로젝트를 비활성화할까요? (소프트 삭제)')) return
     setBusyId(projectInfoId)
     setError('')
     try {

@@ -11,10 +11,11 @@ Backend.admin_server.service_users (유저·초대·부서)
 3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
 4. suspend_user / activate_user (_assert_target_exists_or_same_dept·SA_DEV 우회)
-5. set_user_dvsn_admin_user (admin/SA/sa_dev·5역할만)
-6. set_user_etl_flag (SA·sa_dev·etl_yn)
+5. set_user_dvsn_admin_user (a/sa/sa_dev·a·o·u 부여)
+6. set_user_etl_flag (sa·sa_dev·etl_yn)
 7. list_invite_codes_for_dept
 8. get_department / update_department_name
+9. list_departments_for_org_settings / create_department / update_department_in_org_settings / delete_department_in_org_settings
 
 [Dependencies]
 =========
@@ -36,9 +37,9 @@ from Backend.core import auth_config
 _log = logging.getLogger(__name__)
 
 _INVITE_TARGETS_BY_ACTOR: dict[str, tuple[str, ...]] = {
-    "sa_dev": ("super_admin", "admin", "operator", "user"),
-    "super_admin": ("super_admin", "admin", "operator", "user"),
-    "admin": ("admin", "operator", "user"),
+    "sa_dev": ("sa", "a", "o", "u"),
+    "sa": ("sa", "a", "o", "u"),
+    "a": ("a", "o", "u"),
 }
 
 
@@ -99,13 +100,13 @@ def list_departments_for_invite(
     cur = conn.cursor()
     try:
         if ad == "sa_dev":
+            # dptmt_info_id = 0 인 루트/시드 부서도 포함 (초대 시 가입 부서 선택 가능해야 함)
             cur.execute(
                 """
                 SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
                 FROM dptmt_info
                 WHERE COALESCE(use_yn, 'Y') = 'Y'
-                  AND dptmt_info_id > 0
-                ORDER BY dptmt_name NULLS LAST
+                ORDER BY dptmt_info_id, dptmt_name NULLS LAST
                 """
             )
         else:
@@ -197,7 +198,7 @@ def search_users_by_email(
 
 def _validate_invite_target_for_actor(actor_dvsn: str, invite_target_dvsn: str) -> str:
     ad = (actor_dvsn or "").strip().lower()
-    td = (invite_target_dvsn or "").strip().lower() or "user"
+    td = (invite_target_dvsn or "").strip().lower() or "u"
     allowed = _INVITE_TARGETS_BY_ACTOR.get(ad)
     if not allowed:
         raise ValueError("초대 권한이 없습니다.")
@@ -227,23 +228,23 @@ def invite_user_by_email(
     dptmt_id = int(dptmt_override) if dptmt_override is not None else int(actor_dptmt_id)
     if dptmt_id == 0 and ad != "sa_dev":
         raise ValueError("해당 부서로는 초대할 수 없습니다.")
-    assert_invite_dptmt_allowed(conn, ad, int(actor_dptmt_id), dptmt_id)
+    assert_invite_dptmt_allowed(conn, actor_dvsn, int(actor_dptmt_id), dptmt_id)
 
     raw_etl = (invite_etl_yn or "N").strip().upper()
     if raw_etl not in ("Y", "N"):
         raise ValueError("invite_etl_yn은 Y 또는 N이어야 합니다.")
-    if ad == "admin":
+    if ad == "a":
         etl_store = "N"
-    elif ad in ("super_admin", "sa_dev"):
+    elif ad in ("sa", "sa_dev"):
         etl_store = raw_etl
     else:
         etl_store = "N"
 
     proj_id = invite_project_info_id
     pmssn_id = invite_pmssn_master_id
-    if target_role != "user":
+    if target_role != "u":
         if proj_id is not None or pmssn_id is not None:
-            raise ValueError("프로젝트·역할 지정은 user 초대일 때만 가능합니다.")
+            raise ValueError("프로젝트·역할 지정은 u(일반 사용자) 초대일 때만 가능합니다.")
     else:
         if (proj_id is None) ^ (pmssn_id is None):
             raise ValueError("프로젝트와 역할(pmssn_master_id)은 함께 지정하거나 비워야 합니다.")
@@ -352,20 +353,20 @@ def _assert_target_exists_or_same_dept(
 def _assert_suspend_activate_target(actor_dvsn: str, target_user_dvsn: str) -> None:
     ad = (actor_dvsn or "").strip().lower()
     td = (target_user_dvsn or "").strip().lower()
-    if ad == "admin":
-        if td not in ("operator", "user"):
+    if ad == "a":
+        if td not in ("o", "u"):
             raise ValueError(
                 "부서 관리자는 운영자·일반 사용자만 정지·활성 처리할 수 있습니다."
             )
         return
-    if ad == "super_admin":
-        if td in ("super_admin", "sa_dev"):
+    if ad == "sa":
+        if td in ("sa", "sa_dev"):
             raise ValueError("해당 역할은 이 API로 정지·활성 처리할 수 없습니다.")
-        if td not in ("admin", "operator", "user"):
+        if td not in ("a", "o", "u"):
             raise ValueError("대상 사용자를 정지·활성 처리할 수 없습니다.")
         return
     if ad == "sa_dev":
-        if td in ("super_admin", "sa_dev"):
+        if td in ("sa", "sa_dev"):
             raise ValueError("해당 역할은 이 API로 정지·활성 처리할 수 없습니다.")
         return
     raise ValueError("정지·활성 처리 권한이 없습니다.")
@@ -434,10 +435,10 @@ def set_user_dvsn_admin_user(
     new_dvsn: str,
 ) -> None:
     nd = (new_dvsn or "").strip().lower()
-    if nd not in ("admin", "operator", "user"):
-        raise ValueError("user_dvsn은 admin, operator, user 중 하나여야 합니다.")
+    if nd not in ("a", "o", "u"):
+        raise ValueError("user_dvsn은 a, o, u 중 하나여야 합니다.")
     ad = (actor_dvsn or "").strip().lower()
-    if ad not in ("admin", "super_admin", "sa_dev"):
+    if ad not in ("a", "sa", "sa_dev"):
         raise ValueError("역할 변경 권한이 없습니다.")
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, target_user_id)
     cur = conn.cursor()
@@ -450,24 +451,24 @@ def set_user_dvsn_admin_user(
         if not row:
             raise ValueError("사용자를 찾을 수 없습니다.")
         cur_td = (row.get("user_dvsn") or "").strip().lower()
-        if cur_td in ("super_admin", "sa_dev"):
+        if cur_td in ("sa", "sa_dev"):
             raise ValueError("해당 역할은 이 API로 변경할 수 없습니다.")
-        if ad == "admin":
-            if cur_td not in ("operator", "user"):
+        if ad == "a":
+            if cur_td not in ("o", "u"):
                 raise ValueError("부서 관리자는 운영자·일반 사용자만 변경할 수 있습니다.")
-            if nd not in ("operator", "user"):
-                raise ValueError("부서 관리자는 operator·user만 부여할 수 있습니다.")
-        elif ad == "super_admin":
-            if cur_td in ("super_admin", "sa_dev"):
+            if nd not in ("o", "u"):
+                raise ValueError("부서 관리자는 o·u만 부여할 수 있습니다.")
+        elif ad == "sa":
+            if cur_td in ("sa", "sa_dev"):
                 raise ValueError("대상 사용자 역할을 변경할 수 없습니다.")
-            if cur_td not in ("admin", "operator", "user"):
+            if cur_td not in ("a", "o", "u"):
                 raise ValueError("대상 사용자 역할을 변경할 수 없습니다.")
-            if nd not in ("admin", "operator", "user"):
+            if nd not in ("a", "o", "u"):
                 raise ValueError("허용되지 않는 역할입니다.")
         elif ad == "sa_dev":
-            if cur_td in ("super_admin", "sa_dev"):
+            if cur_td in ("sa", "sa_dev"):
                 raise ValueError("해당 역할은 이 API로 변경할 수 없습니다.")
-            if nd not in ("admin", "operator", "user"):
+            if nd not in ("a", "o", "u"):
                 raise ValueError("허용되지 않는 역할입니다.")
         cur.execute(
             "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
@@ -496,9 +497,9 @@ def set_user_etl_flag(
     if flag not in ("Y", "N"):
         raise ValueError("etl_yn은 Y 또는 N이어야 합니다.")
     ad = (actor_dvsn or "").strip().lower()
-    if ad not in ("sa_dev", "super_admin"):
+    if ad not in ("sa_dev", "sa"):
         raise ValueError("ETL 자격 변경 권한이 없습니다.")
-    if ad == "super_admin":
+    if ad == "sa":
         _assert_same_dept(conn, actor_dptmt, target_user_id)
     cur = conn.cursor()
     try:
@@ -564,6 +565,303 @@ def get_department(conn, dptmt_info_id: int) -> dict[str, Any]:
         if not row:
             raise ValueError("부서를 찾을 수 없습니다.")
         return dict(row)
+    finally:
+        cur.close()
+
+
+def _dptmt_id_in_managed_subtree(conn, root_dptmt_id: int, node_id: int) -> bool:
+    """node_id가 root_dptmt_id(포함) 또는 그 하위 부서이면 True."""
+    root = int(root_dptmt_id)
+    node = int(node_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            WITH RECURSIVE sub AS (
+                SELECT dptmt_info_id FROM dptmt_info
+                WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+                UNION ALL
+                SELECT d.dptmt_info_id FROM dptmt_info d
+                INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+            )
+            SELECT 1 FROM sub WHERE dptmt_info_id = %s LIMIT 1
+            """,
+            (root, node),
+        )
+        return cur.fetchone() is not None
+    finally:
+        cur.close()
+
+
+def list_departments_for_org_settings(
+    conn, actor_dvsn: str, actor_dptmt_id: int
+) -> list[dict[str, Any]]:
+    """
+    부서 관리 화면 목록.
+    SA_DEV: 전체(use_yn=Y). sa: 본인 소속 부서를 루트로 한 하위 트리만.
+    """
+    ad = (actor_dvsn or "").strip().lower()
+    cur = conn.cursor()
+    try:
+        if ad == "sa_dev":
+            cur.execute(
+                """
+                SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
+                       p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
+                       d.sort_order, d.use_yn, d.create_dtm
+                FROM dptmt_info d
+                LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
+                WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+                ORDER BY d.dptmt_info_id
+                """
+            )
+        elif ad == "sa":
+            cur.execute(
+                """
+                WITH RECURSIVE sub AS (
+                    SELECT dptmt_info_id, dptmt_code, dptmt_name, parent_dptmt_info_id, sort_order, use_yn, create_dtm
+                    FROM dptmt_info
+                    WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+                    UNION ALL
+                    SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
+                           d.sort_order, d.use_yn, d.create_dtm
+                    FROM dptmt_info d
+                    INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                    WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+                )
+                SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
+                       p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
+                       d.sort_order, d.use_yn, d.create_dtm
+                FROM sub d
+                LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
+                ORDER BY d.dptmt_info_id
+                """,
+                (int(actor_dptmt_id),),
+            )
+        else:
+            return []
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+def _assert_actor_can_manage_department(
+    conn, eff: str, actor_dptmt_id: int, target_dptmt_id: int
+) -> None:
+    """sa_dev: 활성 부서만. sa: 본인 부서 트리 안만."""
+    tid = int(target_dptmt_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT 1 FROM dptmt_info
+            WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+            """,
+            (tid,),
+        )
+        if not cur.fetchone():
+            raise ValueError("부서를 찾을 수 없습니다.")
+    finally:
+        cur.close()
+    if eff == "sa_dev":
+        return
+    if eff == "sa":
+        if not _dptmt_id_in_managed_subtree(conn, int(actor_dptmt_id), tid):
+            raise ValueError("해당 부서를 수정·삭제할 권한이 없습니다.")
+        return
+    raise ValueError("권한이 없습니다.")
+
+
+def update_department_in_org_settings(
+    conn,
+    dptmt_info_id: int,
+    new_name: str | None,
+    new_code: str | None,
+    actor_dvsn: str,
+    actor_dptmt_id: int,
+) -> None:
+    eff = (actor_dvsn or "").strip().lower()
+    if eff not in ("sa_dev", "sa"):
+        raise ValueError("부서를 수정할 권한이 없습니다.")
+    has_name = new_name is not None
+    has_code = new_code is not None
+    if not has_name and not has_code:
+        raise ValueError("부서명 또는 부서 코드 중 하나 이상을 보내야 합니다.")
+    name = (new_name or "").strip() if has_name else None
+    code = (new_code or "").strip() if has_code else None
+    if has_name and not name:
+        raise ValueError("부서명이 비어 있을 수 없습니다.")
+    if has_code and not code:
+        raise ValueError("부서 코드는 비울 수 없습니다.")
+    _assert_actor_can_manage_department(conn, eff, int(actor_dptmt_id), int(dptmt_info_id))
+    if has_code and code:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT 1 FROM dptmt_info
+                WHERE LOWER(TRIM(dptmt_code)) = LOWER(TRIM(%s))
+                  AND dptmt_info_id <> %s
+                  AND COALESCE(use_yn, 'Y') = 'Y'
+                LIMIT 1
+                """,
+                (code, int(dptmt_info_id)),
+            )
+            if cur.fetchone():
+                raise ValueError("이미 사용 중인 부서 코드입니다.")
+        finally:
+            cur.close()
+    sets: list[str] = []
+    params: list[Any] = []
+    if has_name:
+        sets.append("dptmt_name = %s")
+        params.append(name[:100] if name else "")
+    if has_code:
+        sets.append("dptmt_code = %s")
+        params.append(code[:80] if code else "")
+    if not sets:
+        raise ValueError("변경할 내용이 없습니다.")
+    sets.append("update_dtm = NOW()")
+    params.append(int(dptmt_info_id))
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"UPDATE dptmt_info SET {', '.join(sets)} WHERE dptmt_info_id = %s",
+            params,
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise ValueError("부서를 찾을 수 없습니다.")
+        conn.commit()
+    except ValueError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def delete_department_in_org_settings(
+    conn, dptmt_info_id: int, actor_dvsn: str, actor_dptmt_id: int
+) -> None:
+    eff = (actor_dvsn or "").strip().lower()
+    if eff not in ("sa_dev", "sa"):
+        raise ValueError("부서를 삭제할 권한이 없습니다.")
+    tid = int(dptmt_info_id)
+    _assert_actor_can_manage_department(conn, eff, int(actor_dptmt_id), tid)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COUNT(*)::int AS c FROM dptmt_info
+            WHERE parent_dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+            """,
+            (tid,),
+        )
+        row = cur.fetchone()
+        if row and int(row.get("c", 0) or 0) > 0:
+            raise ValueError(
+                "하위 부서가 있어 삭제할 수 없습니다. 먼저 하위 부서를 처리하세요."
+            )
+        cur.execute(
+            "SELECT COUNT(*)::int AS c FROM user_info WHERE dptmt_info_id = %s",
+            (tid,),
+        )
+        row2 = cur.fetchone()
+        if row2 and int(row2.get("c", 0) or 0) > 0:
+            raise ValueError(
+                "해당 부서에 소속된 사용자가 있어 삭제할 수 없습니다."
+            )
+        cur.execute(
+            """
+            UPDATE dptmt_info SET use_yn = 'N', update_dtm = NOW()
+            WHERE dptmt_info_id = %s AND COALESCE(use_yn, 'Y') = 'Y'
+            """,
+            (tid,),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise ValueError("부서를 찾을 수 없습니다.")
+        conn.commit()
+    except ValueError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def create_department(
+    conn,
+    actor_user_id: int,
+    dptmt_name: str,
+    parent_dptmt_info_id: int | None = None,
+    dptmt_code: str | None = None,
+    *,
+    actor_dvsn: str = "",
+    actor_dptmt_id: int = 0,
+) -> int:
+    """
+    SA_DEV: parent NULL 이면 최상위 부서, parent 지정 시 해당 부서의 하위.
+    sa: 최상위(parent NULL) 불가. parent 필수이며 본인 소속 부서 트리 안의 부서만 상위로 허용.
+    """
+    eff = (actor_dvsn or "").strip().lower()
+    if eff not in ("sa_dev", "sa"):
+        raise ValueError("부서를 생성할 권한이 없습니다.")
+    name = (dptmt_name or "").strip()
+    if not name:
+        raise ValueError("부서명이 필요합니다.")
+    pid = parent_dptmt_info_id
+    if eff == "sa":
+        if pid is None:
+            raise ValueError(
+                "sa(Super Admin)는 최상위(루트) 부서를 만들 수 없습니다. 상위 부서를 선택한 뒤 하위 부서로 추가하세요."
+            )
+        pid = int(pid)
+        if not _dptmt_id_in_managed_subtree(conn, int(actor_dptmt_id), pid):
+            raise ValueError("소속 부서 트리 안의 부서만 상위로 지정할 수 있습니다.")
+    if pid is not None:
+        pid = int(pid)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT 1 FROM dptmt_info WHERE dptmt_info_id = %s AND COALESCE(use_yn,'Y') = 'Y'",
+                (pid,),
+            )
+            if not cur.fetchone():
+                raise ValueError("상위 부서를 찾을 수 없습니다.")
+        finally:
+            cur.close()
+    code = (dptmt_code or "").strip()
+    if not code:
+        code = f"D{secrets.token_hex(4).upper()}"
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO dptmt_info (
+                dptmt_code, dptmt_name, parent_dptmt_info_id, sort_order, use_yn,
+                dptmt_create_user_id, create_dtm, update_dtm
+            ) VALUES (%s, %s, %s, 0, 'Y', %s, NOW(), NOW())
+            RETURNING dptmt_info_id
+            """,
+            (code[:80], name[:100], pid, int(actor_user_id)),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise ValueError("부서 등록에 실패했습니다.")
+        new_id = int(row["dptmt_info_id"] if hasattr(row, "get") else row[0])
+        conn.commit()
+        return new_id
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cur.close()
 

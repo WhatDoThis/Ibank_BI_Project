@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient
+ * - shared/api/adminClient, shared/utils/crudConfirm
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -20,6 +20,7 @@ import {
   postAdminRole,
   putAdminRole,
 } from '@/shared/api/adminClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import './admin-pages.css'
 
@@ -73,6 +74,7 @@ export default function AdminRolesPage() {
 
   async function handleCreate(e) {
     e.preventDefault()
+    if (!confirmCrud('커스텀 역할을 추가할까요?')) return
     setError('')
     try {
       await postAdminRole({
@@ -113,7 +115,7 @@ export default function AdminRolesPage() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('이 커스텀 역할을 삭제할까요?')) return
+    if (!confirmCrud('이 커스텀 역할을 삭제할까요?')) return
     setBusyId(id)
     setError('')
     try {

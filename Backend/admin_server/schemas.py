@@ -7,7 +7,7 @@ Pydantic 모델.
 ===========
 - InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody
 - RoleCreateBody, RoleUpdateBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody
-- OrgPatchBody, TableMasterPatchBody, ProjectTableAddBody
+- OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody, TableMasterPatchBody, ProjectTableAddBody
 
 [Dependencies]
 =========
@@ -23,20 +23,20 @@ class InviteBody(BaseModel):
     email: str = Field(..., min_length=3, max_length=200)
     dptmt_info_id: int | None = Field(
         default=None,
-        description="가입 부서. 생략 시 초대자 부서. SA_DEV는 임의 부서, SA·A는 본인 부서 트리만",
+        description="가입 부서. 생략 시 초대자 부서. sa_dev는 임의 부서, sa·a는 본인 부서 트리만",
     )
     invite_target_dvsn: str = Field(
-        default="user",
+        default="u",
         max_length=20,
-        description="가입 시 user_dvsn — 초대자별 허용 집합(백엔드 검증)",
+        description="가입 시 user_dvsn — sa·a·o·u (초대자별 허용 집합, 백엔드 검증)",
     )
     invite_etl_yn: Literal["Y", "N"] | None = Field(
         default=None,
-        description="가입 직후 etl_yn. SA·SA_DEV만 Y 가능. Admin 전송 시 무시(N).",
+        description="가입 직후 etl_yn. sa·sa_dev만 Y 가능. a 전송 시 무시(N).",
     )
     invite_project_info_id: int | None = Field(
         default=None,
-        description="user 초대 시 선택: 가입 후 자동 프로젝트 멤버",
+        description="u 초대 시 선택: 가입 후 자동 프로젝트 멤버",
     )
     invite_pmssn_master_id: int | None = Field(
         default=None,
@@ -47,7 +47,7 @@ class InviteBody(BaseModel):
 class UserRoleBody(BaseModel):
     user_dvsn: str = Field(
         ...,
-        description="admin·operator·user — 호출자 역할에 따른 제한",
+        description="a·o·u — 호출자 역할에 따른 제한",
     )
 
 
@@ -87,6 +87,28 @@ class MemberRoleBody(BaseModel):
 
 class OrgPatchBody(BaseModel):
     dptmt_name: str = Field(..., max_length=100)
+
+
+class OrgDepartmentCreateBody(BaseModel):
+    """슈퍼·SA_DEV: 최상위(parent 없음) 또는 기존 부서 하위에 부서 추가."""
+
+    dptmt_name: str = Field(..., max_length=100)
+    parent_dptmt_info_id: int | None = Field(
+        None,
+        description="상위 부서 PK. 생략·null 이면 최상위(루트) 부서로 추가",
+    )
+    dptmt_code: str | None = Field(
+        None,
+        max_length=80,
+        description="미입력 시 서버에서 짧은 고유 코드 자동 부여",
+    )
+
+
+class OrgDepartmentPatchBody(BaseModel):
+    """부서명·코드 수정(둘 중 하나 이상)."""
+
+    dptmt_name: str | None = Field(None, max_length=100)
+    dptmt_code: str | None = Field(None, max_length=80)
 
 
 class TableMasterPatchBody(BaseModel):

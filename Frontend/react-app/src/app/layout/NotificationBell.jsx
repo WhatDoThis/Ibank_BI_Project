@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/notificationsClient
+ * - shared/api/notificationsClient, shared/utils/crudConfirm
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -20,6 +20,7 @@ import {
   patchReadAll,
   patchReadOne,
 } from '@/shared/api/notificationsClient.js'
+import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import './notification-bell.css'
 
@@ -108,6 +109,7 @@ export function NotificationBell() {
   }
 
   async function handleReadAll() {
+    if (!confirmCrud('모든 알림을 읽음 처리할까요?')) return
     try {
       await patchReadAll()
       await refreshCount()

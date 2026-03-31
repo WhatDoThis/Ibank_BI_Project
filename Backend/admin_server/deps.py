@@ -6,15 +6,16 @@ access JWT 후 user_info에서 user_dvsn 조회.
 [Main Functions]
 ===========
 1. get_authenticated_user_row: user_id·user_dvsn·dptmt_info_id
-2. require_org_admin: admin · super_admin · sa_dev
-3. require_super_admin: super_admin · sa_dev (조직 최상위 조작)
-4. require_org_admin_or_operator: 프로젝트 목록 등 operator 허용
+2. require_org_admin: a · sa · sa_dev (ORG_ADMIN_DVSN)
+3. require_super_admin: sa · sa_dev (SUPER_ORG_DVSN)
+4. require_org_admin_or_operator: 위 + o (ORG_OR_OPERATOR_DVSN)
 5. require_project_admin_or_operator_participant: Request.path_params 의 project_info_id 검증
 
 [Dependencies]
 =========
 - fastapi Depends HTTPException
 - Backend.auth_server.deps.get_access_payload, Backend.core.dependencies.get_system_db
+- Backend.core.user_dvsn_codes (canon_user_dvsn, ORG_* 집합)
 """
 
 from typing import Any
@@ -23,6 +24,15 @@ from fastapi import Depends, HTTPException, Request
 
 from Backend.auth_server.deps import get_access_payload
 from Backend.core.dependencies import get_system_db
+from Backend.core.user_dvsn_codes import (
+    ORG_ADMIN_DVSN,
+    ORG_OR_OPERATOR_DVSN,
+    PROJECT_ADMIN_DVSN,
+    SUPER_ORG_DVSN,
+    canon_user_dvsn,
+)
+
+_MSG_BAD_DVSN = "허용되지 않은 조직 역할(user_dvsn)입니다."
 
 
 # 1.
@@ -52,8 +62,8 @@ def get_authenticated_user_row(
 def require_org_admin(
     actor: dict[str, Any] = Depends(get_authenticated_user_row),
 ) -> dict[str, Any]:
-    dvsn = (actor.get("user_dvsn") or "").strip().lower()
-    if dvsn not in ("admin", "super_admin", "sa_dev"):
+    dvsn = canon_user_dvsn(actor.get("user_dvsn"))
+    if dvsn not in ORG_ADMIN_DVSN:
         raise HTTPException(status_code=403, detail="어드민 권한이 필요합니다.")
     return actor
 
@@ -62,8 +72,8 @@ def require_org_admin(
 def require_super_admin(
     actor: dict[str, Any] = Depends(require_org_admin),
 ) -> dict[str, Any]:
-    dvsn = (actor.get("user_dvsn") or "").strip().lower()
-    if dvsn not in ("super_admin", "sa_dev"):
+    dvsn = canon_user_dvsn(actor.get("user_dvsn"))
+    if dvsn not in SUPER_ORG_DVSN:
         raise HTTPException(status_code=403, detail="슈퍼어드민만 가능합니다.")
     return actor
 
@@ -72,8 +82,8 @@ def require_super_admin(
 def require_org_admin_or_operator(
     actor: dict[str, Any] = Depends(get_authenticated_user_row),
 ) -> dict[str, Any]:
-    dvsn = (actor.get("user_dvsn") or "").strip().lower()
-    if dvsn not in ("admin", "super_admin", "sa_dev", "operator"):
+    dvsn = canon_user_dvsn(actor.get("user_dvsn"))
+    if dvsn not in ORG_OR_OPERATOR_DVSN:
         raise HTTPException(
             status_code=403,
             detail="어드민 또는 프로젝트 운영자 권한이 필요합니다.",
@@ -97,7 +107,9 @@ def require_project_admin_or_operator_participant(
         project_info_id = int(raw_pid)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="유효하지 않은 프로젝트입니다.") from None
-    dvsn = (actor.get("user_dvsn") or "").strip().lower()
+    dvsn = canon_user_dvsn(actor.get("user_dvsn"))
+    if not dvsn:
+        raise HTTPException(status_code=403, detail=_MSG_BAD_DVSN)
     uid = int(actor["user_id"])
     did = int(actor["dptmt_info_id"])
     cur = conn.cursor()
@@ -110,11 +122,11 @@ def require_project_admin_or_operator_participant(
         if not row:
             raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
         pd = int(row["dptmt_info_id"])
-        if dvsn in ("admin", "super_admin", "sa_dev"):
+        if dvsn in ORG_ADMIN_DVSN:
             if pd != did:
                 raise HTTPException(status_code=403, detail="다른 부서의 프로젝트입니다.")
             return actor
-        if dvsn == "operator":
+        if dvsn == "o":
             if pd != did:
                 raise HTTPException(status_code=403, detail="다른 부서의 프로젝트입니다.")
             cur.execute(
