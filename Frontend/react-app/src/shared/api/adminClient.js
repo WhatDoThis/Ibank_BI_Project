@@ -52,7 +52,10 @@ export async function postAdminOrgDepartment(body) {
   return request('POST', '/api/admin/org/departments', body)
 }
 
-/** @param {{ dptmt_name?: string|null, dptmt_code?: string|null, use_yn?: 'Y'|'N'|null }} body */
+/**
+ * @param {{ dptmt_name?: string|null, dptmt_code?: string|null, use_yn?: 'Y'|'N'|null, migrate_users_to_dptmt_info_id?: number|null }} body
+ * migrate_users_to_dptmt_info_id: use_yn=N일 때 소속 사용자 일괄 이관 대상 부서 PK
+ */
 export async function patchAdminOrgDepartment(dptmtInfoId, body) {
   return request('PATCH', `/api/admin/org/departments/${dptmtInfoId}`, body)
 }
@@ -114,7 +117,7 @@ export async function getAdminUserChangeOptions(userId) {
   return request('GET', `/api/admin/users/${userId}/change-options`)
 }
 
-/** @param {{ dptmt_info_id?: number|null, user_dvsn?: 'sa'|'a'|'o'|'u'|null, project_info_ids?: number[]|null, project_assignments?: {project_info_id:number, pmssn_master_id:number}[]|null }} body */
+/** @param {{ dptmt_info_id?: number|null, user_dvsn?: 'sa'|'a'|'o'|'u'|null, etl_yn?: 'Y'|'N'|null, project_info_ids?: number[]|null, project_assignments?: {project_info_id:number, pmssn_master_id:number}[]|null }} body */
 export async function putAdminUserManagement(userId, body) {
   return request('PUT', `/api/admin/users/${userId}/management`, body)
 }

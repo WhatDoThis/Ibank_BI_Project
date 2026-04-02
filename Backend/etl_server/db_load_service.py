@@ -10,7 +10,7 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 3. get_source_columns, get_source_indexes: 소스 컬럼·인덱스 조회
 4. _fetch_source_columns(_pg|_mysql|_oracle), _fetch_source_pk_columns, _fetch_pk_values_from_source, _fetch_pk_values_from_target
 5. _create_indexes_on_target, _pg_type_from_*: 타겟 인덱스 생성·타입 변환
-6. _serialize_value(JSON dict/list → JSON 텍스트), _copy_buf, _copy_insert_batch, _copy_upsert_batch·_copy_staging_cast_expr(JSONB 스테이징 캐스트), _copy_upsert_batch_safe
+6. _transformed_column_names_from_rules·_row_tuple_for_column_mapping·_incremental_cell_from_row·_columns_final_for_mapping_after_transform(변환 룰 적용 컬럼만 df dtype)·_override_mapping_types_for_transform_rules(매핑 type을 df dtype으로 맞춤 후 type cast), _serialize_value(JSON dict/list → JSON 텍스트), _copy_buf, _copy_insert_batch, _copy_upsert_batch·_copy_staging_cast_expr(JSONB 스테이징 캐스트), _copy_upsert_batch_safe
 7. _ensure_unique_constraint, _get_target_column_list
 8. _run_diff_sync: sync_mode=diff 시 소스/타겟 PK diff → 신규 INSERT·삭제 DELETE
 9. run_db_load: etl_table_id 기준 소스 SELECT → 변환 → 저장 DB CREATE+INSERT 또는 Upsert (full/incremental)
@@ -44,6 +44,39 @@ from Backend.etl_server import timezone_utils
 from Backend.etl_server import transform_engine
 from Backend.etl_server import transform_rules_service as transform_rules_svc
 from Backend.etl_server.etl_limits import get_etl_limits
+
+
+def _row_tuple_for_column_mapping(r: dict, mapping_used: List[dict]) -> tuple:
+    """
+    apply_rules·apply_mapping_type_cast 후 DataFrame to_dict('records') 행은 키가 소스 컬럼명인 경우가 대부분.
+    INSERT/COPY는 타겟 컬럼 순서이므로 각 매핑에 대해 r[target] 우선, 없으면 r[source](변환 룰이 target_column에만 쓴 경우 대비).
+    """
+    vals: List[Any] = []
+    for m in mapping_used:
+        tgt = (m.get("target") or "").strip()
+        src = (m.get("source") or "").strip()
+        if tgt:
+            vals.append(r.get(tgt, r.get(src)))
+        else:
+            vals.append(r.get(src))
+    return tuple(vals)
+
+
+def _incremental_cell_from_row(
+    r: dict, mapping_used: List[dict], incremental_column: str
+) -> Any:
+    """증분 컬럼 값: 매핑 있으면 타겟 키·소스 키 순으로 조회."""
+    if not mapping_used:
+        return r.get(incremental_column)
+    for m in mapping_used:
+        if (m.get("source") or "").strip() != incremental_column:
+            continue
+        tgt = (m.get("target") or "").strip()
+        src = (m.get("source") or "").strip()
+        if tgt:
+            return r.get(tgt, r.get(src))
+        return r.get(src)
+    return r.get(incremental_column)
 
 
 def _resolve_pk_columns_for_db_load(
@@ -847,6 +880,80 @@ def _pg_type_from_pandas(dtype) -> str:
     return "TEXT"
 
 
+def _transformed_column_names_from_rules(rules: Optional[List[dict]]) -> Set[str]:
+    """활성 변환 룰의 target_column·source_column 이름 집합(CREATE TABLE 시 df dtype 우선 적용 대상)."""
+    out: Set[str] = set()
+    if not rules:
+        return out
+    for rule in rules:
+        if not rule.get("is_active", True):
+            continue
+        tc = (rule.get("target_column") or rule.get("source_column") or "").strip()
+        if tc:
+            out.add(tc)
+    return out
+
+
+def _columns_final_for_mapping_after_transform(
+    df: pd.DataFrame,
+    mapping_used: List[dict],
+    transformed_columns: Optional[Set[str]] = None,
+) -> List[Tuple[str, str]]:
+    """
+    column_mapping + apply_rules + apply_mapping_type_cast 이후 CREATE TABLE용 (타겟컬럼, PG타입) 목록.
+    - transformed_columns에 포함된 컬럼: 변환 룰이 타입·값을 바꿀 수 있으므로 df 실제 dtype 기준.
+    - 그 외: 매핑의 원래 type(소스 information_schema·refresh-column-mapping 기반) 유지.
+      (변환 없는 timestamp가 pandas object로 읽혀도 TEXT로 DDL 고정되지 않음)
+    """
+    _tc = transformed_columns or set()
+    out: List[Tuple[str, str]] = []
+    for m in mapping_used:
+        tgt = (m.get("target") or "").strip()
+        src = (m.get("source") or "").strip()
+        original_type = ((m.get("type") or "TEXT") or "TEXT").strip().upper() or "TEXT"
+        if src in _tc or tgt in _tc:
+            if tgt in df.columns:
+                out.append((tgt, _pg_type_from_pandas(df[tgt].dtype)))
+            elif src in df.columns:
+                out.append((tgt, _pg_type_from_pandas(df[src].dtype)))
+            else:
+                out.append((tgt, original_type))
+        else:
+            out.append((tgt, original_type))
+    return out
+
+
+def _override_mapping_types_for_transform_rules(
+    df: pd.DataFrame,
+    mapping_used: List[dict],
+    rules: Optional[List[dict]],
+) -> List[dict]:
+    """
+    apply_rules 직후: 마스킹 등으로 소스 컬럼 값/dtype이 바뀐 뒤에도 apply_mapping_type_cast가
+    매핑의 원래 BIGINT 등으로 재캐스트하면 NaN·float64로 망가짐. 변환 룰 target/source_column에
+    해당하는 매핑 행의 type을 현재 df[source] dtype 기준 PG 타입으로 덮어써 TEXT 등으로 no-op 캐스트되게 함.
+    """
+    if not mapping_used or not rules:
+        return mapping_used
+    transformed_cols = _transformed_column_names_from_rules(rules)
+    if not transformed_cols:
+        return mapping_used
+    out: List[dict] = []
+    for m in mapping_used:
+        src = (m.get("source") or "").strip()
+        tgt = (m.get("target") or "").strip()
+        col_for_dtype: Optional[str] = None
+        if src in transformed_cols and src in df.columns:
+            col_for_dtype = src
+        elif tgt in transformed_cols and tgt in df.columns:
+            col_for_dtype = tgt
+        if col_for_dtype is not None:
+            out.append({**m, "type": _pg_type_from_pandas(df[col_for_dtype].dtype)})
+        else:
+            out.append(dict(m))
+    return out
+
+
 def _serialize_value(v) -> str:
     """COPY TEXT 포맷용 값 직렬화. None/nan/inf/NaT → \\N, bool은 true/false, dict/list는 JSON, 그 외는 str 후 \\ \\t \\n \\r 이스케이프."""
     if v is None:
@@ -1192,6 +1299,9 @@ def _run_diff_sync(
             except Exception:
                 pass
             if mapping_used:
+                mapping_used = _override_mapping_types_for_transform_rules(
+                    df_batch, mapping_used, rules,
+                )
                 try:
                     df_batch = transform_engine.apply_mapping_type_cast(
                         df_batch, mapping_used, default_on_error="null"
@@ -1199,7 +1309,10 @@ def _run_diff_sync(
                 except ValueError as cast_err:
                     raise cast_err
             rows_batch = df_batch.replace({pd.NA: None}).to_dict("records")
-            rows_tuples = [tuple(r.get(c) for c in cols_insert) for r in rows_batch]
+            rows_tuples = [
+                _row_tuple_for_column_mapping(r, mapping_used) if mapping_used else tuple(r.get(c) for c in cols_insert)
+                for r in rows_batch
+            ]
             _copy_insert_batch(cur_main, full_name, cols_insert, rows_tuples)
             conn_main.commit()
             total_inserted += len(rows_tuples)
@@ -1629,6 +1742,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     rules = transform_rules_svc.list_transform_rules(etl_table_id)
                 except Exception:
                     pass
+                _transformed_cols = _transformed_column_names_from_rules(rules)
                 cols, col_types = None, None
                 pk_list_inc = []
                 while True:
@@ -1655,6 +1769,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     except Exception:
                         pass
                     if mapping_used:
+                        mapping_used = _override_mapping_types_for_transform_rules(
+                            df_batch, mapping_used, rules,
+                        )
                         try:
                             df_batch = transform_engine.apply_mapping_type_cast(df_batch, mapping_used, default_on_error="null")
                         except ValueError as cast_err:
@@ -1666,7 +1783,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     rows_batch = df_batch.replace({pd.NA: None}).to_dict("records")
                     if first_batch:
                         if mapping_used:
-                            columns_final = [(m["target"], m["type"]) for m in mapping_used]
+                            columns_final = _columns_final_for_mapping_after_transform(
+                                df_batch,
+                                mapping_used,
+                                _transformed_cols if (rules and mapping_used) else None,
+                            )
                             cols = [m["target"] for m in mapping_used]
                             pk_list_full = [m["target"] for m in mapping_used if m["source"] in source_pk_list]
                         else:
@@ -1762,7 +1883,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         etl_service.update_etl_table_status(etl_table_id, "error")
                         return {"job_id": job_id, "status": "cancelled", "rows_processed": total_processed, "error_message": "사용자 취소"}
                     rows_tuples = [
-                        tuple(r.get(c) for c in cols)
+                        _row_tuple_for_column_mapping(r, mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
                         for r in rows_batch
                     ]
                     if sync_mode == "full":
@@ -1783,9 +1904,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                             batch_inserted = len(rows_tuples)
                     total_processed += batch_inserted
                     if incremental_column and incremental_column in col_names and rows_batch:
-                        # column_mapping 사용 시 rows_batch는 타겟 컬럼명 키 → 증분 컬럼(소스명)에 대응하는 타겟 키로 조회
-                        inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
-                        max_vals = [r.get(inc_key) for r in rows_batch if r.get(inc_key) is not None]
+                        max_vals = []
+                        for r in rows_batch:
+                            v = _incremental_cell_from_row(r, mapping_used or [], incremental_column)
+                            if v is not None:
+                                max_vals.append(v)
                         if max_vals:
                             latest = max(max_vals) if isinstance(max_vals[0], datetime) else max(max_vals)
                             # 전역 최대값 유지(full/증분 공통). 루프 끝에서 한 번만 update_last_synced_at 호출.
@@ -1888,12 +2011,15 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 )
             except Exception as tz_err:
                 logger.warning("run_db_load tz convert failed (skip): %s", tz_err)
+        rules: List[dict] = []
         try:
             rules = transform_rules_svc.list_transform_rules(etl_table_id)
             df = transform_engine.apply_rules(df, rules)
         except Exception:
             pass
+        _transformed_cols = _transformed_column_names_from_rules(rules)
         if mapping_used:
+            mapping_used = _override_mapping_types_for_transform_rules(df, mapping_used, rules)
             try:
                 df = transform_engine.apply_mapping_type_cast(df, mapping_used, default_on_error="null")
             except ValueError as cast_err:
@@ -1903,7 +2029,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         rows_data = df.replace({pd.NA: None}).to_dict("records")
         rows_processed = len(rows_data)
         if mapping_used:
-            columns_final = [(m["target"], m["type"]) for m in mapping_used]
+            columns_final = _columns_final_for_mapping_after_transform(
+                df,
+                mapping_used,
+                _transformed_cols if (rules and mapping_used) else None,
+            )
             cols = [m["target"] for m in mapping_used]
             pk_list_full = [m["target"] for m in mapping_used if m["source"] in source_pk_list]
         else:
@@ -1949,14 +2079,17 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         etl_service.update_etl_table_status(etl_table_id, "error")
                         return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
                     rows_tuples = [
-                        tuple(r.get(m["source"]) for m in mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
+                        _row_tuple_for_column_mapping(r, mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
                         for r in rows_data
                     ]
                     _copy_insert_batch(cur_main, full_name, cols, rows_tuples)
                     conn_main.commit()
                     if incremental_column and incremental_column in col_names:
-                        inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
-                        max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
+                        max_vals = []
+                        for r in rows_data:
+                            v = _incremental_cell_from_row(r, mapping_used or [], incremental_column)
+                            if v is not None:
+                                max_vals.append(v)
                         if max_vals:
                             latest = max(max_vals) if isinstance(max_vals[0], datetime) else max(max_vals)
                             # convert_timezone_columns가 이미 타겟 TZ로 변환했으므로 추가 변환 불필요
@@ -2017,7 +2150,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         etl_service.update_etl_table_status(etl_table_id, "error")
                         return {"job_id": job_id, "status": "cancelled", "rows_processed": 0, "error_message": "사용자 취소"}
                     rows_tuples_inc = [
-                        tuple(r.get(c) for c in cols)
+                        _row_tuple_for_column_mapping(r, mapping_used) if mapping_used else tuple(r.get(c) for c in cols)
                         for r in rows_data
                     ]
                     if on_row_error == "skip":
@@ -2036,8 +2169,11 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         full_fetch_notice = None
                     # last_synced_at: 이번에 가져온 행들 중 incremental_column 최대값
                     if incremental_column and incremental_column in col_names:
-                        inc_key = next((m["target"] for m in mapping_used if m["source"] == incremental_column), incremental_column) if mapping_used else incremental_column
-                        max_vals = [r.get(inc_key) for r in rows_data if r.get(inc_key) is not None]
+                        max_vals = []
+                        for r in rows_data:
+                            v = _incremental_cell_from_row(r, mapping_used or [], incremental_column)
+                            if v is not None:
+                                max_vals.append(v)
                         if max_vals:
                             if isinstance(max_vals[0], datetime):
                                 latest = max(max_vals)

@@ -2,7 +2,10 @@
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
  * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼, 정지 전 이관 검증.
- * 본인 행: 목록(작업물·이관) 허용, 변경·정지·활성은 비활성 유지.
+ * 본인 행: 목록(작업물·이관) 허용, 변경·정지·활성은 비활성 유지. 사용자 변경 모달: SA·SA_DEV만 ETL 인프라 자격(etl_yn) 토글.
+ * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
+ * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
+ * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
  *
  * [Main Functions]
  * ===========
@@ -108,6 +111,7 @@ export default function AdminUsersPage() {
   const [changeForm, setChangeForm] = useState({
     dptmt_info_id: '',
     user_dvsn: '',
+    etl_yn: 'N',
     project_info_ids: [],
     project_roles: {},
   })
@@ -354,9 +358,12 @@ export default function AdminUsersPage() {
         if (Number.isFinite(pid) && Number.isFinite(mid) && pid > 0 && mid > 0) currentRoleMap[pid] = mid
       })
       setChangeCtx({ userId: uid, options: data || null })
+      const rawEtl = String(data?.target_user?.etl_yn ?? 'N').toUpperCase()
+      const etlNorm = rawEtl === 'Y' ? 'Y' : 'N'
       setChangeForm({
         dptmt_info_id: String(data?.target_user?.dptmt_info_id ?? ''),
         user_dvsn: String(data?.target_user?.user_dvsn ?? ''),
+        etl_yn: etlNorm,
         project_info_ids: currentIds,
         project_roles: currentRoleMap,
       })
@@ -411,11 +418,23 @@ export default function AdminUsersPage() {
       setChangeErr('체크한 프로젝트의 권한(pmssn)을 모두 선택하세요.')
       return
     }
+    const actorDvsn = String(changeCtx.options?.actor_user_dvsn || '').toLowerCase().trim()
+    const targetDvsnBefore = String(changeCtx.options?.target_user?.user_dvsn || '').toLowerCase().trim()
+    const nextDvsn = String(changeForm.user_dvsn || '').toLowerCase().trim()
+    const isSaDemotion = targetDvsnBefore === 'sa' && nextDvsn !== 'sa'
+    const isLastSa = !!changeCtx.options?.last_sa_in_department
+    if (actorDvsn === 'sa_dev' && isSaDemotion && isLastSa) {
+      const dptName = String(changeCtx.options?.last_sa_department_name || '해당')
+      const ok = window.confirm(
+        `${dptName} 부서의 마지막 SA 사용자입니다. 정말 권한을 변경하시겠습니까?`,
+      )
+      if (!ok) return
+    }
     if (!confirmCrud('해당 사용자의 부서/역할/프로젝트 참여를 변경할까요?')) return
     setChangeErr('')
     setChangeLoading(true)
     try {
-      await putAdminUserManagement(changeCtx.userId, {
+      const payload = {
         dptmt_info_id: Number(changeForm.dptmt_info_id),
         user_dvsn: changeForm.user_dvsn,
         project_info_ids: (changeForm.project_info_ids || []).map((x) => Number(x)),
@@ -423,7 +442,14 @@ export default function AdminUsersPage() {
           project_info_id: Number(pid),
           pmssn_master_id: Number(changeForm.project_roles?.[pid] || 0),
         })),
-      })
+      }
+      if (changeCtx.options?.can_manage_etl_yn) {
+        const td = String(changeCtx.options?.target_user?.user_dvsn || '').toLowerCase().trim()
+        if (td !== 'sa_dev') {
+          payload.etl_yn = changeForm.etl_yn === 'Y' ? 'Y' : 'N'
+        }
+      }
+      await putAdminUserManagement(changeCtx.userId, payload)
       setChangeCtx(null)
       await load()
       setExpandedUid(null)
@@ -524,12 +550,49 @@ export default function AdminUsersPage() {
                     {r.note}
                   </span>
                 ) : null}
+                {Array.isArray(r.cascade_children) && r.cascade_children.length ? (
+                  <div className="admin-users__work-note admin-users__work-cascade">
+                    {r.cascade_children.map((line, idx) => {
+                      const s = typeof line === 'string' ? line : String(line ?? '')
+                      const isDetail = s.startsWith('·')
+                      return (
+                        <div
+                          key={`${title}-${rid}-cascade-${idx}`}
+                          className={
+                            isDetail
+                              ? 'admin-users__work-cascade-line admin-users__work-cascade-line--detail'
+                              : 'admin-users__work-cascade-line'
+                          }
+                        >
+                          {s}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
               </li>
             )
           })}
         </ul>
       </div>
     )
+  }
+
+  function hasAnyWorkAssets(work) {
+    if (!work) return false
+    const keys = [
+      'created_projects',
+      'participant_projects',
+      'created_custom_roles',
+      'linked_tables',
+      'etl_connections',
+      'etl_tables',
+      'etl_jobs',
+      'etl_storage_connections',
+      'batch_folder_connections',
+      'batch_jobs',
+    ]
+    return keys.some((k) => Array.isArray(work[k]) && work[k].length > 0)
   }
 
   return (
@@ -601,7 +664,7 @@ export default function AdminUsersPage() {
                   >
                     {depts.map((d) => (
                       <option key={String(d.dptmt_info_id)} value={String(d.dptmt_info_id)}>
-                        {d.dptmt_name || d.dptmt_info_id}
+                        {d.display_label || d.dptmt_name || d.dptmt_info_id}
                       </option>
                     ))}
                   </select>
@@ -707,7 +770,7 @@ export default function AdminUsersPage() {
                   >
                     {(changeCtx.options?.departments || []).map((d) => (
                       <option key={String(d.dptmt_info_id)} value={String(d.dptmt_info_id)}>
-                        {d.dptmt_name || d.dptmt_info_id}
+                        {d.display_label || d.dptmt_name || d.dptmt_info_id}
                       </option>
                     ))}
                   </select>
@@ -726,6 +789,36 @@ export default function AdminUsersPage() {
                     ))}
                   </select>
                 </label>
+                {changeCtx.options?.can_manage_etl_yn &&
+                String(changeCtx.options?.target_user?.user_dvsn || '')
+                  .toLowerCase()
+                  .trim() !== 'sa_dev' ? (
+                  <label className="admin-users__check">
+                    <input
+                      type="checkbox"
+                      checked={changeForm.etl_yn === 'Y'}
+                      onChange={(e) =>
+                        setChangeForm((p) => ({ ...p, etl_yn: e.target.checked ? 'Y' : 'N' }))
+                      }
+                    />
+                    ETL 인프라 자격 부여 (etl_yn=Y) — ETL DB·테이블·Job 등 메타 인프라 사용
+                  </label>
+                ) : changeCtx.options?.can_manage_etl_yn &&
+                  String(changeCtx.options?.target_user?.user_dvsn || '')
+                    .toLowerCase()
+                    .trim() === 'sa_dev' ? (
+                  <div className="admin-users__field">
+                    ETL 인프라 자격
+                    <p className="admin-users__hint">SA_DEV 계정은 etl_yn을 변경할 수 없습니다.</p>
+                  </div>
+                ) : (
+                  <div className="admin-users__field">
+                    ETL 인프라 자격
+                    <p className="admin-users__hint">
+                      현재 {changeForm.etl_yn === 'Y' ? '부여(Y)' : '미부여(N)'} — SA 또는 SA_DEV만 변경할 수 있습니다.
+                    </p>
+                  </div>
+                )}
                 <div className="admin-users__field">
                   프로젝트 참여
                   <div className="admin-users__panel-scroll admin-users__panel-scroll--change">
@@ -1071,6 +1164,9 @@ export default function AdminUsersPage() {
                                 )}
                                 {work.etl_assets_note ? (
                                   <p className="admin-users__hint admin-users__work-etl-note">{work.etl_assets_note}</p>
+                                ) : null}
+                                {!hasAnyWorkAssets(work) ? (
+                                  <p className="admin-users__hint">생성/등록한 이력이 없습니다.</p>
                                 ) : null}
                               </div>
                             ) : (

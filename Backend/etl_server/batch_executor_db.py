@@ -17,7 +17,7 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 - Backend.etl_server.scheduler_file (refresh_interval_after_run)
 - Backend.etl_server.service (get_connection_for_etl, get_storage_connection, _connect_postgres, _connect_mysql, _connect_oracle, parse_source_table_parts, _validate_source_table, get_target_db_connection)
 - Backend.etl_server.timezone_utils (needs_conversion, convert_timezone_columns, convert_single_datetime)
-- Backend.etl_server.db_load_service (_get_source_connection, get_source_columns, _run_diff_sync, _pg_type_from_*)
+- Backend.etl_server.db_load_service (_get_source_connection, get_source_columns, _run_diff_sync, _override_mapping_types_for_transform_rules, _pg_type_from_*)
 - Backend.etl_server.load_service_file (load_dataframe)
 - Backend.etl_server.transform_engine (apply_mapping_type_cast)
 - Backend.etl_server.transform_rules_service (list_transform_rules)
@@ -533,6 +533,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
             if df.empty:
                 batch_offset += 1
                 continue
+            rules: List[dict] = []
             if etl_table_id:
                 try:
                     rules = transform_rules_svc.list_transform_rules(etl_table_id)
@@ -544,6 +545,9 @@ def run_db_batch_job(batch_job_id: int) -> None:
                         batch_job_id, e,
                     )
             if mapping_used:
+                mapping_used = db_load_service._override_mapping_types_for_transform_rules(
+                    df, mapping_used, rules,
+                )
                 try:
                     df = transform_engine.apply_mapping_type_cast(df, mapping_used, default_on_error="null")
                 except ValueError as cast_err:

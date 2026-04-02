@@ -6,7 +6,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 상태별 체크박스·로딩·삭제 중 비활성화
+ * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 라벨 열은 etl_tables.table_label(ETL 목록과 동일)
  *
  * [Dependencies]
  * =========
@@ -111,11 +111,16 @@ function JobHistoryPanel() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map((j) => (
+              {jobs.map((j) => {
+                const tableLabelStr = j.table_label != null ? String(j.table_label).trim() : '';
+                const tableLabelShown = tableLabelStr
+                  ? (tableLabelStr.length > 30 ? `${tableLabelStr.slice(0, 30)}…` : tableLabelStr)
+                  : '—';
+                return (
                 <tr key={j.job_id}>
                   <td>{j.job_id}</td>
-                  <td className="etl-history__cell--overflow" title={j.description || ''}>
-                    {(j.description || '').slice(0, 30)}{(j.description || '').length > 30 ? '…' : ''}
+                  <td className="etl-history__cell--overflow" title={tableLabelStr || ''}>
+                    {tableLabelShown}
                   </td>
                   <td className="etl-history__cell-creator" title={j.create_user_label || ''}>{j.create_user_label || '—'}</td>
                   <td className="etl-history__cell--overflow" title={j.target_table || ''}>{j.target_table || '—'}</td>
@@ -137,7 +142,8 @@ function JobHistoryPanel() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

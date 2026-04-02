@@ -265,6 +265,10 @@
   padding: 16px;
 }
 
+.admin-org__modal-overlay--stack {
+  z-index: 2100;
+}
+
 .admin-org__modal {
   background: var(--background);
   border: 1px solid var(--color-border-light);

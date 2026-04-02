@@ -222,6 +222,7 @@ def admin_user_management_update(
             body.user_dvsn,
             body.project_info_ids,
             [a.model_dump() for a in body.project_assignments] if body.project_assignments else None,
+            body.etl_yn,
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -450,6 +451,7 @@ def admin_org_departments_patch(
             body.use_yn,
             actor_dvsn=str(actor.get("user_dvsn") or ""),
             actor_dptmt_id=int(actor["dptmt_info_id"]),
+            migrate_users_to_dptmt_info_id=body.migrate_users_to_dptmt_info_id,
         )
     except ValueError as e:
         raise _ve(e) from e

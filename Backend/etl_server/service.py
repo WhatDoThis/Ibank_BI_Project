@@ -15,7 +15,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 8. list_storage_connections(선두 내장 main·dash + etl_storage_connections), get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
 10. list_etl_tables(_etl_tables_t_select_sql), create_etl_table(동적 INSERT), get_etl_table, get_sync_mode_for_load(full|incremental|diff), _storage_pg_identity_tuple·_find_downstream_etl_reading_target_pg(다운스트림 소스 검사), _count_table_project_mapping_for_target, delete_etl_table(공유타겟·다운스트림·프로젝트매핑 검증 후 배치·table_master·DROP·메타 일괄)·delete_etl_table_row_only(etl_jobs.add_file_path 있을 때만 SELECT), update_last_synced_at, update_etl_table(컬럼 존재 시만 SET), refresh_etl_table_column_mapping
-11. insert_job(add_file_path·add_file_type 컬럼 있을 때만 해당 INSERT), set_job_running, list_jobs·get_job(etl_tables는 target_table·source_table·connection_id·sync_mode만 JOIN; description·job 메타 키는 compat None), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
+11. insert_job(add_file_path·add_file_type 컬럼 있을 때만 해당 INSERT), set_job_running, list_jobs·get_job(etl_tables JOIN에 table_label 포함; description 등 job 메타 키는 compat None), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
 
 [Dependencies]
 =========
@@ -297,13 +297,14 @@ def _etl_jobs_j_select_sql(jcols: set) -> str:
 
 
 def _etl_tables_join_select_parts(tcols: set) -> str:
-    """etl_tables LEFT JOIN용 SELECT 조각(list_jobs/get_job). 정본: target_table, source_table, connection_id, sync_mode만(t.description 없음)."""
+    """etl_tables LEFT JOIN용 SELECT 조각(list_jobs/get_job). target_table, source_table, connection_id, sync_mode, table_label(이력 라벨)."""
     parts: list[str] = []
     for name, cast in (
         ("target_table", "text"),
         ("source_table", "text"),
         ("connection_id", "integer"),
         ("sync_mode", "text"),
+        ("table_label", "text"),
     ):
         if name in tcols:
             parts.append(f"t.{name}")
@@ -316,6 +317,7 @@ def _apply_etl_job_list_compat_keys(rows: list) -> None:
     """etl_jobs 정본에 없는 필드 등 예전 API 키 호환(None)."""
     for d in rows:
         d.setdefault("description", None)
+        d.setdefault("table_label", None)
         d.setdefault("source_type", None)
         d.setdefault("job_type", None)
         d.setdefault("storage_connection_id", None)

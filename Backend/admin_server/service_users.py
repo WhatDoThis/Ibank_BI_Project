@@ -13,17 +13,17 @@ Backend.admin_server.service_users (유저·초대·부서)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
 4. suspend_user / activate_user (_assert_target_exists_or_same_dept·SA_DEV 우회)
 5. set_user_dvsn_admin_user (a/sa/sa_dev·a·o·u 부여)
-6. set_user_etl_flag (sa·sa_dev·etl_yn)
+6. set_user_etl_flag (sa·sa_dev·etl_yn, N 시 ETL 등록 건 검사)
 7. list_invite_codes_for_dept
 8. get_department / update_department_name
-9. list_departments_for_org_settings(id≠0·미사용 포함) / create_department / update_department_in_org_settings(이름·코드·use_yn) / delete_department_in_org_settings(행 DELETE·sa는 본인 부서 행 금지)
+9. list_departments_for_org_settings(id≠0·미사용 포함·member_count·display_label) / create_department / update_department_in_org_settings(이름·코드·use_yn·migrate_users_to_dptmt_info_id) / delete_department_in_org_settings(행 DELETE·sa는 본인 부서 행 금지)
 10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 역할) 검사
-11. get_user_work_assets — 생성·참여 프로젝트, 커스텀 역할, table_master(create_user_id 전건)·etl_db 메타(ETL 테이블별 is_active 컬럼 있을 때만 SELECT)
-12. list_ownership_transfer_targets — 이관 수신 가능자만(SQL 역할 필터·액터 관리범위·SA→sa_dev 제외)
-12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev)
-13. transfer_resource_ownership — project·pmssn_master·table_master·ETL 메타 이관
+11. get_user_work_assets — 생성·참여 프로젝트, 커스텀 역할, table_master(create_user_id 전건)·etl_db 메타(ETL 테이블별 is_active 컬럼 있을 때만 SELECT), table_master 연쇄 안내에 ETL 테이블·Job·배치 Job 식별 라벨(· 줄)
+12. list_ownership_transfer_targets — 이관 수신 가능자만(SQL 역할 필터·액터 관리범위·SA→sa_dev 제외·부서는 상·하위 트리 동일 범위)
+12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
+13. transfer_resource_ownership — project·pmssn_master·table_master·ETL 메타 이관(ETL 생성 테이블은 연쇄 이관)
 14. user_has_transferable_ownership — 정지 전 생성자 자산(project·커스텀 역할) 존재 여부
-15. get_user_change_options / update_user_management — 부서·역할·프로젝트 참여 변경
+15. get_user_change_options / update_user_management — 부서·역할·ETL 인프라 자격(etl_yn)·프로젝트 참여 변경(+SA 마지막 1인 경고·부서 생성자 가드·역할 변경 시 생성물별 정합성: table_master 단독은 차단 안 함·ETL 등록은 o/a/sa/sa_dev만·etl_yn 해제 시 등록 건 검사)
 
 [Dependencies]
 =========
@@ -193,7 +193,7 @@ def _fetch_etl_work_blocks(etl_conn: Any, schema: str, uid: int) -> dict[str, li
         if "create_user_id" in tcols_tb:
             cur.execute(
                 f"""
-                SELECT {_admin_etl_select_cols(tcols_tb, ["etl_table_id", "source_table", "target_table"])}
+                SELECT {_admin_etl_select_cols(tcols_tb, ["etl_table_id", "source_table", "target_table", "storage_connection_id"])}
                 FROM {_admin_etl_q(schema, t)}
                 WHERE create_user_id = %s
                 ORDER BY target_table, source_table
@@ -212,7 +212,7 @@ def _fetch_etl_work_blocks(etl_conn: Any, schema: str, uid: int) -> dict[str, li
         if "create_user_id" in _admin_etl_table_columns_lower(cur, schema, t):
             cur.execute(
                 f"""
-                SELECT job_id, status, created_at
+                SELECT job_id, etl_table_id, status, created_at
                 FROM {_admin_etl_q(schema, t)}
                 WHERE create_user_id = %s
                 ORDER BY created_at DESC NULLS LAST, job_id DESC
@@ -260,9 +260,9 @@ def _fetch_etl_work_blocks(etl_conn: Any, schema: str, uid: int) -> dict[str, li
         t = "batch_jobs"
         tcols_bj = _admin_etl_table_columns_lower(cur, schema, t)
         if "create_user_id" in tcols_bj:
-            bj_base = ["batch_job_id", "job_name", "created_at"]
+            bj_base = ["batch_job_id", "etl_table_id", "job_name", "created_at"]
             if "created_at" not in tcols_bj:
-                bj_base = ["batch_job_id", "job_name"]
+                bj_base = ["batch_job_id", "etl_table_id", "job_name"]
             cur.execute(
                 f"""
                 SELECT {_admin_etl_select_cols(tcols_bj, bj_base)}
@@ -281,13 +281,17 @@ def _fetch_etl_work_blocks(etl_conn: Any, schema: str, uid: int) -> dict[str, li
     return out
 
 
-def _assert_etl_infra_recipient(to_row: dict[str, Any], from_user_dptmt: int) -> None:
-    """ETL 등록자 이관 수신: 소유자와 동일 부서, 활성, etl_yn=Y 또는 sa_dev."""
+def _assert_etl_infra_recipient(
+    conn, to_row: dict[str, Any], from_user_dptmt: int
+) -> None:
+    """ETL 등록자 이관 수신: 소유자 부서와 동일 PK 또는 상·하위 부서 트리, 활성, etl_yn=Y 또는 sa_dev."""
     if (to_row.get("ua") or "") != "Y":
         raise ValueError("비활성 사용자에게는 이관할 수 없습니다.")
     to_dpt = int(to_row["dptmt_info_id"])
-    if to_dpt != int(from_user_dptmt):
-        raise ValueError("ETL 등록 건은 동일 부서 사용자에게만 이관할 수 있습니다.")
+    if not _dptmt_same_vertical_branch(conn, int(from_user_dptmt), to_dpt):
+        raise ValueError(
+            "ETL 등록 건은 동일 부서 또는 상·하위 부서 사용자에게만 이관할 수 있습니다."
+        )
     td = canon_user_dvsn(to_row.get("user_dvsn"))
     etl_yn = (to_row.get("etl_yn") or "").strip().upper()
     if etl_yn != "Y" and td != "sa_dev":
@@ -356,6 +360,179 @@ def _transfer_etl_resource(
     except ValueError:
         etl_conn.rollback()
         raise
+    except Exception:
+        etl_conn.rollback()
+        raise
+    finally:
+        cur.close()
+        etl_conn.close()
+
+
+def _table_master_is_etl_managed_match(
+    table_db_type: str,
+    table_name: str,
+    etl_table_row: dict[str, Any],
+) -> bool:
+    tgt = str(etl_table_row.get("target_table") or "").strip().lower()
+    if tgt != str(table_name or "").strip().lower():
+        return False
+    raw_sid = etl_table_row.get("storage_connection_id")
+    sid_num = None
+    if raw_sid is not None:
+        try:
+            sid_num = int(raw_sid)
+        except Exception:
+            sid_num = None
+    if table_db_type == "dash":
+        return sid_num == -1
+    if table_db_type == "main":
+        return raw_sid is None
+    return False
+
+
+def _summarize_etl_cascade_for_table(
+    etl_blocks: dict[str, list[dict[str, Any]]],
+    table_db_type: str,
+    table_name: str,
+) -> dict[str, Any]:
+    etl_tables = [
+        r
+        for r in (etl_blocks.get("etl_tables") or [])
+        if _table_master_is_etl_managed_match(table_db_type, table_name, r)
+    ]
+    etl_table_ids = {
+        int(r.get("etl_table_id"))
+        for r in etl_tables
+        if r.get("etl_table_id") is not None
+    }
+    etl_jobs = [
+        r
+        for r in (etl_blocks.get("etl_jobs") or [])
+        if r.get("etl_table_id") is not None and int(r.get("etl_table_id")) in etl_table_ids
+    ]
+    batch_jobs = [
+        r
+        for r in (etl_blocks.get("batch_jobs") or [])
+        if r.get("etl_table_id") is not None and int(r.get("etl_table_id")) in etl_table_ids
+    ]
+    return {
+        "etl_table_count": len(etl_tables),
+        "etl_job_count": len(etl_jobs),
+        "batch_job_count": len(batch_jobs),
+        "etl_tables": etl_tables,
+        "etl_jobs": etl_jobs,
+        "batch_jobs": batch_jobs,
+    }
+
+
+def _etl_table_cascade_line_label(row: dict[str, Any]) -> str:
+    """etl_tables 행 → table_master 연쇄 안내용 한 줄(기존 ETL 목록 label과 동일 규칙)."""
+    lbl = (row.get("label") or "").strip()
+    if lbl:
+        return lbl
+    tgt = (row.get("target_table") or "").strip()
+    src = (row.get("source_table") or "").strip()
+    if tgt and src and tgt.lower() != src.lower():
+        return f"{tgt} ← {src}"
+    return tgt or src or f"etl_table_id={row.get('etl_table_id')}"
+
+
+def _etl_job_cascade_line_label(row: dict[str, Any]) -> str:
+    lbl = (row.get("label") or "").strip()
+    if lbl:
+        return lbl
+    jid = row.get("job_id")
+    st = (row.get("status") or "").strip()
+    return f"job #{jid} · {st}" if st else f"job #{jid}"
+
+
+def _batch_job_cascade_line_label(row: dict[str, Any]) -> str:
+    jn = (row.get("job_name") or "").strip()
+    if jn:
+        return jn
+    return f"batch_job_id={row.get('batch_job_id')}"
+
+
+def _cascade_transfer_etl_for_table_master(
+    table_db_type: str,
+    table_name: str,
+    from_uid: int,
+    to_uid: int,
+) -> dict[str, int]:
+    schema = _etl_schema_name()
+    etl_conn = core_db.get_db_connection_etl()
+    cur = etl_conn.cursor()
+    try:
+        cols_et = _admin_etl_table_columns_lower(cur, schema, "etl_tables")
+        if "create_user_id" not in cols_et:
+            return {"etl_table_count": 0, "etl_job_count": 0, "batch_job_count": 0}
+        select_storage = ", storage_connection_id" if "storage_connection_id" in cols_et else ", NULL::integer AS storage_connection_id"
+        cur.execute(
+            f"""
+            SELECT etl_table_id, target_table{select_storage}
+            FROM {_admin_etl_q(schema, "etl_tables")}
+            WHERE create_user_id = %s
+            """,
+            (int(from_uid),),
+        )
+        candidates = [
+            dict(r)
+            for r in cur.fetchall()
+            if _table_master_is_etl_managed_match(table_db_type, table_name, dict(r))
+        ]
+        etl_table_ids = [
+            int(r["etl_table_id"])
+            for r in candidates
+            if r.get("etl_table_id") is not None
+        ]
+        if not etl_table_ids:
+            return {"etl_table_count": 0, "etl_job_count": 0, "batch_job_count": 0}
+
+        ph = ", ".join(["%s"] * len(etl_table_ids))
+        cur.execute(
+            f"""
+            UPDATE {_admin_etl_q(schema, "etl_tables")}
+            SET create_user_id = %s, updated_at = NOW()
+            WHERE create_user_id = %s AND etl_table_id IN ({ph})
+            """,
+            (int(to_uid), int(from_uid), *etl_table_ids),
+        )
+        etl_table_count = int(cur.rowcount or 0)
+
+        etl_job_count = 0
+        cols_j = _admin_etl_table_columns_lower(cur, schema, "etl_jobs")
+        if "create_user_id" in cols_j and "etl_table_id" in cols_j:
+            ts_set = ", updated_at = NOW()" if "updated_at" in cols_j else ""
+            cur.execute(
+                f"""
+                UPDATE {_admin_etl_q(schema, "etl_jobs")}
+                SET create_user_id = %s{ts_set}
+                WHERE create_user_id = %s AND etl_table_id IN ({ph})
+                """,
+                (int(to_uid), int(from_uid), *etl_table_ids),
+            )
+            etl_job_count = int(cur.rowcount or 0)
+
+        batch_job_count = 0
+        cols_b = _admin_etl_table_columns_lower(cur, schema, "batch_jobs")
+        if "create_user_id" in cols_b and "etl_table_id" in cols_b:
+            ts_set = ", updated_at = NOW()" if "updated_at" in cols_b else ""
+            cur.execute(
+                f"""
+                UPDATE {_admin_etl_q(schema, "batch_jobs")}
+                SET create_user_id = %s{ts_set}
+                WHERE create_user_id = %s AND etl_table_id IN ({ph})
+                """,
+                (int(to_uid), int(from_uid), *etl_table_ids),
+            )
+            batch_job_count = int(cur.rowcount or 0)
+
+        etl_conn.commit()
+        return {
+            "etl_table_count": etl_table_count,
+            "etl_job_count": etl_job_count,
+            "batch_job_count": batch_job_count,
+        }
     except Exception:
         etl_conn.rollback()
         raise
@@ -447,7 +624,7 @@ def list_departments_for_invite(
                 """,
                 (int(actor_dptmt_id),),
             )
-        return [dict(r) for r in cur.fetchall()]
+        return _apply_department_option_display_labels([dict(r) for r in cur.fetchall()])
     finally:
         cur.close()
 
@@ -1001,6 +1178,8 @@ def set_user_etl_flag(
         td = (row.get("user_dvsn") or "").strip().lower()
         if td == "sa_dev":
             raise ValueError("SA_DEV 계정의 etl_yn은 변경할 수 없습니다.")
+        if flag == "N":
+            _raise_if_etl_registry_blocks_clearing_etl_yn(int(target_user_id))
         cur.execute(
             "UPDATE user_info SET etl_yn = %s, update_dtm = NOW() WHERE user_id = %s",
             (flag, target_user_id),
@@ -1084,12 +1263,47 @@ def _dptmt_id_in_managed_subtree(conn, root_dptmt_id: int, node_id: int) -> bool
         cur.close()
 
 
+def _dptmt_same_vertical_branch(conn, dept_a: int, dept_b: int) -> bool:
+    """
+    동일 부서(dptmt_info_id 동일)이거나, org 트리에서 한쪽이 다른 쪽의 조상·자손이면 True.
+    형제 부서(같은 부모 아래)는 False.
+    """
+    a = int(dept_a)
+    b = int(dept_b)
+    if a == 0 or b == 0:
+        return False
+    if a == b:
+        return True
+    return _dptmt_id_in_managed_subtree(conn, a, b) or _dptmt_id_in_managed_subtree(
+        conn, b, a
+    )
+
+
+def _apply_department_option_display_labels(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """parent_dptmt_info_id 기준 상위·하위 표시용 display_label·tier_label 부여."""
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        pid = d.get("parent_dptmt_info_id")
+        try:
+            pnum = int(pid) if pid is not None else 0
+        except Exception:
+            pnum = 0
+        tier = "상위" if pnum == 0 else "하위"
+        d["tier_label"] = tier
+        nm = (d.get("dptmt_name") or "").strip() or str(d.get("dptmt_info_id", ""))
+        d["display_label"] = f"{nm} ({tier})"
+        out.append(d)
+    return out
+
+
 def list_departments_for_org_settings(
     conn, actor_dvsn: str, actor_dptmt_id: int
 ) -> list[dict[str, Any]]:
     """
     부서 관리 화면 목록. dptmt_info_id=0 행은 제외(어떤 역할도 미표시).
     SA_DEV: 전체(사용/미사용 포함). sa: 본인 소속 부서 루트 하위 트리(use_yn 무관).
+    member_count: 소속 user_info 행 수. display_label·tier_label: 셀렉트용 상·하위 표시.
     """
     ad = (actor_dvsn or "").strip().lower()
     cur = conn.cursor()
@@ -1099,7 +1313,8 @@ def list_departments_for_org_settings(
                 """
                 SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
                        p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
-                       d.sort_order, d.use_yn, d.create_dtm
+                       d.sort_order, d.use_yn, d.create_dtm,
+                       (SELECT COUNT(*)::int FROM user_info u WHERE u.dptmt_info_id = d.dptmt_info_id) AS member_count
                 FROM dptmt_info d
                 LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
                 WHERE d.dptmt_info_id <> 0
@@ -1125,7 +1340,8 @@ def list_departments_for_org_settings(
                 )
                 SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
                        p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
-                       d.sort_order, d.use_yn, d.create_dtm
+                       d.sort_order, d.use_yn, d.create_dtm,
+                       (SELECT COUNT(*)::int FROM user_info u WHERE u.dptmt_info_id = d.dptmt_info_id) AS member_count
                 FROM sub d
                 LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
                 WHERE d.dptmt_info_id <> 0
@@ -1135,7 +1351,7 @@ def list_departments_for_org_settings(
             )
         else:
             return []
-        return [dict(r) for r in cur.fetchall()]
+        return _apply_department_option_display_labels([dict(r) for r in cur.fetchall()])
     finally:
         cur.close()
 
@@ -1248,6 +1464,49 @@ def _assert_department_clear_for_invalidate_or_remove(conn, tid: int) -> None:
     )
 
 
+def _migrate_users_for_department_invalidate(
+    conn,
+    actor_dvsn: str,
+    actor_dptmt_id: int,
+    source_dptmt_id: int,
+    target_dptmt_id: int,
+) -> int:
+    """비활성화 전 소속 사용자를 사용 중인 다른 부서로 일괄 이관. 이동 건수 반환."""
+    src = int(source_dptmt_id)
+    tgt = int(target_dptmt_id)
+    if src == tgt:
+        raise ValueError("이관 대상 부서는 비활성화하려는 부서와 달라야 합니다.")
+    assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt_id, tgt)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COALESCE(use_yn, 'Y') AS uu
+            FROM dptmt_info WHERE dptmt_info_id = %s
+            """,
+            (tgt,),
+        )
+        trow = cur.fetchone()
+        if not trow:
+            raise ValueError("이관 대상 부서를 찾을 수 없습니다.")
+        uy = (trow.get("uu") or "Y").strip().upper()
+        if uy != "Y":
+            raise ValueError(
+                "이관 대상은 사용 중(use_yn=Y)인 부서만 선택할 수 있습니다."
+            )
+        cur.execute(
+            """
+            UPDATE user_info
+            SET dptmt_info_id = %s, update_dtm = NOW()
+            WHERE dptmt_info_id = %s
+            """,
+            (tgt, src),
+        )
+        return int(cur.rowcount)
+    finally:
+        cur.close()
+
+
 def update_department_in_org_settings(
     conn,
     dptmt_info_id: int,
@@ -1256,6 +1515,7 @@ def update_department_in_org_settings(
     new_use_yn: str | None,
     actor_dvsn: str,
     actor_dptmt_id: int,
+    migrate_users_to_dptmt_info_id: int | None = None,
 ) -> None:
     eff = (actor_dvsn or "").strip().lower()
     if eff not in ("sa_dev", "sa"):
@@ -1279,8 +1539,21 @@ def update_department_in_org_settings(
         raise ValueError("부서명이 비어 있을 수 없습니다.")
     if has_code and not code:
         raise ValueError("부서 코드는 비울 수 없습니다.")
+    mig = migrate_users_to_dptmt_info_id
+    if mig is not None and (not has_use or use_v != "N"):
+        raise ValueError(
+            "migrate_users_to_dptmt_info_id는 사용 안 함(use_yn=N)으로 저장할 때만 지정할 수 있습니다."
+        )
     _assert_actor_can_manage_department(conn, eff, int(actor_dptmt_id), int(dptmt_info_id))
     if has_use and use_v == "N":
+        if mig is not None:
+            _migrate_users_for_department_invalidate(
+                conn,
+                actor_dvsn,
+                int(actor_dptmt_id),
+                int(dptmt_info_id),
+                int(mig),
+            )
         _assert_department_clear_for_invalidate_or_remove(conn, int(dptmt_info_id))
     if has_code and code:
         cur = conn.cursor()
@@ -1553,6 +1826,7 @@ def get_user_work_assets(
                 d["transferable"] = True
                 d["kind"] = "table_master"
                 d["note"] = lp if lp else "프로젝트 미매핑(동일 부서 SA/A·SA_DEV만 이관 수신 가능)"
+                d["cascade_children"] = []
                 linked_tables.append(d)
         except psycopg2.errors.UndefinedColumn:
             linked_tables = []
@@ -1582,6 +1856,23 @@ def get_user_work_assets(
                 etl_conn.close()
             except Exception:
                 pass
+    for item in linked_tables:
+        db_type = str(item.get("db_type") or "main").strip().lower()
+        table_name = str(item.get("table_name") or "").strip()
+        summary = _summarize_etl_cascade_for_table(etl_blocks, db_type, table_name)
+        if summary["etl_table_count"] > 0:
+            children = [f"└ ETL 테이블 {summary['etl_table_count']}건 연쇄 이관"]
+            for er in summary.get("etl_tables") or []:
+                children.append(f"· {_etl_table_cascade_line_label(dict(er))}")
+            if summary["etl_job_count"] > 0:
+                children.append(f"└ ETL 실행 Job {summary['etl_job_count']}건 연쇄 이관")
+                for jr in summary.get("etl_jobs") or []:
+                    children.append(f"· {_etl_job_cascade_line_label(dict(jr))}")
+            if summary["batch_job_count"] > 0:
+                children.append(f"└ 배치 Job {summary['batch_job_count']}건 연쇄 이관")
+                for br in summary.get("batch_jobs") or []:
+                    children.append(f"· {_batch_job_cascade_line_label(dict(br))}")
+            item["cascade_children"] = children
     for rows in etl_blocks.values():
         for item in rows:
             if target_user_dptmt_info_id is not None:
@@ -1638,16 +1929,20 @@ def _table_master_recipient_eligible(
     """
     테이블 마스터 수신 가능 여부.
     - sa_dev: 항상 가능
-    - 프로젝트 미매핑: 원 소유자와 동일 부서의 sa·a 만
-    - 매핑 있음: (동일 부서 sa·a) 또는 (매핑 프로젝트 참여 + query.execute 유효 권한)
+    - 프로젝트 미매핑: 원 소유자 부서와 동일 PK 또는 상·하위 트리에 있는 sa·a 만
+    - 매핑 있음: (위 동일 부서 트리 sa·a) 또는 (매핑 프로젝트 참여 + query.execute 유효 권한)
     """
     cd = canon_user_dvsn(to_row.get("user_dvsn"))
     to_dpt = int(to_row["dptmt_info_id"])
     if cd == "sa_dev":
         return True
     if not linked_project_ids:
-        return cd in ("sa", "a") and to_dpt == int(from_dptmt_id)
-    if cd in ("sa", "a") and to_dpt == int(from_dptmt_id):
+        return cd in ("sa", "a") and _dptmt_same_vertical_branch(
+            conn, int(from_dptmt_id), to_dpt
+        )
+    if cd in ("sa", "a") and _dptmt_same_vertical_branch(
+        conn, int(from_dptmt_id), to_dpt
+    ):
         return True
     dvsn_raw = to_row.get("user_dvsn")
     for pid in linked_project_ids:
@@ -1721,15 +2016,38 @@ def list_table_master_transfer_targets(
     try:
         cur.execute(
             """
+            WITH RECURSIVE
+            down AS (
+                SELECT dptmt_info_id FROM dptmt_info
+                WHERE dptmt_info_id = %s AND dptmt_info_id <> 0
+                UNION ALL
+                SELECT d.dptmt_info_id FROM dptmt_info d
+                INNER JOIN down s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                WHERE d.dptmt_info_id <> 0
+            ),
+            up AS (
+                SELECT dptmt_info_id, parent_dptmt_info_id FROM dptmt_info
+                WHERE dptmt_info_id = %s
+                UNION ALL
+                SELECT p.dptmt_info_id, p.parent_dptmt_info_id
+                FROM dptmt_info p
+                INNER JOIN up u ON p.dptmt_info_id = u.parent_dptmt_info_id
+                WHERE p.dptmt_info_id <> 0
+            ),
+            branch AS (
+                SELECT dptmt_info_id FROM down
+                UNION
+                SELECT dptmt_info_id FROM up
+            )
             SELECT user_id, user_email, user_nickname, user_dvsn,
                    UPPER(TRIM(COALESCE(user_active_yn, ''))) AS ua,
                    dptmt_info_id
             FROM user_info
-            WHERE dptmt_info_id = %s
+            WHERE dptmt_info_id IN (SELECT dptmt_info_id FROM branch)
               AND user_id <> %s
               AND UPPER(TRIM(COALESCE(user_active_yn, ''))) = 'Y'
             """,
-            (fd, ex),
+            (fd, fd, ex),
         )
         for r in cur.fetchall():
             candidates[int(r["user_id"])] = dict(r)
@@ -1812,10 +2130,33 @@ def list_ownership_transfer_targets(
         if etl_infra:
             cur.execute(
                 """
+                WITH RECURSIVE
+                down AS (
+                    SELECT dptmt_info_id FROM dptmt_info
+                    WHERE dptmt_info_id = %s AND dptmt_info_id <> 0
+                    UNION ALL
+                    SELECT d.dptmt_info_id FROM dptmt_info d
+                    INNER JOIN down s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                    WHERE d.dptmt_info_id <> 0
+                ),
+                up AS (
+                    SELECT dptmt_info_id, parent_dptmt_info_id FROM dptmt_info
+                    WHERE dptmt_info_id = %s
+                    UNION ALL
+                    SELECT p.dptmt_info_id, p.parent_dptmt_info_id
+                    FROM dptmt_info p
+                    INNER JOIN up u ON p.dptmt_info_id = u.parent_dptmt_info_id
+                    WHERE p.dptmt_info_id <> 0
+                ),
+                branch AS (
+                    SELECT dptmt_info_id FROM down
+                    UNION
+                    SELECT dptmt_info_id FROM up
+                )
                 SELECT user_id, user_email, user_nickname, user_dvsn,
                        UPPER(TRIM(COALESCE(etl_yn, ''))) AS etl_yn
                 FROM user_info
-                WHERE dptmt_info_id = %s
+                WHERE dptmt_info_id IN (SELECT dptmt_info_id FROM branch)
                   AND user_id <> %s
                   AND UPPER(TRIM(COALESCE(user_active_yn, ''))) = 'Y'
                   AND (
@@ -1824,7 +2165,7 @@ def list_ownership_transfer_targets(
                   )
                 ORDER BY user_email
                 """,
-                (int(dept_id), ex),
+                (int(dept_id), int(dept_id), ex),
             )
             rows = [dict(r) for r in cur.fetchall()]
             if block_sa_to_sa_dev:
@@ -1846,15 +2187,38 @@ def list_ownership_transfer_targets(
             return out_etl
         cur.execute(
             """
+            WITH RECURSIVE
+            down AS (
+                SELECT dptmt_info_id FROM dptmt_info
+                WHERE dptmt_info_id = %s AND dptmt_info_id <> 0
+                UNION ALL
+                SELECT d.dptmt_info_id FROM dptmt_info d
+                INNER JOIN down s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                WHERE d.dptmt_info_id <> 0
+            ),
+            up AS (
+                SELECT dptmt_info_id, parent_dptmt_info_id FROM dptmt_info
+                WHERE dptmt_info_id = %s
+                UNION ALL
+                SELECT p.dptmt_info_id, p.parent_dptmt_info_id
+                FROM dptmt_info p
+                INNER JOIN up u ON p.dptmt_info_id = u.parent_dptmt_info_id
+                WHERE p.dptmt_info_id <> 0
+            ),
+            branch AS (
+                SELECT dptmt_info_id FROM down
+                UNION
+                SELECT dptmt_info_id FROM up
+            )
             SELECT user_id, user_email, user_nickname, user_dvsn
             FROM user_info
-            WHERE dptmt_info_id = %s
+            WHERE dptmt_info_id IN (SELECT dptmt_info_id FROM branch)
               AND user_id <> %s
               AND UPPER(TRIM(COALESCE(user_active_yn, ''))) = 'Y'
               AND LOWER(TRIM(COALESCE(user_dvsn, ''))) IN ('sa_dev', 'sa', 'a')
             ORDER BY user_email
             """,
-            (int(dept_id), ex),
+            (int(dept_id), int(dept_id), ex),
         )
         rows = [dict(r) for r in cur.fetchall()]
     finally:
@@ -1924,7 +2288,7 @@ def transfer_resource_ownership(
                 raise ValueError("소유 사용자를 찾을 수 없습니다.")
             from_dpt = int(from_row["dptmt_info_id"])
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, from_dpt)
-            _assert_etl_infra_recipient(dict(to_row), from_dpt)
+            _assert_etl_infra_recipient(conn, dict(to_row), from_dpt)
             cur.close()
             cur = None
             _transfer_etl_resource(rt, rid, fid, tid)
@@ -1944,7 +2308,7 @@ def transfer_resource_ownership(
             try:
                 cur.execute(
                     """
-                    SELECT table_master_id, create_user_id
+                    SELECT table_master_id, create_user_id, db_type, table_name
                     FROM table_master
                     WHERE table_master_id = %s
                     """,
@@ -1993,6 +2357,12 @@ def transfer_resource_ownership(
             if cur.rowcount == 0:
                 conn.rollback()
                 raise ValueError("테이블 마스터 이관에 실패했습니다.")
+            _cascade_transfer_etl_for_table_master(
+                str(tm.get("db_type") or "main"),
+                str(tm.get("table_name") or ""),
+                fid,
+                tid,
+            )
             conn.commit()
             return
         if (to_row.get("ua") or "") != "Y":
@@ -2094,6 +2464,7 @@ def _assert_target_role_manageable(actor_dvsn: str, target_dvsn: str) -> None:
 
 
 def _list_departments_for_change(conn, actor_dvsn: str, actor_dptmt_id: int) -> list[dict[str, Any]]:
+    """사용자 변경·초대 등 부서 선택 옵션. use_yn=Y만, display_label(상위·하위) 포함."""
     ad = (actor_dvsn or "").strip().lower()
     cur = conn.cursor()
     try:
@@ -2102,39 +2473,77 @@ def _list_departments_for_change(conn, actor_dvsn: str, actor_dptmt_id: int) -> 
                 """
                 SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
                 FROM dptmt_info
+                WHERE dptmt_info_id <> 0 AND COALESCE(use_yn, 'Y') = 'Y'
                 ORDER BY dptmt_name NULLS LAST
                 """
             )
-            return [dict(r) for r in cur.fetchall()]
+            return _apply_department_option_display_labels([dict(r) for r in cur.fetchall()])
         cur.execute(
             """
             WITH RECURSIVE sub AS (
-                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
+                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id, use_yn
                 FROM dptmt_info WHERE dptmt_info_id = %s
                 UNION ALL
-                SELECT d.dptmt_info_id, d.dptmt_name, d.parent_dptmt_info_id
+                SELECT d.dptmt_info_id, d.dptmt_name, d.parent_dptmt_info_id, d.use_yn
                 FROM dptmt_info d
                 INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
             )
             SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
             FROM sub
+            WHERE COALESCE(use_yn, 'Y') = 'Y'
             ORDER BY dptmt_name NULLS LAST
             """,
             (int(actor_dptmt_id),),
         )
-        return [dict(r) for r in cur.fetchall()]
+        return _apply_department_option_display_labels([dict(r) for r in cur.fetchall()])
     finally:
         cur.close()
 
 
-def _user_has_role_change_blockers(cur, user_id: int) -> bool:
+def _raise_if_etl_registry_blocks_clearing_etl_yn(user_id: int) -> None:
+    """etl_yn을 N으로 바꿀 때 ETL 메타에 create_user_id 등록이 있으면 ValueError."""
     uid = int(user_id)
-    cur.execute("SELECT 1 FROM dptmt_info WHERE dptmt_create_user_id = %s LIMIT 1", (uid,))
+    etl_conn = None
+    try:
+        etl_conn = core_db.get_db_connection_etl()
+        if _etl_user_has_any_owned(etl_conn, _etl_schema_name(), uid):
+            raise ValueError(
+                "ETL 등록 건(연결·테이블·Job·저장 DB·배치 등)이 있으면 ETL 인프라 자격(etl_yn)을 해제할 수 없습니다. "
+                "「목록」에서 이관하거나 등록을 정리한 뒤 다시 시도하세요."
+            )
+    except ValueError:
+        raise
+    except Exception as ex:
+        _log.warning(
+            "_raise_if_etl_registry_blocks_clearing_etl_yn: etl_db 확인 실패(uid=%s): %s",
+            uid,
+            ex,
+        )
+    finally:
+        if etl_conn is not None:
+            try:
+                etl_conn.close()
+            except Exception:
+                pass
+
+
+def _assert_role_change_allowed_for_owned_assets(cur, tid: int, new_dvsn: str) -> None:
+    """
+    역할(user_dvsn) 변경 시 system_db·etl_db 소유물과의 정합성.
+    - table_master.create_user_id 단독: 역할 변경 차단하지 않음(a/o 등이 원장 생성자 유지 가능).
+    - project·커스텀 pmssn: 이관 전까지 역할 변경 불가(기존과 동일).
+    - ETL 메타 등록 건: 목표 역할이 운영자·관리자·Super Admin·SA_DEV 가 아니면 불가(일반 u 등).
+    """
+    uid = int(tid)
+    nd = canon_user_dvsn(new_dvsn)
+    cur.execute(
+        "SELECT 1 FROM project_info WHERE project_create_user_id = %s LIMIT 1",
+        (uid,),
+    )
     if cur.fetchone():
-        return True
-    cur.execute("SELECT 1 FROM project_info WHERE project_create_user_id = %s LIMIT 1", (uid,))
-    if cur.fetchone():
-        return True
+        raise ValueError(
+            "생성한 프로젝트가 있어 역할을 변경할 수 없습니다. 프로젝트 생성자를 이관한 뒤 다시 시도하세요."
+        )
     cur.execute(
         """
         SELECT 1 FROM pmssn_master
@@ -2144,14 +2553,33 @@ def _user_has_role_change_blockers(cur, user_id: int) -> bool:
         (uid,),
     )
     if cur.fetchone():
-        return True
-    cur.execute(
-        "SELECT 1 FROM table_master WHERE create_user_id = %s LIMIT 1",
-        (uid,),
-    )
-    if cur.fetchone():
-        return True
-    return False
+        raise ValueError(
+            "등록한 커스텀 권한 역할이 있어 역할을 변경할 수 없습니다. 역할 등록자를 이관한 뒤 다시 시도하세요."
+        )
+    if nd in ("sa", "sa_dev", "a", "o"):
+        return
+    etl_conn = None
+    try:
+        etl_conn = core_db.get_db_connection_etl()
+        if _etl_user_has_any_owned(etl_conn, _etl_schema_name(), uid):
+            raise ValueError(
+                "ETL 연결·테이블·Job 등 등록자로 남아 있으면 운영자(o)·관리자(a)·Super Admin(sa) 또는 SA_DEV 역할로만 변경할 수 있습니다. "
+                "먼저 「목록」에서 이관하세요."
+            )
+    except ValueError:
+        raise
+    except Exception as ex:
+        _log.warning(
+            "_assert_role_change_allowed_for_owned_assets: etl_db 확인 실패(uid=%s): %s",
+            uid,
+            ex,
+        )
+    finally:
+        if etl_conn is not None:
+            try:
+                etl_conn.close()
+            except Exception:
+                pass
 
 
 def _default_project_member_pmssn(cur) -> int:
@@ -2170,6 +2598,21 @@ def _default_project_member_pmssn(cur) -> int:
         if (r.get("pmssn_name") or "").strip() == "뷰어":
             return int(r["pmssn_master_id"])
     return int(rows[0]["pmssn_master_id"])
+
+
+def _count_active_sa_in_department(cur, dptmt_info_id: int) -> int:
+    cur.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM user_info
+        WHERE dptmt_info_id = %s
+          AND LOWER(TRIM(COALESCE(user_dvsn, ''))) = 'sa'
+          AND UPPER(TRIM(COALESCE(user_active_yn, 'Y'))) = 'Y'
+        """,
+        (int(dptmt_info_id),),
+    )
+    row = cur.fetchone() or {}
+    return int(row.get("cnt") or 0)
 
 
 def _list_project_role_options(cur, project_info_id: int) -> list[dict[str, Any]]:
@@ -2233,7 +2676,8 @@ def get_user_change_options(
     try:
         cur.execute(
             """
-            SELECT user_id, user_email, user_nickname, user_dvsn, dptmt_info_id
+            SELECT user_id, user_email, user_nickname, user_dvsn, dptmt_info_id,
+                   UPPER(TRIM(COALESCE(etl_yn, 'N'))) AS etl_yn
             FROM user_info WHERE user_id = %s
             """,
             (tid,),
@@ -2294,8 +2738,28 @@ def get_user_change_options(
             obj["role_options"] = _list_project_role_options(cur2, pid)
     finally:
         cur2.close()
+    ad_actor = (actor_dvsn or "").strip().lower()
+    can_manage_etl_yn = ad_actor in ("sa_dev", "sa")
+    target_dptmt = int(target.get("dptmt_info_id") or 0)
+    cur3 = conn.cursor()
+    try:
+        cur3.execute(
+            "SELECT dptmt_name FROM dptmt_info WHERE dptmt_info_id = %s",
+            (target_dptmt,),
+        )
+        drow = cur3.fetchone() or {}
+        dptmt_name = drow.get("dptmt_name")
+        last_sa_in_department = False
+        if canon_user_dvsn(target.get("user_dvsn")) == "sa" and target_dptmt > 0:
+            last_sa_in_department = _count_active_sa_in_department(cur3, target_dptmt) <= 1
+    finally:
+        cur3.close()
     return {
         "target_user": dict(target),
+        "can_manage_etl_yn": can_manage_etl_yn,
+        "actor_user_dvsn": canon_user_dvsn(actor_dvsn),
+        "last_sa_in_department": last_sa_in_department,
+        "last_sa_department_name": dptmt_name or str(target_dptmt or ""),
         "departments": _list_departments_for_change(conn, actor_dvsn, actor_dptmt),
         "role_options": [
             {"value": v, "label": v}
@@ -2323,6 +2787,7 @@ def update_user_management(
     user_dvsn: str | None = None,
     project_info_ids: list[int] | None = None,
     project_assignments: list[dict[str, int]] | None = None,
+    etl_yn: str | None = None,
 ) -> None:
     tid = int(target_user_id)
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
@@ -2354,17 +2819,51 @@ def update_user_management(
             )
 
         if user_dvsn is not None:
+            td_before = canon_user_dvsn(target.get("user_dvsn"))
             nd = canon_user_dvsn(user_dvsn)
             allowed = set(_role_change_allowed_for_actor(actor_dvsn))
             if nd not in allowed:
                 raise ValueError("해당 역할로는 변경할 수 없습니다.")
-            if _user_has_role_change_blockers(cur, tid):
-                raise ValueError(
-                    "해당 사용자는 생성한 부서·프로젝트·역할 등의 생성물이 있어 역할을 변경할 수 없습니다."
+            if td_before == "sa" and nd != "sa":
+                cur.execute(
+                    "SELECT 1 FROM dptmt_info WHERE dptmt_create_user_id = %s LIMIT 1",
+                    (tid,),
                 )
+                if cur.fetchone():
+                    raise ValueError(
+                        "해당 SA 사용자는 생성한 하위 부서가 있어 역할을 변경할 수 없습니다. "
+                        "생성 부서를 먼저 이관한 뒤 다시 시도하세요."
+                    )
+            _assert_role_change_allowed_for_owned_assets(cur, tid, nd)
             cur.execute(
                 "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
                 (nd, tid),
+            )
+
+        if etl_yn is not None:
+            flag = (etl_yn or "").strip().upper()
+            if flag not in ("Y", "N"):
+                raise ValueError("etl_yn은 Y 또는 N이어야 합니다.")
+            ad_etl = (actor_dvsn or "").strip().lower()
+            if ad_etl not in ("sa_dev", "sa"):
+                raise ValueError("ETL 자격 변경 권한이 없습니다.")
+            if ad_etl == "sa":
+                _assert_target_in_managed_tree(conn, actor_dptmt, tid)
+            cur.execute(
+                "SELECT user_dvsn FROM user_info WHERE user_id = %s",
+                (tid,),
+            )
+            erow = cur.fetchone()
+            if not erow:
+                raise ValueError("사용자를 찾을 수 없습니다.")
+            td_etl = (erow.get("user_dvsn") or "").strip().lower()
+            if td_etl == "sa_dev":
+                raise ValueError("SA_DEV 계정의 etl_yn은 변경할 수 없습니다.")
+            if flag == "N":
+                _raise_if_etl_registry_blocks_clearing_etl_yn(tid)
+            cur.execute(
+                "UPDATE user_info SET etl_yn = %s, update_dtm = NOW() WHERE user_id = %s",
+                (flag, tid),
             )
 
         desired_list = project_assignments if project_assignments is not None else None

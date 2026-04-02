@@ -4,6 +4,7 @@
  * GET /api/admin/org — 내 소속 부서명·코드 표시(읽기 전용).
  * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가·수정(사용여부 포함)·행 삭제(DB 삭제).
  * 부서 목록: 부서구분(상위·하위) 열, 상위 부서 없으면 상위 부서 칸은 「—」. SA는 본인 소속 행 수정·삭제 UI 비표시(백엔드 동일 정책).
+ * 사용 안 함 저장 시 소속 사용자가 있으면 이관 대상 부서 선택 모달(사용 중 부서만·display_label).
  *
  * [Main Functions]
  * ===========
@@ -81,10 +82,32 @@ export default function AdminOrgPage() {
   const [editBusy, setEditBusy] = useState(false)
   const [editError, setEditError] = useState('')
 
+  const [migrateOpen, setMigrateOpen] = useState(false)
+  const [migrateTargetId, setMigrateTargetId] = useState('')
+  const [migrateBusy, setMigrateBusy] = useState(false)
+  const [migrateError, setMigrateError] = useState('')
+
   const visibleDepartments = useMemo(
     () => departments.filter((d) => Number(d?.dptmt_info_id) !== 0),
     [departments],
   )
+
+  /** 사용 안 함 전 사용자 이관: 사용 중이며 비활성화 대상이 아닌 부서만 */
+  const migrateDeptOptions = useMemo(() => {
+    if (!editRow) return []
+    const sid = Number(editRow.dptmt_info_id)
+    return visibleDepartments
+      .filter((d) => {
+        const u = (d.use_yn || 'Y').toString().trim().toUpperCase()
+        return u !== 'N' && Number(d.dptmt_info_id) !== sid
+      })
+      .sort((a, b) =>
+        String(a.display_label || a.dptmt_name || '').localeCompare(
+          String(b.display_label || b.dptmt_name || ''),
+          'ko',
+        ),
+      )
+  }, [visibleDepartments, editRow])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -258,6 +281,67 @@ export default function AdminOrgPage() {
   function closeEditModal() {
     setEditOpen(false)
     setEditRow(null)
+    setMigrateOpen(false)
+    setMigrateTargetId('')
+    setMigrateError('')
+  }
+
+  function closeMigrateModal() {
+    setMigrateOpen(false)
+    setMigrateTargetId('')
+    setMigrateError('')
+  }
+
+  async function runPatchEdit(extra = {}) {
+    if (!editRow) return
+    const id = editRow.dptmt_info_id
+    const n = editName.trim()
+    const c = editCode.trim()
+    setEditBusy(true)
+    setEditError('')
+    try {
+      await patchAdminOrgDepartment(id, {
+        dptmt_name: n,
+        dptmt_code: c,
+        use_yn: editUseYn,
+        ...extra,
+      })
+      closeEditModal()
+      await loadDepartments()
+      await load()
+    } catch (err) {
+      setEditError(err?.message || '수정 실패')
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  async function submitMigrateModal(e) {
+    e.preventDefault()
+    if (!editRow) return
+    const pid = Number(migrateTargetId)
+    if (!pid) {
+      setMigrateError('사용자를 옮길 부서를 선택하세요.')
+      return
+    }
+    setMigrateError('')
+    setMigrateBusy(true)
+    try {
+      await patchAdminOrgDepartment(editRow.dptmt_info_id, {
+        dptmt_name: editName.trim(),
+        dptmt_code: editCode.trim(),
+        use_yn: 'N',
+        migrate_users_to_dptmt_info_id: pid,
+      })
+      closeMigrateModal()
+      closeEditModal()
+      await loadDepartments()
+      await load()
+    } catch (err) {
+      setMigrateError(err?.message || '처리 실패')
+    } finally {
+      setMigrateBusy(false)
+    }
   }
 
   async function submitEdit(e) {
@@ -295,21 +379,16 @@ export default function AdminOrgPage() {
     ) {
       return
     }
-    setEditBusy(true)
-    try {
-      await patchAdminOrgDepartment(id, {
-        dptmt_name: n,
-        dptmt_code: c,
-        use_yn: editUseYn,
-      })
-      closeEditModal()
-      await loadDepartments()
-      await load()
-    } catch (err) {
-      setEditError(err?.message || '수정 실패')
-    } finally {
-      setEditBusy(false)
+    const wasY = (editRow.use_yn || 'Y').toString().trim().toUpperCase() !== 'N'
+    const goingN = editUseYn === 'N'
+    const mc = Number(editRow.member_count ?? 0)
+    if (goingN && wasY && mc > 0) {
+      setMigrateError('')
+      setMigrateTargetId('')
+      setMigrateOpen(true)
+      return
     }
+    await runPatchEdit({})
   }
 
   async function handleDeleteRow(row) {
@@ -549,7 +628,7 @@ export default function AdminOrgPage() {
                           key={String(d.dptmt_info_id)}
                           value={String(d.dptmt_info_id)}
                         >
-                          {d.dptmt_name || '—'} · {d.dptmt_code || '—'}
+                          {d.display_label || d.dptmt_name || '—'} · {d.dptmt_code || '—'}
                         </option>
                       ))}
                     </select>
@@ -679,6 +758,73 @@ export default function AdminOrgPage() {
                 {editBusy ? '저장 중…' : '저장'}
               </button>
             </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {migrateOpen && editRow ? (
+        <div
+          className="admin-org__modal-overlay admin-org__modal-overlay--stack"
+          role="presentation"
+          onClick={(ev) => {
+            if (ev.target === ev.currentTarget && !migrateBusy) closeMigrateModal()
+          }}
+        >
+          <div
+            className="admin-org__modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-org-migrate-title"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <form onSubmit={submitMigrateModal}>
+              <h3 id="admin-org-migrate-title">소속 사용자 이관</h3>
+              <p className="admin-org__meta">
+                「{editRow.dptmt_name || '—'}」에 소속 사용자{' '}
+                <strong>{Number(editRow.member_count ?? 0)}명</strong>이 있어 사용 안 함 처리 전에 다른 부서로
+                옮겨야 합니다. 사용 중인 부서만 선택할 수 있습니다.
+              </p>
+              {migrateDeptOptions.length === 0 ? (
+                <p className="admin-org__error">
+                  사용 중인 다른 부서가 없어 이관할 수 없습니다. 사용자를 수동으로 옮긴 뒤 다시 시도하세요.
+                </p>
+              ) : (
+                <label className="admin-org__label">
+                  이관할 부서
+                  <select
+                    className="admin-org__input admin-org__select"
+                    value={migrateTargetId}
+                    onChange={(ev) => setMigrateTargetId(ev.target.value)}
+                    required
+                  >
+                    <option value="">— 부서 선택 —</option>
+                    {migrateDeptOptions.map((d) => (
+                      <option key={String(d.dptmt_info_id)} value={String(d.dptmt_info_id)}>
+                        {d.display_label || d.dptmt_name || d.dptmt_info_id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {migrateError ? <p className="admin-org__error">{migrateError}</p> : null}
+              <div className="admin-org__modal-actions">
+                <button
+                  type="button"
+                  className="admin-org__btn-inline"
+                  onClick={closeMigrateModal}
+                  disabled={migrateBusy}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="admin-org__submit"
+                  disabled={migrateBusy || migrateDeptOptions.length === 0}
+                >
+                  {migrateBusy ? '처리 중…' : '이관 후 사용 안 함'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

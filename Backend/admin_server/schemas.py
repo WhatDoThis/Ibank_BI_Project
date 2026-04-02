@@ -5,9 +5,9 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 
 [Classes]
 ===========
-- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody, TransferOwnershipBody, UserManageUpdateBody
+- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody, TransferOwnershipBody, UserManageUpdateBody(etl_yn 선택)
 - RoleCreateBody, RoleUpdateBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody
-- OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody, TableMasterPatchBody, ProjectTableAddBody
+- OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 
 [Dependencies]
@@ -140,6 +140,11 @@ class OrgDepartmentPatchBody(BaseModel):
     use_yn: Literal["Y", "N"] | None = Field(
         None, description="Y=사용, N=사용 안 함(삭제와 별개)"
     )
+    migrate_users_to_dptmt_info_id: int | None = Field(
+        None,
+        ge=1,
+        description="use_yn=N일 때 소속 사용자를 이 부서 PK로 이관한 뒤 비활성화",
+    )
 
 
 class TableMasterPatchBody(BaseModel):
@@ -179,6 +184,10 @@ class ProjectAssignmentBody(BaseModel):
 class UserManageUpdateBody(BaseModel):
     dptmt_info_id: int | None = Field(None, ge=0)
     user_dvsn: Literal["sa", "a", "o", "u"] | None = None
+    etl_yn: Literal["Y", "N"] | None = Field(
+        None,
+        description="ETL 인프라 자격(etl_yn). sa·sa_dev만 변경 가능, 생략 시 유지",
+    )
     project_info_ids: list[int] | None = None
     project_assignments: list[ProjectAssignmentBody] | None = Field(
         None,

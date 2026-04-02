@@ -1,5 +1,5 @@
 /**
- * app/admin/admin-users.css — AdminUsersPage 전용 (이관 모달 빈 목록·empty-title 등)
+ * app/admin/admin-users.css — AdminUsersPage 전용 (이관 모달 빈 목록·empty-title·테이블마스터 연쇄 이관 상세 줄 등)
  */
 
 .admin-users {
@@ -391,6 +391,21 @@
 .admin-users__work-note {
   flex-basis: 100%;
   font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.admin-users__work-cascade {
+  margin-top: 4px;
+}
+
+.admin-users__work-cascade-line {
+  line-height: 1.45;
+}
+
+.admin-users__work-cascade-line--detail {
+  padding-left: 0.75rem;
+  margin-top: 2px;
+  font-size: 0.7rem;
   color: var(--color-text-muted);
 }
 

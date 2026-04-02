@@ -1,6 +1,20 @@
 # Log
 
 ## Log Index
+190. 2026-04-02 ETL 이력 탭: 라벨 열을 etl_tables.table_label로 표시(list_jobs JOIN)
+189. 2026-04-02 부서: 셀렉트 display_label(상위·하위)·사용안함 시 사용자 이관 모달·PATCH migrate
+188. 2026-04-02 사용자 역할 변경: 생성물 정합성(테이블마스터 단독 허용·ETL·etl_yn 해제)
+187. 2026-04-02 사용자관리: 테이블마스터 연쇄 이관 안내에 ETL 테이블·Job·배치 식별 라벨
+186. 2026-04-02 소유 이관 후보: 상·하위 부서 트리 동일 범위(ETL·테이블마스터·ETL 검증)
+185. 2026-04-02 테이블마스터 이관: ETL 생성 테이블 연쇄 이관 + 목록 └ 하위 안내
+184. 2026-04-02 사용자 목록 패널: 생성/등록 이력 없음 안내 문구 추가
+183. 2026-04-02 사용자관리 SA 역할 변경 가드: dptmt_create_user_id 이관 안내·SA_DEV 마지막 SA 추가확인
+182. 2026-04-02 DB 배치잡: apply_mapping_type_cast 전 `_override_mapping_types_for_transform_rules` (수동 적재와 정합)
+181. 2026-04-02 DB ETL 적재: CREATE TABLE은 변환 룰 적용 컬럼만 df dtype, 나머지는 매핑 원본 타입
+180. 2026-04-02 DB ETL 적재: 변환 룰 적용 컬럼은 apply_mapping_type_cast 전 매핑 type을 df dtype으로 오버라이드
+179. 2026-04-02 DB ETL 적재: 변환 룰 후 columns_final을 DataFrame dtype 기준으로 DDL 결정
+178. 2026-04-02 DB ETL 적재: column_mapping 시 COPY 행 값 누락(소스 키 vs 타겟 컬럼) 수정
+177. 2026-04-02 사용자관리 변경 모달: ETL 인프라 자격(etl_yn) SA·SA_DEV 토글·change-options
 176. 2026-04-02 ETL 삭제: 다운스트림(소스로 읽는 다른 ETL) 검사·거절
 175. 2026-04-02 ETL 목록 삭제 실패 시 공유타겟 거절도 alert
 174. 2026-04-02 ETL 삭제: 공유타겟·프로젝트매핑 차단·table_master·DROP 일괄
@@ -179,6 +193,129 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+190. 2026-04-02 ETL 이력 탭: 라벨 열을 etl_tables.table_label로 표시(list_jobs JOIN)
+Purpose: 이력 「라벨」을 ETL 목록과 동일한 `table_label`로 정합. `list_jobs`/`get_job`의 etl_tables JOIN에 `table_label` 추가.
+Changes:
+
+- `service`: `_etl_tables_join_select_parts`, `_apply_etl_job_list_compat_keys`
+- `JobHistoryPanel.jsx`: `table_label` 표시
+Changed files: Backend/etl_server/service.py, Frontend/react-app/src/packages/etl/components/JobHistoryPanel.jsx, docs/log/log.md
+
+189. 2026-04-02 부서: 셀렉트 display_label(상위·하위)·사용안함 시 사용자 이관 모달·PATCH migrate
+Purpose: 사용자 변경·초대 부서 옵션에 `이름 (상위|하위)` 표시. 부서 관리에서 사용 안 함으로 저장 시 소속 사용자가 있으면 사용 중 부서만 담은 이관 모달 후 `migrate_users_to_dptmt_info_id`로 일괄 이관 뒤 비활성화.
+Changes:
+
+- `service_users`: `_apply_department_option_display_labels`, `list_departments_for_org_settings`에 member_count, `_list_departments_for_change`·`list_departments_for_invite`에 라벨·활성 부서만
+- `_migrate_users_for_department_invalidate`, `update_department_in_org_settings(..., migrate_users_to_dptmt_info_id)`
+- `schemas`·`router`, `AdminUsersPage`·`AdminOrgPage`·`admin-org.css`, `adminClient`
+
+Changed files: Backend/admin_server/service_users.py, Backend/admin_server/schemas.py, Backend/admin_server/router.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminOrgPage.jsx, Frontend/react-app/src/app/admin/admin-org.css, docs/log/log.md
+
+188. 2026-04-02 사용자 역할 변경: 생성물 정합성(테이블마스터 단독 허용·ETL·etl_yn 해제)
+Purpose: 역할 변경 시 `table_master` 소유만으로 전면 차단되던 로직을 완화하고, ETL 메타 등록 건은 목표 역할이 o/a/sa/sa_dev일 때만 허용·`etl_yn` 해제 시 등록 건이 있으면 거절하도록 정리.
+Changes:
+
+- `_user_has_role_change_blockers` 제거 → `_assert_role_change_allowed_for_owned_assets`(프로젝트·커스텀 pmssn 유지 차단, table_master 제외, ETL 등록은 u 등으로만 내릴 때 차단)
+- `_raise_if_etl_registry_blocks_clearing_etl_yn`: `set_user_etl_flag`·`update_user_management`에서 etl_yn=N 전 검사
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+187. 2026-04-02 사용자관리: 테이블마스터 연쇄 이관 안내에 ETL 테이블·Job·배치 식별 라벨
+Purpose: table_master 이관 시 “ETL 테이블 n건 연쇄 이관”만으로는 하단 ETL 목록의 `sample_test_02 ← public.sample_test` 등과 대응이 어려워, 연쇄 블록에 동일 식별 라벨을 `·` 상세 줄로 표시.
+Changes:
+
+- `service_users`: `_summarize_etl_cascade_for_table`가 필터된 행 목록을 반환, `cascade_children`에 `·` 라벨 줄 추가(ETL 테이블/실행 Job/배치 Job)
+- `AdminUsersPage`·`admin-users.css`: `·` 시작 줄은 들여쓰기·작은 글씨로 구분
+
+Changed files: Backend/admin_server/service_users.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+186. 2026-04-02 소유 이관 후보: 상·하위 부서 트리 동일 범위(ETL·테이블마스터·ETL 검증)
+Purpose: 이관 대상자 목록이 `dptmt_info_id` 동일 행만 조회해 하위(또는 상위) 부서 소속 ETL 관리자가 빠지던 문제를 수정. 소유자 부서 기준 조상·자손 부서를 한 범위로 묶어 후보를 채우고, ETL 이관·테이블마스터 SA/A 동일 부서 판정도 동일 트리 규칙으로 통일.
+Changes:
+
+- `_dptmt_same_vertical_branch`: 조상·자손 관계(동일 PK 포함) 판정 헬퍼 추가
+- `list_ownership_transfer_targets`, `list_table_master_transfer_targets`: 후보 SQL을 부서 트리 branch(상향·하향 CTE)로 확장
+- `_assert_etl_infra_recipient`, `_table_master_recipient_eligible`: 동일 부서 판정을 PK 일치 대신 상·하위 트리 허용
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+185. 2026-04-02 테이블마스터 이관: ETL 생성 테이블 연쇄 이관 + 목록 └ 하위 안내
+Purpose: table_master 이관 시 ETL 생성 테이블이면 관련 ETL 메타(etl_tables/etl_jobs/batch_jobs)를 함께 연쇄 이관하고, 목록 화면에서만 하위(└)로 연쇄 대상 수를 보여 이관 단위는 table_master 1건으로 유지.
+Changes:
+
+- `service_users.transfer_resource_ownership(table_master)`: `db_type/table_name` 기준 ETL 연관 검사 후 `create_user_id` 연쇄 이관
+- `service_users.get_user_work_assets`: table_master 행에 `cascade_children`(└ ETL 테이블/Job/배치 Job n건) 계산 추가
+- `AdminUsersPage`: 목록에서 `cascade_children`를 하위 안내로 렌더링(이관 버튼은 table_master만)
+
+Changed files: Backend/admin_server/service_users.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+184. 2026-04-02 사용자 목록 패널: 생성/등록 이력 없음 안내 문구 추가
+Purpose: 사용자별 작업물 패널이 비어 있을 때 빈 화면 대신 상태 메시지를 보여 사용자가 "조회 실패"와 "이력 없음"을 구분할 수 있게 개선.
+Changes:
+
+- `AdminUsersPage`: `hasAnyWorkAssets` 헬퍼 추가
+- 패널 하단: 자산 배열이 모두 비어 있으면 `생성/등록한 이력이 없습니다.` 안내 문구 표시
+- 파일 상단 설명에 빈 목록 안내 동작 추가
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+183. 2026-04-02 사용자관리 SA 역할 변경 가드: dptmt_create_user_id 이관 안내·SA_DEV 마지막 SA 추가확인
+Purpose: SA 역할 하향 시 부서 생성자(`dptmt_create_user_id`)를 이관 필요 자산으로 취급. SA가 만든 하위 부서가 남아 있으면 역할 변경을 차단하고 이관 안내. 단, SA_DEV는 마지막 SA라도 차단하지 않되 저장 직전 추가 confirm으로 안전장치 제공.
+Changes:
+
+- `service_users.get_user_change_options`: `actor_user_dvsn`, `last_sa_in_department`, `last_sa_department_name` 메타 제공
+- `service_users.update_user_management`: SA→비SA 변경 시 `dptmt_info` 생성자 존재 검사 및 이관 안내 에러 추가
+- `AdminUsersPage`: SA_DEV가 마지막 SA 하향 변경 시 `${부서명} 부서의 마지막 SA 사용자입니다...` 추가 confirm
+
+Changed files: Backend/admin_server/service_users.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+182. 2026-04-02 DB 배치잡: apply_mapping_type_cast 전 `_override_mapping_types_for_transform_rules` (수동 적재와 정합)
+Purpose: `run_db_batch_job`이 `run_db_load`와 달리 변환 룰 직후 매핑 type 오버라이드 없이 캐스트해 마스킹 등 값이 깨질 수 있음. `rules` 초기화 후 동일 헬퍼 호출.
+Changes:
+
+- `batch_executor_db`: fetch 배치 루프 내 `mapping_used = _override_mapping_types_for_transform_rules(...)` 후 `apply_mapping_type_cast`
+Changed files: Backend/etl_server/batch_executor_db.py, docs/log/log.md
+
+181. 2026-04-02 DB ETL 적재: CREATE TABLE은 변환 룰 적용 컬럼만 df dtype, 나머지는 매핑 원본 타입
+Purpose: `_columns_final_for_mapping_after_transform`가 매핑 전 컬럼까지 pandas object→TEXT로 잡아 timestamp가 TEXT DDL로 내려가는 문제 방지. `_transformed_column_names_from_rules`로 룰 대상만 `_pg_type_from_pandas`, 그 외는 `column_mapping.type`(소스 기준) 유지.
+Changes:
+
+- `db_load_service`: `_transformed_column_names_from_rules`, `_columns_final_for_mapping_after_transform(..., transformed_columns)`, `_override_mapping_types_for_transform_rules`가 동일 집합 재사용, 스트리밍·full-fetch 호출부
+Changed files: Backend/etl_server/db_load_service.py, docs/log/log.md
+
+180. 2026-04-02 DB ETL 적재: 변환 룰 적용 컬럼은 apply_mapping_type_cast 전 매핑 type을 df dtype으로 오버라이드
+Purpose: 마스킹 후 object(TEXT)인데 매핑 BIGINT로 `apply_mapping_type_cast`가 재캐스트해 NaN·float64가 됨. 활성 룰의 target/source_column에 해당하는 매핑 행의 type을 `_pg_type_from_pandas(df[source])`로 맞춤. 스트리밍·full-fetch·diff INSERT 경로 적용. full-fetch는 `rules` 미정의 방지 위해 `rules = []` 선행.
+Changes:
+
+- `db_load_service`: `_override_mapping_types_for_transform_rules`, `run_db_load`·`_run_diff_sync` 호출부
+Changed files: Backend/etl_server/db_load_service.py, docs/log/log.md
+
+179. 2026-04-02 DB ETL 적재: 변환 룰 후 columns_final을 DataFrame dtype 기준으로 DDL 결정
+Purpose: 매핑의 원래 `type`만으로 CREATE TABLE하면 마스킹 등으로 실제 값이 TEXT인데 BIGINT DDL이 잡혀 COPY/스테이징 캐스트 실패. `apply_rules`·`apply_mapping_type_cast` 이후 `df`에서 target/source 컬럼 dtype으로 `_pg_type_from_pandas` 적용.
+Changes:
+
+- `db_load_service`: `_columns_final_for_mapping_after_transform`, 스트리밍 `first_batch`·full-fetch 경로 `columns_final` 생성
+Changed files: Backend/etl_server/db_load_service.py, docs/log/log.md
+
+178. 2026-04-02 DB ETL 적재: column_mapping 시 COPY 행 값 누락(소스 키 vs 타겟 컬럼) 수정
+Purpose: `run_db_load`에서 DataFrame 행 dict 키는 소스 컬럼명인데 INSERT/COPY는 타겟 컬럼 순서로 `r.get(타겟)`만 해 변환·형변환 값이 빠짐. 파일 적재와 동일하게 타겟 키 우선·소스 폴백.
+Changes:
+
+- `db_load_service`: `_row_tuple_for_column_mapping`, `_incremental_cell_from_row`
+- diff·스트리밍·일괄 경로 `rows_tuples`·증분 `max_vals` 정합
+Changed files: Backend/etl_server/db_load_service.py, docs/log/log.md
+
+177. 2026-04-02 사용자관리 변경 모달: ETL 인프라 자격(etl_yn) SA·SA_DEV 토글·change-options
+Purpose: 사용자 변경 시 부서·역할·프로젝트와 함께 ETL 인프라 자격(기존 `PATCH .../etl-access`와 동일 취지)을 설정. A(조직 관리자)는 읽기 안내만.
+Changes:
+
+- `get_user_change_options`: `target_user.etl_yn`, `can_manage_etl_yn`
+- `UserManageUpdateBody`·`update_user_management`: 선택 필드 `etl_yn` (set_user_etl_flag와 동일 검증)
+- `AdminUsersPage` 체크박스·SA_DEV 대상 변경 불가 안내·`putAdminUserManagement` body
+- `adminClient` JSDoc
+
+Changed files: Backend/admin_server/schemas.py, router.py, service_users.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/shared/api/adminClient.js, docs/log/log.md
 
 176. 2026-04-02 ETL 삭제: 다운스트림(소스로 읽는 다른 ETL) 검사·거절
 Purpose: 외부→A 적재 후 A→B ETL이 같은 PG 인스턴스에서 A 테이블을 읽는 경우, A ETL만 삭제하면 파이프라인이 깨짐. 저장 PG와 동일 (host,port,database,schema)에서 source_table이 DROP 대상과 일치하면 삭제 400·UI alert.
