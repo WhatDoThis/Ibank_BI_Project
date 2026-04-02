@@ -66,7 +66,7 @@ function ETLPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [addFileModal, setAddFileModal] = useState({ open: false, etlTableId: null, targetTable: '', description: '' });
+  const [addFileModal, setAddFileModal] = useState({ open: false, etlTableId: null, targetTable: '', tableLabel: '', tableDscrtn: '' });
   const [batchHistoryJobId, setBatchHistoryJobId] = useState(null);
   const [batchHistoryRunId, setBatchHistoryRunId] = useState(null);
   const jobResultsRef = useRef(jobResults);
@@ -172,7 +172,11 @@ function ETLPage() {
       const existsRes = await etl2TargetExists(etlTableId);
       const isFullSync = (existsRes?.sync_mode || "").toLowerCase() === "full";
       if (existsRes?.exists && existsRes?.target_table && isFullSync) {
-        const dbLabel = existsRes?.storage_connection_id != null ? '저장 DB' : '메인 DB';
+        const sidRun = existsRes?.storage_connection_id;
+        const dbLabel =
+          sidRun == null ? '메인 DB(main)' :
+          Number(sidRun) === -1 ? '대시보드 DB(dash)' :
+          '등록 저장 DB';
         const msg = `동일한 테이블명 "${existsRes.target_table}"이(가) 이미 ${dbLabel}에 있습니다.\n실행 시 기존 테이블이 삭제되고 새로 적재됩니다.\n진행하시겠습니까?`;
         if (!window.confirm(msg)) return;
       }
@@ -322,9 +326,10 @@ function ETLPage() {
   );
   const howToStorage = (
     <ul className="etl-page__how-list">
-      <li><strong>1.</strong> 적재할 PostgreSQL DB의 호스트·포트·DB명·사용자·비밀번호를 입력하세요.</li>
+      <li><strong>0.</strong> 기본 적재처는 config의 main·dash 두 가지이며, 별도 등록 없이 파일/DB 연동 화면의 &quot;저장할 DB&quot; 맨 위에 표시됩니다.</li>
+      <li><strong>1.</strong> 그 외 PostgreSQL 적재처는 호스트·포트·DB명·사용자·비밀번호를 입력하세요.</li>
       <li><strong>2.</strong> &quot;연결 테스트&quot;로 접속과 권한을 확인한 뒤 &quot;연결 등록&quot;을 누르세요.</li>
-      <li><strong>3.</strong> 파일 업로드나 DB 연동 시 &quot;저장할 DB&quot;에서 이 연결을 선택할 수 있습니다.</li>
+      <li><strong>3.</strong> 등록한 연결은 같은 &quot;저장할 DB&quot; 셀렉트 목록에 이어서 나타납니다.</li>
     </ul>
   );
   const howToHistory = (
@@ -394,7 +399,15 @@ function ETLPage() {
             onRun={handleRun}
             onPreview={handlePreview}
             onAddFile={(row) => {
-              setAddFileModal({ open: true, etlTableId: row.etl_table_id, targetTable: row.target_table || '', description: row.description || '' });
+              setAddFileModal({
+                open: true,
+                etlTableId: row.etl_table_id,
+                targetTable: row.target_table || '',
+                tableLabel: row.table_label || '',
+                tableDscrtn: (row.table_dscrtn != null && String(row.table_dscrtn).trim())
+                  ? String(row.table_dscrtn).trim()
+                  : (row.description || ''),
+              });
             }}
             onDelete={handleRefresh}
             onOpenBatchHistory={(batchJobId) => {
@@ -457,7 +470,8 @@ function ETLPage() {
           <AddFileModal
             etlTableId={addFileModal.etlTableId}
             targetTable={addFileModal.targetTable}
-            description={addFileModal.description}
+            tableLabel={addFileModal.tableLabel}
+            tableDscrtn={addFileModal.tableDscrtn}
             onClose={() => setAddFileModal({ open: false })}
             onSuccess={(result) => {
               const jobId = result?.job_id;

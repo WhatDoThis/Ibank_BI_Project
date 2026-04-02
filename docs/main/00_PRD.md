@@ -13,9 +13,9 @@
 SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이터를 조회·집계할 수 있는 **노코드 쿼리 빌더** 및 **정형 대시보드** (스타벅스 CRM 대상).
 
 ### 1.2 핵심 가치
-- **리포트(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
+- **쿼리 스튜디오(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
 - **대시보드**(/dashboard): **캠페인 대시보드** 단일 UI(`packages/campaign_dashboard`). 발송 요약·추이·회원·인구통계·시간대 등. 데이터는 Star 물리 테이블(`ibank_*_star_1`, `ibank_*_star_2`), API `/api/campaign-dashboard`, **dash_db**. `/campaign-dashboard` 경로는 `/dashboard` 로 리다이렉트. 구형 `/api/dashboard`·뉴·마케팅 대시보드는 앱에 연결하지 않음(코드 보존). 상세 **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md §4.6.2**.
-- **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드. 리포트(쿼리) API 활용.
+- **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드. 쿼리 스튜디오 API 활용.
 - **ETL**(/etl, 단일): 파일·외부 DB → 우리 PostgreSQL 적재. **소스**: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle). **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환·**변환 룰**(날짜/시간 연산 등)·증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분/**PK 차이(diff)**)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN**(Full·Incremental). **diff**는 DB 소스·PK 기준 소스/타겟 집합 비교 적재(최초는 full 후 전환). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행. **DB 탭 배치**: ETL 테이블 기반 **배치설정** 버튼으로 주기 배치 등록(status=done 시 활성). **배치 파일별 에러 정책**(on_file_error): stop/continue. **인덱스 설정**(index_definitions), **CSV 인코딩** 통합(csv_reader). API prefix **/api/etl**, Backend **etl_server**. 상세는 **01 §4.5**, **02 §6**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**, **docs/report/14_ETL_PK_DIFF.md**(diff).
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
 - **단일 설정**: 환경은 `Env/config/config.json` 만 사용 (.env 미사용)
@@ -27,9 +27,9 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 2.1 패키지 구조 (루트 기준)
 
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
-- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/layout/navConfig.js`, `src/app/routes.jsx`. **앱 페이지**: `src/app/auth|home|mypage|admin|layout|guards/`. **packages**: report, **campaign_dashboard**, **widgetboard**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
+- **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/layout/navConfig.js`, `src/app/routes.jsx`. **앱 페이지**: `src/app/auth|home|mypage|admin|layout|guards/`. **packages**: **query_studio**, **campaign_dashboard**, **widgetboard**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(공유 `db`, `dependencies`, `dashboard_service`), **report_server**(노코드 리포트 `/api`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard` — 등록되는 유일 대시보드 API). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 저장소 보존·main 미등록. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **03_AI_DEVELOP_GUIDE.md**.
+- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(공유 `db`, `dependencies`, `dashboard_service`), **query_studio_server**(쿼리 스튜디오 `/api/*`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard` — 등록되는 유일 대시보드 API). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 저장소 보존·main 미등록. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **03_AI_DEVELOP_GUIDE.md**.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -78,7 +78,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ```
 
 - `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
-- **쿼리 스튜디오·리포트 API 노출 테이블**: `backend.main_db.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거). 레거시: 평면 `backend.db_*`·`backend.table_schema` 도 `Backend.core.db` 가 인식한다.
+- **쿼리 스튜디오 API 노출 테이블**: `backend.main_db.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거). 레거시: 평면 `backend.db_*`·`backend.table_schema` 도 `Backend.core.db` 가 인식한다.
 - **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(파일 크기·행 수·배치 상한·**ZIP 압축 해제 총량 상한**) 선택. **etl_limits 미지정 시** etl_server2 기본값 적용(파일 50MB·행 10만·배치 5만·**ZIP 총량 2GB** 등). **max_zip_extract_total_mb**: add-files-zip 시 압축 해제 전 총 용량 상한(MB), 초과 시 전체 실패(ZIP bomb 방지). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
 - **뉴 대시보드 물리 테이블**: backend.**dash_db**(예: `ibank_dash_data`) — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 집계·서브 테이블. 메인 `db_name`과 분리. 상세는 **02_BACKEND_GUIDE.md §3.2.1·§4.6**.
 - **Linux 배포 시**: Nginx에서 프론트는 `/ibank-bi/`, API는 `/report_api/` 등으로 프록시할 경우 `frontend.api_base_url` 은 **API 쪽 URL** (예: `https://도메인/report_api`) 로 설정.
@@ -91,7 +91,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ## 4. 프론트엔드 (Frontend)
 
-- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: report, **campaign_dashboard**, **widgetboard**, **etl**. 공용: `shared/config/api.js`, `shared/api/http.js`. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
+- **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`**. 패키지: **query_studio**, **campaign_dashboard**, **widgetboard**, **etl**. 공용: `shared/config/api.js`, `shared/api/http.js`. 정적 서버가 dist 서빙·SPA fallback·api-config.js 주입.
 - 상세 구조·패키지·추가 기능(Claude 해석·페이지네이션)은 **01_FRONTEND_GUIDE.md** 참고.
 
 ---
@@ -99,19 +99,19 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ## 5. 백엔드 (Backend)
 
 ### 5.1 역할
-- **FastAPI** REST API: 리포트·**캠페인 대시보드**(`/api/campaign-dashboard`)·**ETL**(`/api/etl`, `/api/etl/batch`). 위젯보드는 별도 라우터 없이 리포트 API를 사용한다.
-- **인증·인가**: 애플리케이션 코드에 로그인·세션·JWT·역할(RBAC)은 **없다**(엔드포인트는 인증 헤더 없이 호출 가능한 형태). 운영 환경에서는 **Nginx `allow`/`deny`**, VPN, 별도 게이트웨이 등 **상위 레이어**에서 접근을 제한하는 전제다. 상세·에러 응답 규약은 **03_AI_DEVELOP_GUIDE.md §9·§10**.
+- **FastAPI** REST API: **`Backend/api_server/main.py`** 가 `auth`·`project`·`notification`·`admin`·`query_studio_server`·`etl_server`·`campaign_dash_server` 라우터를 한 프로세스에 조립한다. 쿼리 스튜디오·캠페인 대시보드·ETL 등은 **Bearer access JWT**·`require_permission` / `require_etl_infrastructure` 로 보호된다. 위젯보드는 별도 라우터 없이 쿼리 스튜디오 API를 사용한다.
+- **인증·인가**: 로그인·2차 인증·리프레시·세션(`session_log`)·access JWT(`typ=access`, `user_id`·`project_info_id` 등 클레임)은 **`Backend/auth_server`** 및 **`/api/auth/*`**. 프로젝트 기능은 **`Backend/auth_server/permissions.require_permission`**(프로젝트 멤버·`pmssn_master.pmssn_list`)·조직 역할 Fast Path로 판별. ETL 인프라는 **`require_etl_infrastructure`**(`sa_dev` 또는 `etl_yn=Y`). 정책 표는 **05_Permission_ARCHITECTURE.md**, 흐름도·엣지 케이스 동일 문서 상단.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성
 - 엔드포인트·접두사·바디 규칙은 **02_BACKEND_GUIDE.md §4** (캠페인 대시보드 §4.6.2, ETL §4.4·§4.5·§6). ETL 운영·COPY·설정 모달 보조 설명은 **docs/report/08_ETL_Phase_Implement_Guide.md**.
-- 호스트·코어·리포트 모듈 역할은 **02_BACKEND_GUIDE.md §5** 참고. (리포트 스키마는 `report_server/schemas.py`.)
+- 호스트·코어·쿼리 스튜디오 모듈 역할은 **02_BACKEND_GUIDE.md §5** 참고. (요청 스키마는 `query_studio_server/schemas.py`.)
 
 ---
 
 ## 6. 핵심 기능 요약 (현재 구현 기준)
 
-### 6.1 리포트(쿼리 빌더)
+### 6.1 쿼리 스튜디오(쿼리 빌더)
 - **JOIN 규칙·안전성**: FK 기반 관계만 허용. `joinRules.js`: canAddTableByColumn(직접 관계만 추가 허용), findIntermediateParent(같은 부모_id 쓰는 두 테이블 시 끼워 넣을 부모), isTableAvailable(사이드바/드롭다운 노출 여부). `safetyCheck.js`: 순환 참조(detectCircularReference)·N:N(detectManyToMany) 감지, validateJoinPath·canAddTableSafely로 추가 전 검증. joinMode·relationshipOptions·joinConditions·joinTypes·joinLogicalOperators·joinConfigs(LEFT/INNER/RIGHT, 복합 조건·AND/OR) 지원.
 - 사이드바: 테이블 목록, 테이블별 컬럼(드래그 가능), JOIN 불가 테이블 비활성화.
 - 그리드: 컬럼 드롭 추가, 헤더 드래그로 순서 변경, 기준축·피벗·HAVING·조건·정렬·날짜 단위·집계 함수. SQL 빌더: generateSQL, generateCountSQL, generateDistinctPivotSQL(피벗 시 고유 건수).
@@ -123,7 +123,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **캠페인 대시보드** 단일: `packages/campaign_dashboard`, API `/api/campaign-dashboard`, **dash_db** 의 Star 테이블(`ibank_*_star_1`, `ibank_*_star_2`). 발송 요약·추이·회원·인구통계·시간대 등. 계산·필드 패턴은 **02_BACKEND_GUIDE.md §4.6.2**(구 §4.6.1과 동일 패턴 참고). 보조: **docs/report/16_Campaign_Dashboard_Star_Schema_Plan.md**.
 
 ### 6.2.1 위젯보드 (/widgetboard)
-- **역할**: 드래그 앤 드롭으로 위젯을 배치·저장하는 그리드 대시보드. 레이아웃·위젯 설정은 localStorage 저장(widgetboard_layout, widgetboard_widget_configs). 리포트(execute-query) API 및 shared 데이터 유틸 활용.
+- **역할**: 드래그 앤 드롭으로 위젯을 배치·저장하는 그리드 대시보드. 레이아웃·위젯 설정은 localStorage 저장(widgetboard_layout, widgetboard_widget_configs). 쿼리 스튜디오(execute-query) API 및 shared 데이터 유틸 활용.
 - **구성**: `packages/widgetboard` (Dashboard3Page.jsx, index.jsx, utils/dataUtils.js, widgetboard.css). 라우트 `/widgetboard`, 네비 "위젯보드". 상세는 **01_FRONTEND_GUIDE.md §4.3** 참고.
 
 ### 6.3 ETL (/etl)
@@ -161,7 +161,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 |
 | 03_AI_DEVELOP_GUIDE.md | AI·온보딩용 시스템 아키텍처·레이어·“어디를 고칠지” 지도 |
 | 04_DB_ARCHITECTURE.md | `ibank_system_data` FK 트리·테이블 정의 요약 |
-| 05_Permission_ARCHITECTURE.md | 6단계 역할·권한 매트릭스 v2·ETL·프로젝트 권한 정책 |
+| 05_Permission_ARCHITECTURE.md | 5역할·`user_dvsn` 캐논·권한 매트릭스·ETL·`require_permission` 정책 |
 | 06_CUSTOMER_JOURNEY.md | Phase 0~12 고객 여정(부트스트랩·ETL·프로젝트·로그인) |
 
 - docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 docs/main**(PRD·01~06).

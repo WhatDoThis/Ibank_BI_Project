@@ -15,7 +15,7 @@ Backend.etl_server.load_service (파일 기반 추출·적재)
 =========
 - Backend.core.db, Backend.etl_server.service, schema_infer, transform_engine, transform_rules_service, etl_limits
 - Backend.etl_server.csv_reader (CSV 인코딩 감지·읽기)
-- Backend.etl_server.table_master_hook (적재 완료 시 table_master UPSERT)
+- Backend.etl_server.table_master_hook (적재 완료 시 table_master UPSERT, create_user_id·main|dash)
 - pandas
 """
 
@@ -295,10 +295,25 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             from Backend.etl_server import db_load_service as db_load
             db_load._create_indexes_on_target(cur, conn_main, main_schema, target_table, idx_def)
 
-        if not etl_row.get("storage_connection_id"):
-            from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+        _sid = etl_row.get("storage_connection_id")
+        if etl_service.should_upsert_table_master_for_storage(_sid):
+            from Backend.etl_server.table_master_hook import (
+                table_master_texts_from_etl_row,
+                upsert_table_master_after_load,
+            )
 
-            upsert_table_master_after_load(target_table)
+            _job_row = etl_service.get_job(job_id) or {}
+            _uid = _job_row.get("create_user_id")
+            if _uid is None:
+                _uid = etl_row.get("create_user_id")
+            _tl, _td = table_master_texts_from_etl_row(etl_row)
+            upsert_table_master_after_load(
+                target_table,
+                db_type=etl_service.table_master_db_type_for_storage(_sid),
+                create_user_id=int(_uid) if _uid is not None else None,
+                table_label=_tl,
+                table_dscrtn=_td,
+            )
 
         etl_service.update_job(
             job_id, "completed",
@@ -468,10 +483,25 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
             rows_processed += len(batch)
             i += insert_batch_size
         conn_main.commit()
-        if not etl_row.get("storage_connection_id"):
-            from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+        _sid = etl_row.get("storage_connection_id")
+        if etl_service.should_upsert_table_master_for_storage(_sid):
+            from Backend.etl_server.table_master_hook import (
+                table_master_texts_from_etl_row,
+                upsert_table_master_after_load,
+            )
 
-            upsert_table_master_after_load(target_table)
+            _job_row = etl_service.get_job(job_id) or {}
+            _uid = _job_row.get("create_user_id")
+            if _uid is None:
+                _uid = etl_row.get("create_user_id")
+            _tl, _td = table_master_texts_from_etl_row(etl_row)
+            upsert_table_master_after_load(
+                target_table,
+                db_type=etl_service.table_master_db_type_for_storage(_sid),
+                create_user_id=int(_uid) if _uid is not None else None,
+                table_label=_tl,
+                table_dscrtn=_td,
+            )
         etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
         etl_service.update_etl_table_status(etl_table_id, "done")
         logger.info("ETL file upsert completed job_id=%s rows_processed=%s", job_id, rows_processed)

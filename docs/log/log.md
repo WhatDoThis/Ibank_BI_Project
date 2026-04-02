@@ -1,6 +1,67 @@
 # Log
 
 ## Log Index
+176. 2026-04-02 ETL 삭제: 다운스트림(소스로 읽는 다른 ETL) 검사·거절
+175. 2026-04-02 ETL 목록 삭제 실패 시 공유타겟 거절도 alert
+174. 2026-04-02 ETL 삭제: 공유타겟·프로젝트매핑 차단·table_master·DROP 일괄
+173. 2026-04-02 ETL 삭제: 배치 레지스트리 선삭제·DROP 생략 사유 응답·UI 안내
+172. 2026-04-02 ETL 파일 배치: 변환 룰 정렬·load_dataframe 형변환 실패 전파
+171. 2026-04-02 ETL 배치 적재: numpy 스칼라→psycopg2 바인딩(can't adapt numpy.int64)
+170. 2026-04-02 사용자관리: 본인 행「목록」허용(작업물·이관)·변경·정지·활성은 유지 잠금
+169. 2026-04-02 ETL 타겟모달: table_label 30자·table_dscrtn 100자 UI 제한·안내·제출 검증
+168. 2026-04-02 ETL table_label·table_dscrtn: etl_tables·table_master·타겟모달·배치 적재 연동
+167. 2026-04-02 ETL 타겟모달: 변환 종류별 타입·적재 비차단 안내(getTransformTypeGuidance)
+166. 2026-04-02 ETL 미리보기 BIGINT+마스킹·타겟모달 마스킹 기본값·초대 역할 rid=0 호출 방지
+165. 2026-04-02 관리자 get_user_work_assets: ETL 메타 SELECT is_active 동적화
+164. 2026-04-02 고객여정 06 v4: 알고리즘 흐름 중심 전면 재구성
+163. 2026-04-02 CreateOrgPage: 비밀번호 확인 UI 제거(회원가입만 요청 범위)
+162. 2026-04-02 회원가입(SignupPage): 비밀번호 확인·정책 검증 버튼·공용 passwordPolicy
+161. 2026-04-02 고객여정 06 Phase 11: 부서·사용자·권한 기술 흐름·함수 맵·흐름도
+160. 2026-04-02 ETL 스키마 대조 후속: 배치 interval·저장DB 물리컬럼·JSONB 적재·변환룰 DB·문서04
+159. 2026-04-02 2차 전수검사: 문서04 etl_jobs·배치이력·쿼리스튜디오 권한 오버라이드·pytest
+158. 2026-04-02 ETL 전수검사: 라우트 대조 스크립트·transform 테스트 경로·헬스 스모크
+157. 2026-04-02 ETL service: etl_connections·storage source_type/encrypted_password 동적 INSERT·SELECT
+156. 2026-04-02 ETL service_file DB 실측 정합: protocol·registry PK id·폴더 목록 생성자·문서18
+155. 2026-04-02 ETL DB 증분: etl_tables pk_columns 미저장 시 소스·타겟 PK로 실행 시 보강
+154. 2026-04-02 ETL 정본 스키마 정합: batch_folder is_verified 제거·etl_jobs JOIN·insert_job
+153. 2026-04-02 문서 04·ETL 주석: 운영 DB 실측 기준 문구 정리(확장 DDL 표현 제거)
+152. 2026-04-02 ETL 운영 DB 실측 정합: batch_jobs 동적 INSERT·schedule_cron·transform_rules·스케줄러
+151. 2026-04-02 ETL delete_job: etl_jobs.add_file_path 없을 때 SELECT 생략
+150. 2026-04-02 ETL update_etl_table_status: etl_tables.status 없을 때 no-op
+149. 2026-04-02 이관 후보: 역할 SQL 필터·관리범위 검증·빈 목록 안내
+148. 2026-04-02 ETL DB연동 소스 테이블: 활성 연결만·목록 API 정합·로딩 가드
+147. 2026-04-02 사용자관리: table_master create_user_id 이관·권한 기반 수신 후보·전건 목록
+146. 2026-04-02 ETL 저장 DB API 내장 행·공용 셀렉트·저장 DB 탭 흐름 통일
+145. 2026-04-02 정지 검사: user_has_transferable_ownership에 table_master.create_user_id 반영
+144. 2026-04-02 ETL 내장 저장소 main(null)·dash(-1) UI·API 설명 정합
+143. 2026-04-02 table_master 전사 원장 복원·db_type main|dash만
+142. 2026-04-02 table_master create_user_id·부서 유일키·문서 04 정합
+141. 2026-04-01 etl_tables·etl_jobs 실DB 정합·04 문서 동기화
+140. 2026-04-01 이관: 부서 SA→sa_dev 금지·A는 ETL 등 sa_dev 수신 가능
+139. 2026-04-01 사용자관리: ETL 메타 작업물 목록·create_user_id 이관·정지 검사
+138. 2026-04-01 list_batch_target_registry: batch_jobs 컬럼 동적 SELECT
+137. 2026-04-01 etl_batch_target_registry: id 레거시 폴백 제거(registry_id만)
+136. 2026-04-01 etl_batch_target_registry: registry_id·운영 DDL·upsert/clear/delete 정합
+135. 2026-04-01 ETL: user_info 없을 때 JOIN 생략·레지스트리 컬럼 동적 SELECT
+134. 2026-04-01 ETL: list_jobs/get_job etl_tables 컬럼 방어·백필 SELECT 통일
+133. 2026-04-01 ETL: etl_jobs DDL 드리프트·batch_jobs target_table 방어
+132. 2026-04-01 ETL 등록자 UI·API: create_user_label·insert_job·batch_jobs
+131. 2026-04-01 ETL service: DDL 단일 기준 고정·create_user_id 조회 반영
+130. 2026-04-01 ETL service: ibank_etl_data 컬럼명 정합(db_type·password·config_json)
+129. 2026-04-01 ETL 전사 단위: create_user_id·04 문서·INSERT/라우터
+128. 2026-04-01 batch_folder_connections: 코드 protocol→folder_type 정합
+127. 2026-04-01 pmssn 시드 query.read/query.execute·auth·쿼리스튜디오·문서 정합
+126. 2026-04-01 .cursor 에이전트·스킬·룰: ETL 단일·캠페인 대시보드·http.js 정합
+125. 2026-04-01 report_server→query_studio_server·문서·스킬 명명 정합
+124. 2026-04-01 docs/main 일괄 정합: user_dvsn 캐논·인증·라우터·테이블 노출 정책
+123. 2026-04-01 권한문서 05: require_permission 검증 흐름도·엣지 케이스 표 추가
+122. 2026-04-01 고객여정 06: 부서·사용자·권한 어드민 UX 가이드(Phase 11) 보강
+121. 2026-04-01 권한 목록 테이블: 권한명·상세 폰트를 작업 버튼과 통일·행 세로 중앙
+120. 2026-04-01 권한관리: 우상단 권한 생성 모달·본문에 목록 우선 표시
+119. 2026-03-31 권한 수정 모달: 권한상세 textarea 제거·셀렉트+행 목록으로 통일
+118. 2026-03-31 권한상세 목록 영역 높이·패딩·세로 정렬 CSS
+117. 2026-03-31 권한상세 추가 목록 row 표시로 UI 변경
+116. 2026-03-31 권한상세 옵션 조회를 pmssn_master_detail로 전환
 115. 2026-03-31 권한관리 화면 개편·사용현황 드릴다운 추가
 114. 2026-03-31 사용자관리 대상 검증을 부서트리 기준으로 통일
 113. 2026-03-31 사용자관리 조회 범위: 동일부서→부서트리(본인+하위)로 수정
@@ -118,6 +179,512 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+176. 2026-04-02 ETL 삭제: 다운스트림(소스로 읽는 다른 ETL) 검사·거절
+Purpose: 외부→A 적재 후 A→B ETL이 같은 PG 인스턴스에서 A 테이블을 읽는 경우, A ETL만 삭제하면 파이프라인이 깨짐. 저장 PG와 동일 (host,port,database,schema)에서 source_table이 DROP 대상과 일치하면 삭제 400·UI alert.
+Changes:
+
+- `service`: `_storage_pg_identity_tuple`, `_find_downstream_etl_reading_target_pg`, `delete_etl_table` 선검증
+- `ETLTableList`: 다운스트림 거절 메시지 alert
+Changed files: Backend/etl_server/service.py, Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, docs/log/log.md
+
+175. 2026-04-02 ETL 목록 삭제 실패 시 공유타겟 거절도 alert
+Purpose: 동일 target_table 다른 ETL 존재로 삭제 거절 시 목록 오류만이 아니라 window.alert로도 안내.
+Changes:
+
+- `ETLTableList` delete catch: `동일 타겟`·`다른 ETL 등록` 문구 시 alert
+Changed files: Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, docs/log/log.md
+
+174. 2026-04-02 ETL 삭제: 공유타겟·프로젝트매핑 차단·table_master·DROP 일괄
+Purpose: 목록 삭제 시 물리 테이블·배치·원장 정리 일관성. 동일 타겟 다른 ETL 존재 시 삭제 거절. 내장 저장소는 `table_project_mapping`이 있으면 먼저 매핑 해제하라고 400. 성공 시 배치 정리→`table_master` 삭제→DROP→ETL 메타 삭제. DROP 실패 시 시스템 DB rollback.
+Changes:
+
+- `service._count_table_project_mapping_for_target`, `delete_etl_table` 재구성(검증·스케줄러 제거·원장·DROP 순)
+- `router` DELETE: 비즈니스 `ValueError` → 400, 없음 → 404
+- `ETLTableList` 확인 문구·성공 시 drop_skip alert 제거
+Changed files: Backend/etl_server/service.py, Backend/etl_server/router.py, Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, docs/log/log.md
+
+173. 2026-04-02 ETL 삭제: 배치 레지스트리 선삭제·DROP 생략 사유 응답·UI 안내
+Purpose: ETL 목록 삭제 시 배치 Job이 안 지워지거나 타겟 테이블이 남는 현상 — `etl_batch_target_registry`→`batch_jobs` FK로 배치 삭제가 막힐 수 있음. 동일 `target_table` 다중 ETL 시 의도적 DROP 생략은 유지하되 사유를 API·알림으로 노출.
+Changes:
+
+- `service_file.delete_batch_target_registry_rows_for_etl_table`: `etl_table_id`에 묶인 배치의 레지스트리 행 선삭제
+- `delete_etl_table`·`delete_etl_table_row_only`: 배치 메타 삭제 전 위 함수 호출, DROP 생략 시 `drop_skip_reason`·로그, 성공 시 `target_table_dropped`
+- `router.delete /tables/{id}`: JSON 응답(204 제거)
+- `ETLTableList`: 확인 문구 보강, `drop_skip_reason`별 alert
+Changed files: Backend/etl_server/service.py, Backend/etl_server/service_file.py, Backend/etl_server/router.py, Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, docs/log/log.md
+
+172. 2026-04-02 ETL 파일 배치: 변환 룰 정렬·load_dataframe 형변환 실패 전파
+Purpose: DB 배치(`batch_executor_db`)와 달리 파일 배치가 `etl_table_id` 변환 룰을 건너뛰던 불일치 제거. `load_dataframe`에서 `apply_mapping_type_cast` 예외를 삼켜 잘못된 타입이 PG로 갈 수 있던 위험 제거.
+Changes:
+
+- `batch_executor_file`: `etl_table_id` 있으면 `list_transform_rules` + `apply_rules`(룰 로드/적용 실패 시 warning 후 skip, DB 배치와 동일)
+- `load_service_file.load_dataframe`: column_mapping 경로에서 형변환 ValueError 전파, 기타 예외는 ValueError로 래핑
+Changed files: Backend/etl_server/batch_executor_file.py, Backend/etl_server/load_service_file.py, docs/log/log.md
+
+171. 2026-04-02 ETL 배치 적재: numpy 스칼라→psycopg2 바인딩(can't adapt numpy.int64)
+Purpose: 파일 배치 `load_dataframe` → `_batch_insert`/`_batch_upsert` 시 `itertuples`가 numpy.int64 등을 넘겨 psycopg2가 적응하지 못하는 오류 수정.
+Changes:
+
+- `load_service_file._to_psycopg2_param` 추가, INSERT/UPSERT `flat` 바인딩 전 변환
+- `_batch_upsert`/`_batch_insert` 반환값 `int()` 정규화
+Changed files: Backend/etl_server/load_service_file.py
+
+170. 2026-04-02 사용자관리: 본인 행「목록」허용(작업물·이관)·변경·정지·활성은 유지 잠금
+Purpose: 관리자가 본인이 생성자인 자산을 동료에게 이관할 수 있도록 본인 행에서도 작업물 패널을 열 수 있게 함. `listDisabled`에서 `isSelf` 제거. 변경·정지·활성은 `actionDisabled`로 본인 행 계속 비활성.
+Changes:
+
+- `listDisabled`: `isSelf` 제거(본인 행에서도 목록 열기)
+- 본인 힌트: 「본인 · 목록·이관만 가능」
+- 파일 상단 설명 보강
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+169. 2026-04-02 ETL 타겟모달: table_label 30자·table_dscrtn 100자 UI 제한·안내·제출 검증
+Purpose: 운영 DB varchar(30)/varchar(100)·라벨 UNIQUE에 맞춰 입력 단계에서 안내·maxLength·글자 수·적용 전 검증, DbConnectionForm/FileUploadForm 제출 시 동일 상수 검증.
+Changes:
+
+- `TargetTableSelectModal/constants.js`: ETL_TABLE_LABEL_MAX_LEN(30), ETL_TABLE_DSCRTN_MAX_LEN(100)
+- 모달: 안내 문구, 카운터, slice onChange/open, handleApply 가드
+- `DbConnectionForm`/`FileUploadForm`: 제출 전 길이 검증
+- `etl.css`: meta-hint·counter 스타일
+Changed files: Frontend/react-app/src/packages/etl/components/TargetTableSelectModal/{constants.js,index.jsx}, DbConnectionForm.jsx, FileUploadForm.jsx, etl.css
+
+168. 2026-04-02 ETL table_label·table_dscrtn: etl_tables·table_master·타겟모달·배치 적재 연동
+Purpose: system_db `table_master`와 동일 컬럼명으로 ETL 메타 저장 및 적재 후 UPSERT 시 반영. DDL은 저장소에 파일 추가 없이 운영 DB에 수동 적용.
+Changes:
+
+- `etl_tables`: `table_label`, `table_dscrtn` 컬럼(운영 ALTER). `service` SELECT/INSERT/UPDATE, `table_master_hook`·`load_service*`·`db_load_service`·배치 실행기·`load_dataframe` 인자 연동
+- API: `CreateTableBody`/`UpdateTableBody`/upload Form `table_label`·`table_dscrtn`(기존 label_name·description 제거)
+- FE: `TargetTableSelectModal` 선택 입력·onSelect 7번째 meta; `DbConnectionForm`/`FileUploadForm`/`ETLTableList`/`AddFileModal`/`ETLPage` 정합
+- `query_studio_server` `_upsert_table_master_and_mapping` 동일 컬럼 UPSERT
+Changed files: Backend/etl_server/{table_master_hook,service,router,db_load_service,load_service,load_service_file,batch_executor_db,batch_executor_file}.py, Backend/query_studio_server/router.py, Frontend/react-app/src/packages/etl/{components/{TargetTableSelectModal/index.jsx,DbConnectionForm.jsx,FileUploadForm.jsx,ETLTableList.jsx,AddFileModal.jsx},ETLPage.jsx,etl.css}
+
+167. 2026-04-02 ETL 타겟모달: 변환 종류별 타입·적재 비차단 안내(getTransformTypeGuidance)
+Purpose: 변환 셀렉트 선택 시 alert 대신 상세 행 상단에 소스 타입·타겟 PG 타입·연산 조합별 안내를 표시. 정리(cleansing)만 선택해도 안내 행 표시.
+Changes:
+
+- `constants.js`: `getTransformTypeGuidance` (cleansing, masking, string, type_cast, cleansing_and_type_cast, datetime, code_map)
+- `TransformDetailRow.jsx`: `targetPgType`, 안내 블록 + cleansing 전용 행
+- `ColumnMappingSection.jsx`: 기존 테이블은 `columns`의 `data_type`으로 타겟 타입 추정, 신규 테이블은 소스 추론 타입
+- `etl.css`: `.etl-target-select-modal__transform-guidance*`
+
+Changed files: Frontend/react-app/src/packages/etl/components/TargetTableSelectModal/constants.js, TransformDetailRow.jsx, ColumnMappingSection.jsx, Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+166. 2026-04-02 ETL 미리보기 BIGINT+마스킹·타겟모달 마스킹 기본값·초대 역할 rid=0 호출 방지
+Purpose: 테이블 미리보기에서 mask_right 후 BIGINT 캐스트가 값을 null로 지움. 변환 상세에서 마스킹 선택 직후 n·char 입력이 비어 보임. 초대 부서 미선택 시 `Number('')===0`으로 invite/roles 400.
+Changes:
+
+- `preview_service._get_preview_with_transform`: `apply_mapping_type_cast(..., default_on_error="keep")`
+- `TransformCell`+`ColumnMappingSection`: 마스킹 선택 시 `maskingConfig`에 n=4·char=* 시드
+- `AdminUsersPage`: `inviteDeptId === ''`이면 프로젝트/역할 API 미호출
+
+Changed files: Backend/etl_server/preview_service.py, Frontend/react-app/src/packages/etl/components/TargetTableSelectModal/TransformCell.jsx, ColumnMappingSection.jsx, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+165. 2026-04-02 관리자 get_user_work_assets: ETL 메타 SELECT is_active 동적화
+Purpose: `_fetch_etl_work_blocks`가 `etl_tables` 등에 고정으로 `is_active`를 SELECT하여 컬럼이 없는 DDL에서 `column "is_active" does not exist`로 ETL 작업물 블록 전체가 실패함.
+Changes:
+
+- `service_users.py`: `_admin_etl_select_cols`, `batch_jobs`의 `created_at` 선택적 포함
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+164. 2026-04-02 고객여정 06 v4: 알고리즘 흐름 중심 전면 재구성
+Purpose: 사용자 제공 초안을 반영해 Phase 0~12를 API·서비스 함수·검증 단계 중심 흐름도로 정리하고, 역할 범례·초대 매트릭스·ETL·어드민·로그인 알고리즘을 한 문서에 통합한다.
+Changes:
+
+- `docs/main/06_CUSTOMER_JOURNEY.md`: v3 표·Phase 11 세부 표·Mermaid·UX 가이드 제거 후 v4 본문으로 교체. 부서 목록은 라우터 빈 목록 분기·`_assert_department_clear_for_invalidate_or_remove` 명칭으로 코드와 정합
+
+Changed files: docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+163. 2026-04-02 CreateOrgPage: 비밀번호 확인 UI 제거(회원가입만 요청 범위)
+Purpose: 사용자 요청이 초대 회원가입에 한정되었으므로 부서 새로 만들기 화면의 비밀번호 확인·검증 버튼·제출 전 정책 검사를 되돌림.
+Changes:
+
+- `CreateOrgPage.jsx`: 단일 비밀번호 필드·기존 `confirmCrud` 후 API 흐름으로 복원
+
+Changed files: Frontend/react-app/src/app/auth/CreateOrgPage.jsx, docs/log/log.md
+
+162. 2026-04-02 회원가입(SignupPage): 비밀번호 확인·정책 검증 버튼·공용 passwordPolicy
+Purpose: 초대 코드 회원가입 화면에 비밀번호 확인 입력과 백엔드 `validate_password_strength`와 동일한 사전 검증, 「비밀번호 조건·일치 검증」 버튼으로 피드백 제공. (부서 생성 화면은 요청 범위 밖으로 유지.)
+Changes:
+
+- `shared/utils/passwordPolicy.js`: `getPasswordStrengthError` (10자·대·소·숫자·특수문자, 메시지 백엔드 정합)
+- `SignupPage.jsx`: 비밀번호 확인 필드, 검증 버튼, 제출 전 일치·정책 검사 후 `confirmCrud`
+- `login.css`: 보조 버튼·성공 힌트 스타일
+
+Changed files: Frontend/react-app/src/shared/utils/passwordPolicy.js, Frontend/react-app/src/app/auth/SignupPage.jsx, Frontend/react-app/src/app/auth/login.css, docs/log/log.md
+
+161. 2026-04-02 고객여정 06 Phase 11: 부서·사용자·권한 기술 흐름·함수 맵·흐름도
+Purpose: 도입·운영 설명용으로 어드민 API(`admin_server`)와 프로젝트 `require_permission`의 차이, 엔드포인트·서비스 함수·프론트 클라이언트 연계, 부서 목록 `sa`/`sa_dev` 게이트 등을 Phase 11에 ASCII·Mermaid로 정리한다.
+Changes:
+
+- `docs/main/06_CUSTOMER_JOURNEY.md`: Phase 11에 「기술 흐름」절 추가(공통 JWT·deps, 부서·사용자·권한 표, `pmssn_master`↔런타임 권한), 문서 상단 용도 문구 보강
+
+Changed files: docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+160. 2026-04-02 ETL 스키마 대조 후속: 배치 interval·저장DB 물리컬럼·JSONB 적재·변환룰 DB·문서04
+Purpose: 감사에서 지적된 잠재 혼동·누락을 코드로 제거. schedule_cron 없는 DB에서의 cron 폴백 착시 제거, etl_storage_connections 물리 컬럼과 config_json 동기화, 증분 COPY 시 JSONB·JSON 소스 타입 지원, transform_rules가 ETL DB에만 붙도록 명시, sync_mode·저장 DB 문서 보강.
+Changes:
+
+- `service_file.py`: `effective_interval_minutes_from_batch_row`는 행에 `schedule_cron` 키가 있을 때만 cron 파싱
+- `service.py`: `_storage_conn_password_column_for_insert`·`_storage_physical_select_fragments`, `create_storage_connection`/`update_storage_connection`/`list_storage_connections`/`get_storage_connection`에서 물리 컬럼 동기화·조회, `create_etl_table` sync_mode 주석
+- `db_load_service.py`: `_copy_staging_cast_expr`(JSONB), `_serialize_value` dict/list, MySQL·PG·Oracle JSON→JSONB 타입 매핑
+- `transform_rules_service.py`: `_etl_data_conn()` → `get_db_connection_etl()`
+- `docs/main/04_DB_ARCHITECTURE.md`: sync_mode DDL 기본 권장, etl_storage_connections 앱 동작 문구
+
+검증: `python -m compileall Backend/etl_server`, `pytest tests/test_transform_engine.py tests/test_query_studio_api.py` 21 passed.
+
+Changed files: Backend/etl_server/service_file.py, Backend/etl_server/service.py, Backend/etl_server/db_load_service.py, Backend/etl_server/transform_rules_service.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+159. 2026-04-02 2차 전수검사: 문서04 etl_jobs·배치이력·쿼리스튜디오 권한 오버라이드·pytest
+Purpose: 운영 DDL과 `04_DB_ARCHITECTURE` 잔여 불일치(§16·§23·§24) 정리, `test_query_studio_api`가 JWT 없이 401만 받던 문제를 공통 `Depends` 식별자로 해소, ETL 라우트 감사·변환 테스트 재실행.
+Changes:
+
+- `docs/main/04_DB_ARCHITECTURE.md`: §16 `etl_jobs` 확장 컬럼·앱 주석, §23 `batch_run_history`·§24 `batch_loaded_keys` 실측 정합
+- `Backend/query_studio_server/router.py`: `require_query_read_perm`·`require_query_execute_perm` 모듈 상수로 분리(엔드포인트 `Depends` 치환)
+- `tests/test_query_studio_api.py`: `app.dependency_overrides`로 위 권한 의존성 스텁
+
+검증: `python tests/etl_api_route_audit.py` exit 0, `pytest tests/test_query_studio_api.py tests/test_transform_engine.py` 21 passed.
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, Backend/query_studio_server/router.py, tests/test_query_studio_api.py, docs/log/log.md
+
+158. 2026-04-02 ETL 전수검사: 라우트 대조 스크립트·transform 테스트 경로·헬스 스모크
+Purpose: packages/etl `etlClient.js`와 FastAPI `/api/etl*` 경로 패턴 전수 대조, transform 단위 테스트 복구, API 헬스·ETL 게이트 스모크.
+Changes:
+
+- `tests/etl_api_route_audit.py` 추가: etlClient 추출·앱 라우트 정규화·누락 검출
+- `tests/test_transform_engine.py`: `etl_server2` → `etl_server` 경로 수정
+- `docs/report/18_…`: 전수검사 요약 절 추가, log
+
+검증: `python tests/etl_api_route_audit.py` exit 0, `pytest tests/test_transform_engine.py` 15 passed, TestClient `/health` 200·`/api/etl` 401.
+
+Changed files: tests/etl_api_route_audit.py, tests/test_transform_engine.py, docs/report/18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md, docs/log/log.md
+
+157. 2026-04-02 ETL service: etl_connections·storage source_type/encrypted_password 동적 INSERT·SELECT
+Purpose: 실측 `ibank_etl_data`는 `etl_connections.source_type`·`encrypted_password`·`etl_storage_connections.source_type`인데 코드가 `db_type`·`password`·`storage_type`만 가정해 INSERT/SELECT가 실패할 수 있음. `information_schema` 기준으로 물리 컬럼 선택.
+Changes:
+
+- `service.py`: `_etl_conn_*`·`_storage_conn_*` 헬퍼, `create_connection`·`list_connections`·`get_connection_for_etl`·`get_or_create_file_connection`·`delete_connection`·`list_etl_tables`·`get_etl_table`·`list_storage_connections`·`get_storage_connection`·`create_storage_connection` 정합
+- `18_…Schema_Creator_CURL_FE.md` 표 보강, log
+
+Changed files: Backend/etl_server/service.py, docs/report/18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md, docs/log/log.md
+
+156. 2026-04-02 ETL service_file DB 실측 정합: protocol·registry PK id·폴더 목록 생성자·문서18
+Purpose: ibank_etl_data 실측(`batch_folder_connections.protocol`, `etl_batch_target_registry.id` PK)과 코드 불일치 제거. 생성자·CURL/FE 후속 작업용 체크리스트를 report에 저장.
+
+Changes:
+
+- `service_file`: `folder_type`/`protocol` 동적 매핑(INSERT·SELECT·JOIN), `etl_batch_target_registry` PK `id`·`registry_id` 동시 지원, upsert/delete/list·CREATE IF NOT EXISTS DDL 정리, 폴더 연결 목록에 `create_user_id`·`create_user_label`(user_info 있을 때 닉네임·이메일)
+- `FolderConnectionListFile.jsx`: 등록자 열
+- `docs/report/18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md`, `00_ReportIndex.md`
+
+Changed files: Backend/etl_server/service_file.py, Frontend/react-app/src/packages/etl/components/FolderConnectionListFile.jsx, docs/report/18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+155. 2026-04-02 ETL DB 증분: etl_tables pk_columns 미저장 시 소스·타겟 PK로 실행 시 보강
+Purpose: 운영 `etl_tables`에 `pk_columns` 컬럼이 없으면 등록 시 소스에서 읽은 PK가 DB에 남지 않아 증분 실행에서 `incremental 모드는 pk_columns가 필요합니다`로 실패함. `run_db_load`에서 컬럼 매핑 확정 직후 `_resolve_pk_columns_for_db_load`로 저장값 → 소스 PK+매핑 → 소스 PK → `get_target_pk_columns` 순 보강.
+
+Changed files: Backend/etl_server/db_load_service.py, Backend/etl_server/service.py (create_etl_table 주석), docs/log/log.md
+
+154. 2026-04-02 ETL 정본 스키마 정합: batch_folder is_verified 제거·etl_jobs JOIN·insert_job
+Purpose: 운영 DB 정본에 맞춰 존재하지 않는 컬럼 참조를 제거·완화. `batch_folder_connections`: 목록 SELECT·create에서 `is_verified` 제거, `set_folder_connection_verified`는 컬럼 없으면 no-op, API 호환 `is_verified` None. `list_batch_target_registry`에 `c.folder_type` SELECT 추가. `etl_jobs`+`etl_tables` JOIN은 `target_table`·`source_table`·`connection_id`·`sync_mode`만 선택(`t.description` 제거), `list_jobs`/`get_job` 응답에 `description`·`source_type`·`job_type`·`storage_connection_id` compat None. `insert_job`는 `add_file_path`/`add_file_type` 컬럼이 있을 때만 해당 INSERT 분기.
+
+Changed files: Backend/etl_server/service_file.py, Backend/etl_server/service.py, docs/log/log.md
+
+153. 2026-04-02 문서 04·ETL 주석: 운영 DB 실측 기준 문구 정리(확장 DDL 표현 제거)
+Purpose: 운영 DB를 옮긴 실측 스키마가 기준인데 문서에「확장 DDL」「최소 DDL」 등이 섞여 DB를 늘리라는 뉘앙스로 읽힐 수 있어 수정함. §13~ 도입·§15·§16·§22 및 테이블 분류 표를「운영 실측 + 앱이 information_schema로 존재 컬럼만 사용」「API↔DB 컬럼명 차이는 앱 매핑」으로 통일. `batch_jobs` 표에서 전달 실측에 없던 `create_user_id` 행 제거. `service_file` ValueError 문구·모듈 주석, `transform_rules_service` 헤더 정리.
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, Backend/etl_server/service_file.py, Backend/etl_server/transform_rules_service.py, docs/log/log.md
+
+152. 2026-04-02 ETL 운영 DB 실측 정합: batch_jobs 동적 INSERT·schedule_cron·transform_rules·스케줄러
+Purpose: 운영 `ibank_etl_data` 실측 컬럼(예: `batch_jobs`의 `schedule_cron` 중심, `etl_transform_rules`의 `rule_order`·`expression`)과 코드가 어긋나 INSERT/ORDER BY 실패하던 문제를 정리. `create_batch_job`·`update_batch_job`를 존재 컬럼만 사용하도록 하고 `schedule_cron`↔`interval_minutes` 매핑·중복 검사·타겟명 `etl_table_id` 보완을 추가. 스케줄러는 `effective_batch_job_type`·`effective_interval_minutes_from_batch_row` 사용. 변환 룰은 실측 컬럼에 맞춘 CRUD·조회 정렬·`expression`→`rule_config` 보강. `delete_etl_table`/`row_only`는 `add_file_path` 컬럼 있을 때만 SELECT.
+
+Changes:
+- service_file: `_interval_to_schedule_cron`, `effective_*`, `_BATCH_INSERT_COL_ORDER`, 동적 INSERT/중복, `update_batch_job` 컬럼 필터, `list_batch_jobs`/`get_batch_job`에서 `interval_minutes` 보완, SELECT에 `schedule_cron`
+- scheduler_file: `effective_batch_job_type`·`effective_interval_minutes_from_batch_row` 연동
+- batch_executor_file: `target_table`·`column_mapping`·`pk_columns`를 `etl_tables`에서 보완
+- transform_rules_service: `_enrich_rule_dict`, `rule_order` 정렬, DB 컬럼 조합별 INSERT/UPDATE
+- service.py: `delete_etl_table`·`delete_etl_table_row_only` add_file_path 가드
+- docs/main/04_DB_ARCHITECTURE.md: (당시) ETL 절 운영 실측·앱 동작 안내 보강 — 이후 153에서 문구 재정리
+
+Changed files: Backend/etl_server/service_file.py, scheduler_file.py, batch_executor_file.py, transform_rules_service.py, service.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+151. 2026-04-02 ETL delete_job: etl_jobs.add_file_path 없을 때 SELECT 생략
+Purpose: `DELETE /api/etl/jobs/{id}`가 삭제 전 `SELECT add_file_path`를 항상 실행해, 컬럼이 없는 실DB에서 `UndefinedColumn`→500이 났음. `information_schema`로 컬럼 확인 후 있을 때만 조회·파일 삭제, 이후 `DELETE`는 동일.
+
+Changed files: Backend/etl_server/service.py, docs/log/log.md
+
+150. 2026-04-02 ETL update_etl_table_status: etl_tables.status 없을 때 no-op
+Purpose: 실DB `etl_tables`에 `status` 컬럼이 없을 때 `UPDATE ... SET status`가 실패해 Job 전체가 실패·에러 핸들러까지 연쇄 예외가 났음. `information_schema`로 컬럼 확인 후 없으면 갱신 생략, 있으면 `updated_at`은 컬럼 있을 때만 SET.
+
+Changed files: Backend/etl_server/service.py, docs/log/log.md
+
+149. 2026-04-02 이관 후보: 역할 SQL 필터·관리범위 검증·빈 목록 안내
+Purpose: `list_ownership_transfer_targets`가 동일 부서 전원을 읽은 뒤 Python에서 거르지 않고, 비ETL 경로는 SQL에서 `sa_dev|sa|a`만 조회. ETL 경로도 후보마다 `_assert_target_exists_or_same_dept` 적용. 이관 모달에 사전 검증 목록 설명·유형별 빈 목록 문구·`admin-users__empty-title`.
+
+Changed files: Backend/admin_server/service_users.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, admin-users.css, docs/log/log.md
+
+148. 2026-04-02 ETL DB연동 소스 테이블: 활성 연결만·목록 API 정합·로딩 가드
+Purpose: `GET /api/etl/connections`가 비활성 행까지 내려주고 소스 테이블 조회는 `get_connection_for_etl`의 `is_active=TRUE`만 허용해, 선택 후 목록이 비어 보이는 불일치가 생김. 목록을 활성만으로 맞추고 `DbConnectionForm`에서 로딩 가드·연결 ID 문자열 통일·조회 실패 메시지를 추가함.
+
+Changes: `list_connections`에 `WHERE is_active=TRUE`(컬럼 존재 시); `DbConnectionForm` `useMemo`·`loadingConn` 가드·`tablesLoadError`·option `String(connection_id)`.
+
+Changed files: Backend/etl_server/service.py, router.py, Frontend/react-app/src/packages/etl/components/DbConnectionForm.jsx, docs/log/log.md
+
+147. 2026-04-02 사용자관리: table_master create_user_id 이관·권한 기반 수신 후보·전건 목록
+Purpose: `table_master.create_user_id = 대상`인 행을 전부 작업물에 표시(매핑 프로젝트명 요약). 이관 수신자는 `get_effective_permission_ids_for_me`로 매핑 프로젝트에서 `query.execute` 보유자, 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV(액터 SA→sa_dev 제외). `ownership-transfer-targets?resource_type=table_master&table_master_id=`·`transfer-ownership`·`get_user_dptmt_for_admin` 검증.
+
+Changed files: Backend/admin_server/service_users.py, router.py, schemas.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+146. 2026-04-02 ETL 저장 DB API 내장 행·공용 셀렉트·저장 DB 탭 흐름 통일
+Purpose: `GET /api/etl/storage-connections` 선두에 config 기반 내장 main·dash 항목(`is_builtin`)을 넣어 셀렉트 옵션과 &quot;저장 DB 등록&quot; 탭이 같은 출처를 보도록 함. `EtlStorageDbSelect`·`getEtlStorageSelectOptions`로 파일/DB/배치 폼 일원화, 테이블선택 모달에 현재 적재 대상 안내.
+
+Changes: `list_storage_connections` 선두 내장 행; `StorageConnectionForm` 내장/등록 구역 분리; `TargetTableSelectModal`·`ETLPage` 안내 문구; `etl.css` 배너 스타일.
+
+Changed files: Backend/etl_server/service.py, router.py, Frontend/react-app/src/packages/etl/utils/storageDb.js, components/EtlStorageDbSelect.jsx, DbConnectionForm.jsx, FileUploadForm.jsx, BatchJobFormFile.jsx, StorageConnectionForm.jsx, TargetTableSelectModal/index.jsx, ETLPage.jsx, etl.css, docs/log/log.md
+
+145. 2026-04-02 정지 검사: user_has_transferable_ownership에 table_master.create_user_id 반영
+Purpose: 역할 변경 차단·문서상 테이블 생성자와 맞추어, `table_master.create_user_id`만 가진 사용자도 정지 전 이관 안내가 나가도록 `user_has_transferable_ownership`에 SELECT 추가. 정지 안내 문구 보강.
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+144. 2026-04-02 ETL 내장 저장소 main(null)·dash(-1) UI·API 설명 정합
+Purpose: 적재 대상을 config `main_db`·`dash_db` 두 축으로 분리해 셀렉트·목록 라벨·전체 동기화 확인 문구를 맞춤. `storageDb.js`에 `STORAGE_BUILTIN_DASH_ID`·`formatEtlStorageLabel` 추가, FormData는 dash일 때도 `storage_connection_id` 전송.
+
+Changes: ETL 폼(FileUpload·DbConnection·BatchJobFile)에 dash 옵션; `ETLTableList`·`BatchJobListFile` 저장 열 표시 통일; `ETLPage` full sync 경고 DB 구분; `router.py`·`router_file.py` 필드·엔드포인트 설명 보강.
+
+Changed files: Frontend/react-app/src/packages/etl/utils/storageDb.js, components/FileUploadForm.jsx, DbConnectionForm.jsx, BatchJobFormFile.jsx, ETLTableList.jsx, BatchJobListFile.jsx, ETLPage.jsx, Backend/etl_server/router.py, router_file.py, docs/log/log.md
+
+143. 2026-04-02 table_master 전사 원장 복원·db_type main|dash만
+Purpose: `table_master`에 `dptmt_info_id`를 두지 않는 정책에 맞춰 UPSERT를 `UNIQUE(db_type,table_name)`·컬럼 `(db_type,table_name,create_user_id,…)` 기준으로 되돌림. `db_type` 값은 `star`를 쓰지 않고 main·dash만 허용; 대시보드 허용·집계 후보는 main∪dash만 조회하고 `*_star_*` 파트너 규칙은 dash 매핑 기준으로 유지.
+
+Changes: `table_master_hook`, `query_studio_server.router` `_upsert_table_master_and_mapping`; `admin_server.service_tables`·`router` Query 설명; `core.db` `_normalize_db_type`·`is_table_allowed_for_project_dashboard`; `dashboard_service.get_aggregatable_tables`; `docs/main/04`·`06`; log.
+
+Changed files: Backend/etl_server/table_master_hook.py, Backend/query_studio_server/router.py, Backend/admin_server/service_tables.py, router.py, Backend/core/db.py, dashboard_service.py, Backend/etl_server/load_service.py, db_load_service.py, docs/main/04_DB_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+142. 2026-04-02 table_master create_user_id·부서 유일키·문서 04 정합
+Purpose: `ibank_system_data.table_master`에 `create_user_id` 추가 및 실제 UNIQUE(`dptmt_info_id`,`db_type`,`table_name`)에 맞춰 ETL·쿼리스튜디오·배치 적재 경로에서 INSERT/UPSERT 시 생성자·부서를 반영. `docs/main`의 `table_master` 서술을 실DB와 일치.
+
+Changes: `table_master_hook` UPSERT 컬럼·충돌 타겟 수정; `load_service`·`db_load_service`에서 job/etl_tables `create_user_id` 전달; `query_studio` 큐·`_upsert_table_master_and_mapping`에 JWT `user_id`·`project_info.dptmt_info_id` 반영; `load_dataframe` 신규 CREATE 시 기본 저장 DB면 훅 호출 및 배치 실행기에서 인자 전달; admin 목록·사용자 작업물·정지 검사에 `create_user_id` 반영; `04`·`06` 문서 갱신.
+
+Changed files: Backend/etl_server/table_master_hook.py, load_service.py, db_load_service.py, load_service_file.py, batch_executor_file.py, batch_executor_db.py, Backend/query_studio_server/router.py, Backend/admin_server/service_tables.py, service_users.py, docs/main/04_DB_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+141. 2026-04-01 etl_tables·etl_jobs 실DB 정합·04 문서 동기화
+Purpose: `ibank_etl_data` 실물리 스키마(최소 `etl_tables`·`etl_jobs`)에 맞춰 목록/단건/INSERT/갱신이 실패하지 않도록 `service.py`에서 동적 컬럼·`rows_loaded`/`rows_extracted` 매핑을 적용. `04_DB_ARCHITECTURE`의 `etl_tables.connection_id` NULL 가능·`etl_jobs`에서 필수 아닌 컬럼·`batch_jobs.create_user_id` 확장 표기로 문서와 DB 정합.
+
+Changes: `Backend/etl_server/service.py`·`docs/main/04_DB_ARCHITECTURE.md`·`docs/log/log.md`.
+
+Changed files: Backend/etl_server/service.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+140. 2026-04-01 이관: 부서 SA→sa_dev 금지·A는 ETL 등 sa_dev 수신 가능
+Purpose: 부서 소속 Super Admin(sa)이 전사 sa_dev에게 작업물·ETL 등록 건을 넘기는 것은 정책상 불가. Admin(a)은 ETL 이관 대상 목록에서 etl_yn=Y 또는 sa_dev인 동일 부서 사용자(sa_dev 포함)에게 이관 가능 유지.
+
+Changes: `list_ownership_transfer_targets`에서 액터 sa일 때 수신 후보에서 sa_dev 제외; `transfer_resource_ownership` 동일 검증.
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+139. 2026-04-01 사용자관리: ETL 메타 작업물 목록·create_user_id 이관·정지 검사
+Purpose: SA_DEV·SA·A가 보는 사용자의 etl_db 등록 건을「목록」에 표시하고, 동일 부서·ETL 자격(etl_yn=Y 또는 SA_DEV) 수신자에게 create_user_id 이관. 정지 전 transferable 검사에 ETL 소유 포함. etl_server 패키지 상위 import 회피용 로컬 information_schema 헬퍼 사용.
+
+Changes: `get_user_work_assets` etl_db 조회·`target_user_dptmt_info_id`; `list_ownership_transfer_targets(etl_infra)`; `transfer_resource_ownership` 6종 ETL 타입; `user_has_transferable_ownership`·정지 메시지; 스키마·adminClient·AdminUsersPage.
+
+Changed files: Backend/admin_server/service_users.py, router.py, schemas.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+138. 2026-04-01 list_batch_target_registry: batch_jobs 컬럼 동적 SELECT
+Purpose: 메인 조회에서 `j.interval_minutes` 등 고정 참조로 구 DDL에서 UndefinedColumn 발생 → `_registry_batch_jobs_cols_sql`·`folder_connection_id` 없으면 폴더 JOIN `ON FALSE`.
+
+Changed files: Backend/etl_server/service_file.py, docs/log/log.md
+
+137. 2026-04-01 etl_batch_target_registry: id 레거시 폴백 제거(registry_id만)
+Purpose: `r.id AS registry_id`·PK `id` 분기 제거. DDL이 맞지 않으면 조회·upsert·삭제가 실패하도록 단일 기준(`registry_id`)만 사용.
+
+Changes: `_registry_row_select_sql`, `_registry_order_by`, `upsert_batch_target_registry`, `delete_batch_target_registry_and_drop_table`.
+
+Changed files: Backend/etl_server/service_file.py, docs/log/log.md
+
+136. 2026-04-01 etl_batch_target_registry: registry_id·운영 DDL·upsert/clear/delete 정합
+Purpose: PK `registry_id`, `batch_job_id NOT NULL` 운영 DDL에 맞춤. `_ensure` CREATE, `_registry_row_select_sql`·`upsert_batch_target_registry`·`clear_batch_job_from_registry`(DELETE), `delete_batch_target_registry_and_drop_table`·목록 응답 `id` 호환.
+
+Changes: `service_file.py` 레지스트리 블록.
+
+Changed files: Backend/etl_server/service_file.py, docs/log/log.md
+
+135. 2026-04-01 ETL: user_info 없을 때 JOIN 생략·레지스트리 컬럼 동적 SELECT
+Purpose: ETL DB에 `user_info`가 없을 때 `LEFT JOIN user_info`로 500 방지(`_table_exists`). `etl_batch_target_registry` 구 DDL에 `storage_connection_id` 등 없을 때 `r.*` 동적 SELECT·`COALESCE(r,j)`로 스토리지 JOIN.
+
+Changes: `service._table_exists`; `list_etl_tables`, `get_etl_table`, `list_jobs`; `service_file.list_batch_jobs`, `get_batch_job`, `list_batch_target_registry`, `_registry_row_select_sql`, `_registry_order_by`.
+
+Changed files: Backend/etl_server/service.py, service_file.py, docs/log/log.md
+
+134. 2026-04-01 ETL: list_jobs/get_job etl_tables 컬럼 방어·백필 SELECT 통일
+Purpose: `t.description`/`t.target_table` 누락 시 Job 목록·단건 조회 오류 방지. `list_batch_target_registry` 백필은 `_batch_job_backfill_select_parts`로 `batch_job_id` 등 컬럼까지 `_batch_job_select_parts`와 동일 규칙 적용.
+
+Changes: `service._etl_tables_join_select_parts`, `list_jobs`, `get_job`; `service_file._batch_job_backfill_select_parts`, `list_batch_target_registry`.
+
+Changed files: Backend/etl_server/service.py, service_file.py, docs/log/log.md
+
+133. 2026-04-01 ETL: etl_jobs DDL 드리프트·batch_jobs target_table 방어
+Purpose: 터미널 오류 `column j.rows_processed does not exist`, `column j.target_table does not exist` 대응. `list_jobs`·`get_job`은 `information_schema` 기준으로 `etl_jobs` SELECT 컬럼을 조합하고, `list_batch_target_registry` 초기 백필 쿼리는 `batch_jobs.target_table` 없으면 `NULL::text` 사용.
+
+Changes: `service._etl_jobs_j_select_sql`·`list_jobs`·`get_job`; `service_file.list_batch_target_registry`. `permission denied for table batch_jobs`는 DB `GRANT SELECT`로 해결.
+
+Changed files: Backend/etl_server/service.py, service_file.py, docs/log/log.md
+
+132. 2026-04-01 ETL 등록자 UI·API: create_user_label·insert_job·batch_jobs
+Purpose: ETL 테이블·배치 Job·Job 이력 목록에서 누가 등록했는지 확인할 수 있도록 `user_info` 조인 `create_user_label`을 내려주고, `etl_jobs`·`batch_jobs` INSERT 시 JWT `create_user_id`를 저장한다.
+
+Changes: `service.insert_job`·`list_jobs`·`list_etl_tables`·`get_etl_table`; `service_file.list_batch_jobs`·`get_batch_job`·`create_batch_job`·`list_batch_target_registry`; `router` add-file·zip·run; `router_file` 배치 Job 생성·복제. 프론트 `ETLTableList`·`BatchJobListFile`·`JobHistoryPanel`에 등록자 열, `etl.css`. `docs/main/04` etl_jobs·batch_jobs에 `create_user_id` 행 안내.
+
+Changed files: Backend/etl_server/service.py, service_file.py, router.py, router_file.py, Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, BatchJobListFile.jsx, JobHistoryPanel.jsx, etl.css, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+131. 2026-04-01 ETL service: DDL 단일 기준 고정·create_user_id 조회 반영
+Purpose: 사용자 제공 `ibank_etl_data` DDL을 단일 기준으로 삼아 `source_type`/`encrypted_password` 물리 컬럼 폴백을 제거하고, `create_user_id`는 INSERT뿐 아니라 목록·상세 조회에 포함한다.
+
+Changes: `etl_connections` SQL은 `db_type`·`password` 고정. `etl_storage_connections`는 `config_json`·`storage_type`만 사용(호스트 분산 컬럼 경로 제거). `list_etl_tables`·`get_etl_table`에 `create_user_id` 컬럼, `list_storage_connections`·`get_storage_connection`에 `create_user_id` 선택. 파일 연결 생성은 `db_type`·`password` 필수 스키마 가정.
+
+Changed files: Backend/etl_server/service.py, docs/log/log.md
+
+130. 2026-04-01 ETL service: ibank_etl_data 컬럼명 정합(db_type·password·config_json)
+Purpose: 운영 `ibank_etl_data`의 `etl_connections`(db_type·password)·`etl_storage_connections`(storage_type·config_json) 물리명과 레거시(source_type·host 분산 컬럼)를 동시 지원한다.
+
+Changes: `information_schema`로 컬럼 선택 후 INSERT/SELECT·`get_connection_for_etl`·`list_connections`·`create_connection`·`get_or_create_file_connection`·`delete_connection`·`list_etl_tables`/`get_etl_table` JOIN에 `db_type`/`password` 분기. 저장소는 `config_json` 단일 컬럼 시 JSON에 host 등 직렬화·`normalize_storage_connection_row`로 응답 호환·`update_storage_connection` 병합 갱신.
+
+Changed files: Backend/etl_server/service.py, docs/log/log.md
+
+129. 2026-04-01 ETL 전사 단위: create_user_id·04 문서·INSERT/라우터
+Purpose: ETL 메타를 부서(`dptmt_info_id`)가 아닌 전사 단위로 두고, `docs/main/04`에 `create_user_id`(FK user_info)를 명시. INSERT는 `information_schema`로 컬럼 존재 시에만 `create_user_id`·레거시 `created_by`를 채움. JWT `user_id`는 `require_etl_infrastructure` payload로 전달.
+
+Changes: `service.py` `_append_creator_columns_etl`, `create_connection`·`create_storage_connection`·`get_or_create_file_connection`·`create_etl_table`; `router.py`·`router_file.py` 생성 API에 `Depends(require_etl_infrastructure)`; `service_file.create_folder_connection` 동적 마스터 INSERT(`is_active`/`is_verified`·`create_user_id`). 프론트 ETL에 부서 필터 없음(변경 없음).
+
+Changed files: Backend/etl_server/service.py, router.py, router_file.py, service_file.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+128. 2026-04-01 batch_folder_connections: 코드 protocol→folder_type 정합
+Purpose: DB·`docs/main/04` 설계 컬럼명 `folder_type`과 일치하도록 ETL 배치 폴더 연결 SQL·API·실행기·프론트를 `protocol`에서 되돌림.
+
+Changes: `service_file` INSERT/SELECT/JOIN·`get_folder_adapter`·`router_file` Pydantic·`batch_executor_file` job dict 키·폴더 연결 폼/목록. 설계서 `09_ETL_SFTP_Connection`·`etc01` 예시 문구.
+
+Changed files: Backend/etl_server/service_file.py, router_file.py, batch_executor_file.py, Frontend/react-app/src/packages/etl/components/FolderConnectionFormFile.jsx, FolderConnectionListFile.jsx, docs/report/09_ETL_SFTP_Connection.md, docs/report/etc01_Backend_Learning_Flow.md, docs/log/log.md
+
+127. 2026-04-01 pmssn 시드 query.read/query.execute·auth·쿼리스튜디오·문서 정합
+Purpose: DB `pmssn_master_detail` 시드가 `query.read`·`query.execute`로 바뀐 것에 맞춰 JWT·Fast Path·라우터·홈 빠른 액세스·아키텍처 문서를 동일 키로 통일한다.
+
+Changes: `Backend/auth_server/permissions.py` `_PROJECT_FEATURE_IDS`, `Backend/query_studio_server/router.py` `require_permission`, `app/home/homeAccess.js`·`HomePage.jsx`, `docs/main/04`·`05`, `docs/report/17` 권한·시드·경로 표기.
+
+Changed files: Backend/auth_server/permissions.py, Backend/query_studio_server/router.py, Frontend/react-app/src/app/home/homeAccess.js, Frontend/react-app/src/app/home/HomePage.jsx, docs/main/04_DB_ARCHITECTURE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+126. 2026-04-01 .cursor 에이전트·스킬·룰: ETL 단일·캠페인 대시보드·http.js 정합
+Purpose: 구 etl1/etl2·`etl_server2`·구 dashboard 패키지 경로 등 잔재를 제거하고, docs/main 과 동일하게 단일 `etl_server`·`packages/etl`, 대시보드는 `campaign_dash_server`/`campaign_dashboard`, API 클라이언트는 `packages/*/api/*Client.js`·`shared/api/http.js` 로 통일.
+
+Changes: `project-conventions.mdc`, `tech-lead-orchestration.mdc`, agents(be-*·fe-*·linker·verifier), skills(api-client-sync·fastapi·db-load·cross-check·react-component·migration-helper), commands(add-feature·build-check·verify), `.cursor/README.md` 현행 스택 요약.
+
+Changed files: .cursor/**, docs/log/log.md
+
+125. 2026-04-01 report_server→query_studio_server·문서·스킬 명명 정합
+Purpose: 백엔드 패키지를 `auth_server` 등과 동일하게 `query_studio_server`로 통일. 프론트 `packages/query_studio`와 구분되는 서버 접미사 `_server` 명시. HTTP `/api/*` 유지. JWT 권한 키는 이후 로그 #127에서 `query.read`/`query.execute`로 정합.
+
+Changes: `Backend/query_studio` 폴더를 `query_studio_server`로 이동, import·`query_studio_router`·테스트 `test_query_studio_api.py`·`docs/main`·`docs/report/17`·`.cursor` 스킬/룰/be-impl 갱신.
+
+Changed files: Backend/query_studio_server/**, Backend/api_server/main.py, Backend/api_server/routers/__init__.py, Backend/core/db.py, Backend/core/dependencies.py, Backend/__init__.py, Backend/api_server/__init__.py, Backend/core/__init__.py, Backend/auth_server/permissions.py, tests/test_*.py, docs/main/*.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, .cursor/agents/be-impl.md, .cursor/rules/project-conventions.mdc, .cursor/skills/api-client-sync/SKILL.md, .cursor/skills/react-component/SKILL.md, docs/log/log.md
+
+124. 2026-04-01 docs/main 일괄 정합: user_dvsn 캐논·인증·라우터·테이블 노출 정책
+Purpose: `docs/log`·코드(`user_dvsn_codes`, `auth_server`, `api_server/main`, `query_studio_server/list-tables`, 가입 서비스) 기준으로 docs/main 7종과 시스템 동작 불일치를 제거한다.
+
+Changes:
+
+- `05`·`04`·`06`: DB·앱 `user_dvsn` 값 `sa_dev`/`sa`/`a`/`o`/`u`, 권한 템플릿(`pmssn_master`) 용어 정리
+- `00`·`02`·`03`: 앱 수준 JWT·`require_permission`·라우터 조립·system_db 범위·쿼리 스튜디오 테이블=프로젝트 매핑 반영; 구 “인증 없음”·구 대시보드 중심 지도 수정
+- `01`: 디렉터리 트리 `app/layout/navConfig.js` 경로 수정
+- `03`·`00` 문서 인덱스 문구 보강
+
+Changed files: docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md, 03_AI_DEVELOP_GUIDE.md, 04_DB_ARCHITECTURE.md, 05_Permission_ARCHITECTURE.md, 06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+123. 2026-04-01 권한문서 05: require_permission 검증 흐름도·엣지 케이스 표 추가
+Purpose: `permissions.py` 구현과 동일한 단계(액세스 JWT → canon user_dvsn → project_info_id → Fast/Slow path)를 `05_Permission_ARCHITECTURE.md` 상단에 ASCII 흐름도로 두고, `needed` 빈 튜플·ETL/미존재 user·캐논 불일치 등 엣지 케이스를 표로 정리한다.
+
+Changes:
+
+- STEP 1~6 흐름, 기본 기능 집합·`_AUTO_PROJECT_ROLES` 설명, ETL 별도 의존성 안내
+- 엣지 케이스 표: 빈 `require_permission()`은 Slow Path 후 루프 0회 통과 등
+- 백엔드 구현 메모에 `deps.py`·캐논 코드 참조·자동 역할 표현 보정
+
+Changed files: docs/main/05_Permission_ARCHITECTURE.md, docs/log/log.md
+
+122. 2026-04-01 고객여정 06: 부서·사용자·권한 어드민 UX 가이드(Phase 11) 보강
+Purpose: 최근 부서·사용자·권한 관리 화면 개편 및 로그(#98~#121) 내용을 `06_CUSTOMER_JOURNEY.md`에 반영해, 여정 문서만 읽고도 실제 화면 조작 흐름을 따라갈 수 있게 한다.
+
+Changes:
+
+- 문서 상단 용도에 Phase 11 UX 가이드·log 교차 참조 문구 추가
+- Phase 11 역할별 범위 표를 트리 조회·권한 관리 표현으로 정리
+- 하위 절「부서·사용자·권한 화면 UX 가이드」: `/admin/org`·`/admin/users`·`/admin/roles`별 표 형식 안내(레이아웃, 모달, 검증, 사용현황 드릴다운 등)
+
+Changed files: docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+121. 2026-04-01 권한 목록 테이블: 권한명·상세 폰트를 작업 버튼과 통일·행 세로 중앙
+Purpose: `ap__table` 권한 관리 목록에서 권한명·권한상세 셀 글자 크기를 `.ap__btn`(0.875rem)과 맞추고, `ap__mono`로 작아지던 상세 열을 동일 크기로 두며 행은 세로 중앙 정렬한다.
+
+Changes:
+
+- 권한 목록 `table`에 `ap__table--roles` 적용
+- `vertical-align: middle`, 작업 열 `ap__row`는 `align-items: center`
+
+Changed files: Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+120. 2026-04-01 권한관리: 우상단 권한 생성 모달·본문에 목록 우선 표시
+Purpose: 부서/사용자 관리와 동일하게 헤더 우측에「권한 생성」을 두고, 기존 상단 인라인 생성 폼을 모달로 옮긴 뒤 본문에서는 권한 목록이 바로 보이도록 한다.
+
+Changes:
+
+- `ap__header-row`·`ap__btn-head-create`·`ap__modal--create`·모달 액션/힌트 보조 클래스
+- 생성 성공 시 모달 닫기·폼 초기화·목록 `load()`
+
+Changed files: Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+119. 2026-03-31 권한 수정 모달: 권한상세 textarea 제거·셀렉트+행 목록으로 통일
+Purpose: 수정 모달에서 권한 상세를 직접 입력(textarea)하던 UX를 제거하고, 생성 폼과 동일하게 `pmssn_master_detail` 기반 셀렉트·추가·행 목록(x 제거)으로 편집한다.
+
+Changes:
+
+- `pmssnListToArray`로 기존 `pmssn_list`를 편집 배열로 로드
+- 수정 모달: `editPmssnList`, `editSelectedPermission`, 추가/제거 핸들러, 생성 폼과 동일 테이블 UI
+- 옵션 비동기 로드 시 셀렉트 기본값 보정 `useEffect`
+- `ap__modal--edit`로 모달 폭·스크롤 보강
+
+Changed files: Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+118. 2026-03-31 권한상세 목록 영역 높이·패딩·세로 정렬 CSS
+Purpose: `ap__permission-list-wrap`이 셀렉트+추가 행(`ap__row`)과 비슷한 최소 높이를 갖도록 하고, 빈 상태 힌트·테이블 셀에 좌측 패딩 10px 이상과 상하 중앙 정렬을 적용한다.
+
+Changes:
+
+- `ap__permission-list-wrap`: `min-height`를 입력행 높이에 맞춤, flex로 빈 상태 세로 중앙
+- `ap__permission-list` th/td: `padding: 12px 14px`, `vertical-align: middle`
+- 빈 상태 `.ap__hint`: `padding: 12px 14px`
+- 삭제 셀·버튼: 세로 정렬 보강
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+117. 2026-03-31 권한상세 추가 목록 row 표시로 UI 변경
+Purpose: 권한 생성 폼에서 `추가`된 권한상세 항목을 칩 형태 대신 행 목록으로 보여주고, `권한명/권한설명`을 함께 확인할 수 있게 개선한다.
+
+Changes:
+
+- `newPmssnList` 렌더링을 칩 UI에서 row 테이블 UI로 변경 (`권한명`, `권한설명`, `x`)
+- `permissionOptions` 기반 `permissionOptionMap`을 사용해 설명 컬럼 표시(설명 미존재/동일값은 `-`)
+- `x` 버튼을 행 우측 끝 정렬로 배치하고 기존 제거 동작 유지
+
+Changed files: Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+116. 2026-03-31 권한상세 옵션 조회를 pmssn_master_detail로 전환
+Purpose: 권한 관리 화면의 `권한 상세 목록` 셀렉트가 빈 목록으로 보이던 문제를 해결한다. 옵션 소스를 `pmssn_master.pmssn_list`가 아닌 기준 테이블 `pmssn_master_detail`로 맞춘다.
+
+Changes:
+
+- `list_permission_options_for_dept`의 조회 SQL을 `pmssn_master_detail.pmssn_detail_name` 기반 DISTINCT 오름차순으로 변경
+- 빈 문자열 방지 조건(`TRIM(COALESCE(...)) <> ''`) 추가
+- 반환 형식은 기존과 동일하게 `list[str]` 유지하여 프론트 호환 유지
+
+Changed files: Backend/admin_server/service_roles.py, docs/log/log.md
 
 115. 2026-03-31 권한관리 화면 개편·사용현황 드릴다운 추가
 Purpose: 역할 관리 화면을 권한 관리 중심으로 전환하고, 권한 상세목록 선택형 생성 UX와 사용현황 조회/드릴다운(프로젝트·사용자) 관리 흐름을 추가한다.

@@ -5,18 +5,19 @@ Backend.etl_server.batch_executor_file (배치 실행기 — 다운로드·파�
 실제 흐름: get_batch_job → 폴더 어댑터 → list_files → get_pending_files →
 대기 있으면 get_skipped_filenames_set로 이력 스킵/에러 파일 제외 후 실제 처리할 파일이 있을 때만 create_batch_run → 저장 DB 연결 →
 파일별 다운로드(임시) → 크기 검사 → SHA-256 체크섬 → 중복 시 건너뜀(이때도 last_processed_ts 갱신하여 다음 주기 재진입 방지)
-→ read_file → load_dataframe → last_processed_ts 갱신 → finish_run, update_job_status. finally adapter.close().
+→ read_file → etl_table_id 있으면 transform_rules + apply_rules( batch_executor_db와 동일 정책: 실패 시 warning 후 skip ) → load_dataframe → last_processed_ts 갱신 → finish_run, update_job_status. finally adapter.close().
 on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록·롤백 후 다음 파일 계속; 종료 시 partial_error/success.
 
 [Main Functions]
 ===========
-- run_batch_job(batch_job_id): 배치 1건 실행. run_completed_ok 플래그로 성공/취소 후 update_job_status("success") 실패 시 except에서 "error"로 덮어쓰지 않음.
+- run_batch_job(batch_job_id): 배치 1건 실행. batch_jobs에 target_table 없고 etl_table_id만 있으면 etl_tables에서 타겟·column_mapping 보완. run_completed_ok 플래그로 성공/취소 후 update_job_status("success") 실패 시 except에서 "error"로 덮어쓰지 않음.
 
 [Dependencies]
 =========
 - Backend.etl_server.service_file (get_batch_job, create_batch_run, finish_run, update_run_progress, update_job_status, get_last_processed_ts, update_last_processed_ts, is_duplicate_checksum, check_consecutive_failures, get_skipped_filenames_set, get_folder_adapter)
 - Backend.etl_server.scheduler_file (refresh_interval_after_run)
 - Backend.etl_server.parser_file (get_pending_files, read_file)
+- Backend.etl_server.transform_rules_service, transform_engine (etl_table_id 배치 시 룰 적용)
 - Backend.etl_server.service (get_target_db_connection)
 - Backend.etl_server.load_service_file (load_dataframe)
 - Backend.etl_server.etl_limits (get_etl_limits)
@@ -89,7 +90,7 @@ def run_batch_job(batch_job_id: int) -> None:
     배치 Job 1건 실행. 스케줄러에서 호출.
     Job 조회 → 활성/실행중 검사 → 폴더 어댑터 연결 → list_files → get_pending_files →
     대기 없거나 스킵/에러 제외 후 실제 처리할 파일 없으면 run 기록 없이 return. 있으면 create_batch_run → status=running →
-    저장 DB 연결 후 파일별: 다운로드(임시) → 크기 검사 → read_file → load_dataframe →
+    저장 DB 연결 후 파일별: 다운로드(임시) → 크기 검사 → read_file → (etl_table_id 시 변환 룰) → load_dataframe →
     last_processed_ts 갱신 → finish_run(success), update_job_status(success).
     예외 시 finish_run(error). finally adapter.close().
     """
@@ -169,10 +170,23 @@ def run_batch_job(batch_job_id: int) -> None:
         total_ins = 0
         total_upd = 0
         file_results = []
-        job_protocol = (job.get("protocol") or "").strip().lower()
+        job_folder_type = (job.get("folder_type") or "").strip().lower()
+        etl_tid = job.get("etl_table_id")
+        et_row_cache = None
+        if etl_tid is not None:
+            try:
+                et_row_cache = etl_service.get_etl_table(int(etl_tid))
+            except (TypeError, ValueError):
+                et_row_cache = None
         target_table = (job.get("target_table") or "").strip()
+        if not target_table and et_row_cache:
+            target_table = (et_row_cache.get("target_table") or "").strip()
         pk_columns_str = (job.get("pk_columns") or "").strip() or None
+        if not pk_columns_str and et_row_cache and et_row_cache.get("pk_columns"):
+            pk_columns_str = str(et_row_cache.get("pk_columns")).strip() or None
         column_mapping = job.get("column_mapping")
+        if column_mapping is None and et_row_cache:
+            column_mapping = et_row_cache.get("column_mapping")
         on_file_error = (job.get("on_file_error") or "stop").strip().lower()
         if on_file_error not in ("stop", "continue"):
             on_file_error = "stop"
@@ -196,7 +210,7 @@ def run_batch_job(batch_job_id: int) -> None:
 
             local_path = None
             try:
-                if job_protocol == "sftp":
+                if job_folder_type == "sftp":
                     _wait_for_stable_size(adapter, filename)
 
                 ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -246,6 +260,32 @@ def run_batch_job(batch_job_id: int) -> None:
                     batch_service.update_run_progress(run_id, files_processed=len(file_results), rows_inserted=total_ins, rows_updated=total_upd, file_list=file_results, conn=sys_conn)
                     continue
 
+                if etl_tid is not None:
+                    try:
+                        from Backend.etl_server import transform_engine
+                        from Backend.etl_server import transform_rules_service as transform_rules_svc
+                        rules = transform_rules_svc.list_transform_rules(int(etl_tid))
+                        if rules:
+                            df = transform_engine.apply_rules(df, rules)
+                    except Exception as e:
+                        logger.warning(
+                            "run_batch_job job_id=%s: 변환 룰 적용 실패 (skip): %s",
+                            batch_job_id, e,
+                        )
+
+                try:
+                    _stor_id = job.get("storage_connection_id")
+                    _stor_id = int(_stor_id) if _stor_id is not None and str(_stor_id).strip() != "" else None
+                except (TypeError, ValueError):
+                    _stor_id = None
+                try:
+                    _batch_creator = job.get("create_user_id")
+                    _batch_creator = int(_batch_creator) if _batch_creator is not None else None
+                except (TypeError, ValueError):
+                    _batch_creator = None
+                from Backend.etl_server.table_master_hook import table_master_texts_from_etl_row
+
+                _tl, _td = table_master_texts_from_etl_row(et_row_cache)
                 result = load_service_file.load_dataframe(
                     target_conn,
                     target_schema,
@@ -258,6 +298,10 @@ def run_batch_job(batch_job_id: int) -> None:
                     source_filename=filename,
                     sys_conn=sys_conn,
                     index_definitions=job.get("index_definitions"),
+                    storage_connection_id=_stor_id,
+                    table_master_create_user_id=_batch_creator,
+                    table_master_table_label=_tl,
+                    table_master_table_dscrtn=_td,
                 )
                 try:
                     target_conn.commit()

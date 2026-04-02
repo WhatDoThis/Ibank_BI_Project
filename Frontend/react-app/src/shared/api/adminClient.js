@@ -85,16 +85,27 @@ export async function getAdminUserWorkAssets(userId) {
   return request('GET', `/api/admin/users/${userId}/work-assets`)
 }
 
-/** @param {number} dptmtInfoId @param {number} excludeUserId */
-export async function getAdminOwnershipTransferTargets(dptmtInfoId, excludeUserId) {
+/**
+ * @param {number} dptmtInfoId
+ * @param {number} excludeUserId 소유자 user_id
+ * @param {{ etlInfra?: boolean, resourceType?: 'table_master'|null, tableMasterId?: number }} [opts]
+ */
+export async function getAdminOwnershipTransferTargets(dptmtInfoId, excludeUserId, opts = {}) {
+  const o = typeof opts === 'boolean' ? { etlInfra: opts } : opts || {}
+  const etlInfra = !!o.etlInfra
   const q = new URLSearchParams({
     dptmt_info_id: String(dptmtInfoId),
     exclude_user_id: String(excludeUserId),
   })
+  if (etlInfra) q.set('etl_infra', 'true')
+  if (o.resourceType === 'table_master' && o.tableMasterId != null) {
+    q.set('resource_type', 'table_master')
+    q.set('table_master_id', String(o.tableMasterId))
+  }
   return request('GET', `/api/admin/users/ownership-transfer-targets?${q}`)
 }
 
-/** @param {{ resource_type: 'project'|'pmssn_master', resource_id: number, from_user_id: number, to_user_id: number }} body */
+/** @param {{ resource_type: string, resource_id: number, from_user_id: number, to_user_id: number }} body */
 export async function postAdminTransferOwnership(body) {
   return request('POST', '/api/admin/users/transfer-ownership', body)
 }

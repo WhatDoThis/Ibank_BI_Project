@@ -1,6 +1,6 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/report_server`, `Backend/api_server`(호스트 앱), `Backend/etl_server`, `Backend/campaign_dash_server`. (`legacy_dashboard_server`, `new_dash_server`, `new_dash_server2` 는 저장소 보존·`main.py` 미등록.)  
+본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/query_studio_server`, `Backend/api_server`(호스트 앱), `Backend/etl_server`, `Backend/campaign_dash_server`. (`legacy_dashboard_server`, `new_dash_server`, `new_dash_server2` 는 저장소 보존·`main.py` 미등록.)  
 **목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. 레이어·의존 방향·작업 유형별 탐색은 **03_AI_DEVELOP_GUIDE.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
 
 ---
@@ -9,11 +9,11 @@
 
 ### 1.1 역할
 
-- **FastAPI** 기반 REST API 서버. 리포트·**캠페인 대시보드**(campaign_dash_server)·**ETL**(etl_server 단일) 용 API 제공.
-- **PostgreSQL** 연동: 비즈니스 DB(리포트·allowed_tables), 선택 시 **시스템 DB**(ETL 메타), **dash_db**(캠페인 대시보드 Star·집계 물리 테이블).
+- **FastAPI** 기반 REST API 서버. **`Backend/api_server/main.py`** 에서 health → **auth** → **project** → **notification** → **admin** → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) 순으로 라우터를 등록한다.
+- **PostgreSQL** 연동: **메인 DB**(쿼리 스튜디오·execute-query 물리 테이블), **시스템 DB**(`ibank_system_data` — ETL 메타·`user_info`·부서·프로젝트·`pmssn_master`·매핑 등, **04_DB_ARCHITECTURE.md**), **dash_db**(캠페인 대시보드 Star·집계 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
-- **인증**: 앱 레벨 로그인·JWT·RBAC **없음**(공개 API 형태). 운영 시 Nginx 등 상위에서 접근 제한. **03_AI_DEVELOP_GUIDE.md §9**.
+- **인증·인가**: **`/api/auth/*`** 로그인·토큰·세션. 보호 API는 **`Authorization: Bearer`** access JWT. 쿼리 스튜디오·대시보드 등은 **`Backend.auth_server.permissions.require_permission`**(JWT `project_info_id`·멤버·`pmssn_list`). 상세는 **05_Permission_ARCHITECTURE.md**.
 - **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **03_AI_DEVELOP_GUIDE.md §10**.
 
 ### 1.2 기술 스택
@@ -42,15 +42,15 @@ Backend/
 │   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
 │   └── dashboard_service.py       # 대시보드 집계 비즈니스 로직 (campaign_dash_server 등)
 │
-├── report_server/                 # 노코드 쿼리 빌더·리포트 API (prefix /api, etl_server와 동급 패키지)
+├── query_studio_server/           # 쿼리 스튜디오 API (prefix /api, etl_server와 동급 패키지)
 │   ├── router.py                  # list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats
-│   ├── schemas.py                 # 리포트 전용 Pydantic 요청 스키마
+│   ├── schemas.py                 # 쿼리 스튜디오 전용 Pydantic 요청 스키마
 │   ├── pluralize.py, relationship_inference.py, join_path.py, join_metrics.py, analysis_store.py
 │
 ├── api_server/                    # FastAPI 호스트: 앱 조립·CORS·라우터 등록
 │   ├── main.py                    # FastAPI 앱·CORS·라우터 등록·예외 핸들러·ETL 워커 startup
 │   └── routers/
-│       ├── __init__.py            # health + report_server.router 재export
+│       ├── __init__.py            # health + query_studio_server.router 재export
 │       └── health.py              # GET /, /api, /api/, /health
 │
 ├── legacy_dashboard_server/       # 구 /api/dashboard (main 미등록, 코드 보존)
@@ -92,7 +92,7 @@ Backend/
     └── star_db.py
 ```
 
-- **라우터 등록 순서**: health → auth → project → notification → admin → report → **etl_router** → **campaign_dashboard_router** (`main.py` 의 `include_router` 순서).
+- **라우터 등록 순서**: health → auth → project → notification → admin → **query_studio_router** → **etl_router** → **campaign_dashboard_router** (`api_server/main.py` 의 `include_router` 순서). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 **미등록**(코드 보존).
 - **etl_limits**: etl_server에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb) 반환. config에 0을 넣으면 해당 항목 한도 없음.
 
 ---
@@ -103,17 +103,17 @@ Backend/
 
 - **위치**: `Env/config/config.json` (또는 config.json.example 복사 후 수정).
 - **로드**: `Env/__init__.py` → loader.load_config() → config.backend, config.frontend.
-- **백엔드 사용**: main.py(api_host, api_port), **Backend.core.db** — 메인 연결은 **backend.main_db**(db_host, db_port, db_name, db_user, db_password, table_schema). 레거시 평면 `backend.db_*` 도 호환. **report_server** 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**.
+- **백엔드 사용**: main.py(api_host, api_port), **Backend.core.db** — 메인 연결은 **backend.main_db**(db_host, db_port, db_name, db_user, db_password, table_schema). 레거시 평면 `backend.db_*` 도 호환. **query_studio_server** 라우터(query_timeout_seconds, claude_api_key, claude_api_url). **뉴 대시보드 물리 테이블**은 **backend.dash_db**.
 
 ### 3.1.1 메인 DB (main_db)
 
-- **backend.main_db**: Report·execute-query 등 **기본 비즈니스 PostgreSQL**. 키 구조는 **system_db**와 동일.
+- **backend.main_db**: 쿼리 스튜디오·execute-query 등 **기본 비즈니스 PostgreSQL**. 키 구조는 **system_db**와 동일.
 - **로드**: `Backend.core.db` 의 `get_db_config()`, `get_table_schema()` — `main_db` 우선, 없으면 레거시 평면 키.
 
-### 3.2 시스템 DB (ETL)
+### 3.2 시스템 DB (ETL 메타 + 상용 메타)
 
-- **backend.system_db**: ETL 메타 저장용. db_name 예: `ibank_system_data`. db.get_db_connection_system(), get_system_table_schema() 사용.
-- **메타 테이블** (시스템 DB에 5개 필수):
+- **backend.system_db**: db_name 예: `ibank_system_data`. ETL 메타 외 **`user_info`·조직·프로젝트·권한·매핑** 등 동일 DB에 둔다(`04_DB_ARCHITECTURE.md`). `get_db_connection_system()`, `get_system_table_schema()` 사용.
+- **ETL 필수 메타 테이블** (시스템 DB, 아래 5종):
 
 | 테이블 | 용도 |
 |--------|------|
@@ -125,6 +125,8 @@ Backend/
 
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
 - **batch_jobs**(폴더 배치): **on_file_error** 'stop'\|'continue'(파일 1건 실패 시 run 중단 vs 다음 파일 계속). **index_definitions** JSONB(타겟 인덱스 정의).
+
+동일 **시스템 DB**에 `user_info`·`dptmt_info`·`project_info`·`pmssn_master`·`table_master`·`table_project_mapping` 등 상용화 메타가 함께 존재한다. FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
 
 ### 3.2.1 뉴 대시보드 전용 DB (dash_db)
 
@@ -167,7 +169,7 @@ Backend/
 | GET | /api, /api/ | API 안내 |
 | GET | /health | 헬스체크 |
 
-### 4.2 report (prefix /api)
+### 4.2 query_studio (쿼리 스튜디오, prefix /api)
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -326,11 +328,11 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ---
 
-## 5. api_server·core·report_server 상세
+## 5. api_server·core·query_studio_server 상세
 
 ### 5.1 main.py (api_server)
 
-- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, auth, project, notification, admin, report, etl_router, **campaign_dashboard_router**).
+- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, auth, project, notification, admin, query_studio_router, etl_router, **campaign_dashboard_router**).
 - 예외: 404/500 → JSONResponse.
 - lifespan: ETL 폴더 배치 스케줄러(`etl_server.scheduler_file`) 기동(실패 시 무시).
 - `__main__`: config.backend.api_host/api_port, uvicorn.run(app). 시작 시 로그용으로 **Backend.core.db** 설정 출력.
@@ -347,15 +349,15 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 - **get_db**: 요청 단위 DB 연결(컨텍스트 매니저).
 - **get_config**: config 객체 주입.
 
-### 5.4 report_server/schemas.py · legacy_dashboard_server/schemas.py
+### 5.4 query_studio_server/schemas.py · legacy_dashboard_server/schemas.py
 
-- **report_server.schemas**: 리포트·쿼리 빌더 POST 바디 검증(describe-table, execute-query, join-order 등).
+- **query_studio_server.schemas**: 쿼리 스튜디오 POST 바디 검증(describe-table, execute-query, join-order 등).
 - **legacy_dashboard_server.schemas**: 구 대시보드 POST 바디(DashboardDataRequest, ChartDataRequest) — `main` 에 라우터 미등록 시 API 미노출.
 
 ### 5.5 routers (등록 소스)
 
 - **health_router** (`api_server/routers/health.py`): GET /, /api, /api/, /health.
-- **report_router** (`report_server/router.py`): prefix=/api. list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats. execute-query 시 SELECT만 허용·금지 키워드 검사.
+- **query_studio_router** (`query_studio_server/router.py`): prefix=/api. list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats. execute-query 시 SELECT만 허용·금지 키워드 검사.
 - **campaign_dashboard_router** (`campaign_dash_server/router.py`): prefix=/api/campaign-dashboard. **core.dashboard_service** 등 호출.
 
 ### 5.6 core/dashboard_service.py
@@ -467,8 +469,8 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 1 | core/db.py | Env.config, psycopg2 |
 | 2 | core/dashboard_service.py | db만 사용 |
 | 3 | core/dependencies.py | get_db, get_config |
-| 4 | report_server/schemas.py, legacy_dashboard_server/schemas.py | Pydantic |
-| 5 | report_server/router.py, legacy_dashboard_server/router.py, api_server/routers/health.py | APIRouter |
+| 4 | query_studio_server/schemas.py, legacy_dashboard_server/schemas.py | Pydantic |
+| 5 | query_studio_server/router.py, legacy_dashboard_server/router.py, api_server/routers/health.py | APIRouter |
 | 6 | api_server/main.py | FastAPI, CORS, 라우터, uvicorn |
 
 ### A.3 Phase 요약
@@ -483,7 +485,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 5 | run.py | 의존성 오류 시 fastapi/uvicorn 안내 |
 | 6 | requirements.txt | flask 제거, fastapi·uvicorn 추가 |
 | 7 | README, docs/main | Flask → FastAPI 문구 |
-| 8 | 검수·report | 연동 테스트, log.md |
+| 8 | 검수·query_studio | 연동 테스트, log.md |
 
 ### A.4 롤백 시 참고
 

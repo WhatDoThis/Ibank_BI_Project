@@ -5,7 +5,7 @@ Backend.admin_server.router (/api/admin)
 
 [Endpoints]
 ===========
-1. users, users/search, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, users/transfer-ownership, users/{id}/change-options|management, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
+1. users, users/search, users/invite, users/ownership-transfer-targets(resource_type=table_master+table_master_id), users/{id}/work-assets, users/transfer-ownership(table_master), users/{id}/change-options|management, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
 2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
@@ -104,17 +104,46 @@ def admin_users_invite(
 def admin_ownership_transfer_targets(
     dptmt_info_id: int = Query(..., ge=0),
     exclude_user_id: int = Query(..., ge=1),
+    etl_infra: bool = Query(
+        False,
+        description="true면 동일 부서·활성·ETL 자격(etl_yn=Y 또는 sa_dev) 사용자만",
+    ),
+    resource_type: str | None = Query(
+        None,
+        description="table_master 이면 table_master_id와 함께 권한 기반 이관 후보",
+    ),
+    table_master_id: int | None = Query(
+        None,
+        ge=1,
+        description="resource_type=table_master 일 때 필수",
+    ),
     actor: dict = Depends(require_org_admin),
     conn=Depends(get_system_db),
 ):
     try:
-        items = service_users.list_ownership_transfer_targets(
-            conn,
-            str(actor.get("user_dvsn") or ""),
-            int(actor["dptmt_info_id"]),
-            dptmt_info_id,
-            exclude_user_id,
-        )
+        rt = (resource_type or "").strip().lower()
+        if rt == "table_master":
+            if table_master_id is None:
+                raise ValueError("table_master 이관 후보 조회에는 table_master_id가 필요합니다.")
+            fd = service_users.get_user_dptmt_for_admin(conn, int(exclude_user_id))
+            if int(dptmt_info_id) != int(fd):
+                raise ValueError("dptmt_info_id가 소유 사용자 부서와 일치하지 않습니다.")
+            items = service_users.list_table_master_transfer_targets(
+                conn,
+                str(actor.get("user_dvsn") or ""),
+                int(actor["dptmt_info_id"]),
+                int(exclude_user_id),
+                int(table_master_id),
+            )
+        else:
+            items = service_users.list_ownership_transfer_targets(
+                conn,
+                str(actor.get("user_dvsn") or ""),
+                int(actor["dptmt_info_id"]),
+                dptmt_info_id,
+                exclude_user_id,
+                etl_infra=bool(etl_infra),
+            )
     except ValueError as e:
         raise _ve(e) from e
     return {"items": items}
@@ -653,7 +682,7 @@ def admin_projects_delete(
 
 @router.get("/tables")
 def admin_tables_list(
-    db_type: str | None = Query(None, description="main|dash|star"),
+    db_type: str | None = Query(None, description="main|dash"),
     q: str = Query("", min_length=0),
     limit: int = Query(300, ge=1, le=1000),
     actor: dict = Depends(get_authenticated_user_row),
@@ -691,7 +720,7 @@ def admin_table_patch(
 @router.get("/projects/{project_info_id}/tables")
 def admin_project_tables_list(
     project_info_id: int,
-    db_type: str | None = Query(None, description="main|dash|star"),
+    db_type: str | None = Query(None, description="main|dash"),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):

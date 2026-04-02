@@ -36,8 +36,8 @@ def _normalize_db_type(db_type: str | None) -> str | None:
     norm = str(db_type).strip().lower()
     if not norm:
         return None
-    if norm not in ("main", "dash", "star"):
-        raise ValueError("db_type은 main, dash, star 중 하나여야 합니다.")
+    if norm not in ("main", "dash"):
+        raise ValueError("db_type은 main, dash 중 하나여야 합니다.")
     return norm
 
 
@@ -68,7 +68,8 @@ def list_table_master(
     term = (q or "").strip()
     lim = max(1, min(int(limit), 1000))
     sql = """
-        SELECT table_master_id, db_type, table_name, table_label, table_dscrtn, create_dtm, update_dtm
+        SELECT table_master_id, db_type, table_name, table_label, table_dscrtn,
+               create_dtm, update_dtm, create_user_id
         FROM table_master
         WHERE 1=1
     """
@@ -157,7 +158,7 @@ def list_project_tables(
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
         sql = """
             SELECT m.table_master_id, m.db_type, m.table_name, m.table_label, m.table_dscrtn,
-                   mp.table_project_mapping_id, mp.create_dtm AS mapping_create_dtm
+                   m.create_user_id, mp.table_project_mapping_id, mp.create_dtm AS mapping_create_dtm
             FROM table_project_mapping mp
             JOIN table_master m ON m.table_master_id = mp.table_master_id
             WHERE mp.project_info_id = %s

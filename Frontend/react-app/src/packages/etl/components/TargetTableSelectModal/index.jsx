@@ -6,17 +6,27 @@
  * [Main Functions]
  * ===========
  * 1. loadTables, getAssembledRules, buildIndexDefinitions, saveRulesIfNeeded, handleApply, handlePreviewClick
- * 2. TableSelector / ColumnMappingSection / CustomIndexSection / PreviewSection / 변환 도움말 모달
+ * 2. onSelect 7번째 인자 tableMeta: { table_label, table_dscrtn } (선택). 길이: 라벨 ≤30자(UNIQUE)·설명 ≤100자(constants 동기)
+ * 3. TableSelector / ColumnMappingSection / CustomIndexSection / PreviewSection / 변환 도움말 모달
  *
  * [Dependencies]
  * =========
- * - React, @/packages/etl/api/etlClient.js, ../utils/storageDb, ./constants, ./TableSelector, ./ColumnMappingSection, ./PreviewSection
+ * - React, @/packages/etl/api/etlClient.js, ../utils/storageDb(normalizeStorageConnectionId, formatEtlStorageLabel), ./constants, ./TableSelector, ./ColumnMappingSection, ./PreviewSection
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { etl2ListTargetTables, etl2ListTargetColumns, etl2ListTransformRules, etl2CreateTransformRule, etl2DeleteTransformRule, etl2TransformPreview, etl2ListTimezones } from '@/packages/etl/api/etlClient.js';
-import { normalizeStorageConnectionId } from '../../utils/storageDb.js';
-import { normalizeSourceCol, NEW_TABLE_VALUE, getOnErrorValue, inferredTypeToPg, parsePkColumns, isTypeCompatible } from './constants.js';
+import { normalizeStorageConnectionId, formatEtlStorageLabel } from '../../utils/storageDb.js';
+import {
+  normalizeSourceCol,
+  NEW_TABLE_VALUE,
+  getOnErrorValue,
+  inferredTypeToPg,
+  parsePkColumns,
+  isTypeCompatible,
+  ETL_TABLE_LABEL_MAX_LEN,
+  ETL_TABLE_DSCRTN_MAX_LEN
+} from './constants.js';
 import { TableSelector } from './TableSelector.jsx';
 import { ColumnMappingSection, CustomIndexSection } from './ColumnMappingSection.jsx';
 import { PreviewSection } from './PreviewSection.jsx';
@@ -33,6 +43,8 @@ function TargetTableSelectModal({
   sourceIndexes: sourceIndexesProp = [],
   currentIndexDefinitions = [],
   currentTransformSettings,
+  currentTableLabel = '',
+  currentTableDscrtn = '',
   pkReadOnlyFromSource = false,
   etlTableId = null,
   onSelect
@@ -67,6 +79,8 @@ function TargetTableSelectModal({
   const [showOnlyWithTransform, setShowOnlyWithTransform] = useState(false);
   const [codeMapPopoverSource, setCodeMapPopoverSource] = useState(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const [tableLabel, setTableLabel] = useState('');
+  const [tableDscrtn, setTableDscrtn] = useState('');
 
   useEffect(() => {
     setPreviewData(null);
@@ -109,6 +123,10 @@ function TargetTableSelectModal({
   }, [customIndexDefinitions]);
 
   const sid = useMemo(() => normalizeStorageConnectionId(storageConnectionId), [storageConnectionId]);
+  const storageTargetLabel = useMemo(
+    () => formatEtlStorageLabel(sid, null),
+    [sid],
+  );
   const mapping = useMemo(() => (Array.isArray(currentColumnMapping) ? currentColumnMapping : []), [currentColumnMapping]);
   const sourceColumns = useMemo(() => {
     const list = Array.isArray(sourceColumnsProp) ? sourceColumnsProp : [];
@@ -149,6 +167,12 @@ function TargetTableSelectModal({
       setSelectedColumns([]);
       setColumnsError('');
       setNewTableName((currentTargetTable || '').trim());
+      setTableLabel(
+        (currentTableLabel != null ? String(currentTableLabel) : '').trim().slice(0, ETL_TABLE_LABEL_MAX_LEN)
+      );
+      setTableDscrtn(
+        (currentTableDscrtn != null ? String(currentTableDscrtn) : '').trim().slice(0, ETL_TABLE_DSCRTN_MAX_LEN)
+      );
       setTransformKind({});
       setTypeCastConfig({});
       setStringConfig({});
@@ -160,7 +184,7 @@ function TargetTableSelectModal({
       setPreviewData(null);
       setPreviewError(null);
     }
-  }, [open, loadTables, currentTargetTable]);
+  }, [open, loadTables, currentTargetTable, currentTableLabel, currentTableDscrtn]);
 
   useEffect(() => {
     if (!open || !selectedTable.trim()) {
@@ -733,6 +757,16 @@ function TargetTableSelectModal({
     if (assembled.some((r) => r.rule_type === 'masking')) {
       if (!window.confirm('마스킹된 데이터는 원본으로 복구할 수 없습니다. 계속하시겠습니까?')) return;
     }
+    const tlCheck = (tableLabel || '').trim();
+    const tdCheck = (tableDscrtn || '').trim();
+    if (tlCheck.length > ETL_TABLE_LABEL_MAX_LEN) {
+      window.alert(`테이블 라벨은 최대 ${ETL_TABLE_LABEL_MAX_LEN}자까지 입력할 수 있습니다.`);
+      return;
+    }
+    if (tdCheck.length > ETL_TABLE_DSCRTN_MAX_LEN) {
+      window.alert(`테이블 설명은 최대 ${ETL_TABLE_DSCRTN_MAX_LEN}자까지 입력할 수 있습니다.`);
+      return;
+    }
     setApplyLoading(true);
     let applied = false;
     const currentSettings = {
@@ -743,6 +777,10 @@ function TargetTableSelectModal({
       codeMapConfig: { ...codeMapConfig },
       datetimeConfig: { ...datetimeConfig },
       mappingOnError: { ...mappingOnError }
+    };
+    const tableMeta = {
+      table_label: (tableLabel || '').trim() || null,
+      table_dscrtn: (tableDscrtn || '').trim() || null
     };
     try {
       const indexDefinitions = buildIndexDefinitions();
@@ -762,7 +800,7 @@ function TargetTableSelectModal({
             on_error: getOnErrorValue(mappingOnError, src.name)
           }));
         const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled);
+        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled, tableMeta);
         if (etlTableId != null && etlTableId !== '') {
           try {
             await saveRulesIfNeeded(
@@ -797,7 +835,7 @@ function TargetTableSelectModal({
           });
         });
         const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled);
+        if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled, tableMeta);
         if (etlTableId != null && etlTableId !== '') {
           try {
             await saveRulesIfNeeded(
@@ -825,7 +863,7 @@ function TargetTableSelectModal({
         };
       });
       const pkCols = targetColumnNamesForPk.filter((n) => selectedPkColumns.includes(n)).join(',').trim() || '';
-      if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled);
+      if (onSelect) onSelect(tableName, columnMapping, pkCols, indexDefinitions, currentSettings, assembled, tableMeta);
       applied = true;
     } finally {
       setApplyLoading(false);
@@ -836,7 +874,8 @@ function TargetTableSelectModal({
     selectedTable, newTableName, currentTargetTable, sourceColumns, newTableExcluded, newTableTargetNames,
     mappingOnError, targetColumnNamesForPk, selectedPkColumns, onSelect, onClose,
     hasSourceMapping, columns, sourceToTarget, targetColByName, selectedColumns, etlTableId,
-    transformKind, typeCastConfig, stringConfig, maskingConfig, codeMapConfig
+    transformKind, typeCastConfig, stringConfig, maskingConfig, codeMapConfig,
+    tableLabel, tableDscrtn, datetimeConfig
   ]);
 
   if (!open) return null;
@@ -850,6 +889,10 @@ function TargetTableSelectModal({
           <button type="button" className="etl-target-select-modal__close" onClick={onClose} aria-label="닫기">&times;</button>
         </div>
         <div className="etl-target-select-modal__body">
+          <p className="etl-target-select-modal__intro etl-target-select-modal__storage-banner">
+            현재 적재 대상 DB: <strong>{storageTargetLabel}</strong>
+            {' '}(바깥 화면의 &quot;저장할 DB&quot; 셀렉트와 동일합니다. 바꾸려면 모달을 닫고 셀렉트를 변경하세요.)
+          </p>
           <p className="etl-target-select-modal__intro">
             아래에서 <strong>저장할 DB</strong>에 있는 테이블을 고르고, 필요하면 소스 컬럼을 타겟 컬럼에 맞춰 주세요. 숫자/날짜 등 타입이 다를 때는 <strong>변환 실패 시</strong>에서 NULL·0·원본 유지·행 제외·실패 중 동작을 선택할 수 있습니다. &quot;적용&quot;을 누르면 테이블명과 매핑이 저장됩니다.
           </p>
@@ -865,6 +908,59 @@ function TargetTableSelectModal({
             setNewTableName={setNewTableName}
             currentTargetTable={currentTargetTable}
           />
+
+          <div className="etl-target-select-modal__table-meta">
+            <p id="etl-tm-meta-hint" className="etl-target-select-modal__meta-hint">
+              저장 메타(<span className="etl-target-select-modal__meta-hint-code">etl_tables</span>) 기준: 라벨은 최대{' '}
+              {ETL_TABLE_LABEL_MAX_LEN}자이며, 입력한 경우 시스템에서 유일해야 합니다(UNIQUE). 설명은 최대{' '}
+              {ETL_TABLE_DSCRTN_MAX_LEN}자입니다. 둘 다 비워 두어도 됩니다.
+            </p>
+            <label className="etl-target-select-modal__label" htmlFor="etl-tm-label">테이블 라벨 (선택)</label>
+            <input
+              id="etl-tm-label"
+              type="text"
+              className="etl-target-select-modal__table-meta-input"
+              value={tableLabel}
+              onChange={(e) => setTableLabel(e.target.value.slice(0, ETL_TABLE_LABEL_MAX_LEN))}
+              maxLength={ETL_TABLE_LABEL_MAX_LEN}
+              placeholder={`표시용 (최대 ${ETL_TABLE_LABEL_MAX_LEN}자)`}
+              autoComplete="off"
+              aria-describedby="etl-tm-meta-hint etl-tm-label-count"
+            />
+            <p
+              id="etl-tm-label-count"
+              className={
+                tableLabel.length >= ETL_TABLE_LABEL_MAX_LEN
+                  ? 'etl-target-select-modal__meta-counter etl-target-select-modal__meta-counter--limit'
+                  : 'etl-target-select-modal__meta-counter'
+              }
+              aria-live="polite"
+            >
+              {tableLabel.length}/{ETL_TABLE_LABEL_MAX_LEN}자
+            </p>
+            <label className="etl-target-select-modal__label etl-target-select-modal__label--spaced" htmlFor="etl-tm-dsc">테이블 설명 (선택)</label>
+            <textarea
+              id="etl-tm-dsc"
+              className="etl-target-select-modal__table-meta-textarea"
+              value={tableDscrtn}
+              onChange={(e) => setTableDscrtn(e.target.value.slice(0, ETL_TABLE_DSCRTN_MAX_LEN))}
+              maxLength={ETL_TABLE_DSCRTN_MAX_LEN}
+              placeholder={`설명 (최대 ${ETL_TABLE_DSCRTN_MAX_LEN}자)`}
+              rows={2}
+              aria-describedby="etl-tm-meta-hint etl-tm-dsc-count"
+            />
+            <p
+              id="etl-tm-dsc-count"
+              className={
+                tableDscrtn.length >= ETL_TABLE_DSCRTN_MAX_LEN
+                  ? 'etl-target-select-modal__meta-counter etl-target-select-modal__meta-counter--limit'
+                  : 'etl-target-select-modal__meta-counter'
+              }
+              aria-live="polite"
+            >
+              {tableDscrtn.length}/{ETL_TABLE_DSCRTN_MAX_LEN}자
+            </p>
+          </div>
 
           <ColumnMappingSection
             hasSourceMapping={hasSourceMapping}

@@ -42,23 +42,23 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 3. get_system_db_config: scripts/check_db_connections.py, Backend/core/dependencies.py(get_system_db 경유)
 4. get_etl_db_config / get_system_table_schema / get_db_connection_etl / get_db_connection_system: Backend/etl_server(다수 모듈), scripts/check_db_connections.py
 5. get_system_table_schema_core / get_db_connection_system_core: Backend/core/dependencies.py(get_system_db) 경유 auth/admin/project/notification
-6. get_allowed_tables_by_project / get_allowed_tables / is_table_allowed_for_project_dashboard: Backend/report_server/router.py, Backend/api_server/main.py, Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
-7. get_table_schema: Backend/report_server/router.py, analysis_store.py, Backend/etl_server/service.py(get_target_db_connection), scripts/create_I1_derived_tables.py, dump_four_tables_schema.py
+6. get_allowed_tables_by_project / get_allowed_tables / is_table_allowed_for_project_dashboard: Backend/query_studio_server/router.py, Backend/api_server/main.py, Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
+7. get_table_schema: Backend/query_studio_server/router.py, analysis_store.py, Backend/etl_server/service.py(get_target_db_connection), scripts/create_I1_derived_tables.py, dump_four_tables_schema.py
 8. _table_exists, _query_table_columns, _query_primary_key_columns: Backend/core/db.py 내부(다른 db 함수에서 호출)
 9. get_table_columns: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
 10. get_table_columns_with_types: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_all_tables_columns_with_types 등)
-11. get_all_tables_columns_with_types: Backend/report_server/router.py
+11. get_all_tables_columns_with_types: Backend/query_studio_server/router.py
 12. get_primary_key_columns: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
 13. table_exists_in_schema: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
 14. get_table_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
 15. get_primary_key_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
-16. get_db_connection: Backend/core/dependencies.py, Backend/report_server/router.py, analysis_store.py, scripts/*.py
+16. get_db_connection: Backend/core/dependencies.py, Backend/query_studio_server/router.py, analysis_store.py, scripts/*.py
 17. get_dash_db_config: Backend/core/db.py 내부(get_db_connection_dash 풀·fallback). get_dash_table_schema·get_db_connection_dash: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
 18. is_new_dash_physical_table: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_table_columns_with_types·validate_dashboard_data_table_name)
 19. validate_dashboard_data_table_name: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
-20. format_value: Backend/report_server/router.py
-21. validate_table_name: Backend/report_server/router.py, Backend/core/dashboard_service.py
-22. validate_column_name: Backend/report_server/router.py
+20. format_value: Backend/query_studio_server/router.py
+21. validate_table_name: Backend/query_studio_server/router.py, Backend/core/dashboard_service.py
+22. validate_column_name: Backend/query_studio_server/router.py
 
 [Dependencies]
 =========
@@ -340,9 +340,9 @@ def get_system_table_schema_core():
 
 # 5.
 def _normalize_db_type(db_type: str | None) -> str:
-    """db_type(main/dash/star) 정규화. 유효하지 않으면 ValueError."""
+    """db_type(main/dash) 정규화. table_master 정책상 star 구분은 사용하지 않음. 유효하지 않으면 ValueError."""
     norm = str(db_type or "main").strip().lower()
-    if norm not in ("main", "dash", "star"):
+    if norm not in ("main", "dash"):
         raise ValueError(f"지원하지 않는 db_type 입니다: {db_type}")
     return norm
 
@@ -355,6 +355,7 @@ def get_allowed_tables_by_project(
     """
     프로젝트 기반 허용 테이블 조회.
     system_db의 table_project_mapping + table_master를 조인한다.
+    db_type 인자는 main 또는 dash 만 허용(table_master 정책).
     include_meta=True면 [{table_name, table_label, table_dscrtn, db_type}] 반환.
     """
     norm_db_type = _normalize_db_type(db_type)
@@ -765,24 +766,24 @@ def validate_dashboard_data_table_name(table_name):
 def is_table_allowed_for_project_dashboard(project_info_id: int, table_id: str) -> bool:
     """
     대시보드 API용 테이블명이 현재 프로젝트의 table_master·table_project_mapping에 허용되는지.
-    main / dash / star 매핑에 정확히 포함되거나, dash에 집계 본표(ibank_n)만 있을 때
+    main / dash 매핑에 정확히 포함되거나, dash에 집계 본표(ibank_n)만 있을 때
     서브 테이블 ibank_n_0~ibank_n_4만 추가 허용(문서 17 M1-8·뉴 대시보드 서브 패턴).
+    dash_db 물리명 `*_star_1|2` 는 table_master 에서 db_type=dash 로 등록하는 것을 전제로 한다.
     """
     name = str(table_id or "").strip()
     if not name:
         return False
     main_s = get_allowed_tables_by_project(int(project_info_id), "main")
     dash_s = get_allowed_tables_by_project(int(project_info_id), "dash")
-    star_s = get_allowed_tables_by_project(int(project_info_id), "star")
-    if name in main_s or name in dash_s or name in star_s:
+    if name in main_s or name in dash_s:
         return True
     m = re.match(r"^(ibank_\d+)_[0-4]$", name)
     if m and m.group(1) in dash_s:
         return True
-    # 캠페인: 회원 스냅샷 *_star_2 는 동일 접두의 *_star_1 이 매핑되면 허용
+    # 캠페인: 회원 스냅샷 *_star_2 는 동일 접두의 *_star_1 이 dash 매핑에 있으면 허용
     if name.endswith("_star_2"):
         partner = name[: -len("_star_2")] + "_star_1"
-        if partner in star_s:
+        if partner in dash_s:
             return True
     return False
 

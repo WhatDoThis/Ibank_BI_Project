@@ -1,7 +1,7 @@
 /**
  * packages/etl/components/FileUploadForm.jsx (파일 업로드 폼)
  * ============================================================
- * 파일 선택, 저장 DB·타겟 테이블(모달로만 설정), 라벨·설명 입력, 업로드 후 목록에서 적재 실행.
+ * 파일 선택, 저장 DB·타겟 테이블(모달에서 테이블명·라벨·설명), 업로드 후 목록에서 적재 실행.
  *
  * [Main Functions]
  * ===========
@@ -11,14 +11,16 @@
  *
  * [Dependencies]
  * =========
- * - React, @/packages/etl/api/etlClient.js (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal
+ * - React, @/packages/etl/api/etlClient.js (etl2UploadFile, etl2ListStorageConnections, etl2InferSchema), TargetTableSelectModal, EtlStorageDbSelect
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { etl2UploadFile, etl2ListStorageConnections, etl2InferSchema } from '@/packages/etl/api/etlClient.js';
 import { getStorageConnectionIdForFormData } from '../utils/storageDb.js';
+import EtlStorageDbSelect from './EtlStorageDbSelect.jsx';
 
 import TargetTableSelectModal from './TargetTableSelectModal/index.jsx';
+import { ETL_TABLE_LABEL_MAX_LEN, ETL_TABLE_DSCRTN_MAX_LEN } from './TargetTableSelectModal/constants.js';
 
 /** 서버 용량 한도와 동일하게 사용 (config 기본값 50MB). 초과 시 업로드 불가. */
 const MAX_FILE_SIZE_MB = 50;
@@ -29,8 +31,8 @@ function FileUploadForm({ onSuccess }) {
   const [file, setFile] = useState(null);
   const [rejectedFile, setRejectedFile] = useState(null);
   const [targetTable, setTargetTable] = useState('');
-  const [labelName, setLabelName] = useState('');
-  const [description, setDescription] = useState('');
+  const [tableLabel, setTableLabel] = useState('');
+  const [tableDscrtn, setTableDscrtn] = useState('');
   const [storageConnectionId, setStorageConnectionId] = useState('');
   const [storageConnections, setStorageConnections] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -114,6 +116,16 @@ function FileUploadForm({ onSuccess }) {
       setError('파일을 선택하세요.');
       return;
     }
+    const tl0 = tableLabel.trim();
+    const td0 = tableDscrtn.trim();
+    if (tl0.length > ETL_TABLE_LABEL_MAX_LEN) {
+      setError(`테이블 라벨은 최대 ${ETL_TABLE_LABEL_MAX_LEN}자입니다. 테이블선택 모달에서 줄여 주세요.`);
+      return;
+    }
+    if (td0.length > ETL_TABLE_DSCRTN_MAX_LEN) {
+      setError(`테이블 설명은 최대 ${ETL_TABLE_DSCRTN_MAX_LEN}자입니다. 테이블선택 모달에서 줄여 주세요.`);
+      return;
+    }
     setError('');
     setResult(null);
     setLoading(true);
@@ -121,8 +133,8 @@ function FileUploadForm({ onSuccess }) {
       const form = new FormData();
       form.append('file', file);
       if (targetTable.trim()) form.append('target_table', targetTable.trim());
-      if (labelName.trim()) form.append('label_name', labelName.trim());
-      if (description.trim()) form.append('description', description.trim());
+      if (tableLabel.trim()) form.append('table_label', tableLabel.trim());
+      if (tableDscrtn.trim()) form.append('table_dscrtn', tableDscrtn.trim());
       const { append: appendStorageId, value: sid } = getStorageConnectionIdForFormData(storageConnectionId);
       if (appendStorageId && sid != null) form.append('storage_connection_id', String(sid));
       if (columnMapping && Array.isArray(columnMapping) && columnMapping.length > 0) form.append('column_mapping', JSON.stringify(columnMapping));
@@ -134,8 +146,8 @@ function FileUploadForm({ onSuccess }) {
       if (onSuccess) onSuccess();
       if (data.etl_table_id) {
         setTargetTable('');
-        setLabelName('');
-        setDescription('');
+        setTableLabel('');
+        setTableDscrtn('');
         setFile(null);
         setColumnMapping(null);
         setPkColumns('');
@@ -188,17 +200,14 @@ function FileUploadForm({ onSuccess }) {
           <p className="etl-file-form__step-label"><span className="etl-file-form__step-num etl-file-form__step-num--small" aria-hidden="true">2</span> 저장 위치·테이블 설정</p>
           <div className="etl-file-form__row">
             <label className="etl-file-form__label">저장할 DB</label>
-            <p className="etl-file-form__hint etl-file-form__hint--above">테이블을 만들 DB를 선택하세요. 기본 DB 또는 &quot;저장 DB 등록&quot; 탭에서 등록한 DB를 고를 수 있습니다.</p>
-            <select
+            <p className="etl-file-form__hint etl-file-form__hint--above">테이블을 만들 DB를 고르세요. 맨 위 두 줄은 config 내장(main·dash), 아래는 &quot;저장 DB 등록&quot; 탭에서 등록한 연결입니다.</p>
+            <EtlStorageDbSelect
               value={storageConnectionId}
-              onChange={(e) => setStorageConnectionId(e.target.value)}
+              onChange={setStorageConnectionId}
+              connections={storageConnections}
               className="etl-file-form__input"
-            >
-              <option value="">기본 DB (ibank_db)</option>
-              {storageConnections.map((c) => (
-                <option key={c.storage_connection_id} value={String(c.storage_connection_id)}>{c.connection_name}</option>
-              ))}
-            </select>
+              aria-label="저장할 DB"
+            />
           </div>
           <div className="etl-file-form__row">
             <label className="etl-file-form__label">타겟 테이블명</label>
@@ -224,12 +233,18 @@ function FileUploadForm({ onSuccess }) {
               currentColumnMapping={columnMapping || []}
               currentPkColumns={pkColumns}
               currentIndexDefinitions={indexDefinitions || []}
+              currentTableLabel={tableLabel}
+              currentTableDscrtn={tableDscrtn}
               sourceColumns={sourceColumnsForModal}
-              onSelect={(tableName, mapping, pkCols, idxDefs) => {
+              onSelect={(tableName, mapping, pkCols, idxDefs, _t, _a, tm) => {
                 setTargetTable(tableName);
                 setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
                 setPkColumns(pkCols ?? '');
                 setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
+                if (tm) {
+                  setTableLabel(tm.table_label != null ? String(tm.table_label) : '');
+                  setTableDscrtn(tm.table_dscrtn != null ? String(tm.table_dscrtn) : '');
+                }
                 setTargetTableSelectOpen(false);
               }}
             />
@@ -241,6 +256,12 @@ function FileUploadForm({ onSuccess }) {
                 {targetTable.trim() && (
                   <p className="etl-file-form__summary-line">
                     <strong>타겟 테이블:</strong> {targetTable.trim()}
+                  </p>
+                )}
+                {(tableLabel.trim() || tableDscrtn.trim()) && (
+                  <p className="etl-file-form__summary-line">
+                    <strong>라벨·설명:</strong>{' '}
+                    {[tableLabel.trim() || null, tableDscrtn.trim() || null].filter(Boolean).join(' — ')}
                   </p>
                 )}
                 {columnMapping && columnMapping.length > 0 && (
@@ -279,26 +300,6 @@ function FileUploadForm({ onSuccess }) {
               </div>
             </div>
           )}
-          <div className="etl-file-form__row">
-            <label className="etl-file-form__label">라벨명 (선택)</label>
-            <input
-              type="text"
-              value={labelName}
-              onChange={(e) => setLabelName(e.target.value)}
-              placeholder="표시용 라벨"
-              className="etl-file-form__input"
-            />
-          </div>
-          <div className="etl-file-form__row">
-            <label className="etl-file-form__label">설명 (선택)</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="테이블 설명"
-              className="etl-file-form__input"
-            />
-          </div>
           {error && <p className="etl-file-form__error">{error}</p>}
           {result && (
             <div className="etl-file-form__result" role="status">

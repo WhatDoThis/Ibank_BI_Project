@@ -1,5 +1,6 @@
 /**
  * app/admin/admin-pages.css — AdminRoles·AdminProjects·AdminProjectMembers 공용
+ * 권한: ap__header-row·ap__btn-head-create·ap__modal--create·권한상세 목록(ap__permission-list-*)
  */
 
 .ap {
@@ -177,6 +178,24 @@
   background: var(--primary-light);
 }
 
+/* 권한 관리 목록: 본문 셀 폰트를 작업 버튼(.ap__btn 0.875rem)과 통일, 행 세로 중앙 */
+.ap__table.ap__table--roles {
+  font-size: 0.875rem;
+}
+
+.ap__table.ap__table--roles th,
+.ap__table.ap__table--roles td {
+  vertical-align: middle;
+}
+
+.ap__table.ap__table--roles td.ap__mono {
+  font-size: 0.875rem;
+}
+
+.ap__table.ap__table--roles .ap__row {
+  align-items: center;
+}
+
 .ap__mono {
   font-size: 0.78rem;
   color: var(--color-text-muted);
@@ -214,6 +233,68 @@
   max-height: 90vh;
 }
 
+.ap__modal--edit {
+  max-width: 560px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.ap__modal--create {
+  max-width: 560px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.ap__header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ap__header-row .ap__title {
+  margin-bottom: 4px;
+}
+
+.ap__header-row .ap__hint {
+  margin-bottom: 0;
+}
+
+.ap__btn-head-create {
+  padding: 10px 18px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(0, 112, 74, 0.45);
+  background: var(--color-action-primary, #00704a);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.ap__btn-head-create:hover {
+  filter: brightness(1.06);
+}
+
+.ap__hint--tight {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.ap__modal-form {
+  margin-top: 8px;
+}
+
+.ap__modal-actions {
+  margin-top: 16px;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .ap__usage-wrap {
   max-height: calc(90vh - 120px);
   overflow-y: auto;
@@ -229,6 +310,73 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.ap__permission-list-wrap {
+  margin-bottom: 12px;
+  /* 셀렉트+추가 버튼 행(ap__row)과 비슷한 최소 높이 */
+  min-height: calc(0.95rem * 1.35 + 16px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: #fff;
+}
+
+.ap__permission-list-wrap > .ap__hint {
+  margin: 0;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.ap__permission-list {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ap__permission-list th,
+.ap__permission-list td {
+  border-bottom: 1px solid var(--color-border-light);
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: middle;
+  color: var(--color-text);
+}
+
+.ap__permission-list th {
+  background: var(--primary-light);
+}
+
+.ap__permission-list tr:last-child td {
+  border-bottom: 0;
+}
+
+.ap__permission-remove-cell {
+  width: 52px;
+  text-align: right !important;
+  vertical-align: middle !important;
+}
+
+.ap__permission-remove-btn {
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.95rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.75rem;
+}
+
+.ap__permission-remove-btn:hover {
+  text-decoration: underline;
 }
 
 .ap__chip {

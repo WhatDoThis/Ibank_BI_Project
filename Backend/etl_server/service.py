@@ -6,16 +6,16 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 [Main Functions]
 ===========
 1. _resolve_upload_path_for_delete: 삭제할 파일 경로 해석
-2. _get_db, _schema, _q, _table_columns_lower, _sys_cursor: DB·스키마·쿼리·information_schema·커서 헬퍼
-3. get_target_db_connection: 적재 대상 DB 연결
+2. _get_db, _schema, _q, _table_columns_lower, _table_exists, _etl_conn_*·_storage_conn_type_*·_storage_conn_password_column_for_insert·_storage_physical_select_fragments, _etl_jobs_j_select_sql, _etl_tables_join_select_parts(list_jobs/get_job용 t.*), _apply_etl_job_list_compat_keys, _etl_tables_t_select_sql, _append_creator_columns_etl, _normalize_etl_connection_row, _normalize_storage_connection_row, _builtin_storage_connections_for_list, _sys_cursor: DB·스키마·쿼리·information_schema·커서 헬퍼
+3. get_target_db_connection: 적재 대상 DB 연결 (NULL=내장 main_db, STORAGE_BUILTIN_DASH_ID=-1=내장 dash_db, 양수=etl_storage_connections). should_upsert_table_master_for_storage·table_master_db_type_for_storage: 프로젝트용 table_master 반영은 내장 main|dash만.
 4. _validate_identifier, _normalize_source_table_dots, _validate_source_table, parse_source_table_parts
 5. _connection_error_to_user_message, _connect_postgres, _connect_mysql, _connect_oracle
 6. _fetch_pk_from_mysql, _fetch_pk_from_oracle
-7. list_timezones, create_connection, list_connections, get_connection_for_etl, test_connection
-8. list_storage_connections, get_storage_connection
+7. list_timezones, create_connection, list_connections(활성만·is_active 컬럼 시), get_connection_for_etl, test_connection
+8. list_storage_connections(선두 내장 main·dash + etl_storage_connections), get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
-10. list_etl_tables, create_etl_table, get_etl_table, get_sync_mode_for_load(full|incremental|diff), delete_etl_table, delete_etl_table_row_only, update_last_synced_at, update_etl_table, refresh_etl_table_column_mapping
-11. insert_job, set_job_running, list_jobs, delete_job, get_job, fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status
+10. list_etl_tables(_etl_tables_t_select_sql), create_etl_table(동적 INSERT), get_etl_table, get_sync_mode_for_load(full|incremental|diff), _storage_pg_identity_tuple·_find_downstream_etl_reading_target_pg(다운스트림 소스 검사), _count_table_project_mapping_for_target, delete_etl_table(공유타겟·다운스트림·프로젝트매핑 검증 후 배치·table_master·DROP·메타 일괄)·delete_etl_table_row_only(etl_jobs.add_file_path 있을 때만 SELECT), update_last_synced_at, update_etl_table(컬럼 존재 시만 SET), refresh_etl_table_column_mapping
+11. insert_job(add_file_path·add_file_type 컬럼 있을 때만 해당 INSERT), set_job_running, list_jobs·get_job(etl_tables는 target_table·source_table·connection_id·sync_mode만 JOIN; description·job 메타 키는 compat None), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
 
 [Dependencies]
 =========
@@ -114,6 +114,311 @@ def _table_columns_lower(cur, schema_name: str, table_name: str) -> set:
     return out
 
 
+def _table_exists(cur, schema_name: str, table_name: str) -> bool:
+    """현재 연결 DB·스키마에 테이블이 있는지(ETL DB에 user_info 없을 때 JOIN 생략)."""
+    cur.execute(
+        """
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = %s AND table_name = %s
+        """,
+        (schema_name, table_name),
+    )
+    return cur.fetchone() is not None
+
+
+def _etl_conn_type_select_sql(cols: set, alias: Optional[str]) -> str:
+    """etl_connections 조회: API 키 source_type. 실측 source_type 또는 db_type AS source_type."""
+    prefix = f"{alias}." if alias else ""
+    if "source_type" in cols:
+        return f"{prefix}source_type"
+    if "db_type" in cols:
+        return f"{prefix}db_type AS source_type"
+    return "NULL::varchar AS source_type"
+
+
+def _etl_conn_password_select_expr(cols: set, alias: Optional[str]) -> str:
+    """etl_connections 조회: encrypted_password로 통일."""
+    prefix = f"{alias}." if alias else ""
+    if "encrypted_password" in cols:
+        return f"{prefix}encrypted_password"
+    if "password" in cols:
+        return f"{prefix}password AS encrypted_password"
+    return "NULL::text AS encrypted_password"
+
+
+def _etl_conn_type_column_for_insert(cols: set) -> str:
+    if "source_type" in cols:
+        return "source_type"
+    if "db_type" in cols:
+        return "db_type"
+    raise RuntimeError("etl_connections에 source_type 또는 db_type 컬럼이 필요합니다.")
+
+
+def _etl_conn_password_column_for_insert(cols: set) -> str:
+    if "encrypted_password" in cols:
+        return "encrypted_password"
+    if "password" in cols:
+        return "password"
+    raise RuntimeError("etl_connections에 encrypted_password 또는 password 컬럼이 필요합니다.")
+
+
+def _storage_conn_type_select_sql(cols: set, alias: Optional[str] = None) -> str:
+    """etl_storage_connections: API source_type. 실측 source_type 또는 storage_type AS source_type."""
+    prefix = f"{alias}." if alias else ""
+    if "source_type" in cols:
+        return f"{prefix}source_type"
+    if "storage_type" in cols:
+        return f"{prefix}storage_type AS source_type"
+    return "NULL::varchar AS source_type"
+
+
+def _storage_conn_type_column_for_insert(cols: set) -> str:
+    if "source_type" in cols:
+        return "source_type"
+    if "storage_type" in cols:
+        return "storage_type"
+    raise RuntimeError("etl_storage_connections에 source_type 또는 storage_type 컬럼이 필요합니다.")
+
+
+def _storage_conn_password_column_for_insert(cols: set) -> Optional[str]:
+    """물리 비밀번호 컬럼이 있으면 컬럼명. 없으면 None(config_json만 사용)."""
+    if "encrypted_password" in cols:
+        return "encrypted_password"
+    if "password" in cols:
+        return "password"
+    return None
+
+
+def _storage_physical_select_fragments(cols: set, *, include_secret: bool) -> list[str]:
+    """조회 SELECT 절에 붙일 물리 컬럼 목록. list는 비밀번호 제외."""
+    out: list[str] = []
+    for c in ("host", "port", "database_name", "schema_name", "username"):
+        if c in cols:
+            out.append(c)
+    if include_secret:
+        if "encrypted_password" in cols:
+            out.append("encrypted_password")
+        elif "password" in cols:
+            out.append("password AS encrypted_password")
+    return out
+
+
+# etl_tables·batch_jobs.storage_connection_id: NULL=config.main_db, -1=config.dash_db(내장), 양수=etl_storage_connections
+STORAGE_BUILTIN_DASH_ID = -1
+
+
+def is_builtin_main_storage(storage_connection_id: Any) -> bool:
+    return storage_connection_id is None
+
+
+def is_builtin_dash_storage(storage_connection_id: Any) -> bool:
+    try:
+        return int(storage_connection_id) == STORAGE_BUILTIN_DASH_ID
+    except (TypeError, ValueError):
+        return False
+
+
+def should_upsert_table_master_for_storage(storage_connection_id: Any) -> bool:
+    """프로젝트 매핑용 table_master는 내장 main·dash 적재에만 반영. 기타 저장 DB는 미기록."""
+    return is_builtin_main_storage(storage_connection_id) or is_builtin_dash_storage(storage_connection_id)
+
+
+def table_master_db_type_for_storage(storage_connection_id: Any) -> str:
+    """내장 dash → dash, 내장 main → main. 커스텀 저장소에서는 호출하지 않음."""
+    return "dash" if is_builtin_dash_storage(storage_connection_id) else "main"
+
+
+def _builtin_storage_connections_for_list() -> List[dict]:
+    """
+    GET /api/etl/storage-connections 응답 선두에 붙는 내장 적재 DB(main·dash).
+    etl_storage_connections 행이 아니며 삭제·PATCH 대상이 아님(is_builtin=True).
+    """
+    api = _get_db()
+    main_name = "main_db"
+    dash_name = "dash_db"
+    try:
+        main_name = api.get_db_config()["database"]
+    except Exception:
+        logger.warning("_builtin_storage_connections_for_list: main_db 이름 조회 실패", exc_info=True)
+    try:
+        dash_name = api.get_dash_db_config()["database"]
+    except Exception:
+        logger.warning("_builtin_storage_connections_for_list: dash_db 이름 조회 실패", exc_info=True)
+    return [
+        {
+            "storage_connection_id": None,
+            "connection_name": f"기본 (main) · {main_name}",
+            "source_type": "builtin_main",
+            "is_builtin": True,
+            "is_active": True,
+            "config_json": None,
+        },
+        {
+            "storage_connection_id": STORAGE_BUILTIN_DASH_ID,
+            "connection_name": f"기본 (dash) · {dash_name}",
+            "source_type": "builtin_dash",
+            "is_builtin": True,
+            "is_active": True,
+            "config_json": None,
+        },
+    ]
+
+
+# etl_jobs 목록·단건 SELECT 시 DDL 버전 차이(rows_processed 등 미추가) 대응
+_ETL_JOBS_SELECT_COLS: tuple[tuple[str, str], ...] = (
+    ("job_id", "integer"),
+    ("etl_table_id", "integer"),
+    ("status", "text"),
+    ("started_at", "timestamp with time zone"),
+    ("finished_at", "timestamp with time zone"),
+    ("rows_processed", "integer"),
+    ("total_rows", "bigint"),
+    ("error_message", "text"),
+    ("notice", "text"),
+    ("add_file_path", "text"),
+    ("add_file_type", "text"),
+    ("created_at", "timestamp with time zone"),
+)
+
+
+def _etl_jobs_j_select_sql(jcols: set) -> str:
+    """information_schema 기준으로 존재하는 컬럼만 j.col, 없으면 NULL::cast AS col."""
+    parts: list[str] = []
+    for name, cast in _ETL_JOBS_SELECT_COLS:
+        if name in jcols:
+            parts.append(f"j.{name}")
+        elif name == "rows_processed" and "rows_loaded" in jcols:
+            parts.append("j.rows_loaded AS rows_processed")
+        elif name == "total_rows" and "rows_extracted" in jcols:
+            parts.append("j.rows_extracted AS total_rows")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    return ", ".join(parts)
+
+
+def _etl_tables_join_select_parts(tcols: set) -> str:
+    """etl_tables LEFT JOIN용 SELECT 조각(list_jobs/get_job). 정본: target_table, source_table, connection_id, sync_mode만(t.description 없음)."""
+    parts: list[str] = []
+    for name, cast in (
+        ("target_table", "text"),
+        ("source_table", "text"),
+        ("connection_id", "integer"),
+        ("sync_mode", "text"),
+    ):
+        if name in tcols:
+            parts.append(f"t.{name}")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    return ", ".join(parts)
+
+
+def _apply_etl_job_list_compat_keys(rows: list) -> None:
+    """etl_jobs 정본에 없는 필드 등 예전 API 키 호환(None)."""
+    for d in rows:
+        d.setdefault("description", None)
+        d.setdefault("source_type", None)
+        d.setdefault("job_type", None)
+        d.setdefault("storage_connection_id", None)
+
+
+def _etl_tables_t_select_sql(tcols: set) -> str:
+    """etl_tables 목록/단건 공통 SELECT 조각. 없는 컬럼은 NULL AS로 보정."""
+    col_casts = [
+        ("etl_table_id", "integer"),
+        ("connection_id", "integer"),
+        ("source_table", "text"),
+        ("target_table", "text"),
+        ("description", "text"),
+        ("table_label", "text"),
+        ("table_dscrtn", "text"),
+        ("file_type", "text"),
+        ("file_path", "text"),
+        ("pk_columns", "text"),
+        ("incremental_column", "text"),
+        ("last_synced_at", "timestamp with time zone"),
+        ("sync_mode", "text"),
+        ("batch_size", "integer"),
+        ("batch_interval_seconds", "integer"),
+        ("status", "text"),
+        ("created_at", "timestamp with time zone"),
+        ("storage_connection_id", "integer"),
+        ("column_mapping", "jsonb"),
+        ("on_row_error", "text"),
+        ("index_definitions", "jsonb"),
+        ("diff_delete_orphans", "boolean"),
+    ]
+    parts: list[str] = []
+    for name, cast in col_casts:
+        if name in tcols:
+            parts.append(f"t.{name}")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    return ", ".join(parts)
+
+
+def _append_creator_columns_etl(
+    cols: set,
+    create_user_id: Optional[int],
+    created_by: str,
+) -> tuple[list[str], list[Any]]:
+    """
+    ETL 메타 INSERT용 생성자 컬럼·값.
+    DB에 create_user_id가 있으면 JWT user_id 저장. created_by(varchar)만 있는 레거시 스키마는 문자열 유지.
+    둘 다 있으면 둘 다 채움.
+    """
+    names: list[str] = []
+    vals: list[Any] = []
+    cb = (created_by or "").strip() or (str(create_user_id) if create_user_id is not None else "user")
+    if "create_user_id" in cols:
+        names.append("create_user_id")
+        vals.append(create_user_id)
+    if "created_by" in cols:
+        names.append("created_by")
+        vals.append(cb)
+    return names, vals
+
+
+def _normalize_etl_connection_row(d: Optional[dict]) -> Optional[dict]:
+    """ibank_etl_data 물리 컬럼 db_type·password를 조회 결과에 맞춰 앱 관례 키(source_type·encrypted_password)로 통일."""
+    if not d:
+        return d
+    out = dict(d)
+    if out.get("source_type") is None and out.get("db_type") is not None:
+        out["source_type"] = out.get("db_type")
+    if out.get("encrypted_password") is None and out.get("password") is not None:
+        out["encrypted_password"] = out.get("password")
+    return out
+
+
+def _normalize_storage_connection_row(d: Optional[dict]) -> Optional[dict]:
+    """config_json 단일 컬럼 스키마일 때 host 등을 풀어 API 응답 호환."""
+    if not d:
+        return d
+    out = dict(d)
+    if out.get("storage_type") is not None and out.get("source_type") is None:
+        out["source_type"] = out.get("storage_type")
+    cfg = out.get("config_json")
+    if cfg is not None and out.get("host") is None:
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except (TypeError, ValueError):
+                cfg = {}
+        if isinstance(cfg, dict):
+            out.setdefault("host", cfg.get("host"))
+            out.setdefault("port", cfg.get("port"))
+            out.setdefault("database_name", cfg.get("database_name"))
+            out.setdefault("schema_name", cfg.get("schema_name"))
+            out.setdefault("username", cfg.get("username"))
+            if out.get("encrypted_password") is None and cfg.get("password") is not None:
+                out["encrypted_password"] = cfg.get("password")
+            if cfg.get("server_timezone"):
+                out.setdefault("server_timezone", cfg.get("server_timezone"))
+    if out.get("encrypted_password") is None and out.get("password") is not None:
+        out["encrypted_password"] = out.get("password")
+    return out
+
+
 @contextmanager
 def _sys_cursor():
     """시스템 DB 커서·커넥션 컨텍스트. yield (cur, conn). 새 함수 작성 시 이 패턴 사용 권장."""
@@ -130,14 +435,19 @@ def _sys_cursor():
 def get_target_db_connection(storage_connection_id: Optional[int] = None):
     """
     적재 대상 DB 연결 획득.
-    - storage_connection_id가 None이면 기본 ibank_db(config).
-    - storage_connection_id가 있으면 etl_storage_connections에서 조회 후 해당 PostgreSQL 연결 반환.
+    - None: config.main_db(메인 저장소).
+    - STORAGE_BUILTIN_DASH_ID(-1): config.dash_db(대시보드용 DB).
+    - 양의 정수: etl_storage_connections 행 기준 PostgreSQL 연결.
     반환: (conn, schema_name: str). conn은 호출 후 cursor()로 커서 획득, 사용 후 close 책임은 호출부.
     """
     if storage_connection_id is None:
         api_db = _get_db()
         return api_db.get_db_connection(), api_db.get_table_schema()
-    sc = get_storage_connection(storage_connection_id)
+    if is_builtin_dash_storage(storage_connection_id):
+        from Backend.core import db as core_db_mod
+
+        return core_db_mod.get_db_connection_dash(), core_db_mod.get_dash_table_schema()
+    sc = get_storage_connection(int(storage_connection_id))
     if not sc:
         raise ValueError("저장 DB 연결을 찾을 수 없습니다.")
     conn = _connect_postgres(
@@ -446,8 +756,9 @@ def create_connection(
     username: Optional[str] = None,
     password: Optional[str] = None,
     server_timezone: Optional[str] = "Asia/Seoul",
+    create_user_id: Optional[int] = None,
 ) -> int:
-    """DB 연결 1건 등록. source_type=postgresql|mysql|oracle. 비밀번호는 encrypted_password에 저장(현재 평문)."""
+    """DB 연결 1건 등록. source_type=postgresql|mysql|oracle. 비밀번호는 password 또는 encrypted_password에 저장(현재 평문). create_user_id는 JWT user_id."""
     if not connection_name or not str(connection_name).strip():
         raise ValueError("connection_name이 비어 있습니다.")
     if source_type not in ("postgresql", "mysql", "oracle"):
@@ -462,15 +773,47 @@ def create_connection(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"""
-            INSERT INTO {_q(schema, "etl_connections")}
-            (connection_name, source_type, host, port, database_name, schema_name, username, encrypted_password, is_active, created_by, updated_at, server_timezone)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, NOW(), %s)
-            RETURNING connection_id
-            """,
-            (connection_name.strip(), source_type, host.strip(), int(port), database_name.strip(), schema_name, username.strip(), password or "", created_by, tz),
+        cols = _table_columns_lower(cur, schema, "etl_connections")
+        cnames, cvals = _append_creator_columns_etl(cols, create_user_id, created_by)
+        type_col = _etl_conn_type_column_for_insert(cols)
+        pwd_col = _etl_conn_password_column_for_insert(cols)
+        insert_cols = [
+            "connection_name",
+            type_col,
+            "host",
+            "port",
+            "database_name",
+            "schema_name",
+            "username",
+            pwd_col,
+        ]
+        params_list: list[Any] = [
+            connection_name.strip(),
+            source_type,
+            host.strip(),
+            int(port),
+            database_name.strip(),
+            schema_name,
+            username.strip(),
+            password or "",
+        ]
+        if "is_active" in cols:
+            insert_cols.append("is_active")
+            params_list.append(True)
+        if "extra_config" in cols:
+            insert_cols.append("extra_config")
+            params_list.append(json.dumps({}))
+        if "server_timezone" in cols:
+            insert_cols.append("server_timezone")
+            params_list.append(tz)
+        insert_cols.extend(cnames)
+        params_list.extend(cvals)
+        ph = ", ".join(["%s"] * len(params_list))
+        sql = (
+            f"INSERT INTO {_q(schema, 'etl_connections')} ({', '.join(insert_cols)}) "
+            f"VALUES ({ph}) RETURNING connection_id"
         )
+        cur.execute(sql, tuple(params_list))
         row = cur.fetchone()
         conn.commit()
         return int(row["connection_id"])
@@ -480,21 +823,42 @@ def create_connection(
 
 
 def list_connections() -> list:
-    """연결 목록. 비밀번호(encrypted_password) 제외."""
+    """연결 목록. 비밀번호 제외. is_active 컬럼이 있으면 TRUE만(소스 테이블 조회·get_connection_for_etl과 일치)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_connections")
+        sel: list[str] = [
+            "connection_id",
+            "connection_name",
+            _etl_conn_type_select_sql(cols, None),
+        ]
+        for f in ("host", "port", "database_name", "schema_name", "username", "is_active", "created_at", "updated_at"):
+            if f in cols:
+                sel.append(f)
+        if "create_user_id" in cols:
+            sel.append("create_user_id")
+        if "created_by" in cols:
+            sel.append("created_by")
+        else:
+            sel.append("NULL::varchar AS created_by")
+        if "server_timezone" in cols:
+            sel.append("server_timezone")
+        else:
+            sel.append("NULL::varchar AS server_timezone")
+        order_by = "created_at DESC" if "created_at" in cols else "connection_id DESC"
+        where_active = "WHERE is_active = TRUE" if "is_active" in cols else ""
         cur.execute(
             f"""
-            SELECT connection_id, connection_name, source_type, host, port, database_name, schema_name, username,
-                   is_active, created_by, created_at, updated_at, server_timezone
+            SELECT {", ".join(sel)}
             FROM {_q(schema, "etl_connections")}
-            ORDER BY created_at DESC
+            {where_active}
+            ORDER BY {order_by}
             """
         )
-        return [dict(r) for r in cur.fetchall()]
+        return [_normalize_etl_connection_row(dict(r)) for r in cur.fetchall()]
     finally:
         cur.close()
         conn.close()
@@ -507,17 +871,22 @@ def get_connection_for_etl(connection_id: int) -> Optional[dict]:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_connections")
+        tz_sel = "server_timezone" if "server_timezone" in cols else "NULL::varchar AS server_timezone"
+        type_sql = _etl_conn_type_select_sql(cols, None)
+        pwd_sql = _etl_conn_password_select_expr(cols, None)
+        act_sql = " AND is_active = TRUE" if "is_active" in cols else ""
         cur.execute(
             f"""
-            SELECT connection_id, connection_name, source_type, host, port, database_name, schema_name,
-                   username, encrypted_password, server_timezone
+            SELECT connection_id, connection_name, {type_sql}, host, port, database_name, schema_name,
+                   username, {pwd_sql}, {tz_sel}
             FROM {_q(schema, "etl_connections")}
-            WHERE connection_id = %s AND is_active = TRUE
+            WHERE connection_id = %s{act_sql}
             """,
             (connection_id,),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_etl_connection_row(dict(row)) if row else None
     finally:
         cur.close()
         conn.close()
@@ -526,44 +895,73 @@ def get_connection_for_etl(connection_id: int) -> Optional[dict]:
 # ---------- 저장 DB(적재 대상) Phase 1: etl_storage_connections ----------
 
 def list_storage_connections() -> list:
-    """저장 DB(적재 대상) 연결 목록. 비밀번호 제외. is_active=True만 또는 전체(필터는 호출측)."""
+    """저장 DB(적재 대상) 연결 목록. 선두 2건=내장 main·dash(config, is_builtin). 이후 etl_storage_connections. 비밀번호 제외."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_storage_connections")
+        if "config_json" not in cols:
+            raise RuntimeError(
+                "etl_storage_connections.config_json 컬럼이 필요합니다. ibank_etl_data DDL(docs/main/04)을 적용하세요."
+            )
+        sel = [
+            "storage_connection_id",
+            "connection_name",
+            _storage_conn_type_select_sql(cols, None),
+            "config_json",
+        ]
+        sel.extend(_storage_physical_select_fragments(cols, include_secret=False))
+        if "create_user_id" in cols:
+            sel.append("create_user_id")
+        sel.extend(["is_active", "created_at", "updated_at"])
         cur.execute(
             f"""
-            SELECT storage_connection_id, connection_name, source_type, host, port, database_name, schema_name,
-                   username, is_active, created_at, updated_at, server_timezone
+            SELECT {", ".join(sel)}
             FROM {_q(schema, "etl_storage_connections")}
             ORDER BY created_at DESC
             """
         )
-        return [dict(r) for r in cur.fetchall()]
+        db_rows = [_normalize_storage_connection_row(dict(r)) for r in cur.fetchall()]
+        return _builtin_storage_connections_for_list() + db_rows
     finally:
         cur.close()
         conn.close()
 
 
 def get_storage_connection(storage_connection_id: int) -> Optional[dict]:
-    """저장 DB 연결 1건 조회. 비밀번호 포함. Phase 2b get_target_db_connection에서 사용."""
+    """저장 DB 연결 1건 조회. 비밀번호 포함(config_json 내). Phase 2b get_target_db_connection에서 사용."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_storage_connections")
+        if "config_json" not in cols:
+            raise RuntimeError(
+                "etl_storage_connections.config_json 컬럼이 필요합니다. ibank_etl_data DDL(docs/main/04)을 적용하세요."
+            )
+        sel = [
+            "storage_connection_id",
+            "connection_name",
+            _storage_conn_type_select_sql(cols, None),
+            "config_json",
+        ]
+        sel.extend(_storage_physical_select_fragments(cols, include_secret=True))
+        if "create_user_id" in cols:
+            sel.append("create_user_id")
+        sel.extend(["is_active", "created_at", "updated_at"])
         cur.execute(
             f"""
-            SELECT storage_connection_id, connection_name, source_type, host, port, database_name, schema_name,
-                   username, encrypted_password, is_active, created_at, updated_at, server_timezone
+            SELECT {", ".join(sel)}
             FROM {_q(schema, "etl_storage_connections")}
             WHERE storage_connection_id = %s AND is_active = TRUE
             """,
             (storage_connection_id,),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_storage_connection_row(dict(row)) if row else None
     finally:
         cur.close()
         conn.close()
@@ -692,8 +1090,9 @@ def create_storage_connection(
     password: Optional[str] = None,
     schema_name: Optional[str] = None,
     server_timezone: Optional[str] = "Asia/Seoul",
+    create_user_id: Optional[int] = None,
 ) -> int:
-    """저장 DB 연결 1건 등록. PostgreSQL 전용. 반환: storage_connection_id."""
+    """저장 DB 연결 1건 등록. PostgreSQL 전용. 반환: storage_connection_id. create_user_id는 JWT user_id."""
     if not connection_name or not str(connection_name).strip():
         raise ValueError("connection_name이 비어 있습니다.")
     if not host or not database_name or not username:
@@ -706,15 +1105,51 @@ def create_storage_connection(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"""
-            INSERT INTO {_q(schema, "etl_storage_connections")}
-            (connection_name, source_type, host, port, database_name, schema_name, username, encrypted_password, is_active, updated_at, server_timezone)
-            VALUES (%s, 'postgresql', %s, %s, %s, %s, %s, %s, TRUE, NOW(), %s)
-            RETURNING storage_connection_id
-            """,
-            (connection_name.strip(), host.strip(), port, database_name.strip(), schema_name, username.strip(), password or "", tz),
+        cols = _table_columns_lower(cur, schema, "etl_storage_connections")
+        if "config_json" not in cols:
+            raise RuntimeError(
+                "etl_storage_connections.config_json 컬럼이 필요합니다. ibank_etl_data DDL(docs/main/04)을 적용하세요."
+            )
+        cnames, cvals = _append_creator_columns_etl(cols, create_user_id, "")
+        cfg = {
+            "host": host.strip(),
+            "port": port,
+            "database_name": database_name.strip(),
+            "schema_name": schema_name,
+            "username": username.strip(),
+            "password": password or "",
+            "server_timezone": tz,
+        }
+        st_col = _storage_conn_type_column_for_insert(cols)
+        insert_cols = ["connection_name", st_col, "config_json", "is_active"]
+        params_list: list[Any] = [connection_name.strip(), "postgresql", json.dumps(cfg), True]
+        if "host" in cols:
+            insert_cols.append("host")
+            params_list.append(host.strip())
+        if "port" in cols:
+            insert_cols.append("port")
+            params_list.append(port)
+        if "database_name" in cols:
+            insert_cols.append("database_name")
+            params_list.append(database_name.strip())
+        if "schema_name" in cols:
+            insert_cols.append("schema_name")
+            params_list.append(schema_name)
+        if "username" in cols:
+            insert_cols.append("username")
+            params_list.append(username.strip())
+        pw_ins = _storage_conn_password_column_for_insert(cols)
+        if pw_ins:
+            insert_cols.append(pw_ins)
+            params_list.append(password or "")
+        insert_cols.extend(cnames)
+        params_list.extend(cvals)
+        ph = ", ".join(["%s"] * len(params_list))
+        sql = (
+            f"INSERT INTO {_q(schema, 'etl_storage_connections')} ({', '.join(insert_cols)}) "
+            f"VALUES ({ph}) RETURNING storage_connection_id"
         )
+        cur.execute(sql, tuple(params_list))
         row = cur.fetchone()
         conn.commit()
         return int(row["storage_connection_id"])
@@ -741,42 +1176,88 @@ def update_storage_connection(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_storage_connections")
+        if "config_json" not in cols:
+            raise RuntimeError(
+                "etl_storage_connections.config_json 컬럼이 필요합니다. ibank_etl_data DDL(docs/main/04)을 적용하세요."
+            )
         updates = []
-        params = []
+        params: list[Any] = []
+        cur.execute(
+            f"SELECT config_json FROM {_q(schema, 'etl_storage_connections')} WHERE storage_connection_id = %s",
+            (storage_connection_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        raw = row.get("config_json")
+        j: dict[str, Any]
+        if raw is None:
+            j = {}
+        elif isinstance(raw, str):
+            try:
+                j = json.loads(raw)
+            except (TypeError, ValueError):
+                j = {}
+        elif isinstance(raw, dict):
+            j = dict(raw)
+        else:
+            j = {}
         if connection_name is not None:
             updates.append("connection_name = %s")
             params.append(connection_name.strip())
         if host is not None:
-            updates.append("host = %s")
-            params.append(host.strip())
+            j["host"] = host.strip()
         if port is not None:
-            updates.append("port = %s")
-            params.append(int(port))
+            j["port"] = int(port)
         if database_name is not None:
-            updates.append("database_name = %s")
-            params.append(database_name.strip())
+            j["database_name"] = database_name.strip()
         if schema_name is not None:
-            updates.append("schema_name = %s")
-            params.append((schema_name or "public").strip() or "public")
+            j["schema_name"] = (schema_name or "public").strip() or "public"
         if username is not None:
-            updates.append("username = %s")
-            params.append(username.strip())
+            j["username"] = username.strip()
         if password is not None:
-            updates.append("encrypted_password = %s")
-            params.append(password)
+            j["password"] = password
+        if server_timezone is not None:
+            j["server_timezone"] = server_timezone.strip()
+        json_touch = any(
+            x is not None
+            for x in (host, port, database_name, schema_name, username, password, server_timezone)
+        )
+        if json_touch:
+            updates.append("config_json = %s::jsonb")
+            params.append(json.dumps(j))
+            # config_json과 동일 값을 물리 컬럼에도 반영(조회·백업 시 직관적)
+            if "host" in cols:
+                updates.append("host = %s")
+                params.append(j.get("host"))
+            if "port" in cols:
+                updates.append("port = %s")
+                params.append(j.get("port"))
+            if "database_name" in cols:
+                updates.append("database_name = %s")
+                params.append(j.get("database_name"))
+            if "schema_name" in cols:
+                updates.append("schema_name = %s")
+                params.append(j.get("schema_name"))
+            if "username" in cols:
+                updates.append("username = %s")
+                params.append(j.get("username"))
+            pw_col_u = _storage_conn_password_column_for_insert(cols)
+            if pw_col_u:
+                updates.append(f"{pw_col_u} = %s")
+                params.append(j.get("password") or "")
         if is_active is not None:
             updates.append("is_active = %s")
             params.append(is_active)
-        if server_timezone is not None:
-            updates.append("server_timezone = %s")
-            params.append(server_timezone.strip())
         if not updates:
             return
-        updates.append("updated_at = NOW()")
+        if "updated_at" in cols:
+            updates.append("updated_at = NOW()")
         params.append(storage_connection_id)
         cur.execute(
             f"UPDATE {_q(schema, 'etl_storage_connections')} SET {', '.join(updates)} WHERE storage_connection_id = %s",
-            params,
+            tuple(params),
         )
         conn.commit()
     finally:
@@ -1026,29 +1507,69 @@ def list_source_tables(connection_id: int) -> list:
     return []
 
 
-def get_or_create_file_connection(created_by: str) -> int:
-    """source_type='file' 연결 1개 반환. 없으면 생성 후 connection_id 반환."""
+def get_or_create_file_connection(created_by: str, create_user_id: Optional[int] = None) -> int:
+    """source_type='file' 연결 1개 반환. 없으면 생성 후 connection_id 반환. create_user_id는 JWT user_id."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_connections")
+        type_col = _etl_conn_type_column_for_insert(cols)
+        wh = [f"{type_col} = %s"]
+        prm: list[Any] = ["file"]
+        if "is_active" in cols:
+            wh.append("is_active = TRUE")
         cur.execute(
-            f'SELECT connection_id FROM {_q(schema, "etl_connections")} WHERE source_type = %s AND is_active = TRUE LIMIT 1',
-            ("file",),
+            f'SELECT connection_id FROM {_q(schema, "etl_connections")} WHERE {" AND ".join(wh)} LIMIT 1',
+            tuple(prm),
         )
         row = cur.fetchone()
         if row:
             return int(row["connection_id"])
-        cur.execute(
-            f"""
-            INSERT INTO {_q(schema, "etl_connections")}
-            (connection_name, source_type, is_active, created_by, updated_at)
-            VALUES (%s, %s, TRUE, %s, NOW())
-            RETURNING connection_id
-            """,
-            ("파일 업로드", "file", created_by),
+        cnames, cvals = _append_creator_columns_etl(cols, create_user_id, created_by)
+        if "host" not in cols:
+            raise RuntimeError(
+                "etl_connections에 host 등 접속 컬럼이 필요합니다. ibank_etl_data DDL(docs/main/04)을 적용하세요."
+            )
+        pwd_col = _etl_conn_password_column_for_insert(cols)
+        insert_cols = [
+            "connection_name",
+            type_col,
+            "host",
+            "port",
+            "database_name",
+            "schema_name",
+            "username",
+            pwd_col,
+        ]
+        params_list: list[Any] = [
+            "파일 업로드",
+            "file",
+            "127.0.0.1",
+            5432,
+            "file",
+            "public",
+            "file",
+            "",
+        ]
+        if "is_active" in cols:
+            insert_cols.append("is_active")
+            params_list.append(True)
+        if "extra_config" in cols:
+            insert_cols.append("extra_config")
+            params_list.append(json.dumps({}))
+        if "server_timezone" in cols:
+            insert_cols.append("server_timezone")
+            params_list.append("Asia/Seoul")
+        insert_cols.extend(cnames)
+        params_list.extend(cvals)
+        ph = ", ".join(["%s"] * len(params_list))
+        sql = (
+            f"INSERT INTO {_q(schema, 'etl_connections')} ({', '.join(insert_cols)}) "
+            f"VALUES ({ph}) RETURNING connection_id"
         )
+        cur.execute(sql, tuple(params_list))
         row = cur.fetchone()
         conn.commit()
         return int(row["connection_id"])
@@ -1087,11 +1608,14 @@ def delete_connection(connection_id: int) -> None:
     conn_sys = api_db.get_db_connection_system()
     cur = conn_sys.cursor()
     try:
+        cols_del = _table_columns_lower(cur, schema, "etl_connections")
+        st_sel = _etl_conn_type_select_sql(cols_del, None)
         cur.execute(
-            f"SELECT source_type FROM {_q(schema, 'etl_connections')} WHERE connection_id = %s",
+            f"SELECT {st_sel} FROM {_q(schema, 'etl_connections')} WHERE connection_id = %s",
             (connection_id,),
         )
         row = cur.fetchone()
+        row = _normalize_etl_connection_row(dict(row)) if row else None
         if row and (row.get("source_type") or "").strip().lower() == "file":
             raise ValueError("파일 업로드용 연결은 해제할 수 없습니다. 해당 연결은 파일 기반 ETL 전용이며, 해제 시 관련 데이터가 모두 삭제됩니다.")
     finally:
@@ -1140,40 +1664,60 @@ def list_etl_tables() -> list:
     cur = conn.cursor()
     try:
         tcols = _table_columns_lower(cur, schema, "etl_tables")
+        ccols = _table_columns_lower(cur, schema, "etl_connections")
+        conn_st_sql = _etl_conn_type_select_sql(ccols, "c")
         has_storage = "storage_connection_id" in tcols
+        t_sel = _etl_tables_t_select_sql(tcols)
+        has_creator = "create_user_id" in tcols
+        creator_sel = "t.create_user_id" if has_creator else "NULL::integer AS create_user_id"
+        creator_join = ""
+        creator_label_sql = ", NULL::text AS create_user_label"
+        if has_creator:
+            if _table_exists(cur, schema, "user_info"):
+                creator_join = f" LEFT JOIN user_info u_cr ON u_cr.user_id = t.create_user_id "
+                creator_label_sql = (
+                    ", COALESCE(NULLIF(TRIM(u_cr.user_nickname), ''), NULLIF(TRIM(u_cr.user_email), ''), "
+                    "CASE WHEN t.create_user_id IS NOT NULL THEN 'ID ' || t.create_user_id::text ELSE NULL END) AS create_user_label"
+                )
+            else:
+                creator_label_sql = (
+                    ", CASE WHEN t.create_user_id IS NOT NULL THEN 'ID ' || t.create_user_id::text ELSE NULL END AS create_user_label"
+                )
         if has_storage:
             cur.execute(
                 f"""
-                SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
-                       t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
-                       t.batch_size, t.batch_interval_seconds, t.status, t.created_at, t.storage_connection_id,
-                       t.column_mapping, t.on_row_error, t.index_definitions, t.diff_delete_orphans,
-                       c.connection_name, c.source_type,
-                       sc.connection_name AS storage_connection_name
+                SELECT {t_sel},
+                       {creator_sel}{creator_label_sql},
+                       c.connection_name, {conn_st_sql},
+                       CASE
+                         WHEN t.storage_connection_id IS NULL THEN '기본 DB (main)'
+                         WHEN t.storage_connection_id = %s THEN '기본 DB (dash)'
+                         ELSE sc.connection_name
+                       END AS storage_connection_name
                 FROM {_q(schema, "etl_tables")} t
                 LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
                 LEFT JOIN {_q(schema, "etl_storage_connections")} sc
                   ON sc.storage_connection_id = t.storage_connection_id AND sc.is_active = TRUE
+                {creator_join}
                 ORDER BY t.created_at DESC
-                """
+                """,
+                (STORAGE_BUILTIN_DASH_ID,),
             )
         else:
             cur.execute(
                 f"""
-                SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
-                       t.file_type, t.file_path, t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
-                       t.batch_size, t.batch_interval_seconds, t.status, t.created_at,
-                       NULL::integer AS storage_connection_id,
-                       t.column_mapping, t.on_row_error, t.index_definitions, t.diff_delete_orphans,
-                       c.connection_name, c.source_type,
+                SELECT {t_sel},
+                       {creator_sel}{creator_label_sql},
+                       c.connection_name, {conn_st_sql},
                        NULL::text AS storage_connection_name
                 FROM {_q(schema, "etl_tables")} t
                 LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
+                {creator_join}
                 ORDER BY t.created_at DESC
                 """
             )
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_etl_connection_row(dict(r)) for r in rows]
     finally:
         cur.close()
         conn.close()
@@ -1197,17 +1741,22 @@ def create_etl_table(
     on_row_error: Optional[str] = None,
     index_definitions: Optional[List[dict]] = None,
     diff_delete_orphans: bool = False,
+    create_user_id: Optional[int] = None,
+    table_label: Optional[str] = None,
+    table_dscrtn: Optional[str] = None,
 ) -> int:
-    """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id.
+    """etl_tables 1건 등록. target_table 검증 후 INSERT. 반환: etl_table_id. create_user_id는 JWT user_id.
+    table_label·table_dscrtn은 system_db table_master와 동일 컬럼명(적재 후 원장 반영용). description은 하위 호환으로 table_dscrtn 미지정 시 동일 값으로 저장.
     - 동일 target_table은 다른 연결(DB)에서 같은 테이블로 추가 적재할 수 있으므로 중복 허용.
     - 메인 DB에 해당 테이블이 이미 있을 때: full 모드면 ValueError, incremental 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능).
-    DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회."""
+    DB 소스이고 pk_columns가 비어 있으면 소스 DB에서 PK 자동 조회(etl_tables에 pk_columns 컬럼이 없으면 INSERT에 포함되지 않음. 실행 시 db_load_service가 소스/타겟 PK로 보강)."""
     api_db = _get_db()
     target_table = _validate_identifier(target_table, "target_table")
     if (source_table or "").strip():
         source_table = _validate_source_table(source_table)
     schema = _schema()
     # 동일 타겟 테이블은 다른 DB(연결)에서 같은 테이블로 추가 적재할 수 있으므로 target_table 유일성 검사 제거.
+    # 앱 기본은 incremental(미지정 시). DDL 기본이 full이면 SQL로 직접 INSERT할 때만 DDL 기본이 적용되므로, 운영 DDL은 incremental 기본 권장(docs/main/04).
     sync_mode = (sync_mode or "incremental").strip().lower()
     if sync_mode not in ("full", "incremental", "diff"):
         sync_mode = "incremental"
@@ -1292,32 +1841,54 @@ def create_etl_table(
         interval_val = batch_interval_seconds if batch_interval_seconds is not None and batch_interval_seconds >= 0 else 0
         column_mapping_json = json.dumps(column_mapping) if column_mapping is not None else None
         index_definitions_json = json.dumps(index_definitions) if index_definitions is not None else None
+        cols = _table_columns_lower(cur, schema, "etl_tables")
+        insert_cols: list[str] = []
+        insert_vals: list[Any] = []
+
+        def add_col(name: str, value: Any) -> None:
+            if name in cols:
+                insert_cols.append(name)
+                insert_vals.append(value)
+
+        add_col("connection_id", connection_id)
+        add_col("source_table", source_table or None)
+        add_col("target_table", target_table)
+        dsc_merged = (table_dscrtn or "").strip() or None
+        if dsc_merged is None:
+            dsc_merged = (description or "").strip() or None
+        lbl_val = (table_label or "").strip() or None
+        add_col("table_label", lbl_val)
+        add_col("table_dscrtn", dsc_merged)
+        add_col("description", dsc_merged)
+        add_col("file_type", file_type)
+        add_col("file_path", file_path)
+        add_col("pk_columns", pk_columns_val)
+        add_col("incremental_column", (incremental_column or "").strip() or None)
+        add_col("sync_mode", sync_mode)
+        add_col("batch_size", batch_val)
+        add_col("batch_interval_seconds", interval_val)
+        add_col("storage_connection_id", storage_connection_id)
+        add_col("column_mapping", column_mapping_json)
+        add_col("on_row_error", on_row_error_val)
+        add_col("index_definitions", index_definitions_json)
+        add_col("diff_delete_orphans", bool(diff_delete_orphans))
+        if "status" in cols:
+            add_col("status", "draft")
+        if "is_active" in cols:
+            add_col("is_active", True)
+        if "updated_at" in cols:
+            insert_cols.append("updated_at")
+            insert_vals.append("NOW()")
+        cnames, cvals = _append_creator_columns_etl(cols, create_user_id, created_by)
+        for i, name in enumerate(cnames):
+            insert_cols.append(name)
+            insert_vals.append(cvals[i])
+
+        placeholders = ", ".join("NOW()" if v == "NOW()" else "%s" for v in insert_vals)
+        params = tuple(v for v in insert_vals if v != "NOW()")
         cur.execute(
-            f"""
-            INSERT INTO {_q(schema, "etl_tables")}
-            (connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode, batch_size, batch_interval_seconds, storage_connection_id, column_mapping, on_row_error, index_definitions, diff_delete_orphans, status, created_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, 'draft', %s, NOW())
-            RETURNING etl_table_id
-            """,
-            (
-                connection_id,
-                source_table or None,
-                target_table,
-                (description or "").strip() or None,
-                file_type,
-                file_path,
-                pk_columns_val,
-                (incremental_column or "").strip() or None,
-                sync_mode,
-                batch_val,
-                interval_val,
-                storage_connection_id,
-                column_mapping_json,
-                on_row_error_val,
-                index_definitions_json,
-                bool(diff_delete_orphans),
-                created_by,
-            ),
+            f"INSERT INTO {_q(schema, 'etl_tables')} ({', '.join(insert_cols)}) VALUES ({placeholders}) RETURNING etl_table_id",
+            params,
         )
         row = cur.fetchone()
         conn.commit()
@@ -1334,22 +1905,39 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        tcols = _table_columns_lower(cur, schema, "etl_tables")
+        has_creator = "create_user_id" in tcols
+        creator_sel = "t.create_user_id" if has_creator else "NULL::integer AS create_user_id"
+        creator_join = ""
+        creator_label_sql = ", NULL::text AS create_user_label"
+        if has_creator:
+            if _table_exists(cur, schema, "user_info"):
+                creator_join = f" LEFT JOIN user_info u_cr ON u_cr.user_id = t.create_user_id "
+                creator_label_sql = (
+                    ", COALESCE(NULLIF(TRIM(u_cr.user_nickname), ''), NULLIF(TRIM(u_cr.user_email), ''), "
+                    "CASE WHEN t.create_user_id IS NOT NULL THEN 'ID ' || t.create_user_id::text ELSE NULL END) AS create_user_label"
+                )
+            else:
+                creator_label_sql = (
+                    ", CASE WHEN t.create_user_id IS NOT NULL THEN 'ID ' || t.create_user_id::text ELSE NULL END AS create_user_label"
+                )
+        t_sel = _etl_tables_t_select_sql(tcols)
+        ccols = _table_columns_lower(cur, schema, "etl_connections")
+        conn_st_sql = _etl_conn_type_select_sql(ccols, "c")
         cur.execute(
             f"""
-            SELECT t.etl_table_id, t.connection_id, t.source_table, t.target_table, t.description,
-                   t.file_type, t.file_path, t.status, t.created_at,
-                   t.pk_columns, t.incremental_column, t.last_synced_at, t.sync_mode,
-                   t.batch_size, t.batch_interval_seconds, t.storage_connection_id, t.column_mapping,
-                   t.on_row_error, t.index_definitions, t.diff_delete_orphans,
-                   c.connection_name, c.source_type
+            SELECT {t_sel},
+                   {creator_sel}{creator_label_sql},
+                   c.connection_name, {conn_st_sql}
             FROM {_q(schema, "etl_tables")} t
             LEFT JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
+            {creator_join}
             WHERE t.etl_table_id = %s
             """,
             (etl_table_id,),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_etl_connection_row(dict(row)) if row else None
     finally:
         cur.close()
         conn.close()
@@ -1367,26 +1955,224 @@ def get_sync_mode_for_load(etl_table_id: int) -> str:
     return "incremental"
 
 
+def _norm_host_identity(h: Any) -> str:
+    return (str(h or "").strip().lower())
+
+
+def _storage_pg_identity_tuple(storage_connection_id: Any) -> Optional[tuple]:
+    """
+    적재 저장 DB가 PostgreSQL일 때 (host, port, database, default_schema) 튜플.
+    내장 main·dash·etl_storage_connections(PostgreSQL)만 처리. 그 외 None.
+    """
+    api_db = _get_db()
+    try:
+        if is_builtin_main_storage(storage_connection_id):
+            c = api_db.get_db_config()
+            return (
+                _norm_host_identity(c.get("host")),
+                int(c.get("port") or 5432),
+                str(c.get("database") or "").strip().lower(),
+                (api_db.get_table_schema() or "public").strip(),
+            )
+        if is_builtin_dash_storage(storage_connection_id):
+            from Backend.core import db as core_db_mod
+
+            c = core_db_mod.get_dash_db_config()
+            return (
+                _norm_host_identity(c.get("host")),
+                int(c.get("port") or 5432),
+                str(c.get("database") or "").strip().lower(),
+                (core_db_mod.get_dash_table_schema() or "public").strip(),
+            )
+        sc = get_storage_connection(int(storage_connection_id))
+        if not sc:
+            return None
+        st = (sc.get("source_type") or sc.get("storage_type") or "").lower()
+        if "postgres" not in st:
+            return None
+        return (
+            _norm_host_identity(sc.get("host")),
+            int(sc.get("port") or 5432),
+            str(sc.get("database_name") or "").strip().lower(),
+            (sc.get("schema_name") or "public").strip(),
+        )
+    except Exception as e:
+        logger.warning("_storage_pg_identity_tuple failed: %s", e)
+        return None
+
+
+def _row_pg_identity_tuple(host: Any, port: Any, database_name: Any, schema_name: Any) -> tuple:
+    return (
+        _norm_host_identity(host),
+        int(port or 5432),
+        str(database_name or "").strip().lower(),
+        (schema_name or "public").strip(),
+    )
+
+
+def _find_downstream_etl_reading_target_pg(
+    cur_sys: Any,
+    schema: str,
+    etl_table_id: int,
+    storage_connection_id: Any,
+    target_table: str,
+) -> List[dict]:
+    """
+    삭제 시 DROP 대상이 되는 (저장 PostgreSQL) 물리 테이블을 etl_connections로 동일 DB에서 읽는 다른 etl_tables 행.
+    반환: [{"etl_table_id", "source_table"}, ...]
+    """
+    stor = _storage_pg_identity_tuple(storage_connection_id)
+    if not stor:
+        return []
+    try:
+        _, tgt_schema = get_target_db_connection(storage_connection_id)
+    except Exception as e:
+        logger.warning("_find_downstream_etl_reading_target_pg: get_target_db_connection: %s", e)
+        return []
+    tgt_schema = (tgt_schema or "public").strip()
+    tgt_tbl = (target_table or "").strip()
+    if not tgt_tbl:
+        return []
+    if not _table_exists(cur_sys, schema, "etl_tables") or not _table_exists(cur_sys, schema, "etl_connections"):
+        return []
+    ccols = _table_columns_lower(cur_sys, schema, "etl_connections")
+    type_sql = _etl_conn_type_select_sql(ccols, "c")
+    cur_sys.execute(
+        f"""
+        SELECT t.etl_table_id, t.source_table, c.host, c.port, c.database_name, c.schema_name, {type_sql}
+        FROM {_q(schema, "etl_tables")} t
+        INNER JOIN {_q(schema, "etl_connections")} c ON c.connection_id = t.connection_id
+        WHERE t.etl_table_id <> %s AND t.connection_id IS NOT NULL
+        """,
+        (etl_table_id,),
+    )
+    raw_rows = cur_sys.fetchall()
+    desc = cur_sys.description
+    colnames = [d[0] for d in desc] if desc else []
+    out: List[dict] = []
+    for r in raw_rows:
+        if hasattr(r, "keys"):
+            d = dict(r)
+        else:
+            d = {colnames[i]: r[i] for i in range(min(len(colnames), len(r)))}
+        src_type = (d.get("source_type") or "").strip().lower()
+        if src_type not in ("postgresql", "postgres"):
+            continue
+        row_t = _row_pg_identity_tuple(
+            d.get("host"), d.get("port"), d.get("database_name"), d.get("schema_name")
+        )
+        if row_t != stor:
+            continue
+        st_src = d.get("source_table") or ""
+        sch, tbl = parse_source_table_parts(st_src, "postgresql", conn_schema=d.get("schema_name"))
+        if sch.strip().lower() == tgt_schema.lower() and tbl.strip().lower() == tgt_tbl.lower():
+            out.append({
+                "etl_table_id": int(d.get("etl_table_id")),
+                "source_table": st_src,
+            })
+    return out
+
+
+def _count_table_project_mapping_for_target(
+    cur_sys: Any, schema: str, db_type: str, table_name: str
+) -> int:
+    """
+    table_master(db_type, table_name)에 연결된 table_project_mapping 행 수.
+    테이블·컬럼 없으면 0.
+    """
+    dt = (db_type or "main").strip().lower()
+    if dt not in ("main", "dash"):
+        dt = "main"
+    tn = (table_name or "").strip()
+    if not tn:
+        return 0
+    if not _table_exists(cur_sys, schema, "table_master") or not _table_exists(cur_sys, schema, "table_project_mapping"):
+        return 0
+    cur_sys.execute(
+        f"""
+        SELECT COUNT(*)::int AS c FROM {_q(schema, "table_project_mapping")} m
+        INNER JOIN {_q(schema, "table_master")} tm ON tm.table_master_id = m.table_master_id
+        WHERE tm.db_type = %s AND tm.table_name = %s
+        """,
+        (dt, tn),
+    )
+    row = cur_sys.fetchone()
+    if not row:
+        return 0
+    if isinstance(row, dict):
+        return int(next(iter(row.values()), 0) or 0)
+    return int(row[0] or 0)
+
+
 def delete_etl_table(etl_table_id: int) -> dict:
     """
-    ETL 테이블 1건 삭제. 메인 DB에서 타겟 테이블 DROP,
-    해당 etl_table_id를 참조하는 batch_jobs 및 자식(batch_loaded_keys, batch_run_history) 삭제,
-    해당 행의 file_path 및 해당 etl_table_id의 모든 job의 add_file_path 파일 삭제(경로 해석 후),
-    etl_transform_rules·etl_jobs·etl_tables 행 삭제. 반환: {"file_path": None}(호환용).
+    ETL 테이블 1건 삭제(물리 테이블 DROP까지 일괄).
+    - 사전 검증: 타겟명 필수·식별자 패턴, 동일 target_table 다른 ETL 없음,
+      동일 PostgreSQL 저장소에서 이 타겟을 source_table로 읽는 다른 ETL 없음, 내장 저장소면 table_project_mapping 없음.
+    - etl_batch_target_registry 선삭제 → 스케줄러에서 배치 제거 → batch_loaded_keys·batch_run_history·batch_jobs 삭제
+    - 내장 main|dash: table_master 행 삭제 → 저장 DB DROP → etl_transform_rules·etl_jobs·etl_tables 삭제
+    - 외부 저장소: table_master 생략, DROP만 동일 순서로 시도.
+    시스템 DB 트랜잭션 내에서 배치·원장 삭제 후 DROP; DROP 실패 시 rollback으로 배치·원장 복구.
+    반환: file_path(호환), target_table_dropped(True).
     """
     row = get_etl_table(etl_table_id)
     if not row:
         raise ValueError(f"ETL 테이블을 찾을 수 없습니다: etl_table_id={etl_table_id}")
     file_path = row.get("file_path")
     target_table = (row.get("target_table") or "").strip()
+    storage_id = row.get("storage_connection_id")
     api_db = _get_db()
     schema = _schema()
+    out: dict = {"file_path": None, "target_table_dropped": False, "drop_skip_reason": None}
+
+    if not target_table:
+        raise ValueError(
+            "타겟 테이블명이 없어 삭제할 수 없습니다. 메타를 복구하거나 DB에서 수동으로 정리하세요."
+        )
+    if not re.match(r"^[a-zA-Z0-9_]+$", target_table):
+        raise ValueError(
+            "타겟 테이블명에 허용되지 않은 문자가 있어 안전하게 DROP할 수 없습니다. 이름을 바꾼 뒤 다시 시도하거나 DB에서 수동 정리하세요."
+        )
 
     add_file_paths: List[str] = []
     conn_sys = api_db.get_db_connection_system()
     cur_sys = conn_sys.cursor()
     try:
-        try:
+        cur_sys.execute(
+            f"SELECT COUNT(*) FROM {_q(schema, 'etl_tables')} WHERE target_table = %s AND etl_table_id != %s",
+            (target_table, etl_table_id),
+        )
+        other_count = cur_sys.fetchone()
+        ocnt = next(iter(other_count.values()), 0) if isinstance(other_count, dict) else (other_count[0] if other_count else 0)
+        if int(ocnt) > 0:
+            raise ValueError(
+                "동일 타겟 테이블명을 사용하는 다른 ETL 등록이 남아 있어 삭제할 수 없습니다. "
+                "다른 등록을 먼저 삭제하거나, 동일 물리 테이블을 참조하지 않도록 조정한 뒤 다시 시도하세요."
+            )
+
+        downstream = _find_downstream_etl_reading_target_pg(
+            cur_sys, schema, etl_table_id, storage_id, target_table
+        )
+        if downstream:
+            ids = ", ".join(str(x["etl_table_id"]) for x in downstream)
+            raise ValueError(
+                "이 ETL이 적재한 테이블을 소스 DB로 읽는 다른 ETL 등록이 있습니다. "
+                "해당 등록을 먼저 삭제하거나 소스 테이블을 변경한 뒤 이 ETL을 삭제하세요. "
+                f"(etl_table_id: {ids})"
+            )
+
+        if should_upsert_table_master_for_storage(storage_id):
+            db_type_tm = table_master_db_type_for_storage(storage_id)
+            n_map = _count_table_project_mapping_for_target(cur_sys, schema, db_type_tm, target_table)
+            if n_map > 0:
+                raise ValueError(
+                    "이 테이블은 프로젝트에 연결되어 있습니다. "
+                    "관리 화면에서 테이블·프로젝트 매핑(table_project_mapping)을 먼저 해제한 뒤 삭제할 수 있습니다. "
+                    "앞으로 쿼리·대시보드 등 참조가 늘어날 수 있으므로 매핑을 남긴 채 물리 삭제되지 않도록 막습니다."
+                )
+
+        jcols_ej = _table_columns_lower(cur_sys, schema, "etl_jobs")
+        if "add_file_path" in jcols_ej:
             cur_sys.execute(
                 f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s AND add_file_path IS NOT NULL",
                 (etl_table_id,),
@@ -1399,47 +2185,64 @@ def delete_etl_table(etl_table_id: int) -> dict:
                 p = (p or "").strip() if isinstance(p, str) else ""
                 if p:
                     add_file_paths.append(p)
-        except Exception as e:
-            if psycopg2 and isinstance(e, psycopg2.ProgrammingError):
-                conn_sys.rollback()
-            else:
-                raise
 
-        # 동일 target_table을 쓰는 다른 ETL이 있으면 DROP 하지 않음(다른 연결에서 같은 테이블로 적재 중일 수 있음).
-        if target_table and re.match(r"^[a-zA-Z0-9_]+$", target_table):
-            cur_sys.execute(
-                f"SELECT COUNT(*) FROM {_q(schema, 'etl_tables')} WHERE target_table = %s AND etl_table_id != %s",
-                (target_table, etl_table_id),
-            )
-            other_count = cur_sys.fetchone()
-            cnt = next(iter(other_count.values()), 0) if isinstance(other_count, dict) else (other_count[0] if other_count else 0)
-            other_using = int(cnt) > 0
-            if not other_using:
-                conn_main, main_schema = get_target_db_connection(row.get("storage_connection_id"))
-                cur_main = conn_main.cursor()
+        from Backend.etl_server import service_file as etl_batch_registry_mod
+
+        etl_batch_registry_mod.delete_batch_target_registry_rows_for_etl_table(etl_table_id, cur_sys, schema)
+
+        if _table_exists(cur_sys, schema, "batch_jobs"):
+            jcols_bj = _table_columns_lower(cur_sys, schema, "batch_jobs")
+            if "etl_table_id" in jcols_bj and "batch_job_id" in jcols_bj:
+                cur_sys.execute(
+                    f"SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s",
+                    (etl_table_id,),
+                )
+                for r in cur_sys.fetchall():
+                    try:
+                        jid = r.get("batch_job_id") if hasattr(r, "get") else r[0]
+                        if jid is not None:
+                            from Backend.etl_server import scheduler_file as sched_mod
+
+                            sched_mod.remove_job(int(jid))
+                    except (TypeError, ValueError):
+                        pass
+            if "etl_table_id" in jcols_bj:
                 try:
-                    full_name = f'"{main_schema}"."{target_table}"'
-                    cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
-                    conn_main.commit()
-                finally:
-                    cur_main.close()
-                    conn_main.close()
+                    cur_sys.execute(
+                        f"DELETE FROM {_q(schema, 'batch_loaded_keys')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
+                        (etl_table_id,),
+                    )
+                    cur_sys.execute(
+                        f"DELETE FROM {_q(schema, 'batch_run_history')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
+                        (etl_table_id,),
+                    )
+                    cur_sys.execute(f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
+                except Exception:
+                    conn_sys.rollback()
+                    raise
 
-        # 해당 ETL을 참조하는 배치 Job 제거(FK 자식 batch_loaded_keys, batch_run_history 선삭제 후 batch_jobs 삭제)
+        if should_upsert_table_master_for_storage(storage_id) and _table_exists(cur_sys, schema, "table_master"):
+            cur_sys.execute(
+                f"DELETE FROM {_q(schema, 'table_master')} WHERE db_type = %s AND table_name = %s",
+                (table_master_db_type_for_storage(storage_id), target_table),
+            )
+
+        conn_main, main_schema = get_target_db_connection(storage_id)
+        cur_main = conn_main.cursor()
         try:
-            cur_sys.execute(
-                f"DELETE FROM {_q(schema, 'batch_loaded_keys')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
-                (etl_table_id,),
-            )
-            cur_sys.execute(
-                f"DELETE FROM {_q(schema, 'batch_run_history')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
-                (etl_table_id,),
-            )
-            cur_sys.execute(f"DELETE FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
+            full_name = f'"{main_schema}"."{target_table}"'
+            cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
+            conn_main.commit()
+            out["target_table_dropped"] = True
+            logger.info("delete_etl_table etl_table_id=%s: 저장 DB DROP 완료 %s", etl_table_id, full_name)
         except Exception:
-            # batch_jobs 등 테이블이 없을 수 있음(구버전 DB). 롤백 후 etl_* 삭제는 새 트랜잭션으로 진행
+            conn_main.rollback()
             conn_sys.rollback()
-        # etl_transform_rules / etl_jobs / etl_tables 삭제(위에서 rollback 됐어도 새 트랜잭션에서 실행)
+            raise
+        finally:
+            cur_main.close()
+            conn_main.close()
+
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_transform_rules')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s", (etl_table_id,))
         cur_sys.execute(f"DELETE FROM {_q(schema, 'etl_tables')} WHERE etl_table_id = %s", (etl_table_id,))
@@ -1456,7 +2259,7 @@ def delete_etl_table(etl_table_id: int) -> dict:
             except OSError:
                 pass
 
-    return {"file_path": None}
+    return out
 
 
 def delete_etl_table_row_only(etl_table_id: int) -> None:
@@ -1477,7 +2280,8 @@ def delete_etl_table_row_only(etl_table_id: int) -> None:
     cur_sys = conn_sys.cursor()
     add_file_paths = []
     try:
-        try:
+        jcols_ej = _table_columns_lower(cur_sys, schema, "etl_jobs")
+        if "add_file_path" in jcols_ej:
             cur_sys.execute(
                 f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE etl_table_id = %s AND add_file_path IS NOT NULL",
                 (etl_table_id,),
@@ -1490,12 +2294,9 @@ def delete_etl_table_row_only(etl_table_id: int) -> None:
                 p = (p or "").strip() if isinstance(p, str) else ""
                 if p:
                     add_file_paths.append(p)
-        except Exception as e:
-            if psycopg2 and isinstance(e, psycopg2.ProgrammingError):
-                conn_sys.rollback()
-                add_file_paths = []
-            else:
-                raise
+        from Backend.etl_server import service_file as etl_batch_registry_mod
+
+        etl_batch_registry_mod.delete_batch_target_registry_rows_for_etl_table(etl_table_id, cur_sys, schema)
         try:
             cur_sys.execute(
                 f"DELETE FROM {_q(schema, 'batch_loaded_keys')} WHERE batch_job_id IN (SELECT batch_job_id FROM {_q(schema, 'batch_jobs')} WHERE etl_table_id = %s)",
@@ -1538,44 +2339,63 @@ def update_last_synced_at(etl_table_id: int, synced_at: Any):
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"""
-            UPDATE {_q(schema, "etl_tables")} SET last_synced_at = %s, updated_at = NOW() WHERE etl_table_id = %s
-            """,
-            (synced_at, etl_table_id),
-        )
+        cols = _table_columns_lower(cur, schema, "etl_tables")
+        updates: list[str] = []
+        params: list[Any] = []
+        if "last_synced_at" in cols:
+            updates.append("last_synced_at = %s")
+            params.append(synced_at)
+        if "updated_at" in cols:
+            updates.append("updated_at = NOW()")
+        if not updates:
+            return
+        params.append(etl_table_id)
+        cur.execute(f"UPDATE {_q(schema, 'etl_tables')} SET {', '.join(updates)} WHERE etl_table_id = %s", tuple(params))
         conn.commit()
     finally:
         cur.close()
         conn.close()
 
 
-def insert_job(etl_table_id: Optional[int], status: str = "running", add_file_path: Optional[str] = None, add_file_type: Optional[str] = None) -> int:
-    """etl_jobs에 1건 삽입. 반환: job_id. status='pending'이면 started_at NULL. add_file_path/add_file_type 있으면 추가 적재(업서트) Job."""
+def insert_job(
+    etl_table_id: Optional[int],
+    status: str = "running",
+    add_file_path: Optional[str] = None,
+    add_file_type: Optional[str] = None,
+    create_user_id: Optional[int] = None,
+) -> int:
+    """etl_jobs에 1건 삽입. 반환: job_id. status='pending'이면 started_at NULL. add_file_path/add_file_type는 두 컬럼 모두 있을 때만 INSERT에 포함. create_user_id는 컬럼 있을 때만."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_jobs")
+        cnames, cvals = _append_creator_columns_etl(cols, create_user_id, "")
         started = "NULL" if (status or "").strip().lower() == "pending" else "NOW()"
-        if add_file_path is not None and add_file_type is not None:
-            cur.execute(
-                f"""
-                INSERT INTO {_q(schema, "etl_jobs")} (etl_table_id, status, started_at, add_file_path, add_file_type, created_at)
-                VALUES (%s, %s, {started}, %s, %s, NOW())
+        extra_cols = ", ".join(cnames)
+        extra_ph = ", ".join(["%s"] * len(cvals))
+        extra_sql = f", {extra_cols}" if cnames else ""
+        extra_vals_sql = f", {extra_ph}" if cvals else ""
+        has_add_cols = "add_file_path" in cols and "add_file_type" in cols
+        if add_file_path is not None and add_file_type is not None and has_add_cols:
+            sql = f"""
+                INSERT INTO {_q(schema, "etl_jobs")}
+                (etl_table_id, status, started_at, add_file_path, add_file_type, created_at{extra_sql})
+                VALUES (%s, %s, {started}, %s, %s, NOW(){extra_vals_sql})
                 RETURNING job_id
-                """,
-                (etl_table_id, status, add_file_path, add_file_type),
-            )
+                """
+            params = (etl_table_id, status, add_file_path, add_file_type) + tuple(cvals)
+            cur.execute(sql, params)
         else:
-            cur.execute(
-                f"""
-                INSERT INTO {_q(schema, "etl_jobs")} (etl_table_id, status, started_at, created_at)
-                VALUES (%s, %s, {started}, NOW())
+            sql = f"""
+                INSERT INTO {_q(schema, "etl_jobs")}
+                (etl_table_id, status, started_at, created_at{extra_sql})
+                VALUES (%s, %s, {started}, NOW(){extra_vals_sql})
                 RETURNING job_id
-                """,
-                (etl_table_id, status),
-            )
+                """
+            params = (etl_table_id, status) + tuple(cvals)
+            cur.execute(sql, params)
         row = cur.fetchone()
         conn.commit()
         return int(row["job_id"])
@@ -1606,71 +2426,80 @@ def set_job_running(job_id: int) -> None:
 
 
 def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Optional[list] = None) -> list:
-    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. statuses 있으면 해당 상태만. target_table 포함. 최신순."""
+    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. etl_tables·etl_jobs 컬럼은 information_schema 기준 방어. user_info 없으면 등록자 라벨은 ID만."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
-    where_parts = []
-    params = []
-    if etl_table_id is not None:
-        where_parts.append("j.etl_table_id = %s")
-        params.append(etl_table_id)
-    if statuses:
-        placeholders = ", ".join(["%s"] * len(statuses))
-        where_parts.append(f"j.status IN ({placeholders})")
-        params.extend(s.strip().lower() for s in statuses if s)
-    where_sql = " AND ".join(where_parts) if where_parts else "1=1"
-    params.append(limit)
-    select_full = (
-        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.notice, j.add_file_path, j.add_file_type, j.created_at, "
-        f"t.target_table, t.description "
-        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id "
-        f"WHERE {where_sql} ORDER BY j.created_at DESC LIMIT %s"
-    )
-    select_minimal = (
-        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.error_message, j.created_at, "
-        f"t.target_table, t.description "
-        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id "
-        f"WHERE {where_sql} ORDER BY j.created_at DESC LIMIT %s"
-    )
     try:
-        try:
-            cur.execute(select_full, tuple(params))
-            return [dict(r) for r in cur.fetchall()]
-        except Exception:
-            conn.rollback()
-            cur.execute(select_minimal, tuple(params))
-            rows = cur.fetchall()
-            out = []
-            for r in rows:
-                d = dict(r)
-                d.setdefault("total_rows", None)
-                d.setdefault("notice", None)
-                d.setdefault("add_file_path", None)
-                d.setdefault("add_file_type", None)
-                out.append(d)
-            return out
+        jcols = _table_columns_lower(cur, schema, "etl_jobs")
+        tcols = _table_columns_lower(cur, schema, "etl_tables")
+        t_join_sql = _etl_tables_join_select_parts(tcols)
+        has_creator = "create_user_id" in jcols
+        has_user_info = _table_exists(cur, schema, "user_info") if has_creator else False
+        cr_join = ""
+        if has_creator and has_user_info:
+            cr_join = " LEFT JOIN user_info u_j ON u_j.user_id = j.create_user_id "
+        if has_creator and has_user_info:
+            cr_sel = (
+                ", j.create_user_id, COALESCE(NULLIF(TRIM(u_j.user_nickname), ''), NULLIF(TRIM(u_j.user_email), ''), "
+                "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
+            )
+        elif has_creator:
+            cr_sel = (
+                ", j.create_user_id, CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END AS create_user_label"
+            )
+        else:
+            cr_sel = ""
+        where_parts = []
+        params: list[Any] = []
+        if etl_table_id is not None:
+            where_parts.append("j.etl_table_id = %s")
+            params.append(etl_table_id)
+        if statuses:
+            placeholders = ", ".join(["%s"] * len(statuses))
+            where_parts.append(f"j.status IN ({placeholders})")
+            params.extend(s.strip().lower() for s in statuses if s)
+        where_sql = " AND ".join(where_parts) if where_parts else "1=1"
+        params.append(limit)
+        j_sel = _etl_jobs_j_select_sql(jcols)
+        select_sql = (
+            f"SELECT {j_sel}, {t_join_sql}{cr_sel} "
+            f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id{cr_join}"
+            f" WHERE {where_sql} ORDER BY j.created_at DESC LIMIT %s"
+        )
+        cur.execute(select_sql, tuple(params))
+        out = [dict(r) for r in cur.fetchall()]
+        _apply_etl_job_list_compat_keys(out)
+        if not has_creator:
+            for d in out:
+                d.setdefault("create_user_id", None)
+                d.setdefault("create_user_label", None)
+        return out
     finally:
         cur.close()
         conn.close()
 
 
 def delete_job(job_id: int) -> bool:
-    """Job 1건 삭제(etl_jobs에서 DELETE). add_file_path가 있으면 해당 업로드 파일도 삭제. 성공 시 True."""
+    """Job 1건 삭제(etl_jobs에서 DELETE). add_file_path 컬럼이 있고 값이 있으면 업로드 파일도 삭제. DDL 드리프트 시 SELECT 생략."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     add_file_path = None
     try:
-        cur.execute(
-            f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s",
-            (job_id,),
-        )
-        row = cur.fetchone()
-        if row and row.get("add_file_path"):
-            add_file_path = (row["add_file_path"] or "").strip() or None
+        jcols = _table_columns_lower(cur, schema, "etl_jobs")
+        if "add_file_path" in jcols:
+            cur.execute(
+                f"SELECT add_file_path FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s",
+                (job_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                p = row.get("add_file_path") if hasattr(row, "get") else None
+                if p:
+                    add_file_path = (str(p) or "").strip() or None
         cur.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s", (job_id,))
         conn.commit()
         ok = cur.rowcount > 0
@@ -1694,10 +2523,17 @@ def set_job_total_rows(job_id: int, total_rows: int) -> None:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"UPDATE {_q(schema, 'etl_jobs')} SET total_rows = %s WHERE job_id = %s",
-            (total_rows, job_id),
-        )
+        jcols = _table_columns_lower(cur, schema, "etl_jobs")
+        if "total_rows" in jcols:
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_jobs')} SET total_rows = %s WHERE job_id = %s",
+                (total_rows, job_id),
+            )
+        elif "rows_extracted" in jcols:
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_jobs')} SET rows_extracted = %s WHERE job_id = %s",
+                (total_rows, job_id),
+            )
         conn.commit()
     finally:
         cur.close()
@@ -1711,10 +2547,17 @@ def update_job_progress(job_id: int, rows_processed: int) -> None:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"UPDATE {_q(schema, 'etl_jobs')} SET rows_processed = %s WHERE job_id = %s AND status = %s",
-            (rows_processed, job_id, "running"),
-        )
+        jcols = _table_columns_lower(cur, schema, "etl_jobs")
+        if "rows_processed" in jcols:
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_jobs')} SET rows_processed = %s WHERE job_id = %s AND status = %s",
+                (rows_processed, job_id, "running"),
+            )
+        elif "rows_loaded" in jcols:
+            cur.execute(
+                f"UPDATE {_q(schema, 'etl_jobs')} SET rows_loaded = %s WHERE job_id = %s AND status = %s",
+                (rows_processed, job_id, "running"),
+            )
         conn.commit()
     finally:
         cur.close()
@@ -1722,38 +2565,27 @@ def update_job_progress(job_id: int, rows_processed: int) -> None:
 
 
 def get_job(job_id: int) -> Optional[dict]:
-    """Phase 6: job_id로 Job 1건 조회. target_table, total_rows 포함."""
+    """Phase 6: job_id로 Job 1건 조회. target_table, total_rows 포함. DDL 버전별 컬럼은 information_schema 기준으로 보정."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
-    select_full = (
-        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.total_rows, j.error_message, j.notice, j.add_file_path, j.add_file_type, j.created_at, "
-        f"t.target_table, t.description "
-        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id WHERE j.job_id = %s"
-    )
-    select_minimal = (
-        f"SELECT j.job_id, j.etl_table_id, j.status, j.started_at, j.finished_at, j.rows_processed, j.error_message, j.created_at, "
-        f"t.target_table, t.description "
-        f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id WHERE j.job_id = %s"
-    )
     try:
-        try:
-            cur.execute(select_full, (job_id,))
-            row = cur.fetchone()
-            return dict(row) if row else None
-        except Exception:
-            conn.rollback()
-            cur.execute(select_minimal, (job_id,))
-            row = cur.fetchone()
-            if not row:
-                return None
-            d = dict(row)
-            d.setdefault("total_rows", None)
-            d.setdefault("notice", None)
-            d.setdefault("add_file_path", None)
-            d.setdefault("add_file_type", None)
-            return d
+        jcols = _table_columns_lower(cur, schema, "etl_jobs")
+        tcols = _table_columns_lower(cur, schema, "etl_tables")
+        t_join_sql = _etl_tables_join_select_parts(tcols)
+        j_sel = _etl_jobs_j_select_sql(jcols)
+        cur.execute(
+            f"SELECT {j_sel}, {t_join_sql} "
+            f"FROM {_q(schema, 'etl_jobs')} j LEFT JOIN {_q(schema, 'etl_tables')} t ON t.etl_table_id = j.etl_table_id WHERE j.job_id = %s",
+            (job_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        _apply_etl_job_list_compat_keys([d])
+        return d
     finally:
         cur.close()
         conn.close()
@@ -1867,13 +2699,22 @@ def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, e
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        jcols = _table_columns_lower(cur, schema, "etl_jobs")
+        updates = ["status = %s", "finished_at = NOW()", "error_message = %s"]
+        params: list[Any] = [status, error_message]
+        if "rows_processed" in jcols:
+            updates.append("rows_processed = COALESCE(%s, rows_processed)")
+            params.append(rows_processed)
+        elif "rows_loaded" in jcols:
+            updates.append("rows_loaded = COALESCE(%s, rows_loaded)")
+            params.append(rows_processed)
+        if "notice" in jcols:
+            updates.append("notice = %s")
+            params.append(notice)
+        params.append(job_id)
         cur.execute(
-            f"""
-            UPDATE {_q(schema, "etl_jobs")}
-            SET status = %s, finished_at = NOW(), rows_processed = COALESCE(%s, rows_processed), error_message = %s, notice = %s
-            WHERE job_id = %s
-            """,
-            (status, rows_processed, error_message, notice, job_id),
+            f"UPDATE {_q(schema, 'etl_jobs')} SET {', '.join(updates)} WHERE job_id = %s",
+            tuple(params),
         )
         conn.commit()
     finally:
@@ -1882,17 +2723,23 @@ def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, e
 
 
 def update_etl_table_status(etl_table_id: int, status: str):
-    """etl_tables.status 갱신."""
+    """etl_tables.status(및 있으면 updated_at) 갱신. status 컬럼 없으면 DDL 드리프트 대응으로 생략."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_tables")
+        if "status" not in cols:
+            return
+        updates = ["status = %s"]
+        params: list[Any] = [status]
+        if "updated_at" in cols:
+            updates.append("updated_at = NOW()")
+        params.append(etl_table_id)
         cur.execute(
-            f"""
-            UPDATE {_q(schema, "etl_tables")} SET status = %s, updated_at = NOW() WHERE etl_table_id = %s
-            """,
-            (status, etl_table_id),
+            f"UPDATE {_q(schema, 'etl_tables')} SET {', '.join(updates)} WHERE etl_table_id = %s",
+            tuple(params),
         )
         conn.commit()
     finally:
@@ -1912,54 +2759,70 @@ def update_etl_table(
     batch_interval_seconds: Optional[int] = None,
     index_definitions: Optional[List[dict]] = None,
     clear_last_synced_at: bool = False,
+    table_label: Optional[str] = None,
+    table_dscrtn: Optional[str] = None,
 ) -> None:
-    """etl_tables의 pk_columns, sync_mode, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds, index_definitions 등 지정 필드만 갱신. clear_last_synced_at=True면 last_synced_at을 NULL로 초기화(다음 실행 시 전체 조회)."""
+    """etl_tables의 pk_columns, sync_mode, table_label, table_dscrtn, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds, index_definitions 등 지정 필드만 갱신. clear_last_synced_at=True면 last_synced_at을 NULL로 초기화(다음 실행 시 전체 조회)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = _table_columns_lower(cur, schema, "etl_tables")
         updates: List[str] = []
         params: List[Any] = []
-        if on_row_error is not None:
+        if on_row_error is not None and "on_row_error" in cols:
             val = (on_row_error or "fail").strip().lower()
             val = "fail" if val not in ("fail", "skip") else val
             updates.append("on_row_error = %s")
             params.append(val)
-        if pk_columns is not None:
+        if pk_columns is not None and "pk_columns" in cols:
             val = (pk_columns or "").strip() or None
             updates.append("pk_columns = %s")
             params.append(val)
-        if sync_mode is not None:
+        if sync_mode is not None and "sync_mode" in cols:
             raw = (sync_mode or "").strip().lower()
             val = raw if raw in ("full", "diff") else "incremental"
             updates.append("sync_mode = %s")
             params.append(val)
-        if incremental_column is not None:
+        if incremental_column is not None and "incremental_column" in cols:
             val = (incremental_column or "").strip() or None
             updates.append("incremental_column = %s")
             params.append(val)
-        if storage_connection_id is not None:
+        if storage_connection_id is not None and "storage_connection_id" in cols:
             updates.append("storage_connection_id = %s")
             params.append(storage_connection_id)
-        if column_mapping is not None:
+        if column_mapping is not None and "column_mapping" in cols:
             updates.append("column_mapping = %s::jsonb")
             params.append(json.dumps(column_mapping))
-        if batch_size is not None:
+        if batch_size is not None and "batch_size" in cols:
             val = batch_size if batch_size > 0 else None
             updates.append("batch_size = %s")
             params.append(val)
-        if batch_interval_seconds is not None:
+        if batch_interval_seconds is not None and "batch_interval_seconds" in cols:
             val = max(0, batch_interval_seconds)
             updates.append("batch_interval_seconds = %s")
             params.append(val)
-        if index_definitions is not None:
+        if index_definitions is not None and "index_definitions" in cols:
             updates.append("index_definitions = %s::jsonb")
             params.append(json.dumps(index_definitions))
-        if clear_last_synced_at:
+        if clear_last_synced_at and "last_synced_at" in cols:
             updates.append("last_synced_at = NULL")
+        if table_label is not None and "table_label" in cols:
+            val = (table_label or "").strip() or None
+            updates.append("table_label = %s")
+            params.append(val)
+        if table_dscrtn is not None:
+            val = (table_dscrtn or "").strip() or None
+            if "table_dscrtn" in cols:
+                updates.append("table_dscrtn = %s")
+                params.append(val)
+            if "description" in cols:
+                updates.append("description = %s")
+                params.append(val)
         if updates:
-            updates.append("updated_at = NOW()")
+            if "updated_at" in cols:
+                updates.append("updated_at = NOW()")
             params.append(etl_table_id)
             cur.execute(
                 f"UPDATE {_q(schema, 'etl_tables')} SET {', '.join(updates)} WHERE etl_table_id = %s",

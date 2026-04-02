@@ -8,9 +8,9 @@
 
 ### 1.1 역할
 
-- **인증(S5/S6/S7)**: `/login` — 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login`. `/signup`(초대 코드)·`/create-org`(부서 생성)는 공개 라우트. `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET login-history`). **S8**: `NotificationBell`·`notificationsClient`·`/admin/users`(`OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`). **`adminClient.js`** 에 roles·projects·members·invite·search. **`/` 홈**: `homeAccess.js`·`adminAccess.js`(프로젝트 관리 카드는 operator 포함). 토큰은 `localStorage`, API는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 `refresh` 후 1회 재시도. `/` — `GET /api/projects`·`POST /api/projects/{id}/select`. 리포트·대시보드·위젯 경로는 JWT에 `project_info_id` 없으면 `/` 로 유도(`NeedProjectRoute`). ETL은 `me.etl_yn=Y` 또는 `user_dvsn=sa_dev` 일 때만 네비·`/etl` (`EtlAccessRoute`).
+- **인증(S5/S6/S7)**: `/login` — 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login`. `/signup`(초대 코드)·`/create-org`(부서 생성)는 공개 라우트. `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET login-history`). **S8**: `NotificationBell`·`notificationsClient`·`/admin/users`(`OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`). **`adminClient.js`** 에 roles·projects·members·invite·search. **`/` 홈**: `homeAccess.js`·`adminAccess.js`(프로젝트 관리 카드는 operator 포함). 토큰은 `localStorage`, API는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 `refresh` 후 1회 재시도. `/` — `GET /api/projects`·`POST /api/projects/{id}/select`. 쿼리 스튜디오·대시보드·위젯 경로는 JWT에 `project_info_id` 없으면 `/` 로 유도(`NeedProjectRoute`). ETL은 `me.etl_yn=Y` 또는 `user_dvsn=sa_dev` 일 때만 네비·`/etl` (`EtlAccessRoute`).
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
-- **패키지**: report, **campaign_dashboard**(대시보드 UI 단일), **widgetboard**, **etl**. **공용 최소**: `shared/config/api.js`(베이스 URL), `shared/api/http.js`(JSON `request`·`fetchOkJson`). **패키지별 API**는 각 `packages/<이름>/api/*Client.js` 에 둔다.
+- **패키지**: **query_studio**, **campaign_dashboard**(대시보드 UI 단일), **widgetboard**, **etl**. **공용 최소**: `shared/config/api.js`(베이스 URL), `shared/api/http.js`(JSON `request`·`fetchOkJson`). **패키지별 API**는 각 `packages/<이름>/api/*Client.js` 에 둔다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
 
 ### 1.2 접속 경로
@@ -48,7 +48,8 @@ Frontend/react-app/
 ├── src/
 │   ├── App.jsx                 # BrowserRouter·상단 네비
 │   ├── app/
-│   │   ├── navConfig.js        # NAV_ITEMS
+│   │   ├── layout/
+│   │   │   └── navConfig.js    # NAV_ITEMS (좌측 메뉴·권한 관리 라벨 등)
 │   │   └── routes.jsx          # AppRoutes (Route 트리)
 │   ├── main.jsx
 │   ├── index.css
@@ -136,7 +137,7 @@ Frontend/react-app/
 
 ## 4. 패키지별 구성
 
-### 4.1 report (쿼리 빌더)
+### 4.1 query_studio (쿼리 스튜디오)
 
 - **QueryStudioPage.jsx**: 그리드 컬럼·추가 테이블·필터·정렬·집계·피벗·HAVING·날짜 단위·실행·페이지네이션 상태. joinMode, relationshipOptions, joinConditions, joinTypes, joinLogicalOperators, joinConfigs, tableRelationships, groupBy, pivot, pivotRowAggs, dateGranularity, havings. `runExecuteQuery`, `runExplainSql`, 초기화. Sidebar, MainArea 에 props 전달.
 - **Sidebar**: 테이블 목록, 테이블별 컬럼(드래그 가능). JOIN 불가 테이블 비활성화(`joinRules.isTableAvailable`). `list-tables`, `table-relationships` 연동.
@@ -147,7 +148,7 @@ Frontend/react-app/
 - **utils/constants.js**: OPERATOR_LABELS(WHERE/HAVING 연산자 한글), AGG_FUNCTIONS. **utils/helpers.js**: 기타 유틸.
 - **__tests__/**: sqlBuilder.test.js, joinRules.test.js 등 단위 테스트.
 
-**리포트 기능 요약**
+**쿼리 스튜디오 기능 요약**
 
 - 사이드바에서 테이블/컬럼 드래그 → 그리드 추가, 헤더 드래그로 순서 변경. JOIN 시 직접 관계·중간 부모 끼워 넣기·순환/N:N 검사.
 - 기준축·피벗·HAVING·조건·정렬·날짜 단위·집계 함수. JOIN 유형(LEFT/INNER/RIGHT)·복합 조건(AND/OR). SQL 자동 생성 후 실행·페이지네이션(건수 선택).
@@ -159,7 +160,7 @@ Frontend/react-app/
 
 ### 4.3 widgetboard (위젯보드)
 
-- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. `/widgetboard`. 위젯 데이터는 **report** API(`packages/query_studio/api/queryStudioClient.js` — listTables, describeTable, executeQuery) 사용.
+- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. `/widgetboard`. 위젯 데이터는 **쿼리 스튜디오** API(`packages/query_studio/api/queryStudioClient.js` — listTables, describeTable, executeQuery) 사용.
 - **index.jsx**: WidgetboardPage export. App.jsx에서 `/widgetboard` → WidgetboardPage.
 - **utils/dataUtils.js**: 위젯보드용 데이터 처리 유틸.
 - **widgetboard.css**: 위젯보드 전용 스타일(헤더·사이드바·캔버스·드래그 오버 등).
@@ -190,7 +191,7 @@ Frontend/react-app/
 
 ---
 
-## 5. 추가 기능 (리포트)
+## 5. 추가 기능 (쿼리 스튜디오)
 
 ### 5.1 Claude API 쿼리 해석
 
@@ -212,7 +213,7 @@ Frontend/react-app/
 
 ## 6. 스타일링
 
-- **queryStudio.css**: 리포트 패키지 전용 (사이드바, 그리드, SQL 패널, 필터/정렬 칩, 페이지네이션 바, 해석 영역 등).
+- **queryStudio.css**: 쿼리 스튜디오 패키지 전용 (사이드바, 그리드, SQL 패널, 필터/정렬 칩, 페이지네이션 바, 해석 영역 등).
 - **campaign-dashboard.css**: 캠페인 대시보드 패키지 전용.
 - **widgetboard.css**: 위젯보드 패키지 전용.
 - **main.css / index.css**: 앱 공통. 별도 유틸리티 CSS 프레임워크 없음.

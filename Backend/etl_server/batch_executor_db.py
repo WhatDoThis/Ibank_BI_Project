@@ -135,6 +135,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
         return
 
     etl_table_id = job.get("etl_table_id")
+    etl_def = None
     if etl_table_id:
         # ETL 테이블 참조 모드: 소스/타겟/매핑·증분은 etl_tables에서 실시간 조회
         etl_def = etl_service.get_etl_table(etl_table_id)
@@ -178,6 +179,22 @@ def run_db_batch_job(batch_job_id: int) -> None:
             sync_mode = "incremental"
         pk_columns_str = (job.get("pk_columns") or "").strip() or None
         index_definitions = job.get("index_definitions")
+
+    _tm_creator = job.get("create_user_id")
+    if etl_table_id and etl_def:
+        _tm_creator = etl_def.get("create_user_id") or _tm_creator
+    try:
+        _table_master_create_user_id = int(_tm_creator) if _tm_creator is not None else None
+    except (TypeError, ValueError):
+        _table_master_create_user_id = None
+    try:
+        _stor_for_tm = (
+            int(storage_connection_id)
+            if storage_connection_id is not None and str(storage_connection_id).strip() != ""
+            else None
+        )
+    except (TypeError, ValueError):
+        _stor_for_tm = None
 
     # 배치 전용 설정은 항상 batch_jobs에서
     batch_size = job.get("batch_size")
@@ -533,6 +550,9 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     raise RuntimeError(f"컬럼 형변환 실패: {cast_err}") from cast_err
 
             # 정제 #4: DB 배치에서는 파일 단위 롤백 미지원. source_filename=None으로 batch_loaded_keys 기록 스킵.
+            from Backend.etl_server.table_master_hook import table_master_texts_from_etl_row
+
+            _tl_b, _td_b = table_master_texts_from_etl_row(etl_def)
             result = load_service_file.load_dataframe(
                 target_conn,
                 target_schema,
@@ -545,6 +565,10 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 source_filename=None,
                 sys_conn=sys_conn,
                 index_definitions=index_definitions,
+                storage_connection_id=_stor_for_tm,
+                table_master_create_user_id=_table_master_create_user_id,
+                table_master_table_label=_tl_b,
+                table_master_table_dscrtn=_td_b,
             )
             try:
                 target_conn.commit()

@@ -5,7 +5,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 2) require_permission: JWT access + system_db에서 project_ptcpnt_info·pmssn_master.pmssn_list 조회.
    `pmssn_list` 원소는 `pmssn_detail_name` 문자열이 표준; 레거시 PK 숫자 문자열은
    `pmssn_master_detail`로 치환한다. **구 `etl_manager` 역할 폐지** — 프로젝트 기능은 `user_dvsn·pmssn`만으로 판별.
-   `sa_dev`·`sa`·`a` 는 참여 프로젝트에서 report.read 등 자동 허용(docs/main/05 v3).
+   `sa_dev`·`sa`·`a` 는 참여 프로젝트에서 권한 ID `query.read` 등 자동 허용(docs/main/05 v3). 해당 API는 `Backend.query_studio_server` 라우터.
 3) get_effective_permission_ids_for_me: /api/auth/me용 — 자동 역할이면 §8 기능 ID를 permissions에 합침.
 
 [Main Functions]
@@ -45,7 +45,7 @@ _MSG_ETL_INFRA = (
 
 # 프로젝트 UI 기능(매트릭스 §8). ETL 인프라는 별도 require_etl_infrastructure.
 _PROJECT_FEATURE_IDS = frozenset(
-    {"report.read", "report.execute", "dashboard", "widgetboard"}
+    {"query.read", "query.execute", "dashboard", "widgetboard"}
 )
 _AUTO_PROJECT_ROLES = frozenset({"sa_dev", "sa", "a"})
 

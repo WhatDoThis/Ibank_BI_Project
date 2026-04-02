@@ -11,8 +11,8 @@ DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)�
 
 [Package Usage]
 ===========
-1. get_db: Backend/api_server/routers/health.py, Backend/report_server/router.py(다수 엔드포인트 Depends)
-2. get_config: Backend/report_server/router.py(execute_query, save_query_as_table, explain_sql 등 Depends)
+1. get_db: Backend/api_server/routers/health.py, Backend/query_studio_server/router.py(다수 엔드포인트 Depends)
+2. get_config: Backend/query_studio_server/router.py(execute_query, save_query_as_table, explain_sql 등 Depends)
 3. get_system_db: Backend/auth_server, project_server, notification_server, admin_server router Depends (system_db 고정)
 
 [Dependencies]

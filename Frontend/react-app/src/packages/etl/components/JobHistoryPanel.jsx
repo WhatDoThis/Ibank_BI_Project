@@ -100,6 +100,7 @@ function JobHistoryPanel() {
               <tr>
                 <th>Job ID</th>
                 <th>라벨</th>
+                <th>등록자</th>
                 <th>타겟 테이블</th>
                 <th>상태</th>
                 <th>시작</th>
@@ -116,6 +117,7 @@ function JobHistoryPanel() {
                   <td className="etl-history__cell--overflow" title={j.description || ''}>
                     {(j.description || '').slice(0, 30)}{(j.description || '').length > 30 ? '…' : ''}
                   </td>
+                  <td className="etl-history__cell-creator" title={j.create_user_label || ''}>{j.create_user_label || '—'}</td>
                   <td className="etl-history__cell--overflow" title={j.target_table || ''}>{j.target_table || '—'}</td>
                   <td>{j.status || '—'}</td>
                   <td>{j.started_at ? new Date(j.started_at).toLocaleString('ko-KR', { hour12: false }) : '—'}</td>

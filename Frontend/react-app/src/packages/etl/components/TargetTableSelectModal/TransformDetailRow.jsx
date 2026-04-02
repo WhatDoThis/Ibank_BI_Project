@@ -6,12 +6,12 @@
  *
  * [Main Functions]
  * ===========
- * 1. TransformDetailRow: kind별 서브 UI (타입 변환, 문자열, 값 치환, 마스킹, 날짜/시간 연산별 파라미터)
+ * 1. TransformDetailRow: kind별 서브 UI + getTransformTypeGuidance 기반 타입·적재 안내(비차단)
  *
  * [Dependencies]
  * =========
  * - React
- * - ./constants (TYPE_CAST_TARGET_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS, inferredTypeToPg)
+ * - ./constants (TYPE_CAST_TARGET_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS, inferredTypeToPg, getTransformTypeGuidance)
  * - ./CodeMapInlineEditor
  */
 
@@ -24,7 +24,8 @@ import {
   DATETIME_DEFAULT_OUTPUT_FORMAT,
   DATETIME_EXTRACT_PART_OPTIONS,
   DATETIME_DATE_DIFF_UNIT_OPTIONS,
-  inferredTypeToPg
+  inferredTypeToPg,
+  getTransformTypeGuidance
 } from './constants.js';
 import { CodeMapInlineEditor } from './CodeMapInlineEditor.jsx';
 
@@ -89,6 +90,7 @@ export function TransformDetailRow({
   src,
   colSpan,
   kind,
+  targetPgType = null,
   sourceColumns,
   typeCastConfig,
   setTypeCastConfig,
@@ -106,12 +108,48 @@ export function TransformDetailRow({
   setDateTimeConfig,
   timezones = []
 }) {
-  if (kind === 'none' || kind === 'cleansing') return null;
+  if (kind === 'none') return null;
+
+  const resolvedTypeCastTarget =
+    kind === 'type_cast' || kind === 'cleansing_and_type_cast'
+      ? (typeCastConfig[src.name]?.target_type || inferredTypeToPg(src.type))
+      : '';
+
+  const guidanceNotes = getTransformTypeGuidance({
+    sourceType: src.type,
+    kind,
+    typeCastTarget: resolvedTypeCastTarget,
+    targetPgType,
+    stringOperation: stringConfig[src.name]?.operation || ''
+  });
+
+  const guidanceBlock =
+    guidanceNotes.length > 0 ? (
+      <div className="etl-target-select-modal__transform-guidance" role="status">
+        <div className="etl-target-select-modal__transform-guidance-title">타입·적재 안내</div>
+        <ul className="etl-target-select-modal__transform-guidance-list">
+          {guidanceNotes.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
+  if (kind === 'cleansing') {
+    return (
+      <tr className="etl-target-select-modal__row--transform-detail">
+        <td colSpan={colSpan} className="etl-target-select-modal__cell--transform-detail">
+          <div className="etl-target-select-modal__transform-detail-inner">{guidanceBlock}</div>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <tr className="etl-target-select-modal__row--transform-detail">
       <td colSpan={colSpan} className="etl-target-select-modal__cell--transform-detail">
         <div className="etl-target-select-modal__transform-detail-inner">
+          {guidanceBlock}
 
           {(kind === 'type_cast' || kind === 'cleansing_and_type_cast') && (
             <div className="etl-target-select-modal__transform-detail-group etl-detail__card">

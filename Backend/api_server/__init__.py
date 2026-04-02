@@ -9,7 +9,7 @@ Backend.api_server (FastAPI 호스트 앱 패키지)
 
 [Dependencies]
 =========
-- Backend.api_server.main, Backend.core, Backend.report_server, Backend.campaign_dash_server, Backend.etl_server 등
+- Backend.api_server.main, Backend.core, Backend.query_studio_server, Backend.campaign_dash_server, Backend.etl_server 등
 """
 
 from Backend.api_server.main import app

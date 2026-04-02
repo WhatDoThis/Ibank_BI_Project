@@ -19,9 +19,9 @@ export function hasPermission(me, key) {
   return p.includes(key)
 }
 
-/** 리포트(쿼리 스튜디오): report.read 또는 report.execute */
+/** 쿼리 스튜디오: query.read 또는 query.execute */
 export function canAccessQueryStudio(me) {
-  return hasPermission(me, 'report.read') || hasPermission(me, 'report.execute')
+  return hasPermission(me, 'query.read') || hasPermission(me, 'query.execute')
 }
 
 export function canAccessDashboard(me) {

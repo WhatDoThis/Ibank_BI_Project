@@ -1,5 +1,7 @@
 /**
  * app/auth/login.css — LoginPage·SignupPage·CreateOrgPage 공용
+ * login-page__submit--secondary: 비밀번호 검증 등 보조 버튼
+ * login-page__hint--ok: 검증 성공 메시지
  */
 
 .login-page {
@@ -69,6 +71,17 @@
   cursor: not-allowed;
 }
 
+.login-page__submit--secondary {
+  margin-top: 0;
+  background: #fff;
+  color: #00754a;
+  border: 2px solid #00754a;
+}
+
+.login-page__submit--secondary:hover:not(:disabled) {
+  background: #f0faf6;
+}
+
 .login-page__error {
   margin: 0;
   color: #c62828;
@@ -79,6 +92,11 @@
   margin: 0;
   font-size: 0.875rem;
   color: #555;
+}
+
+.login-page__hint--ok {
+  color: #1b5e20;
+  font-weight: 500;
 }
 
 .login-page__back {

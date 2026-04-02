@@ -71,7 +71,7 @@ batch_jobs (배치 정의) └── batch_run_history (실행 이력, 1:N)
 |------|------|------|
 | folder_connection_id | SERIAL PK | |
 | connection_name | VARCHAR(200) | 표시명 |
-| protocol | VARCHAR(20) | 'sftp', 's3' (향후 'gcs', 'azure' 등 확장) |
+| folder_type | VARCHAR(20) | 'sftp', 's3' (향후 'gcs', 'azure' 등 확장) |
 | is_verified | BOOLEAN | 연결 테스트 통과 여부 |
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
@@ -146,7 +146,7 @@ batch_jobs (배치 정의) └── batch_run_history (실행 이력, 1:N)
 새 프로토콜(예: GCS) 추가 시:
 1. `batch_folder_gcs` 테이블 생성 (마스터 FK, CASCADE)
 2. `folder_adapter_file.py`에 `GCSAdapter` 클래스 추가
-3. `service_file.py` 팩토리에 `elif protocol == 'gcs':` 분기 추가
+3. `service_file.py` 팩토리에 `elif folder_type == 'gcs':` 분기 추가
 4. 프론트 `FolderConnectionFormFile.jsx`에 프로토콜 옵션 + 폼 필드 추가
 
 **마스터, batch_jobs, batch_run_history, 스케줄러, executor는 수정 없음.**
@@ -280,16 +280,16 @@ Copyclass FolderAdapter:
 6.2 어댑터 팩토리
 Copydef get_folder_adapter(folder_connection_id: int) -> FolderAdapter:
     master = get_folder_connection(folder_connection_id)
-    protocol = master['protocol']
+    folder_type = master['folder_type']
 
-    if protocol == 'sftp':
+    if folder_type == 'sftp':
         detail = get_folder_sftp(folder_connection_id)
         return SFTPAdapter(**detail)
-    elif protocol == 's3':
+    elif folder_type == 's3':
         detail = get_folder_s3(folder_connection_id)
         return S3Adapter(**detail)
     else:
-        raise ValueError(f"지원하지 않는 프로토콜: {protocol}")
+        raise ValueError(f"지원하지 않는 folder_type: {folder_type}")
 6.3 SFTP 어댑터 (paramiko)
 Copyclass SFTPAdapter(FolderAdapter):
     def __init__(self, host, port, username, password=None, private_key=None, remote_path='/'):
@@ -543,7 +543,7 @@ Copydef run_batch_job(batch_job_id: int):
             local_path = None
             try:
                 # 6a. 파일 안정성 검사 (SFTP)
-                if job_protocol == 'sftp':
+                if job_folder_type == 'sftp':
                     wait_for_stable_size(adapter, filename)
 
                 # 6b. 다운로드

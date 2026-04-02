@@ -21,6 +21,7 @@
  * [Dependencies]
  * =========
  * - React, @/packages/etl/api/etlClient.js (batchListJobs, batchToggleJob, batchRunJobNow, batchDeleteJob)
+ * - ../utils/storageDb.js (formatEtlStorageLabel)
  * - etl.css (etl-db-form__table, etl-db-form__status--*)
  */
 
@@ -33,6 +34,7 @@ import {
   batchUpdateJob,
   batchGetJobDbPreview,
 } from '@/packages/etl/api/etlClient.js';
+import { formatEtlStorageLabel } from '../utils/storageDb.js';
 import SkippedFilesPanelFile from './SkippedFilesPanelFile';
 import '../etl.css';
 
@@ -257,6 +259,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
             <tr>
               <th>유형</th>
               <th>Job 이름</th>
+              <th className="etl-batch-job-list__th-creator">등록자</th>
               <th>{jobTypeFilter === 'db' ? '소스 연결' : jobTypeFilter === 'file' ? '폴더' : '소스/폴더'}</th>
               <th>{jobTypeFilter === 'db' ? '소스 테이블' : jobTypeFilter === 'file' ? '파일 패턴' : '소스/패턴'}</th>
               <th>저장 DB</th>
@@ -275,7 +278,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
               const jtype = (row.job_type || 'file').toLowerCase();
               const folderName = jtype === 'db' ? (row.source_connection_name ?? '-') : (row.connection_name ?? row.folder_connection_name ?? '-');
               const patternCell = jtype === 'db' ? (row.source_table ?? '-') : (row.file_pattern ?? '-');
-              const storageName = row.storage_connection_name ?? (row.storage_connection_id ? `#${row.storage_connection_id}` : '기본');
+              const storageName = formatEtlStorageLabel(row.storage_connection_id, row.storage_connection_name);
               const lastStatus = row.last_run_status ?? 'idle';
               const lastRunAt = row.last_run_at;
               const nextRun = formatNextRun(lastRunAt, row.interval_minutes);
@@ -297,6 +300,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
                       {noPk && <span className="etl-db-form__message etl-db-form__message--warning" style={{ marginLeft: '6px', fontSize: '0.8rem' }} title="중복 행 발생 가능">PK 미설정</span>}
                     </span>
                   </td>
+                  <td className="etl-batch-job-list__cell-creator" title={row.create_user_label || ''}>{row.create_user_label || '—'}</td>
                   <td>{folderName}</td>
                   <td>{patternCell}</td>
                   <td>{storageName}</td>

@@ -1,5 +1,5 @@
 """
-Backend.report_server.schemas (리포트 API 요청 바디)
+Backend.query_studio_server.schemas (쿼리 스튜디오 API 요청 바디)
 ===================================================
 FastAPI POST 엔드포인트 요청 검증용 Pydantic 모델. 구 대시보드 스키마는 legacy_dashboard_server.schemas.
 

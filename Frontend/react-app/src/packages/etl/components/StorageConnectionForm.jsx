@@ -6,7 +6,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. 저장 DB 목록 조회, 연결 테스트, 등록, 삭제
+ * 1. 저장 DB 목록 조회(선두 내장 main·dash 안내), 연결 테스트, 등록, 삭제(등록 연결만)
  * 2. onSuccess: 등록/삭제 성공 시 콜백
  *
  * [Dependencies]
@@ -149,6 +149,10 @@ function StorageConnectionForm({ onSuccess }) {
   }
 
   async function handleDelete(storageConnectionId, connectionName) {
+    if (storageConnectionId == null || storageConnectionId === '' || Number(storageConnectionId) < 0) {
+      setError('내장 저장소는 삭제할 수 없습니다.');
+      return;
+    }
     if (!window.confirm(`"${connectionName || storageConnectionId}" 저장 DB 연결을 삭제하시겠습니까?`)) return;
     setDeleteLoadingId(storageConnectionId);
     try {
@@ -164,10 +168,13 @@ function StorageConnectionForm({ onSuccess }) {
 
   return (
     <div className="etl-db-form">
-      <p className="etl-db-form__intro">파일 업로드나 DB 연동 시 &quot;저장할 DB&quot;로 선택할 수 있는 적재 대상 DB를 여기서 등록합니다. PostgreSQL만 지원합니다.</p>
+      <p className="etl-db-form__intro">
+        기본 적재 대상은 config의 <strong>main_db</strong>·<strong>dash_db</strong> 두 가지이며, 파일/DB 연동 화면의 &quot;저장할 DB&quot; 셀렉트 맨 위에 자동으로 표시됩니다.
+        그 외 PostgreSQL 적재처는 아래에서 등록하세요. 등록한 연결은 같은 셀렉트 목록에 이어서 나타납니다.
+      </p>
       <CollapsibleCardSection
         title="저장 DB(적재 대상) 추가"
-        defaultOpen={list.length === 0}
+        defaultOpen={list.filter((c) => c && !c.is_builtin).length === 0}
         subtitle="연결 테스트로 접속과 CREATE/INSERT/DROP 권한을 확인한 뒤 등록하세요."
       >
         <form onSubmit={handleRegister} className="etl-db-form__connect-form">
@@ -280,32 +287,69 @@ function StorageConnectionForm({ onSuccess }) {
         {error && <p className="etl-db-form__error">{error}</p>}
       </CollapsibleCardSection>
 
-      <CollapsibleCardSection title="등록된 저장 DB" defaultOpen={true}>
+      <CollapsibleCardSection
+        title="내장 저장소 (config)"
+        defaultOpen={true}
+        subtitle="삭제·수정 없음. DB 연동·파일 업로드의 저장할 DB 셀렉트와 동일 이름으로 표시됩니다."
+      >
         {loadingList ? (
           <p className="etl-db-form__hint-inline">목록 조회 중…</p>
         ) : (
           <ul className="etl-db-form__conn-list">
-            {list.length === 0 ? (
-              <li className="etl-db-form__conn-item">등록된 저장 DB가 없습니다.</li>
+            {list.filter((c) => c && c.is_builtin).length === 0 ? (
+              [
+                <li key="fb-main" className="etl-db-form__conn-item">
+                  <span className="etl-db-form__conn-info">기본 (main) — config.main_db (백엔드 재시작 후 API 목록에 반영됩니다)</span>
+                </li>,
+                <li key="fb-dash" className="etl-db-form__conn-item">
+                  <span className="etl-db-form__conn-info">기본 (dash) — config.dash_db</span>
+                </li>,
+              ]
             ) : (
-              list.map((c) => (
-                <li key={c.storage_connection_id} className="etl-db-form__conn-item">
-                  <span className="etl-db-form__conn-info">
-                    {c.connection_name} — {c.host}:{c.port ?? '-'}/{c.database_name}
-                    {c.server_timezone && (
-                      <span className="etl-db-form__conn-tz"> · {c.server_timezone}</span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(c.storage_connection_id, c.connection_name)}
-                    disabled={deleteLoadingId === c.storage_connection_id}
-                    className="etl-db-form__btn etl-db-form__btn--danger"
+              list
+                .filter((c) => c && c.is_builtin)
+                .map((c) => (
+                  <li
+                    key={c.storage_connection_id == null ? 'builtin-main' : `builtin-${c.storage_connection_id}`}
+                    className="etl-db-form__conn-item"
                   >
-                    {deleteLoadingId === c.storage_connection_id ? '삭제 중…' : '삭제'}
-                  </button>
-                </li>
-              ))
+                    <span className="etl-db-form__conn-info">{c.connection_name}</span>
+                    <span className="etl-db-form__muted" style={{ fontSize: '0.85rem' }}>내장</span>
+                  </li>
+                ))
+            )}
+          </ul>
+        )}
+      </CollapsibleCardSection>
+
+      <CollapsibleCardSection title="등록된 저장 DB (PostgreSQL)" defaultOpen={true}>
+        {loadingList ? (
+          <p className="etl-db-form__hint-inline">목록 조회 중…</p>
+        ) : (
+          <ul className="etl-db-form__conn-list">
+            {list.filter((c) => c && !c.is_builtin).length === 0 ? (
+              <li className="etl-db-form__conn-item">추가 등록된 저장 DB가 없습니다.</li>
+            ) : (
+              list
+                .filter((c) => c && !c.is_builtin)
+                .map((c) => (
+                  <li key={c.storage_connection_id} className="etl-db-form__conn-item">
+                    <span className="etl-db-form__conn-info">
+                      {c.connection_name} — {c.host}:{c.port ?? '-'}/{c.database_name}
+                      {c.server_timezone && (
+                        <span className="etl-db-form__conn-tz"> · {c.server_timezone}</span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(c.storage_connection_id, c.connection_name)}
+                      disabled={deleteLoadingId === c.storage_connection_id}
+                      className="etl-db-form__btn etl-db-form__btn--danger"
+                    >
+                      {deleteLoadingId === c.storage_connection_id ? '삭제 중…' : '삭제'}
+                    </button>
+                  </li>
+                ))
             )}
           </ul>
         )}

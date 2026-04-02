@@ -1,5 +1,5 @@
 """
-Backend.report_server.relationship_inference (관계 추론)
+Backend.query_studio_server.relationship_inference (관계 추론)
 =====================================================
 DB 허용 테이블 + 컬럼 정보로 관계 추론 (pluralize + 확장: 복수형이 테이블명 일부). report 라우터에서 infer_relationships 사용.
 
@@ -11,10 +11,10 @@ DB 허용 테이블 + 컬럼 정보로 관계 추론 (pluralize + 확장: 복수
 
 [Dependencies]
 =========
-- Backend.report_server.pluralize (find_parent_table, pluralize)
+- Backend.query_studio_server.pluralize (find_parent_table, pluralize)
 """
 
-from Backend.report_server.pluralize import find_parent_table as _find_parent_table, pluralize
+from Backend.query_studio_server.pluralize import find_parent_table as _find_parent_table, pluralize
 
 
 # 1.

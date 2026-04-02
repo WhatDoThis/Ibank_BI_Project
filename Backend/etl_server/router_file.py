@@ -28,9 +28,10 @@ Backend.etl_server.router_file (배치·폴더 연결 API 라우터)
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from Backend.auth_server.permissions import require_etl_infrastructure
 from Backend.etl_server import parser_file as batch_parser
 from Backend.etl_server import scheduler_file as sched
 from Backend.etl_server import service_file as batch_service
@@ -44,9 +45,9 @@ router = APIRouter(prefix="/batch", tags=["batch"])
 
 # 1.
 class CreateFolderConnectionBody(BaseModel):
-    """POST /folder-connections. protocol이 sftp면 sftp_*, s3면 s3_* 사용."""
+    """POST /folder-connections. folder_type이 sftp면 sftp_*, s3면 s3_* 사용."""
     connection_name: str = Field(..., description="연결 표시명")
-    protocol: str = Field(..., description="sftp | s3")
+    folder_type: str = Field(..., description="sftp | s3 (batch_folder_connections.folder_type)")
     # SFTP
     host: Optional[str] = Field(None, description="SFTP 호스트")
     port: Optional[int] = Field(22, description="SFTP 포트")
@@ -84,7 +85,10 @@ class CreateBatchJobBody(BaseModel):
     """POST /jobs. 배치 Job 등록. job_type=file이면 folder_connection_id·file_pattern 필수, job_type=db이면 connection_id·source_table 필수."""
     job_type: str = Field("file", description="file | db")
     folder_connection_id: Optional[int] = Field(None, description="폴더 연결 ID (file 배치 시 필수)")
-    storage_connection_id: Optional[int] = Field(None, description="저장 DB 연결 ID. None=기본 DB(ibank_db)")
+    storage_connection_id: Optional[int] = Field(
+        None,
+        description="저장 DB. None=main_db, -1=dash_db(내장), 양수=etl_storage_connections",
+    )
     job_name: str = Field(..., description="배치명")
     file_pattern: Optional[str] = Field("", description="파일 접두사(예: sales_data). file 배치 시 필수.")
     file_extensions: Optional[str] = Field("csv,xlsx,xls,parquet", description="허용 확장자")
@@ -142,7 +146,10 @@ class UpdateBatchJobBody(BaseModel):
 class ValidateTargetBody(BaseModel):
     """POST /jobs/validate-target. 기존 테이블 적재 가능 여부 검증(컬럼 호환만)."""
     folder_connection_id: int = Field(..., description="폴더 연결 ID")
-    storage_connection_id: Optional[int] = Field(None, description="저장 DB 연결 ID. None=기본 DB")
+    storage_connection_id: Optional[int] = Field(
+        None,
+        description="저장 DB. None=main_db, -1=dash_db(내장), 양수=등록 연결",
+    )
     file_pattern: str = Field(..., description="파일 접두사 패턴")
     target_table: str = Field(..., description="타겟 테이블명")
 
@@ -167,7 +174,7 @@ class TestFolderConnectionBody(BaseModel):
     """POST /folder-connections/test. connection_id 있으면 해당 연결로 테스트, 없으면 인라인 파라미터."""
     folder_connection_id: Optional[int] = Field(None, description="등록된 연결 ID")
     connection_name: Optional[str] = None
-    protocol: Optional[str] = None
+    folder_type: Optional[str] = None
     host: Optional[str] = None
     port: Optional[int] = 22
     username: Optional[str] = None
@@ -227,15 +234,18 @@ def list_folder_connections():
 
 
 @router.post("/folder-connections")
-def create_folder_connection(body: CreateFolderConnectionBody):
+def create_folder_connection(
+    body: CreateFolderConnectionBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """폴더 연결 등록."""
-    protocol = (body.protocol or "").strip().lower()
-    if protocol not in ("sftp", "s3"):
-        raise HTTPException(status_code=400, detail="protocol은 sftp 또는 s3여야 합니다.")
+    ft = (body.folder_type or "").strip().lower()
+    if ft not in ("sftp", "s3"):
+        raise HTTPException(status_code=400, detail="folder_type은 sftp 또는 s3여야 합니다.")
     try:
         fid = batch_service.create_folder_connection(
             connection_name=body.connection_name,
-            protocol=protocol,
+            folder_type=ft,
             sftp_host=body.host or "",
             sftp_port=body.port or 22,
             sftp_username=body.username or "",
@@ -248,6 +258,7 @@ def create_folder_connection(body: CreateFolderConnectionBody):
             s3_access_key_id=body.access_key_id or "",
             s3_secret_access_key=body.secret_access_key or "",
             s3_endpoint_url=body.endpoint_url or "",
+            create_user_id=int(payload["user_id"]),
         )
         return {"folder_connection_id": fid, "message": "등록되었습니다."}
     except Exception as e:
@@ -309,8 +320,8 @@ def test_folder_connection(body: TestFolderConnectionBody):
         else:
             # 인라인 테스트: 임시로 DB에 넣지 않고 어댑터만 생성해 테스트
             from Backend.etl_server.folder_adapter_file import SFTPAdapter, S3Adapter
-            protocol = (body.protocol or "").strip().lower()
-            if protocol == "sftp":
+            ft = (body.folder_type or "").strip().lower()
+            if ft == "sftp":
                 adapter = SFTPAdapter(
                     host=body.host or "",
                     port=body.port or 22,
@@ -319,7 +330,7 @@ def test_folder_connection(body: TestFolderConnectionBody):
                     private_key=body.private_key,
                     remote_path=body.remote_path or "/",
                 )
-            elif protocol == "s3":
+            elif ft == "s3":
                 adapter = S3Adapter(
                     bucket=body.bucket or "",
                     prefix=body.prefix or "",
@@ -329,7 +340,7 @@ def test_folder_connection(body: TestFolderConnectionBody):
                     endpoint_url=body.endpoint_url,
                 )
             else:
-                raise HTTPException(status_code=400, detail="protocol은 sftp 또는 s3여야 합니다.")
+                raise HTTPException(status_code=400, detail="folder_type은 sftp 또는 s3여야 합니다.")
         adapter.test_connection()
         if body.folder_connection_id is not None:
             batch_service.set_folder_connection_verified(body.folder_connection_id, True)
@@ -432,7 +443,10 @@ def list_folder_columns(
 
 @router.get("/target-tables")
 def list_target_tables(
-    storage_connection_id: Optional[int] = Query(None, description="저장 DB 연결 ID. 없으면 기본 DB"),
+    storage_connection_id: Optional[int] = Query(
+        None,
+        description="저장 DB. 없음=main, -1=dash(내장), 양수=등록 연결",
+    ),
 ):
     """저장 DB의 테이블 목록. 배치 폼 타겟 테이블 셀렉트용."""
     try:
@@ -507,7 +521,10 @@ def _serialize_job(j: dict) -> None:
 
 
 @router.post("/jobs")
-def create_batch_job(body: CreateBatchJobBody):
+def create_batch_job(
+    body: CreateBatchJobBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """배치 Job 등록. is_active=True면 스케줄러에 등록. job_type=db이면 connection_id·source_table 필수."""
     jtype = (body.job_type or "file").strip().lower()
     if jtype not in ("file", "db"):
@@ -543,6 +560,7 @@ def create_batch_job(body: CreateBatchJobBody):
             batch_interval_seconds=body.batch_interval_seconds,
             on_row_error=body.on_row_error or "fail",
             diff_delete_orphans=getattr(body, "diff_delete_orphans", False) or False,
+            create_user_id=int(payload["user_id"]),
         )
         if body.is_active:
             job = batch_service.get_batch_job(batch_job_id)
@@ -557,7 +575,10 @@ def create_batch_job(body: CreateBatchJobBody):
 
 
 @router.post("/jobs/from-etl-table")
-def create_batch_job_from_etl_table(body: CreateBatchJobFromEtlTableBody):
+def create_batch_job_from_etl_table(
+    body: CreateBatchJobFromEtlTableBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """ETL 테이블 기반 DB 배치 등록. 소스/타겟/매핑은 etl_tables에서 참조. 실행 시 실시간 조회. status=done일 때만 허용."""
     etl_table = etl_service.get_etl_table(body.etl_table_id)
     if not etl_table:
@@ -599,6 +620,7 @@ def create_batch_job_from_etl_table(body: CreateBatchJobFromEtlTableBody):
             on_row_error=body.on_row_error or "fail",
             is_active=body.is_active,
             diff_delete_orphans=etl_table.get("diff_delete_orphans", False) or False,
+            create_user_id=int(payload["user_id"]),
         )
         # ETL 테이블의 마지막 적재 완료 시점(last_synced_at)을 배치 초기값으로 세팅 → 증분 배치는 이후 데이터만 처리
         initial_synced_at = etl_table.get("last_synced_at")
@@ -971,7 +993,10 @@ def rollback_file(batch_job_id: int, body: RollbackFileBody):
 
 
 @router.post("/jobs/{batch_job_id}/clone")
-def clone_batch_job(batch_job_id: int):
+def clone_batch_job(
+    batch_job_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """배치 Job 복제. 동일 설정으로 새 Job 생성, 비활성 상태. DB 배치 시 job_type·connection_id·source_table 등 전부 복사. §3-2."""
     try:
         job = batch_service.get_batch_job(batch_job_id)
@@ -1000,6 +1025,7 @@ def clone_batch_job(batch_job_id: int):
             batch_interval_seconds=job.get("batch_interval_seconds") if jtype == "db" else None,
             on_row_error=(job.get("on_row_error") or "fail").strip().lower() if jtype == "db" else "fail",
             diff_delete_orphans=(job.get("diff_delete_orphans", False) or False) if jtype == "db" else False,
+            create_user_id=int(payload["user_id"]),
         )
         return {"batch_job_id": new_id, "message": "복제되었습니다. 비활성 상태입니다."}
     except HTTPException:

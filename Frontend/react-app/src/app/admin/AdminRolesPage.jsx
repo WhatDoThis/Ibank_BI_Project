@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 생성/수정/삭제와 사용현황 모달(프로젝트·사용자 드릴다운)을 제공한다.
+ * 권한 목록·우상단「권한 생성」모달(프로젝트 권한 생성)·수정/삭제·사용현황 드릴다운을 제공한다.
  *
  * [Main Functions]
  * ===========
@@ -41,6 +41,15 @@ function parsePmssnInput(s) {
     .split(/[\n,]+/)
     .map((x) => x.trim())
     .filter(Boolean)
+}
+
+/** API의 pmssn_list(배열·문자열)를 편집용 문자열 배열로 정규화 */
+function pmssnListToArray(pl) {
+  if (Array.isArray(pl)) {
+    return pl.map((x) => String(x).trim()).filter(Boolean)
+  }
+  if (pl == null || pl === '') return []
+  return parsePmssnInput(String(pl))
 }
 
 function isSystem(row) {
@@ -89,10 +98,13 @@ export default function AdminRolesPage() {
   const [selectedPermission, setSelectedPermission] = useState('')
   const [newName, setNewName] = useState('')
   const [newPmssnList, setNewPmssnList] = useState([])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createBusy, setCreateBusy] = useState(false)
 
   const [edit, setEdit] = useState(null)
   const [editName, setEditName] = useState('')
-  const [editList, setEditList] = useState('')
+  const [editPmssnList, setEditPmssnList] = useState([])
+  const [editSelectedPermission, setEditSelectedPermission] = useState('')
 
   const [usageOpen, setUsageOpen] = useState(false)
   const [usageRole, setUsageRole] = useState(null)
@@ -119,6 +131,13 @@ export default function AdminRolesPage() {
       })),
     [items],
   )
+  const permissionOptionMap = useMemo(() => {
+    const m = new Map()
+    permissionOptions.forEach((opt) => {
+      m.set(String(opt.value), String(opt.label || opt.value))
+    })
+    return m
+  }, [permissionOptions])
 
   const load = useCallback(async () => {
     setError('')
@@ -151,6 +170,12 @@ export default function AdminRolesPage() {
     loadPermissionOptions()
   }, [load, loadPermissionOptions])
 
+  useEffect(() => {
+    if (edit == null) return
+    if (editSelectedPermission || permissionOptions.length === 0) return
+    setEditSelectedPermission(String(permissionOptions[0].value))
+  }, [edit, editSelectedPermission, permissionOptions])
+
   function addPermissionToNewList() {
     const picked = String(selectedPermission || '').trim()
     if (!picked) return
@@ -165,10 +190,33 @@ export default function AdminRolesPage() {
     setNewPmssnList((prev) => prev.filter((x) => x !== value))
   }
 
+  function addPermissionToEditList() {
+    const picked = String(editSelectedPermission || '').trim()
+    if (!picked) return
+    if (editPmssnList.includes(picked)) {
+      window.alert('이미 적용되었습니다.')
+      return
+    }
+    setEditPmssnList((prev) => [...prev, picked])
+  }
+
+  function removePermissionFromEditList(value) {
+    setEditPmssnList((prev) => prev.filter((x) => x !== value))
+  }
+
+  function openCreateModal() {
+    setError('')
+    setNewName('')
+    setNewPmssnList([])
+    setSelectedPermission(permissionOptions[0]?.value || '')
+    setCreateOpen(true)
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     if (!confirmCrud('프로젝트 권한을 생성할까요?')) return
     setError('')
+    setCreateBusy(true)
     try {
       await postAdminRole({
         pmssn_name: newName.trim(),
@@ -176,9 +224,13 @@ export default function AdminRolesPage() {
       })
       setNewName('')
       setNewPmssnList([])
+      setSelectedPermission(permissionOptions[0]?.value || '')
+      setCreateOpen(false)
       await load()
     } catch (e) {
       setError(e?.message || '생성 실패')
+    } finally {
+      setCreateBusy(false)
     }
   }
 
@@ -186,7 +238,8 @@ export default function AdminRolesPage() {
     if (isSystem(row)) return
     setEdit(row.pmssn_master_id)
     setEditName(row.pmssn_name || '')
-    setEditList(formatPmssnList(row.pmssn_list))
+    setEditPmssnList(pmssnListToArray(row.pmssn_list))
+    setEditSelectedPermission(permissionOptions[0]?.value || '')
   }
 
   async function handleSaveEdit(e) {
@@ -197,7 +250,7 @@ export default function AdminRolesPage() {
     try {
       await putAdminRole(edit, {
         pmssn_name: editName.trim(),
-        pmssn_list: parsePmssnInput(editList),
+        pmssn_list: editPmssnList,
       })
       setEdit(null)
       await load()
@@ -353,71 +406,128 @@ export default function AdminRolesPage() {
 
   return (
     <div className="ap">
-      <h1 className="ap__title">권한 관리</h1>
-      <p className="ap__hint">
-        시스템 기본 권한은 조회만 가능합니다. 부서 전용 권한은 권한명과 권한 상세 목록을 지정해 생성할 수 있습니다.
-      </p>
+      <div className="ap__header-row">
+        <div>
+          <h1 className="ap__title">권한 관리</h1>
+          <p className="ap__hint">
+            목록에는 전사 시스템 기본 권한과 본인 부서에 등록된 커스텀 권한만 표시됩니다. 시스템 기본 권한은 조회만
+            가능합니다.
+          </p>
+        </div>
+        <button type="button" className="ap__btn-head-create" onClick={openCreateModal}>
+          권한 생성
+        </button>
+      </div>
       {error ? <p className="ap__error">{error}</p> : null}
 
-      <div className="ap__form-block">
-        <h3>프로젝트 권한 생성</h3>
-        <form onSubmit={handleCreate}>
-          <label className="ap__label">
-            권한명
-            <input
-              className="ap__input"
-              value={newName}
-              onChange={(ev) => setNewName(ev.target.value)}
-              required
-              maxLength={100}
-            />
-          </label>
+      {createOpen ? (
+        <div
+          className="ap__modal-overlay"
+          role="presentation"
+          onClick={() => !createBusy && setCreateOpen(false)}
+        >
+          <div
+            className="ap__modal ap__modal--create"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pmssn-create-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="pmssn-create-title">프로젝트 권한 생성</h3>
+            <p className="ap__hint ap__hint--tight">
+              권한명과 권한 상세 목록을 지정합니다. 상세는 `pmssn_master_detail`에 정의된 항목만 선택할 수 있습니다.
+            </p>
+            <form className="ap__modal-form" onSubmit={handleCreate}>
+              <label className="ap__label">
+                권한명
+                <input
+                  className="ap__input"
+                  value={newName}
+                  onChange={(ev) => setNewName(ev.target.value)}
+                  required
+                  maxLength={100}
+                  disabled={createBusy}
+                />
+              </label>
 
-          <label className="ap__label">
-            권한 상세 목록
-            <div className="ap__row">
-              <select
-                className="ap__select"
-                value={selectedPermission}
-                onChange={(ev) => setSelectedPermission(ev.target.value)}
-                style={{ flex: 1, minWidth: 220 }}
-              >
-                {permissionOptions.length === 0 ? <option value="">선택 가능한 항목이 없습니다.</option> : null}
-                {permissionOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.value} {opt.label && opt.label !== opt.value ? `- ${opt.label}` : ''}
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="ap__btn" onClick={addPermissionToNewList}>
-                추가
-              </button>
-            </div>
-          </label>
+              <label className="ap__label">
+                권한 상세 목록
+                <div className="ap__row">
+                  <select
+                    className="ap__select"
+                    value={selectedPermission}
+                    onChange={(ev) => setSelectedPermission(ev.target.value)}
+                    style={{ flex: 1, minWidth: 220 }}
+                    disabled={createBusy}
+                  >
+                    {permissionOptions.length === 0 ? <option value="">선택 가능한 항목이 없습니다.</option> : null}
+                    {permissionOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.value} {opt.label && opt.label !== opt.value ? `- ${opt.label}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="ap__btn" onClick={addPermissionToNewList} disabled={createBusy}>
+                    추가
+                  </button>
+                </div>
+              </label>
 
-          <div className="ap__chips">
-            {newPmssnList.length === 0 ? <span className="ap__hint">선택된 권한 상세가 없습니다.</span> : null}
-            {newPmssnList.map((value) => (
-              <span key={value} className="ap__chip">
-                {value}
-                <button type="button" className="ap__chip-remove" onClick={() => removePermissionFromNewList(value)}>
-                  x
+              <div className="ap__permission-list-wrap">
+                {newPmssnList.length === 0 ? <span className="ap__hint">선택된 권한 상세가 없습니다.</span> : null}
+                {newPmssnList.length > 0 ? (
+                  <table className="ap__permission-list">
+                    <thead>
+                      <tr>
+                        <th>권한명</th>
+                        <th>권한설명</th>
+                        <th aria-label="삭제" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {newPmssnList.map((value) => {
+                        const label = permissionOptionMap.get(value) || value
+                        const description = label === value ? '-' : label
+                        return (
+                          <tr key={value}>
+                            <td>{value}</td>
+                            <td>{description}</td>
+                            <td className="ap__permission-remove-cell">
+                              <button
+                                type="button"
+                                className="ap__permission-remove-btn"
+                                onClick={() => removePermissionFromNewList(value)}
+                                disabled={createBusy}
+                              >
+                                x
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+
+              <div className="ap__row ap__modal-actions">
+                <button type="button" className="ap__btn" disabled={createBusy} onClick={() => setCreateOpen(false)}>
+                  닫기
                 </button>
-              </span>
-            ))}
+                <button type="submit" className="ap__btn ap__btn--primary" disabled={createBusy}>
+                  {createBusy ? '생성 중…' : '생성'}
+                </button>
+              </div>
+            </form>
           </div>
-
-          <button type="submit" className="ap__btn ap__btn--primary">
-            생성
-          </button>
-        </form>
-      </div>
+        </div>
+      ) : null}
 
       {loading ? (
         <p className="ap__hint">불러오는 중…</p>
       ) : (
         <div className="ap__table-wrap">
-          <table className="ap__table">
+          <table className="ap__table ap__table--roles">
             <thead>
               <tr>
                 <th>권한명</th>
@@ -482,7 +592,7 @@ export default function AdminRolesPage() {
 
       {edit != null ? (
         <div className="ap__modal-overlay" role="presentation">
-          <div className="ap__modal" role="dialog" aria-modal="true" aria-labelledby="pmssn-edit-title">
+          <div className="ap__modal ap__modal--edit" role="dialog" aria-modal="true" aria-labelledby="pmssn-edit-title">
             <h3 id="pmssn-edit-title">권한 수정</h3>
             <form onSubmit={handleSaveEdit}>
               <label className="ap__label">
@@ -496,13 +606,65 @@ export default function AdminRolesPage() {
                 />
               </label>
               <label className="ap__label">
-                권한상세목록 (쉼표 또는 줄바꿈)
-                <textarea
-                  className="ap__textarea"
-                  value={editList}
-                  onChange={(ev) => setEditList(ev.target.value)}
-                />
+                권한 상세 목록
+                <div className="ap__row">
+                  <select
+                    className="ap__select"
+                    value={editSelectedPermission}
+                    onChange={(ev) => setEditSelectedPermission(ev.target.value)}
+                    style={{ flex: 1, minWidth: 220 }}
+                  >
+                    {permissionOptions.length === 0 ? <option value="">선택 가능한 항목이 없습니다.</option> : null}
+                    {permissionOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.value} {opt.label && opt.label !== opt.value ? `- ${opt.label}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="ap__btn" onClick={addPermissionToEditList} disabled={busyId != null}>
+                    추가
+                  </button>
+                </div>
               </label>
+              <div className="ap__permission-list-wrap">
+                {editPmssnList.length === 0 ? <span className="ap__hint">선택된 권한 상세가 없습니다.</span> : null}
+                {editPmssnList.length > 0 ? (
+                  <table className="ap__permission-list">
+                    <thead>
+                      <tr>
+                        <th>권한명</th>
+                        <th>권한설명</th>
+                        <th aria-label="삭제" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editPmssnList.map((value) => {
+                        const label = permissionOptionMap.get(value) || value
+                        const description = label === value ? '-' : label
+                        return (
+                          <tr key={value}>
+                            <td>{value}</td>
+                            <td>{description}</td>
+                            <td className="ap__permission-remove-cell">
+                              <button
+                                type="button"
+                                className="ap__permission-remove-btn"
+                                onClick={() => removePermissionFromEditList(value)}
+                                disabled={busyId != null}
+                              >
+                                x
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+              <p className="ap__hint" style={{ marginTop: 0 }}>
+                권한 상세는 위 셀렉트에 있는 항목만 추가할 수 있습니다. x로 제거한 항목은 저장 시 목록에서 빠지며, 다시 넣으려면 셀렉트에서 선택하세요.
+              </p>
               <div className="ap__row">
                 <button type="submit" className="ap__btn ap__btn--primary" disabled={busyId != null}>
                   저장

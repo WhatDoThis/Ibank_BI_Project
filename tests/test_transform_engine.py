@@ -20,7 +20,7 @@ import pandas as pd
 # transform_engine만 로드 (router 등 의존성 없이)
 _spec = importlib.util.spec_from_file_location(
     "transform_engine",
-    _root / "Backend" / "etl_server2" / "transform_engine.py",
+    _root / "Backend" / "etl_server" / "transform_engine.py",
 )
 _te = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_te)

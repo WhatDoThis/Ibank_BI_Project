@@ -6,6 +6,7 @@
  * [Main Functions]
  * ===========
  * 1. 단일 파일: add-file. ZIP: add-files-zip → job_ids, skipped_files 반환. 건너뛴 파일 목록 표시·복사·다운로드.
+ * 표시: targetTable, tableLabel·tableDscrtn(ETL 메타와 동일 키).
  *
  * [Dependencies]
  * =========
@@ -29,7 +30,7 @@ const REASON_LABELS = {
 };
 
 // 1.
-function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess }) {
+function AddFileModal({ etlTableId, targetTable, tableLabel = '', tableDscrtn = '', onClose, onSuccess }) {
   const [mode, setMode] = useState('single'); // 'single' | 'zip'
   const [file, setFile] = useState(null);
   const [rejectedFile, setRejectedFile] = useState(null);
@@ -142,6 +143,10 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
 
   const accept = mode === 'zip' ? ACCEPT_ZIP : ACCEPT_SINGLE;
   const showZipResult = zipResult != null;
+  const metaSubtitle = [tableLabel, tableDscrtn]
+    .map((x) => (x != null ? String(x).trim() : ''))
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className="etl-add-file-modal" role="dialog" aria-modal="true" aria-labelledby="etl-add-file-title">
@@ -154,7 +159,7 @@ function AddFileModal({ etlTableId, targetTable, description, onClose, onSuccess
 
         <div className="etl-add-file-modal__info">
           <span className="etl-add-file-modal__target">{targetTable}</span>
-          {description && <span className="etl-add-file-modal__desc-label">{description}</span>}
+          {metaSubtitle && <span className="etl-add-file-modal__desc-label">{metaSubtitle}</span>}
         </div>
         <p className="etl-add-file-modal__hint">같은 테이블에 추가합니다. PK 일치 시 업데이트, 없으면 삽입됩니다.</p>
 

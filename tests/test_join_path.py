@@ -11,7 +11,7 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from Backend.report_server.join_path import validate_join_order, find_join_path, find_direct_relationship
+from Backend.query_studio_server.join_path import validate_join_order, find_join_path, find_direct_relationship
 
 
 # ---------- validate_join_order ----------

@@ -10,20 +10,22 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 3. get_source_columns, get_source_indexes: 소스 컬럼·인덱스 조회
 4. _fetch_source_columns(_pg|_mysql|_oracle), _fetch_source_pk_columns, _fetch_pk_values_from_source, _fetch_pk_values_from_target
 5. _create_indexes_on_target, _pg_type_from_*: 타겟 인덱스 생성·타입 변환
-6. _serialize_value, _copy_buf, _copy_insert_batch, _copy_upsert_batch, _copy_upsert_batch_safe
+6. _serialize_value(JSON dict/list → JSON 텍스트), _copy_buf, _copy_insert_batch, _copy_upsert_batch·_copy_staging_cast_expr(JSONB 스테이징 캐스트), _copy_upsert_batch_safe
 7. _ensure_unique_constraint, _get_target_column_list
 8. _run_diff_sync: sync_mode=diff 시 소스/타겟 PK diff → 신규 INSERT·삭제 DELETE
 9. run_db_load: etl_table_id 기준 소스 SELECT → 변환 → 저장 DB CREATE+INSERT 또는 Upsert (full/incremental)
+10. _resolve_pk_columns_for_db_load: etl_tables에 pk_columns가 없거나 비어 있을 때 소스 PK·column_mapping·타겟 PK로 보강
 
 [Dependencies]
 =========
 - Backend.core.db, Backend.etl_server.service, transform_engine, transform_rules_service, etl_limits
-- Backend.etl_server.table_master_hook (적재 완료 시 table_master UPSERT)
+- Backend.etl_server.table_master_hook (적재 완료 시 table_master UPSERT, 전사·생성자)
 - psycopg2 (copy_expert), pandas
 """
 
 import hashlib
 import io
+import json
 import logging
 import math
 import re
@@ -42,6 +44,54 @@ from Backend.etl_server import timezone_utils
 from Backend.etl_server import transform_engine
 from Backend.etl_server import transform_rules_service as transform_rules_svc
 from Backend.etl_server.etl_limits import get_etl_limits
+
+
+def _resolve_pk_columns_for_db_load(
+    stored: Optional[str],
+    mapping_used: List[dict],
+    source_pk_list: List[str],
+    col_names: List[str],
+    storage_connection_id: Optional[int],
+    target_table: str,
+    etl_table_id: int,
+) -> Optional[str]:
+    """
+    etl_tables.pk_columns 미저장(컬럼 없음)·빈 문자열일 때 증분/diff에 쓸 PK 컬럼명(쉼표 구분)을 만든다.
+    우선순위: 저장값 → 소스 PK+컬럼매핑(target명) → 소스 PK(컬럼명 그대로) → 저장 DB 타겟 테이블의 PK.
+    """
+    s = (stored or "").strip() or None
+    if s:
+        return s
+    if mapping_used and source_pk_list:
+        mapped = [m["target"] for m in mapping_used if m["source"] in source_pk_list]
+        if mapped:
+            logger.info(
+                "run_db_load etl_table_id=%s: pk_columns 소스 PK + column_mapping 으로 보강 (%s)",
+                etl_table_id, ",".join(mapped),
+            )
+            return ",".join(mapped)
+    if source_pk_list:
+        usable = [p for p in source_pk_list if p in col_names]
+        chosen = usable if usable else list(source_pk_list)
+        logger.info(
+            "run_db_load etl_table_id=%s: pk_columns 소스 테이블 PK 로 보강 (%s)",
+            etl_table_id, ",".join(chosen),
+        )
+        return ",".join(chosen)
+    try:
+        tgt_pks = etl_service.get_target_pk_columns(storage_connection_id, target_table)
+        if tgt_pks:
+            logger.info(
+                "run_db_load etl_table_id=%s: pk_columns 타겟 테이블 PK 로 보강 (%s)",
+                etl_table_id, ",".join(tgt_pks),
+            )
+            return ",".join(tgt_pks)
+    except Exception as exc:
+        logger.warning(
+            "run_db_load etl_table_id=%s: 타겟 PK 조회 실패 target_table=%s: %s",
+            etl_table_id, target_table, exc,
+        )
+    return None
 
 
 def _get_source_connection(connection_id: int):
@@ -433,6 +483,8 @@ def _pg_type_from_mysql(data_type: str) -> str:
         return "DOUBLE PRECISION"
     if t in ("date", "datetime", "timestamp", "time", "year"):
         return "TIMESTAMP"
+    if t == "json":
+        return "JSONB"
     return "TEXT"
 
 
@@ -756,6 +808,8 @@ def _pg_type_from_oracle(data_type: str) -> str:
         return "TEXT"
     if t in ("DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITH LOCAL TIME ZONE"):
         return "TIMESTAMP"
+    if t == "JSON":
+        return "JSONB"
     return "TEXT"
 
 
@@ -774,6 +828,8 @@ def _pg_type_from_info_schema(data_type: str) -> str:
         return "TIMESTAMP"
     if t == "date":
         return "DATE"
+    if t in ("json", "jsonb"):
+        return "JSONB"
     return "TEXT"
 
 
@@ -792,9 +848,12 @@ def _pg_type_from_pandas(dtype) -> str:
 
 
 def _serialize_value(v) -> str:
-    """COPY TEXT 포맷용 값 직렬화. None/nan/inf/NaT → \\N, bool은 true/false, 그 외는 str 후 \\ \\t \\n \\r 이스케이프."""
+    """COPY TEXT 포맷용 값 직렬화. None/nan/inf/NaT → \\N, bool은 true/false, dict/list는 JSON, 그 외는 str 후 \\ \\t \\n \\r 이스케이프."""
     if v is None:
         return "\\N"
+    if isinstance(v, (dict, list)):
+        s = json.dumps(v, ensure_ascii=False, default=str)
+        return s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, Decimal):
@@ -838,6 +897,16 @@ def _copy_insert_batch(cur, full_name: str, cols: List[str], rows_tuples: List[t
     )
 
 
+def _copy_staging_cast_expr(col: str, pg_type: str) -> str:
+    """스테이징 TEXT → 본 테이블 타입. JSONB는 빈 문자열·NULL을 안전 처리."""
+    q = f'"{col}"'
+    if (pg_type or "").upper() == "JSONB":
+        return (
+            f"CASE WHEN {q} IS NULL OR btrim({q}) = '' THEN NULL ELSE {q}::jsonb END"
+        )
+    return f"{q}::{pg_type}"
+
+
 def _copy_upsert_batch(
     cur, full_name: str, cols: List[str], col_types: List[str], pk_list: List[str], rows_tuples: List[tuple]
 ) -> None:
@@ -852,7 +921,7 @@ def _copy_upsert_batch(
     buf = _copy_buf(cols, rows_tuples)
     cur.copy_expert(f'COPY "{stg}" ({col_str}) FROM STDIN WITH (FORMAT text, NULL \'\\N\')', buf)
     pk_str = ", ".join(f'"{p}"' for p in pk_list)
-    col_cast = ", ".join(f'"{c}"::{t}' for c, t in zip(cols, col_types))
+    col_cast = ", ".join(_copy_staging_cast_expr(c, t) for c, t in zip(cols, col_types))
     set_parts = [f'"{c}" = EXCLUDED."{c}"' for c in cols if c not in pk_list]
     if not set_parts:
         set_parts = [f'"{c}" = EXCLUDED."{c}"' for c in cols]
@@ -1337,6 +1406,16 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         else:
             select_list = ", ".join(_quote(c) for c in col_names)
 
+        pk_columns = _resolve_pk_columns_for_db_load(
+            pk_columns,
+            mapping_used,
+            source_pk_list,
+            col_names,
+            row.get("storage_connection_id"),
+            target_table,
+            etl_table_id,
+        )
+
         if sync_mode == "diff":
             conn_main_diff = None
             try:
@@ -1747,10 +1826,25 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             if last_synced_candidate is not None:
                 # convert_timezone_columns가 이미 df를 타겟 TZ로 변환했으므로 추가 변환 불필요
                 etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
-            if not row.get("storage_connection_id"):
-                from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+            _sid = row.get("storage_connection_id")
+            if etl_service.should_upsert_table_master_for_storage(_sid):
+                from Backend.etl_server.table_master_hook import (
+                    table_master_texts_from_etl_row,
+                    upsert_table_master_after_load,
+                )
 
-                upsert_table_master_after_load(target_table)
+                _job_row = etl_service.get_job(job_id) or {}
+                _uid = _job_row.get("create_user_id")
+                if _uid is None:
+                    _uid = row.get("create_user_id")
+                _tl, _td = table_master_texts_from_etl_row(row)
+                upsert_table_master_after_load(
+                    target_table,
+                    db_type=etl_service.table_master_db_type_for_storage(_sid),
+                    create_user_id=int(_uid) if _uid is not None else None,
+                    table_label=_tl,
+                    table_dscrtn=_td,
+                )
             if total_failed:
                 notice = f"적재 실패 {len(total_failed)}건 (총 {total_processed + len(total_failed)}건 중)"
                 details = "; ".join(f"row#{f['row_index']}: {f['error'][:80]}" for f in total_failed[:10])
@@ -1958,10 +2052,25 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 cur_main.close()
                 conn_main.close()
 
-            if not row.get("storage_connection_id"):
-                from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+            _sid = row.get("storage_connection_id")
+            if etl_service.should_upsert_table_master_for_storage(_sid):
+                from Backend.etl_server.table_master_hook import (
+                    table_master_texts_from_etl_row,
+                    upsert_table_master_after_load,
+                )
 
-                upsert_table_master_after_load(target_table)
+                _job_row = etl_service.get_job(job_id) or {}
+                _uid = _job_row.get("create_user_id")
+                if _uid is None:
+                    _uid = row.get("create_user_id")
+                _tl, _td = table_master_texts_from_etl_row(row)
+                upsert_table_master_after_load(
+                    target_table,
+                    db_type=etl_service.table_master_db_type_for_storage(_sid),
+                    create_user_id=int(_uid) if _uid is not None else None,
+                    table_label=_tl,
+                    table_dscrtn=_td,
+                )
 
             if full_fetch_notice:
                 etl_service.update_job(job_id, "completed", rows_processed=rows_processed, notice=full_fetch_notice)

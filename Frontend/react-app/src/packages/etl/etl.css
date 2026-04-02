@@ -2,6 +2,7 @@
  * packages/etl/etl.css
  * ETL 페이지 스타일. Phase 5: 소스 선택·폼·목록·Job 로그.
  * Phase 6: etl-db-form__message--warning(PK 미설정 경고), etl-db-form__status-badge/--success|--error|--running|--idle(배치 상태 뱃지).
+ * TargetTableSelectModal: etl-target-select-modal__transform-guidance(변환 타입·적재 안내).
  * 파일 폼: 드래그 오버(--over)·파일 선택됨(--has) 시 가시적 드롭존 스타일.
  */
 .etl-page {
@@ -1108,6 +1109,32 @@
   width: 1%;
   min-width: 7em;
   white-space: nowrap;
+}
+.etl-table-list__th-creator,
+.etl-table-list__cell-creator {
+  max-width: 9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92em;
+  color: #475569;
+}
+.etl-batch-job-list__th-creator,
+.etl-batch-job-list__cell-creator {
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92em;
+  color: #475569;
+}
+.etl-history__cell-creator {
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92em;
+  color: #475569;
 }
 .etl-table-list__select-row-error,
 .etl-table-list__select-sync-mode {
@@ -2450,6 +2477,59 @@
   border-radius: 6px;
   line-height: 1.45;
 }
+.etl-target-select-modal__storage-banner {
+  border-left: 4px solid #2563eb;
+  background: #eff6ff;
+  color: #1e3a5f;
+}
+.etl-target-select-modal__table-meta {
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.etl-target-select-modal__table-meta-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.etl-target-select-modal__table-meta-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 52px;
+}
+.etl-target-select-modal__label--spaced {
+  margin-top: 10px;
+}
+.etl-target-select-modal__meta-hint {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #475569;
+}
+.etl-target-select-modal__meta-hint-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+.etl-target-select-modal__meta-counter {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  text-align: right;
+}
+.etl-target-select-modal__meta-counter--limit {
+  color: #b45309;
+  font-weight: 600;
+}
 .etl-target-select-modal__row {
   margin-bottom: 16px;
 }
@@ -3310,6 +3390,37 @@
   flex-wrap: wrap;
   gap: 14px 24px;
   align-items: flex-start;
+}
+/* 변환 종류별 타입·적재 비차단 안내 (alert 대신) */
+.etl-target-select-modal__transform-guidance {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 0 0 4px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.etl-target-select-modal__transform-guidance-title {
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: #312e81;
+  margin-bottom: 6px;
+}
+.etl-target-select-modal__transform-guidance-list {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+.etl-target-select-modal__transform-guidance-list li {
+  margin-bottom: 4px;
+}
+.etl-target-select-modal__transform-guidance-list li:last-child {
+  margin-bottom: 0;
 }
 .etl-target-select-modal__transform-detail-group {
   display: flex;

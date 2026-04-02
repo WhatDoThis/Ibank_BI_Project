@@ -8,18 +8,20 @@ table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유)
 [Main Functions]
 ===========
 - table_exists: information_schema.tables로 테이블 존재 여부
+- _to_psycopg2_param: itertuples numpy 스칼라 → Python 타입(psycopg2 can't adapt 방지)
 - create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
 - load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 _batch_upsert/없으면 _batch_insert, 테이블 있으면 동일. 파라미터 한도 기반 배치(_calc_batch_size).
+  신규 CREATE 직후·내장 저장 DB(main·dash, `should_upsert_table_master_for_storage`)일 때만 `table_master` UPSERT.
   PK upsert 시 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES(실제 변경 행만 IS DISTINCT FROM) 2단계. 반환 inserted/updated.
   PK·출처 정보 있으면 batch_loaded_keys 기록(파일 단위 롤백용). index_definitions 있으면 적재 후 _create_indexes_on_target.
-  타입 경계: transform_engine/apply_mapping_type_cast 출력 → itertuples → psycopg2 → VALUES(text 추론). SET/WHERE는 information_schema 기준 명시 캐스트. 검증: transform_upsert_verification.
+  타입 경계: transform_engine/apply_mapping_type_cast 출력 → itertuples → psycopg2 → VALUES(text 추론). SET/WHERE는 information_schema 기준 명시 캐스트. column_mapping 사용 시 형변환 실패는 ValueError로 전파(삼키지 않음). 검증: transform_upsert_verification.
 
 [Dependencies]
 =========
 - Backend.etl_server.service (get_target_db_connection)
 - Backend.etl_server.transform_engine (apply_mapping_type_cast, optional)
 - Backend.core.db (get_system_table_schema, get_db_connection_system은 호출부에서 전달)
-- pandas, psycopg2
+- pandas, numpy, psycopg2
 
 [Transform→Upsert 검증]
 ====================
@@ -27,9 +29,11 @@ table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유)
 run_dry_run_pipeline / verify_transform_output_columns로 파이프라인 호환성 확인 가능.
 """
 
+import math
 import re
 from typing import Any, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 
@@ -43,6 +47,32 @@ def _calc_batch_size(num_columns: int) -> int:
     if num_columns <= 0:
         return BATCH_SIZE
     return max(1, MAX_PARAMS // num_columns)
+
+
+def _to_psycopg2_param(v: Any) -> Any:
+    """
+    DataFrame itertuples() 값에 섞인 numpy·pandas 스칼라를 psycopg2 바인딩 가능한 Python 타입으로 변환.
+    numpy.int64/float64 등은 그대로 넘기면 can't adapt type 'numpy.int64' 오류가 난다.
+    """
+    if v is None:
+        return None
+    if isinstance(v, pd.Timestamp):
+        if pd.isna(v):
+            return None
+        return v.to_pydatetime()
+    if isinstance(v, np.generic):
+        out = v.item()
+        if isinstance(out, float) and (math.isnan(out) or math.isinf(out)):
+            return None
+        return out
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
 
 
 def table_exists(conn, schema: str, table_name: str) -> bool:
@@ -210,16 +240,23 @@ def load_dataframe(
     source_filename: Optional[str] = None,
     sys_conn: Any = None,
     index_definitions: Optional[List[dict]] = None,
+    storage_connection_id: Optional[int] = None,
+    table_master_create_user_id: Optional[int] = None,
+    table_master_table_label: Optional[str] = None,
+    table_master_table_dscrtn: Optional[str] = None,
 ) -> dict:
     """
     DataFrame을 지정 스키마·테이블에 적재.
-    - column_mapping: [{"source", "target", "type"}] 있으면 target 이름·타입 기준으로 선택/변환.
+    - column_mapping: [{"source", "target", "type"}] 있으면 target 이름·타입 기준으로 선택/변환. apply_mapping_type_cast 실패 시 ValueError.
     - 테이블 없음: create_table_from_dataframe 후 INSERT 전체(배치 2000).
     - 테이블 있음 + pk_columns_str: INSERT ... ON CONFLICT (pk_cols) DO UPDATE SET ...
     - 테이블 있음 + pk 없음: INSERT만.
     - 테이블 있음 시 information_schema로 컬럼 목록 조회 후 df를 해당 컬럼만 남기고 부족분 None.
     반환: { "inserted": N, "updated": M }
     - inserted: 새로 추가된 행 수(테이블 총 행 수 증가분). updated: 기존 행(PK 동일) 갱신 수(행 수 불변).
+    - storage_connection_id: None=내장 main, -1=내장 dash, 양수=기타(이 경우 table_master 미반영).
+    - table_master_create_user_id: table_master.create_user_id(배치 Job 등록자 등).
+    - table_master_table_label, table_master_table_dscrtn: etl_tables와 동일 의미(원장 UPSERT 시 반영).
     """
     schema = (schema or "public").strip() or "public"
     table_name = (table_name or "").strip()
@@ -254,8 +291,10 @@ def load_dataframe(
                     for m in mapping_used
                 ]
                 df_work = transform_engine.apply_mapping_type_cast(df_work, cast_mapping, default_on_error="null")
-            except Exception:
-                pass
+            except ValueError:
+                raise
+            except Exception as cast_err:
+                raise ValueError(f"컬럼 형변환 실패: {cast_err}") from cast_err
         else:
             df_work = df.copy()
             df_work.columns = [_normalize_column_name(str(c)) for c in df_work.columns]
@@ -304,6 +343,18 @@ def load_dataframe(
             out = {"inserted": inserted, "updated": 0}
         if pk_list and batch_job_id is not None and run_id is not None and source_filename and sys_conn:
             _record_loaded_keys(sys_conn, batch_job_id, run_id, source_filename, df_work, pk_list)
+        from Backend.etl_server import service as etl_service_mod
+
+        if etl_service_mod.should_upsert_table_master_for_storage(storage_connection_id):
+            from Backend.etl_server.table_master_hook import upsert_table_master_after_load
+
+            upsert_table_master_after_load(
+                table_name,
+                db_type=etl_service_mod.table_master_db_type_for_storage(storage_connection_id),
+                create_user_id=table_master_create_user_id,
+                table_label=table_master_table_label,
+                table_dscrtn=table_master_table_dscrtn,
+            )
         return out
 
     # 테이블 존재: 타겟 컬럼만 사용, 없는 컬럼은 None
@@ -407,11 +458,11 @@ def _batch_insert(conn, full_name: str, columns: List[str], df: pd.DataFrame) ->
         if not rows:
             continue
         placeholders = ", ".join([ph] * len(rows))
-        flat = [v for r in rows for v in r]
+        flat = [_to_psycopg2_param(v) for r in rows for v in r]
         cur.execute(f'INSERT INTO {full_name} ({cols_quoted}) VALUES {placeholders}', flat)
         total += len(rows)
     cur.close()
-    return total
+    return int(total)
 
 
 def _batch_upsert(
@@ -457,7 +508,7 @@ def _batch_upsert(
         if not rows:
             continue
         placeholders = ", ".join([ph] * len(rows))
-        flat = [v for r in rows for v in r]
+        flat = [_to_psycopg2_param(v) for r in rows for v in r]
 
         if not non_pk:
             sql = (
@@ -503,4 +554,4 @@ def _batch_upsert(
         total_updated += cur.rowcount
 
     cur.close()
-    return total_inserted, total_updated
+    return int(total_inserted), int(total_updated)

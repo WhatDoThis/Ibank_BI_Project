@@ -235,7 +235,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
        └── S3Adapter   (boto3.client('s3'))
 ```
 
-- 새 프로토콜 추가 시: `FolderAdapter` 상속 후 위 메서드 구현. `service_file.get_folder_adapter`에서 `protocol`에 따라 인스턴스 반환.
+- 새 프로토콜 추가 시: `FolderAdapter` 상속 후 위 메서드 구현. `service_file.get_folder_adapter`에서 `folder_type`에 따라 인스턴스 반환.
 
 **7-1. 폴더 연결 목록 UI (구분용 표시)**
 

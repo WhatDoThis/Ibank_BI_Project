@@ -152,9 +152,19 @@ class ProjectTableAddBody(BaseModel):
 
 
 class TransferOwnershipBody(BaseModel):
-    resource_type: Literal["project", "pmssn_master"] = Field(
+    resource_type: Literal[
+        "project",
+        "pmssn_master",
+        "table_master",
+        "etl_connection",
+        "etl_table",
+        "etl_job",
+        "etl_storage_connection",
+        "batch_folder_connection",
+        "batch_job",
+    ] = Field(
         ...,
-        description="project=project_create_user_id, pmssn_master=user_id(커스텀 역할)",
+        description="project·pmssn_master·table_master(create_user_id) 또는 etl_db 메타",
     )
     resource_id: int = Field(..., ge=1)
     from_user_id: int = Field(..., ge=1, description="현재 생성자·등록자")

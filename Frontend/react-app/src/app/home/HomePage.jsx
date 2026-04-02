@@ -148,7 +148,7 @@ export default function HomePage() {
           {showQuery ? (
             <Link to="/query-studio" className="home__card">
               쿼리 스튜디오
-              <span className="home__card-desc">리포트·쿼리 (report.read / execute)</span>
+              <span className="home__card-desc">쿼리 스튜디오 (query.read / query.execute)</span>
             </Link>
           ) : null}
           {showDash ? (

@@ -18,7 +18,7 @@ FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·
 [Endpoints]
 ===========
 7. GET / — 서비스 안내
-8. GET/POST/PATCH/DELETE /tables, POST /tables/{id}/refresh-column-mapping, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
+8. GET/POST/PATCH/DELETE /tables(DELETE: 공유타겟·매핑 시 400), POST /tables/{id}/refresh-column-mapping, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
 9. cleanup-expired-uploads, timezones, connections CRUD, connections test
 10. connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
 11. transform-rules CRUD, target-exists, target-tables, target-columns
@@ -42,7 +42,7 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from Backend.etl_server import db_load_service
@@ -50,6 +50,7 @@ from Backend.etl_server import preview_service
 from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
 from Backend.etl_server import transform_rules_service as transform_rules_svc
+from Backend.auth_server.permissions import require_etl_infrastructure
 from Backend.etl_server.load_service_file import normalize_column_name_for_sequence
 from Backend.etl_server.router_file import router as batch_router
 
@@ -293,8 +294,8 @@ class CreateTableBody(BaseModel):
     """POST /api/etl/tables 요청 body."""
     connection_id: int = Field(..., description="연결 ID")
     target_table: str = Field(..., description="타겟 테이블명")
-    label_name: Optional[str] = Field(None, description="라벨명. 추후 테이블 마스터에서 관리, 당장은 수신만")
-    description: Optional[str] = None
+    table_label: Optional[str] = Field(None, description="표시용 라벨. system_db.table_master.table_label 과 동일 키")
+    table_dscrtn: Optional[str] = Field(None, description="설명. system_db.table_master.table_dscrtn 과 동일 키")
     created_by: str = Field("user", description="등록자")
     source_table: Optional[str] = None
     file_type: Optional[str] = None
@@ -304,7 +305,10 @@ class CreateTableBody(BaseModel):
     sync_mode: Optional[str] = Field("incremental", description="full | incremental | diff. diff는 PK 목록 비교 방식(증분 컬럼 불필요, 타겟 테이블 사전 존재 필수)")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). NULL/0이면 전체 fetch. 고객 DB 여건에 따라 설정.")
     batch_interval_seconds: Optional[int] = Field(None, description="배치 간 대기 시간(초). 0이면 대기 없음.")
-    storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB(ibank_db). Phase 2b에서 실제 적재 분기.")
+    storage_connection_id: Optional[int] = Field(
+        None,
+        description="저장 DB. null=config.main_db, -1=config.dash_db(내장), 양수=etl_storage_connections. table_master는 내장 main|dash만.",
+    )
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...]. 적재 시 컬럼 매핑 반영.")
     on_row_error: Optional[str] = Field("fail", description="행 적재 실패 시: fail=전체 실패, skip=실패 행 제외하고 적재·notice 기록.")
     index_definitions: Optional[list] = Field(None, description="타겟 테이블 인덱스: [{index_name, columns: [str], is_unique: bool}]")
@@ -313,10 +317,15 @@ class CreateTableBody(BaseModel):
 
 class UpdateTableBody(BaseModel):
     """PATCH /api/etl/tables/{id} 요청 body. 전달된 필드만 갱신."""
+    table_label: Optional[str] = Field(None, description="표시용 라벨. 빈 문자열이면 NULL 저장.")
+    table_dscrtn: Optional[str] = Field(None, description="설명. 빈 문자열이면 NULL 저장. description 컬럼이 있으면 동기화.")
     pk_columns: Optional[str] = Field(None, description="PK 컬럼(쉼표 구분). 비우면 PK 미설정. 파일 적재 시 CREATE TABLE에 반영.")
     sync_mode: Optional[str] = Field(None, description="full | incremental | diff. DB 연동 ETL만 적용.")
     incremental_column: Optional[str] = Field(None, description="증분 컬럼명(소스 테이블). 증분 모드에서 이 컬럼 > last_synced_at 조건으로 조회.")
-    storage_connection_id: Optional[int] = Field(None, description="저장 DB(적재 대상). null=기본 DB.")
+    storage_connection_id: Optional[int] = Field(
+        None,
+        description="저장 DB. null=main_db, -1=dash_db(내장), 양수=등록된 저장 연결.",
+    )
     column_mapping: Optional[list] = Field(None, description="Phase 4: [{source, target, type}, ...].")
     on_row_error: Optional[str] = Field(None, description="행 적재 실패 시: fail | skip. null이면 변경 안 함.")
     batch_size: Optional[int] = Field(None, description="DB 적재 배치 크기(행 수). null이면 변경 안 함.")
@@ -341,6 +350,8 @@ def update_table(etl_table_id: int, body: UpdateTableBody):
             batch_interval_seconds=body.batch_interval_seconds,
             index_definitions=body.index_definitions,
             clear_last_synced_at=body.clear_last_synced_at is True,
+            table_label=body.table_label,
+            table_dscrtn=body.table_dscrtn,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -349,13 +360,13 @@ def update_table(etl_table_id: int, body: UpdateTableBody):
 
 
 @router.post("/tables")
-def create_table(body: CreateTableBody):
+def create_table(body: CreateTableBody, payload: dict = Depends(require_etl_infrastructure)):
     """ETL 테이블 1건 등록. 파일 업로드 후 메타만 따로 등록할 때 사용."""
     try:
         etl_table_id = etl_service.create_etl_table(
             connection_id=body.connection_id,
             target_table=body.target_table,
-            description=body.description,
+            description=None,
             created_by=body.created_by,
             source_table=body.source_table,
             file_type=body.file_type,
@@ -370,6 +381,9 @@ def create_table(body: CreateTableBody):
             on_row_error=body.on_row_error,
             index_definitions=body.index_definitions,
             diff_delete_orphans=body.diff_delete_orphans is True,
+            create_user_id=int(payload["user_id"]),
+            table_label=body.table_label,
+            table_dscrtn=body.table_dscrtn,
         )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
@@ -402,13 +416,16 @@ def delete_table_row_only(etl_table_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/tables/{etl_table_id}", status_code=204)
+@router.delete("/tables/{etl_table_id}")
 def delete_table(etl_table_id: int):
-    """ETL 테이블 1건 삭제. 메인 DB 타겟 테이블 DROP, 업로드 파일(file_path·add_file_path) 삭제, 메타 삭제. 파일 삭제는 service에서 경로 해석 후 수행."""
+    """ETL 테이블 1건 삭제. 동일 타겟 공유·프로젝트 매핑 있으면 400. 성공 시 배치·table_master·DROP·메타 정리. 응답: target_table_dropped 등."""
     try:
-        etl_service.delete_etl_table(etl_table_id)
+        return etl_service.delete_etl_table(etl_table_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        msg = str(e)
+        if "찾을 수 없습니다" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
         logger.exception("DELETE /tables/%s failed: %s", etl_table_id, e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -418,19 +435,20 @@ def delete_table(etl_table_id: int):
 async def upload_file(
     file: UploadFile = File(...),
     target_table: Optional[str] = Form(None),
-    label_name: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
+    table_label: Optional[str] = Form(None),
+    table_dscrtn: Optional[str] = Form(None),
     created_by: str = Form("user"),
     storage_connection_id: Optional[int] = Form(None),
     column_mapping: Optional[str] = Form(None),
     pk_columns: Optional[str] = Form(None),
     index_definitions: Optional[str] = Form(None),
+    payload: dict = Depends(require_etl_infrastructure),
 ):
     """
     파일 업로드 → 저장 후 스키마 추론.
-    target_table, description 이 있으면 파일용 connection + etl_tables 1건 생성 후 etl_table_id 반환.
-    label_name은 추후 테이블 마스터에서 관리 예정, 당장은 수신만.
-    storage_connection_id: null=기본 DB. Phase 2b에서 적재 분기.
+    target_table, table_dscrtn 등이 있으면 파일용 connection + etl_tables 1건 생성 후 etl_table_id 반환.
+    table_label·table_dscrtn은 system_db.table_master와 동일 키(적재 완료 시 원장 반영).
+    storage_connection_id: null=main_db, -1=dash_db(내장).
     column_mapping: Phase 4. JSON 문자열 [{source, target, type}, ...].
     pk_columns: PK 컬럼(쉼표 구분). 테이블선택·컬럼매핑 모달에서 설정한 값.
     """
@@ -464,12 +482,13 @@ async def upload_file(
                         raise ValueError("index_definitions must be a JSON array")
                 except (ValueError, TypeError) as e:
                     raise HTTPException(status_code=400, detail=f"index_definitions JSON 파싱 실패: {e}")
-            conn_id = etl_service.get_or_create_file_connection(created_by)
+            uid = int(payload["user_id"])
+            conn_id = etl_service.get_or_create_file_connection(created_by, create_user_id=uid)
             pk_cols = (pk_columns or "").strip() or None
             etl_table_id = etl_service.create_etl_table(
                 connection_id=conn_id,
                 target_table=target_table.strip(),
-                description=(description or "").strip() or None,
+                description=None,
                 created_by=created_by,
                 source_table=file.filename,
                 file_type=file_type,
@@ -478,6 +497,9 @@ async def upload_file(
                 column_mapping=cm,
                 pk_columns=pk_cols,
                 index_definitions=idx_def,
+                create_user_id=uid,
+                table_label=(table_label or "").strip() or None,
+                table_dscrtn=(table_dscrtn or "").strip() or None,
             )
             result["etl_table_id"] = etl_table_id
         except ValueError as e:
@@ -542,6 +564,7 @@ def _file_type_from_ext(ext: str) -> Optional[str]:
 async def add_file_to_table(
     etl_table_id: int,
     file: UploadFile = File(...),
+    payload: dict = Depends(require_etl_infrastructure),
 ):
     """
     등록된 ETL(파일 기반)의 타겟 테이블에 추가 적재. 파일 업로드 후 PK 검증 → 대기열 등록 → 업서트 실행.
@@ -598,7 +621,14 @@ async def add_file_to_table(
     if not common:
         raise HTTPException(status_code=400, detail="파일과 타겟 테이블에 공통 컬럼이 없습니다.")
 
-    job_id = etl_service.insert_job(etl_table_id, status="pending", add_file_path=file_path, add_file_type=file_type)
+    uid = int(payload["user_id"])
+    job_id = etl_service.insert_job(
+        etl_table_id,
+        status="pending",
+        add_file_path=file_path,
+        add_file_type=file_type,
+        create_user_id=uid,
+    )
     queue_worker.start_background_worker()
     description = row.get("description")
     return {
@@ -615,6 +645,7 @@ async def add_file_to_table(
 async def add_files_zip_to_table(
     etl_table_id: int,
     file: UploadFile = File(...),
+    payload: dict = Depends(require_etl_infrastructure),
 ):
     """
     ZIP으로 여러 파일 추가 적재. 압축 해제 후 파일명 자연 정렬 순으로 Job 등록.
@@ -704,6 +735,7 @@ async def add_files_zip_to_table(
     finally:
         zip_path.unlink(missing_ok=True)
 
+    uid = int(payload["user_id"])
     max_file_mb, _, _ = get_etl_limits()
     supported_exts = (".csv", ".xlsx", ".xls", ".parquet")
     all_files: list = []
@@ -748,7 +780,11 @@ async def add_files_zip_to_table(
             continue
         try:
             job_id = etl_service.insert_job(
-                etl_table_id, status="pending", add_file_path=abs_path, add_file_type=ft
+                etl_table_id,
+                status="pending",
+                add_file_path=abs_path,
+                add_file_type=ft,
+                create_user_id=uid,
             )
             job_ids.append(job_id)
         except Exception:
@@ -795,7 +831,7 @@ def cleanup_expired_uploads():
 
 
 @router.post("/connections", status_code=201)
-def create_connection(body: CreateConnectionBody):
+def create_connection(body: CreateConnectionBody, payload: dict = Depends(require_etl_infrastructure)):
     """DB 연결 1건 등록. source_type=postgresql|mysql|oracle."""
     try:
         connection_id = etl_service.create_connection(
@@ -809,6 +845,7 @@ def create_connection(body: CreateConnectionBody):
             password=body.password or "",
             created_by=body.created_by,
             server_timezone=body.server_timezone or "Asia/Seoul",
+            create_user_id=int(payload["user_id"]),
         )
         return {"connection_id": connection_id}
     except ValueError as e:
@@ -819,7 +856,7 @@ def create_connection(body: CreateConnectionBody):
 
 @router.get("/connections")
 def list_connections():
-    """연결 목록. 비밀번호 제외."""
+    """연결 목록. 비밀번호 제외. 스키마에 is_active 있으면 TRUE만(소스 테이블 API와 일치)."""
     try:
         rows = etl_service.list_connections()
         for r in rows:
@@ -992,7 +1029,7 @@ def delete_connection(connection_id: int):
 
 @router.get("/storage-connections")
 def list_storage_connections():
-    """저장 DB(적재 대상) 연결 목록. 비밀번호 제외."""
+    """저장 DB(적재 대상) 연결 목록. 선두에 내장 main(null)·dash(-1) 항목(is_builtin). 비밀번호 제외."""
     try:
         rows = etl_service.list_storage_connections()
         for r in rows:
@@ -1006,7 +1043,7 @@ def list_storage_connections():
 
 
 @router.post("/storage-connections", status_code=201)
-def create_storage_connection(body: CreateStorageConnectionBody):
+def create_storage_connection(body: CreateStorageConnectionBody, payload: dict = Depends(require_etl_infrastructure)):
     """저장 DB 연결 1건 등록. PostgreSQL 전용. 연결 테스트 통과 후 등록 권장."""
     try:
         storage_connection_id = etl_service.create_storage_connection(
@@ -1018,6 +1055,7 @@ def create_storage_connection(body: CreateStorageConnectionBody):
             username=body.username,
             password=body.password or "",
             server_timezone=body.server_timezone or "Asia/Seoul",
+            create_user_id=int(payload["user_id"]),
         )
         return {"storage_connection_id": storage_connection_id}
     except ValueError as e:
@@ -1078,7 +1116,7 @@ def test_storage_connection(body: TestStorageConnectionBody):
 
 @router.get("/target-tables")
 def list_target_tables(storage_connection_id: Optional[int] = None):
-    """Phase 3: 저장 DB(적재 대상)의 테이블 목록. storage_connection_id 없으면 기본 DB(ibank_db)."""
+    """Phase 3: 저장 DB(적재 대상) 테이블 목록. 없음=main_db, -1=dash_db(내장), 양수=등록 연결."""
     try:
         tables = etl_service.list_target_tables(storage_connection_id)
         return {"tables": tables}
@@ -1106,7 +1144,7 @@ def list_target_columns(storage_connection_id: Optional[int] = None, table_name:
 
 @router.get("/tables/{etl_table_id}/target-exists")
 def check_target_table_exists(etl_table_id: int):
-    """실행 전 확인용: 타겟 테이블이 해당 저장 DB(기본 DB 또는 storage_connection_id)에 이미 존재하는지. sync_mode 반환."""
+    """실행 전 확인용: 타겟이 적재 대상 DB(main·dash 내장 또는 등록 저장 연결)에 존재하는지. sync_mode·storage_connection_id 반환."""
     try:
         row = etl_service.get_etl_table(etl_table_id)
         if not row:
@@ -1172,7 +1210,10 @@ def _run_file_load_in_process(etl_table_id: int, job_id: int) -> None:
 
 
 @router.post("/tables/{etl_table_id}/run")
-def run_table_load(etl_table_id: int):
+def run_table_load(
+    etl_table_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """
     Phase 6: ETL 테이블 1건 실행.
     - 파일 소스: 이 요청을 받은 프로세스에서 스레드로 즉시 실행(다중 워커 시 업로드 파일 경로 불일치 방지).
@@ -1193,9 +1234,10 @@ def run_table_load(etl_table_id: int):
 
         target_table = row.get("target_table") or ""
         description = row.get("description")
+        uid = int(payload["user_id"])
 
         if source_type == "file":
-            job_id = etl_service.insert_job(etl_table_id, status="running")
+            job_id = etl_service.insert_job(etl_table_id, status="running", create_user_id=uid)
             t = threading.Thread(target=_run_file_load_in_process, args=(etl_table_id, job_id), daemon=True)
             t.start()
             return {
@@ -1221,7 +1263,7 @@ def run_table_load(etl_table_id: int):
                         detail="diff 모드는 타겟 테이블이 이미 존재해야 합니다. sync_mode를 full로 설정하여 최초 적재를 실행한 뒤, sync_mode를 diff로 변경하세요.",
                     )
 
-        job_id = etl_service.insert_job(etl_table_id, status="pending")
+        job_id = etl_service.insert_job(etl_table_id, status="pending", create_user_id=uid)
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
         return {

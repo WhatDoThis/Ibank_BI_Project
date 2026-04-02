@@ -7,16 +7,18 @@
  * [Main Functions]
  * ===========
  * 1. etl2ListTables + etl2ListBatchTargetRegistry 통합 로드. type 'table' | 'batch_target' 로 구분. 배치 유래 행은 삭제(타겟 DROP)만 표시.
- * 2. 테이블 행: 실행/미리보기/데이터 추가/설정/삭제/×. 배치 행: 즉시 실행/이력/삭제.
- * 3. 삭제: 테이블 → etl2DeleteTable(타겟 DROP). 배치 → batchDeleteJob(스케줄러 제거).
+ * 2. 테이블 행: 실행/미리보기/데이터 추가/설정/삭제/×. 배치 행: 즉시 실행/이력/삭제. 등록자(create_user_label) 열 표시.
+ * 3. 삭제: 테이블 → etl2DeleteTable(동일 타겟·프로젝트 매핑 시 API 400 메시지). 배치 레지스트리 행 → etl2DeleteBatchTargetRegistry.
  *
  * [Dependencies]
  * =========
- * - React, @/packages/etl/api/etlClient.js (etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow)
+ * - React, @/packages/etl/api/etlClient.js (etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs)
+ * - ../utils/storageDb.js (formatEtlStorageLabel)
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs } from '@/packages/etl/api/etlClient.js';
+import { formatEtlStorageLabel } from '../utils/storageDb.js';
 import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
 import BatchScheduleModal from './BatchScheduleModal.jsx';
 
@@ -105,7 +107,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
       file_pattern: '—',
       interval_minutes: r.interval_minutes,
       last_run_status: r.last_run_status,
-      storage_connection_name: (r.storage_connection_id == null || r.storage_connection_id === undefined) ? '기본 DB' : (r.storage_connection_name || '—'),
+      create_user_label: r.create_user_label,
     }));
     return [...tableRows, ...batchTargetRows];
   }, [tables, batchTargets]);
@@ -176,6 +178,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
         <thead>
           <tr>
             <th>타겟 테이블</th>
+            <th className="etl-table-list__th-label">라벨</th>
             <th className="etl-table-list__th-description">설명</th>
             <th>PK</th>
             <th>소스 유형</th>
@@ -185,6 +188,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
             <th className="etl-table-list__th-sync">동기화</th>
             <th className="etl-table-list__th-row-error">행 실패 시</th>
             <th className="etl-table-list__th-storage">저장 DB</th>
+            <th className="etl-table-list__th-creator">등록자</th>
             <th>상태</th>
             <th className="etl-table-list__th-actions">
               동작
@@ -206,9 +210,11 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               const s = (t.last_run_status || '').toLowerCase();
               const batchStatusText = s === 'success' ? '완료' : s === 'error' ? '오류' : s === 'running' ? '실행 중' : (t.batch_job_id ? '활성' : '—');
               const batchStatusClass = s === 'success' ? 'etl-table-list__status--done' : s === 'error' ? 'etl-table-list__status--error' : s === 'running' ? 'etl-table-list__status--running' : undefined;
+              const batchStorLabel = formatEtlStorageLabel(t.storage_connection_id, t.storage_connection_name);
               return (
                 <tr key={t._key}>
                   <td>{t.target_table}</td>
+                  <td className="etl-table-list__cell-label">—</td>
                   <td className="etl-table-list__cell-description" title={t.description}>{t.description}</td>
                   <td className="etl-table-list__pk-cell">—</td>
                   <td>{t.source_type}</td>
@@ -217,7 +223,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   <td className="etl-table-list__cell-batch">{t.interval_minutes != null ? `${t.interval_minutes}분` : '—'}</td>
                   <td className="etl-table-list__cell-sync">—</td>
                   <td className="etl-table-list__cell-row-error">—</td>
-                  <td className="etl-table-list__cell-storage" title={t.storage_connection_name}>{t.storage_connection_name}</td>
+                  <td className="etl-table-list__cell-storage" title={batchStorLabel}>{batchStorLabel}</td>
+                  <td className="etl-table-list__cell-creator" title={t.create_user_label || ''}>{t.create_user_label || '—'}</td>
                   <td className={batchStatusClass}>{batchStatusText}</td>
                   <td className="etl-table-list__cell-actions">
                     <span className="etl-table-list__actions">
@@ -225,7 +232,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                         type="button"
                         className="etl-table-list__delete"
                         onClick={() => {
-                          if (!window.confirm(`"${t.target_table}" 타겟 테이블을 메인 DB에서 DROP하고, 연결된 배치 Job이 있으면 함께 삭제한 뒤 이 목록에서 제거합니다. 계속할까요?`)) return;
+                          if (!window.confirm(`"${t.target_table}" 타겟 테이블을 적재 대상 DB에서 DROP하고, 연결된 배치 Job이 있으면 함께 삭제한 뒤 이 목록에서 제거합니다. 계속할까요?`)) return;
                           etl2DeleteBatchTargetRegistry(t.id)
                             .then(() => { if (onDelete) onDelete(); load(); })
                             .catch((err) => { setError(err.message || '삭제 실패'); load(); });
@@ -269,10 +276,13 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
             const syncText = !isDbSource ? '—' : syncMode === 'diff' ? 'PK 비교' : syncMode === 'incremental' ? '증분' : '전체';
             const onRowErrorVal = (t.on_row_error || 'fail').toLowerCase();
             const onRowErrorText = !isDbSource ? '—' : onRowErrorVal === 'skip' ? '제외 적재' : '전체 실패';
+            const tableStorLabel = formatEtlStorageLabel(t.storage_connection_id, t.storage_connection_name);
+            const dscrtn = (t.table_dscrtn != null && String(t.table_dscrtn).trim()) ? String(t.table_dscrtn).trim() : (t.description || '');
             return (
             <tr key={t._key || t.etl_table_id} className={rowClass || undefined}>
               <td>{t.target_table}</td>
-              <td className="etl-table-list__cell-description" title={t.description ? String(t.description) : undefined}>{t.description || '—'}</td>
+              <td className="etl-table-list__cell-label" title={t.table_label ? String(t.table_label) : undefined}>{t.table_label || '—'}</td>
+              <td className="etl-table-list__cell-description" title={dscrtn || undefined}>{dscrtn || '—'}</td>
               <td className="etl-table-list__pk-cell">{(t.pk_columns || '').trim() ? <span className="etl-table-list__pk-check" aria-label="PK 설정됨">✓</span> : '—'}</td>
               <td>{t.source_type || '—'}</td>
               <td className="etl-table-list__cell-connection" title={isDbSource && t.connection_name ? `연결: ${t.connection_name}` : undefined}>{connectionText}</td>
@@ -280,7 +290,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               <td className="etl-table-list__cell-batch" title={isDbSource ? `배치 크기: ${batchSize > 0 ? batchSize + '행' : '1만 행(기본)'}, 대기: ${batchInterval > 0 ? batchInterval + '초' : '없음'}` : undefined}>{batchText}</td>
               <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'diff' ? 'PK 비교: 소스·타겟 PK만 비교해 신규/삭제만 반영. 설정 버튼에서 변경' : syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
               <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
-              <td className="etl-table-list__cell-storage" title={t.storage_connection_name ? `저장 DB: ${t.storage_connection_name}` : '기본 DB (ibank_db)'}>{t.storage_connection_name ? t.storage_connection_name : '기본 DB'}</td>
+              <td className="etl-table-list__cell-storage" title={`저장 위치: ${tableStorLabel}`}>{tableStorLabel}</td>
+              <td className="etl-table-list__cell-creator" title={t.create_user_label || ''}>{t.create_user_label || '—'}</td>
               <td className={statusCellClass}>{statusText}</td>
               <td className="etl-table-list__cell-actions">
                 <span className="etl-table-list__actions">
@@ -349,11 +360,27 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                     type="button"
                     className="etl-table-list__delete"
                     onClick={() => {
-                      const msg = `다음 ETL을 삭제합니다.\n· 타겟 테이블 "${t.target_table}"이(가) 메인 DB에서 DROP됩니다.\n· 파일 소스인 경우 업로드 파일도 삭제됩니다.\n계속할까요?`;
+                      const msg = `다음 ETL을 삭제합니다.\n· 동일 타겟을 쓰는 다른 ETL이 있거나, 프로젝트에 테이블이 연결되어 있으면 삭제가 거절됩니다.\n· 삭제되면 배치 Job·원장(table_master)·저장 DB 물리 테이블(DROP)까지 정리됩니다.\n· 파일 소스인 경우 업로드 파일도 삭제됩니다.\n계속할까요?`;
                       if (window.confirm(msg)) {
                         etl2DeleteTable(t.etl_table_id)
-                          .then(() => { if (onDelete) onDelete(); load(); })
-                          .catch((err) => { setError(err.message || '삭제 실패'); load(); });
+                          .then(() => {
+                            if (onDelete) onDelete();
+                            load();
+                          })
+                          .catch((err) => {
+                            const msg = err.message || '삭제 실패';
+                            setError(msg);
+                            const alertMapping =
+                              msg.includes('프로젝트에 연결') || msg.includes('table_project_mapping');
+                            const alertSharedTarget =
+                              msg.includes('동일 타겟') || msg.includes('다른 ETL 등록');
+                            const alertDownstream =
+                              msg.includes('소스 DB로 읽는') || msg.includes('적재한 테이블');
+                            if (alertMapping || alertSharedTarget || alertDownstream) {
+                              window.alert(msg);
+                            }
+                            load();
+                          });
                       }
                     }}
                     disabled={runDisabled}

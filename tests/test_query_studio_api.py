@@ -1,14 +1,18 @@
 """
-tests/test_report_api.py
-========================
-리포트 API 동작 검증 (execute-query 메서드·UTF-8 응답).
+tests/test_query_studio_api.py
+==============================
+쿼리 스튜디오 API(`Backend.query_studio_server`) 동작 검증 (execute-query 메서드·UTF-8 응답).
 
 - GET /api/execute-query → 405 Method Not Allowed (POST만 허용)
 - POST /api/execute-query body 없음/query 없음 → 400
 - POST 성공 시 응답 Content-Type에 charset=utf-8 포함 (한글 컬럼명 대비)
+
+테스트 클라이언트는 `require_query_*_perm` 의존성을 오버라이드하여 JWT 없이 라우트 본문까지 도달시킨다.
 """
 import sys
 from pathlib import Path
+
+import pytest
 
 # 프로젝트 루트를 path에 넣어 앱 로드
 _root = Path(__file__).resolve().parent.parent
@@ -19,6 +23,25 @@ from fastapi.testclient import TestClient
 
 # config 등 로드될 수 있으므로 앱 import
 from Backend.api_server.main import app
+from Backend.query_studio_server.router import (
+    require_query_execute_perm,
+    require_query_read_perm,
+)
+
+_FAKE_PERM_PAYLOAD = {"user_id": 1, "project_info_id": 1}
+
+
+@pytest.fixture(autouse=True)
+def _override_query_studio_permissions():
+    def _fake():
+        return _FAKE_PERM_PAYLOAD
+
+    app.dependency_overrides[require_query_execute_perm] = _fake
+    app.dependency_overrides[require_query_read_perm] = _fake
+    yield
+    app.dependency_overrides.pop(require_query_execute_perm, None)
+    app.dependency_overrides.pop(require_query_read_perm, None)
+
 
 client = TestClient(app)
 
@@ -55,7 +78,7 @@ def test_execute_query_post_with_query_returns_200_or_408_or_500():
             assert "one" in row or "전체" in row or list(row)
 
 
-# 리포트 피벗 쿼리(연월 + 전체 컬럼) — 실제 사용 쿼리로 검증
+# 쿼리 스튜디오 피벗 쿼리(연월 + 전체 컬럼) — 실제 사용 쿼리로 검증
 PIVOT_QUERY = """
 SELECT
     t1.workflow_label,

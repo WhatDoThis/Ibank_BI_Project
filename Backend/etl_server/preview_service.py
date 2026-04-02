@@ -11,7 +11,7 @@ Backend.etl_server.preview_service (ETL 미리보기)
 4. _preview_file, _preview_db: 파일/DB 소스 10행·컬럼 저장 가능 여부
 5. get_source_dataframe, _get_source_df_db: 변환 미리보기용 소스 DataFrame
 6. get_transform_preview, _get_preview_with_transform: 변환 룰 적용 미리보기
-7. get_preview: 변환 룰·타입 캐스트 적용 후 columns + preview_rows + preview_columns 반환
+7. get_preview: 변환 룰·타입 캐스트 적용 후 columns + preview_rows + preview_columns 반환(매핑 캐스트는 미리보기 전용 default_on_error=keep로 마스킹 등 비숫자 문자열 유지)
 
 [Dependencies]
 =========
@@ -588,7 +588,8 @@ def _get_preview_with_transform(etl_table_id: int) -> dict:
     mapping_dicts = [{"source": s, "target": t, "type": ty or "TEXT"} for (s, t, ty) in mapping]
     if mapping_dicts:
         try:
-            df = transform_engine.apply_mapping_type_cast(df, mapping_dicts, default_on_error="null")
+            # 마스킹 등으로 숫자 컬럼이 비숫자 문자열이 되면 BIGINT 캐스트가 전부 null이 됨 → 미리보기에서 원문(마스킹 결과) 유지
+            df = transform_engine.apply_mapping_type_cast(df, mapping_dicts, default_on_error="keep")
         except Exception as e:
             logger.warning("get_preview apply_mapping_type_cast 실패: %s", e)
         preview_columns = [m["target"] for m in mapping_dicts]

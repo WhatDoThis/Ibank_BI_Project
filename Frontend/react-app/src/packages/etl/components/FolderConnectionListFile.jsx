@@ -1,7 +1,7 @@
 /**
  * packages/etl/components/FolderConnectionListFile.jsx (폴더 연결 목록)
  * =======================================================================
- * - 등록된 폴더 연결 목록, 삭제. 연결 정보(SFTP=host, S3=bucket+리전), 원격 경로(SFTP=remote_path, S3=prefix) 표시.
+ * - 등록된 폴더 연결 목록, 삭제. 연결 정보(SFTP=host, S3=bucket+리전), 원격 경로(SFTP=remote_path, S3=prefix), 등록자(create_user_label) 표시.
  *
  * [Main Functions]
  * ===========
@@ -44,7 +44,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
 
   /** 프로토콜별 연결 구분용 표시: SFTP=host(IP), S3=bucket(region) */
   function getConnectionInfo(row) {
-    const p = (row.protocol || '').toLowerCase();
+    const p = (row.folder_type || '').toLowerCase();
     if (p === 'sftp') return row.sftp_host || '-';
     if (p === 's3') {
       const bucket = row.s3_bucket || '';
@@ -56,7 +56,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
 
   /** 프로토콜별 원격 경로: SFTP=remote_path, S3=prefix(버킷 내 경로). 동일 IP/버킷이라도 경로가 다르면 구분용. */
   function getRemotePath(row) {
-    const p = (row.protocol || '').toLowerCase();
+    const p = (row.folder_type || '').toLowerCase();
     if (p === 'sftp') return (row.sftp_remote_path != null && row.sftp_remote_path !== '') ? row.sftp_remote_path : '/';
     if (p === 's3') return (row.s3_prefix != null && row.s3_prefix !== '') ? row.s3_prefix : '-';
     return '-';
@@ -104,6 +104,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
               <th>프로토콜</th>
               <th>연결 정보</th>
               <th>원격 경로</th>
+              <th>등록자</th>
               <th>상태</th>
               <th>동작</th>
             </tr>
@@ -112,9 +113,10 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
             {list.map((row) => (
               <tr key={row.folder_connection_id}>
                 <td>{row.connection_name || '-'}</td>
-                <td>{(row.protocol || '').toUpperCase()}</td>
+                <td>{(row.folder_type || '').toUpperCase()}</td>
                 <td>{getConnectionInfo(row)}</td>
                 <td>{getRemotePath(row)}</td>
+                <td className="etl-table-list__cell-creator" title={row.create_user_label || ''}>{row.create_user_label || '—'}</td>
                 <td>{row.is_verified ? '연결됨' : '미검증'}</td>
                 <td>
                   <button

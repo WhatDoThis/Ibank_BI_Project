@@ -1,7 +1,7 @@
 """
 Backend.admin_server.service_roles (부서 커스텀 역할)
 ==================================================
-pmssn_master 조회·생성·수정·삭제와 권한 사용현황 조회를 제공한다.
+pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 사용현황/생성·수정·삭제를 제공한다.
 시스템 기본 역할은 수정·삭제 불가, 조회 스코프는 시스템 기본+본인 부서 커스텀으로 제한한다.
 
 [Main Functions]
@@ -68,15 +68,11 @@ def list_permission_options_for_dept(conn, dptmt_info_id: int) -> list[str]:
     try:
         cur.execute(
             """
-            SELECT DISTINCT unnest(pm.pmssn_list) AS permission_item
-            FROM pmssn_master pm
-            WHERE (
-                    COALESCE(pm.system_dflt_yn,'') = 'Y'
-                AND pm.dptmt_info_id IS NULL
-            ) OR pm.dptmt_info_id = %s
+            SELECT DISTINCT pmd.pmssn_detail_name AS permission_item
+            FROM pmssn_master_detail pmd
+            WHERE TRIM(COALESCE(pmd.pmssn_detail_name, '')) <> ''
             ORDER BY permission_item ASC
-            """,
-            (dptmt_info_id,),
+            """
         )
         return [str(r["permission_item"]) for r in cur.fetchall() if r.get("permission_item")]
     finally:

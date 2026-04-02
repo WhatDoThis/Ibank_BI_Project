@@ -1,7 +1,7 @@
 # 17. 시스템 DB 추가 및 상용화 개발 구현 가이드
 
 **목적**: `ibank_system_data`에 조직·계정·프로젝트·권한·세션·알림 메타를 두고, 초대 기반 가입·2차 인증 로그인·JWT·프로젝트 단위 권한·기존 API 라우터에 대한 `require_perm` 적용까지 한 흐름으로 상용화한다.  
-**전제**: 기존 ETL 메타 13개 테이블은 유지. 기존 라우터 **내부** 비즈니스 코드는 변경하지 않고, `main.py`의 라우터 등록·의존성과 `report_server` 실행 계열 엔드포인트에만 권한 데코레이터를 추가한다.  
+**전제**: 기존 ETL 메타 13개 테이블은 유지. 기존 라우터 **내부** 비즈니스 코드는 변경하지 않고, `main.py`의 라우터 등록·의존성과 `query_studio_server` 실행 계열 엔드포인트에만 권한 데코레이터를 추가한다.  
 **연계**: 구현 완료 후 `docs/main/00~06` 정합 갱신은 별도 작업 순서(본문 §10)에 따른다.
 
 **개발 운영**: 서브에이전트·섹션 게이트·병렬 위임은 **§12** 및 저장소 **`.cursor/`**(참조: `IBANK_TEST_PROJECT_001\.cursor`)를 따른다.
@@ -176,10 +176,10 @@ ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_pmssn_maste
 
 | 역할명 | pmssn_list |
 |--------|------------|
-| 뷰어 | `{report.read, dashboard, widgetboard}` |
-| 분석가 | `{report.read, report.execute, dashboard, widgetboard}` |
-| ETL운영자 | `{etl}` |
-| 관리자 | `{report.read, report.execute, dashboard, widgetboard, etl, admin}` |
+| 뷰어 | `{query.read}` |
+| 분석가 | `{query.read, query.execute}` |
+| 대시보드+ | `{query.read, query.execute, dashboard}` |
+| 관리자 | `{query.read, query.execute, dashboard, widgetboard}` |
 
 부서 어드민은 커스텀 역할 추가 가능 (`dptmt_info_id` 지정, `system_dflt_yn='N'`). 동일 권한 조합이라도 역할명을 다르게 둘 수 있다(예: 마케팅팀용 / 외부 파트너용).
 
@@ -199,12 +199,10 @@ ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_pmssn_maste
 
 | pmssn_detail_name | pmssn_detail_dscrtn | main_ctgr | sub_ctgr |
 |-------------------|---------------------|-----------|----------|
-| report.read | 리포트 조회 | report | read |
-| report.execute | 리포트 실행·저장·AI해석 | report | execute |
-| dashboard | 대시보드 4종 전체 | dashboard | all |
+| query.read | 쿼리 스튜디오 조회 | query | read |
+| query.execute | 쿼리 스튜디오 실행·저장 | query | execute |
+| dashboard | 대시보드 | dashboard | all |
 | widgetboard | 위젯보드 | widgetboard | all |
-| etl | ETL 전체 | etl | all |
-| admin | 관리 기능 | admin | all |
 
 운영 DB에 넣은 INSERT 문의 `pmssn_detail_dscrtn`은 위 한 줄 요약보다 구체적인 문장으로 들어가도 된다(권한 키·카테고리가 동일하면 앱 동작에 영향 없음).
 
@@ -510,10 +508,10 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 
 | 필요 권한 | 프론트 | 백엔드 |
 |-----------|--------|--------|
-| report.read | `/report` | GET `list-tables`, `describe-table`, `table-relationships`, `join-order`, `get-column-values`, `column-labels` 등 |
-| report.execute | `/report` | POST `execute-query`, `query-stats`, `explain-sql`, `save-query-as-table` |
+| query.read | `/query-studio` (구 `/report` → 리다이렉트) | GET `list-tables`, `describe-table`, `table-relationships`, `join-order`, `get-column-values`, `column-labels` 등 |
+| query.execute | `/query-studio` | POST `execute-query`, `query-stats`, `explain-sql`, `save-query-as-table` |
 | dashboard | `/dashboard` (프론트), `/campaign-dashboard` → `/dashboard` 리다이렉트 | `/api/campaign-dashboard/*` 만 등록 (legacy·뉴·마케팅 대시보드 라우터는 main 미포함) |
-| widgetboard | `/widgetboard` | 전용 API 없음 (내부에서 report/dashboard API 호출 시 해당 권한도 필요) |
+| widgetboard | `/widgetboard` | 전용 API 없음 (내부에서 쿼리 스튜디오·대시보드 API 호출 시 해당 권한도 필요) |
 | etl | `/etl` | 프로젝트 `pmssn` 기반이 아님. `require_etl_infrastructure`(`sa_dev` 또는 `etl_yn=Y`)로 `/api/etl/*`, `/api/etl/batch/*` 보호 |
 | admin | `/admin/*` | `/api/admin/*` |
 
@@ -542,7 +540,7 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 
 | 카드 | 조건 |
 |------|------|
-| 리포트 | report.read (JWT·프로젝트·`require_permission`) |
+| 쿼리 스튜디오 | query.read 또는 query.execute (JWT·프로젝트·`require_permission`) |
 | 대시보드 / 뉴 / 캠페인 / 마케팅 | dashboard |
 | 위젯보드 | widgetboard |
 | ETL 인프라 | `sa_dev` 또는 `etl_yn=Y` — 프로젝트 `pmssn`과 무관 |
@@ -636,7 +634,7 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 | 라우터 | 적용 권한 | 세분화 |
 |--------|-----------|---------|
 | health | 없음 | |
-| report_server | report.read | execute-query, explain-sql, save-query-as-table, query-stats → report.execute 추가 |
+| query_studio_server | query.read | execute-query, explain-sql, save-query-as-table, query-stats → query.execute 추가 |
 | legacy_dashboard_server | dashboard | |
 | new_dash_server | dashboard | |
 | campaign_dash_server | dashboard | |
@@ -675,7 +673,7 @@ Backend/
 
 **라우터 등록 순서** (`main.py`):
 
-`health` → `auth` → `projects` → `notifications` → `admin` → `report` → 대시보드 계열 → `etl`
+`health` → `auth` → `projects` → `notifications` → `admin` → `query_studio` → 대시보드 계열 → `etl`
 
 ---
 
@@ -701,7 +699,7 @@ shared/components/
 | 기존 파일 | 변경 |
 |-----------|------|
 | `api_server/main.py` | 라우터 4개 추가 + 기존 라우터에 dependencies |
-| `report_server/router.py` | 실행 계열 4개에 `require_perm` 추가 |
+| `query_studio_server/router.py` | 실행 계열 4개에 `require_perm` 추가 |
 | `core/db.py` | main_db 키 경로 변경 |
 | `shared/api/http.js` | Authorization 헤더 + 401 refresh |
 | `app/routes.jsx` | ProtectedRoute + 신규 라우트 |
@@ -738,7 +736,7 @@ shared/components/
 | **S1** | ② `config.json` + ③ `core/db.py` | S0 | 단일 위임 권장 | `main_db`·`system_db`·JWT·SMTP 키 로드 및 연결 smoke |
 | **S2** | ④ `auth_server` 전체 | S1 | 단일 패키지(`@be-impl`) | 가입·로그인 2단계·refresh·초대 검증 API 스모크 |
 | **S3** | ⑤ `project_server` · ⑥ `admin_server` · ⑦ `notification_server` | S2 | **도메인 파일 병렬**: 세 패키지의 router/service/schemas 를 `@be-impl` 다중 Task로 동시 구현 가능. **`api_server/main.py`의 `include_router` 통합은 한 번에**(충돌 방지 — 동일 후속 작업 또는 `@linker`) | 세 도메인 API + `main.py` 등록 반영 후 스모크 |
-| **S4** | ⑧ 기존 라우터 `require_perm` (`main.py` 의존성 + `report_server` 실행계열만) | S2, S1 | `report_server` 내부 데코레이터 추가는 별도 `@be-impl` 위임 가능·`main.py`와 순서 조율 | 보호 라우터 401/403·리포트 read/execute 분리 동작 |
+| **S4** | ⑧ 기존 라우터 `require_perm` (`main.py` 의존성 + `query_studio_server` 실행계열만) | S2, S1 | `query_studio_server` 내부 데코레이터 추가는 별도 `@be-impl` 위임 가능·`main.py`와 순서 조율 | 보호 라우터 401/403·`query.read`/`query.execute` 분리 동작 |
 | **S5** | ⑨ Frontend auth | S2 | `@fe-impl` | 로그인·가입·부서 생성 화면·토큰 저장 동작 |
 | **S6** | ⑩ `http.js` + ProtectedRoute + 라우트 가드 | S5 | `@fe-impl` | 401 시 refresh·실패 시 로그인 이동·가드 라우트 |
 | **S7** | ⑪ 메인 페이지 + ⑫ 마이페이지 | S3, S6 | UI 두 축을 `@fe-impl` 2병렬 가능(선택) | 프로젝트 카드·빠른 액세스·마이페이지 |
@@ -798,7 +796,7 @@ shared/components/
 |--------|------|
 | **ETL API 진입** | `Backend.auth_server.permissions.require_etl_infrastructure` — **`sa_dev` 또는 `etl_yn=Y`**. **프로젝트 선택·`pmssn` 불필요**. |
 | **ETL 메타 데이터** | **부서 스코프 없음**(전사 단일 풀). 목록·생성·수정 시 클라이언트가 보낸 `dptmt_info_id` 를 쓰지 않는다. |
-| **리포트·대시보드** | `require_permission` — v3 매트릭스: `etl_manager` 역할 차단 없음. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 `report.read` 등 자동 허용(**`docs/main/05`**). |
+| **쿼리 스튜디오·대시보드** | `require_permission` — v3 매트릭스: `etl_manager` 역할 차단 없음. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 `query.read` 등 자동 허용(**`docs/main/05`**). |
 | **리포트 테이블 목록** | `project_info_id`(JWT) + **`table_project_mapping`·`table_master`** — 프로젝트 미선택 시 §4.2.1과 동일 403. |
 
 **우선순위·실행 순서 (코드)**:
@@ -809,8 +807,8 @@ shared/components/
 | **M1-2** | *(삭제)* 과거 ETL 목록 `dptmt_info_id` 필터 | — | 스키마 원복 시 불필요 |
 | **M1-3** | *(삭제)* 과거 ETL INSERT 시 JWT 부서 자동 세팅 | — | 동상 |
 | **M1-4** | `etl_server` — 적재 완료 훅 | **`table_master`** UPSERT(`db_type`·`table_name`, **부서 컬럼 없음**), mapping 미삽입 | `table_master` 스키마 |
-| **M1-5** | `report_server` — `list-tables` | §13.2.6·`table_label` | M1-1 |
-| **M1-6** | `report_server` — `save-query-as-table` | **`table_master` INSERT** + 현재 프로젝트 **`table_project_mapping`** | M1-1 |
+| **M1-5** | `query_studio_server` — `list-tables` | §13.2.6·`table_label` | M1-1 |
+| **M1-6** | `query_studio_server` — `save-query-as-table` | **`table_master` INSERT** + 현재 프로젝트 **`table_project_mapping`** | M1-1 |
 | **M1-7** | `admin_server` — §13.3.1 API | 테이블 마스터·프로젝트 매핑(매트릭스 §7) | M1-1 |
 | **M1-8** | 대시보드 계열 | `dash`/`star` 마스터·매핑 | M1-1 |
 | **M2** | 프론트 | 리포트 UI·어드민 매핑 UI | S6·S8 |
@@ -844,8 +842,8 @@ shared/components/
 - [x] ETL API: `require_etl_infrastructure` (`sa_dev` 또는 `etl_yn=Y`) — `Backend/api_server/main.py`
 - [ ] `core/db.py` `get_allowed_tables()` → **프로젝트·매핑·마스터** 기반 조회(§13.2.7, §10.4 **M1-1**)
 - [ ] `etl_server` 적재 완료 시 **`table_master`** 자동 INSERT(전사 공통, **M1-4**)
-- [ ] `report_server` `list-tables` 프로젝트·매핑 기반 + `table_label`(**M1-5**)
-- [ ] `report_server` `save-query-as-table` 후 마스터+매핑 자동 INSERT(§13.2.5, **M1-6**)
+- [ ] `query_studio_server` `list-tables` 프로젝트·매핑 기반 + `table_label`(**M1-5**)
+- [ ] `query_studio_server` `save-query-as-table` 후 마스터+매핑 자동 INSERT(§13.2.5, **M1-6**)
 - [ ] `admin_server` 테이블 마스터·프로젝트 매핑 API(§13.3.1, **M1-7**)
 - [ ] 대시보드 허용 테이블을 마스터·매핑으로 제한(`dash`/`star`, **M1-8**)
 - [ ] 프론트: 리포트 UI `table_label` 표시·어드민 프로젝트 테이블 매핑 UI(**M2** / S8)
@@ -1022,7 +1020,7 @@ ORDER BY m.table_name;
 
 | 대상 | 변경 |
 |------|------|
-| `report_server` | §13.2.6·`get_allowed_tables` |
+| `query_studio_server` | §13.2.6·`get_allowed_tables` |
 | `etl_server` | 적재 훅·`table_master`(전사)·**부서 컬럼 없음** |
 | 대시보드 서버 | §10.4 **M1-8** |
 

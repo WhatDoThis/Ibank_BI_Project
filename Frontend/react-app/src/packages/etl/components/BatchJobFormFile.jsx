@@ -19,6 +19,7 @@
  * [Dependencies]
  * =========
  * - React, @/packages/etl/api/etlClient.js (batchListFolderConnections, etl2ListStorageConnections, batchListFolderPatterns, batchGetFolderColumns, batchCreateJob)
+ * - EtlStorageDbSelect, ../utils/storageDb.js (normalizeStorageConnectionId)
  * - etl.css (etl-db-form, etl-db-form__message--warning)
  */
 
@@ -33,6 +34,7 @@ import {
   batchCreateJob
 } from '@/packages/etl/api/etlClient.js';
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
+import EtlStorageDbSelect from './EtlStorageDbSelect.jsx';
 import '../etl.css';
 
 const INTERVAL_MIN = 10;
@@ -198,7 +200,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
       folder_connection_id: fid,
       job_name: job_name.trim(),
       file_pattern: file_pattern.trim(),
-      storage_connection_id: sid, // null = 기본 DB(config). utils/storageDb.js
+      storage_connection_id: sid, // null=main_db, -1=dash_db. utils/storageDb.js
       target_table: targetTableFinal,
       pk_columns: Object.keys(pkSelected).filter((k) => pkSelected[k]).join(', ').trim() || null,
       index_definitions: normalizedIndexDefs,
@@ -252,18 +254,14 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
 
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">저장 DB</label>
-            <select
-              className="etl-db-form__input"
+            <span className="etl-db-form__label-desc">내장 main·dash + 저장 DB 등록 탭 연결과 동일 목록입니다.</span>
+            <EtlStorageDbSelect
               value={storage_connection_id}
-              onChange={(e) => setStorage_connection_id(e.target.value)}
-            >
-              <option value="">기본 DB</option>
-              {storageConnections.map((sc) => (
-                <option key={sc.storage_connection_id} value={sc.storage_connection_id}>
-                  {sc.connection_name || `저장 #${sc.storage_connection_id}`}
-                </option>
-              ))}
-            </select>
+              onChange={setStorage_connection_id}
+              connections={storageConnections}
+              className="etl-db-form__input"
+              aria-label="저장 DB"
+            />
           </div>
 
           {selectedFolderId != null && (

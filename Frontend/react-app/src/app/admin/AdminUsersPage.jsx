@@ -2,6 +2,7 @@
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
  * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼, 정지 전 이관 검증.
+ * 본인 행: 목록(작업물·이관) 허용, 변경·정지·활성은 비활성 유지.
  *
  * [Main Functions]
  * ===========
@@ -157,6 +158,11 @@ export default function AdminUsersPage() {
   }, [me?.dptmt_info_id])
 
   useEffect(() => {
+    if (inviteDeptId === '' || inviteDeptId == null) {
+      setInviteProjects([])
+      setInvitePmssns([])
+      return
+    }
     const rid = Number(inviteDeptId)
     if (!Number.isFinite(rid) || rid < 0) {
       setInviteProjects([])
@@ -272,7 +278,16 @@ export default function AdminUsersPage() {
     setTransferTargets([])
     setTransferLoading(true)
     try {
-      const d = await getAdminOwnershipTransferTargets(ctx.dptmtInfoId, ctx.fromUserId)
+      const d = await getAdminOwnershipTransferTargets(
+        ctx.dptmtInfoId,
+        ctx.fromUserId,
+        {
+          etlInfra: !!ctx.etlInfra,
+          resourceType: ctx.resourceType === 'table_master' ? 'table_master' : null,
+          tableMasterId:
+            ctx.resourceType === 'table_master' ? ctx.resourceId : undefined,
+        },
+      )
       setTransferTargets(Array.isArray(d?.items) ? d.items : [])
     } catch (e) {
       setTransferErr(e?.message || '이관 가능한 사용자 목록을 불러오지 못했습니다.')
@@ -452,7 +467,17 @@ export default function AdminUsersPage() {
 
   const myId = me?.user_id
 
-  function renderAssetList(title, rows, uid, resourceType, idKey, labelKey, showTransfer) {
+  function renderAssetList(
+    title,
+    rows,
+    uid,
+    resourceType,
+    idKey,
+    labelKey,
+    showTransfer,
+    ownerDeptFallback,
+    etlInfraModal,
+  ) {
     if (!rows?.length) return null
     return (
       <div className="admin-users__work-block">
@@ -464,7 +489,7 @@ export default function AdminUsersPage() {
               labelKey === 'table_label'
                 ? r.table_label || r.table_name || rid
                 : r[labelKey] || rid
-            const dept = r.dptmt_info_id
+            const dept = r.dptmt_info_id ?? ownerDeptFallback
             const canT = showTransfer && r.transferable
             return (
               <li key={`${title}-${rid}`} className="admin-users__work-item">
@@ -487,6 +512,7 @@ export default function AdminUsersPage() {
                         fromUserId: uid,
                         dptmtInfoId: Number(dept),
                         label: `${title}: ${label}`,
+                        etlInfra: !!etlInfraModal,
                       })
                     }
                   >
@@ -513,8 +539,8 @@ export default function AdminUsersPage() {
           <h1 className="admin-users__title">사용자 관리</h1>
           <p className="admin-users__hint">
             {actorDvsn === 'sa_dev'
-              ? 'SA_DEV는 전사 사용자를 부서·역할 순으로 봅니다. SA·A는 동일 부서만 표시됩니다. 정지 전 생성 자산이 있으면 이관이 필요합니다.'
-              : '동일 부서 사용자만 표시됩니다. 작업물은「목록」, 이관 대상은 sa_dev·sa·a만. 생성 프로젝트·커스텀 역할이 있으면 정지 시 안내합니다.'}
+              ? 'SA_DEV는 전사 사용자를 부서·역할 순으로 봅니다. SA·A는 관리 트리 내 사용자만 표시됩니다. 정지 전 이관 필요 자산(프로젝트·역할·ETL 등록)이 있으면 안내합니다.'
+              : '관리 트리 내 사용자만 표시됩니다. 프로젝트·역할 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 자격자가 받을 수 있습니다.'}
           </p>
         </div>
         {roleOpts.length ? (
@@ -782,7 +808,14 @@ export default function AdminUsersPage() {
             <h3 className="admin-users__modal-title">이관 대상 선택</h3>
             <p className="admin-users__modal-hint">{transferCtx.label}</p>
             <p className="admin-users__modal-hint">
-              동일 부서의 sa_dev·Super Admin·Admin만 표시됩니다. 본인은 포함·원 소유자는 제외됩니다.
+              아래 목록은 서버에서 이관 수신이 가능한 사용자만 골라 보여 줍니다. 부서원 전체가 아닙니다. 원 소유자는 제외됩니다.
+            </p>
+            <p className="admin-users__modal-hint">
+              {transferCtx.etlInfra
+                ? '조건: 동일 부서·활성·(ETL 자격 etl_yn=Y 또는 SA_DEV 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
+                : transferCtx.resourceType === 'table_master'
+                  ? '조건: 매핑 프로젝트에서 query.execute(저장 테이블과 동일) 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
+                  : '조건: 동일 부서·활성·SA_DEV·SA·A 역할·관리 범위 내.'}
             </p>
             {transferErr ? <p className="admin-users__error">{transferErr}</p> : null}
             {transferLoading ? (
@@ -804,7 +837,16 @@ export default function AdminUsersPage() {
                     </button>
                   ))
                 ) : (
-                  <p className="admin-users__hint">이관 가능한 사용자가 없습니다.</p>
+                  <div className="admin-users__empty" role="status">
+                    <p className="admin-users__empty-title">이관을 받을 수 있는 사용자가 없습니다</p>
+                    <p className="admin-users__hint">
+                      {transferCtx.etlInfra
+                        ? '동일 부서에서 ETL 자격(etl_yn=Y) 또는 SA_DEV이면서, 귀하의 관리 범위에 속한 다른 활성 사용자가 없습니다.'
+                        : transferCtx.resourceType === 'table_master'
+                          ? '테이블 마스터 수신 조건(query.execute·동일 부서 SA/A·SA_DEV 등)과 관리 범위를 동시에 만족하는 다른 사용자가 없습니다.'
+                          : '동일 부서의 SA_DEV·SA·A 중 관리 범위에 속한 다른 활성 사용자가 없습니다.'}
+                    </p>
+                  </div>
                 )}
               </div>
             )}
@@ -847,7 +889,7 @@ export default function AdminUsersPage() {
                 const active = isActive(row)
                 const isAdminLockedSa =
                   actorDvsn === 'a' && String(row.user_dvsn || '').toLowerCase() === 'sa'
-                const listDisabled = isSelf || busyId === uid
+                const listDisabled = busyId === uid
                 const actionDisabled = isSelf || busyId === uid || isAdminLockedSa
                 const expanded = expandedUid === uid
                 const work = workByUser[uid]
@@ -902,7 +944,9 @@ export default function AdminUsersPage() {
                               활성
                             </button>
                           )}
-                          {isSelf ? <span className="admin-users__hint">본인</span> : null}
+                          {isSelf ? (
+                            <span className="admin-users__hint">본인 · 목록·이관만 가능</span>
+                          ) : null}
                           {isAdminLockedSa ? <span className="admin-users__hint">A는 SA 관리 불가</span> : null}
                         </div>
                       </td>
@@ -923,6 +967,8 @@ export default function AdminUsersPage() {
                                   'project_info_id',
                                   'project_name',
                                   true,
+                                  work.target_user_dptmt_info_id,
+                                  false,
                                 )}
                                 {renderAssetList(
                                   '참여한 프로젝트',
@@ -931,6 +977,8 @@ export default function AdminUsersPage() {
                                   'project',
                                   'project_info_id',
                                   'project_name',
+                                  false,
+                                  work.target_user_dptmt_info_id,
                                   false,
                                 )}
                                 {renderAssetList(
@@ -941,15 +989,85 @@ export default function AdminUsersPage() {
                                   'pmssn_master_id',
                                   'pmssn_name',
                                   true,
+                                  work.target_user_dptmt_info_id,
+                                  false,
                                 )}
                                 {renderAssetList(
-                                  '생성 프로젝트에 연결된 테이블',
+                                  '등록한 테이블 마스터(저장·적재 원장)',
                                   work.linked_tables,
                                   uid,
-                                  'table',
+                                  'table_master',
                                   'table_master_id',
                                   'table_label',
+                                  true,
+                                  work.target_user_dptmt_info_id,
                                   false,
+                                )}
+                                {renderAssetList(
+                                  '등록한 ETL DB 연결',
+                                  work.etl_connections,
+                                  uid,
+                                  'etl_connection',
+                                  'connection_id',
+                                  'connection_name',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  true,
+                                )}
+                                {renderAssetList(
+                                  '등록한 ETL 테이블',
+                                  work.etl_tables,
+                                  uid,
+                                  'etl_table',
+                                  'etl_table_id',
+                                  'label',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  true,
+                                )}
+                                {renderAssetList(
+                                  '등록한 ETL 실행 Job',
+                                  work.etl_jobs,
+                                  uid,
+                                  'etl_job',
+                                  'job_id',
+                                  'label',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  true,
+                                )}
+                                {renderAssetList(
+                                  '등록한 저장 DB 연결',
+                                  work.etl_storage_connections,
+                                  uid,
+                                  'etl_storage_connection',
+                                  'storage_connection_id',
+                                  'connection_name',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  true,
+                                )}
+                                {renderAssetList(
+                                  '등록한 배치 폴더 연결',
+                                  work.batch_folder_connections,
+                                  uid,
+                                  'batch_folder_connection',
+                                  'folder_connection_id',
+                                  'connection_name',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  true,
+                                )}
+                                {renderAssetList(
+                                  '등록한 배치 Job',
+                                  work.batch_jobs,
+                                  uid,
+                                  'batch_job',
+                                  'batch_job_id',
+                                  'job_name',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  true,
                                 )}
                                 {work.etl_assets_note ? (
                                   <p className="admin-users__hint admin-users__work-etl-note">{work.etl_assets_note}</p>

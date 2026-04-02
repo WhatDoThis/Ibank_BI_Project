@@ -16,14 +16,14 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 3. project_router: /api/projects — Backend.project_server.router
 4. notification_router: /api/notifications — Backend.notification_server.router
 5. admin_router: /api/admin — Backend.admin_server.router
-6. report_router: /api/* — Backend.report_server.router (엔드포인트별 require_permission)
+6. query_studio_router: /api/* — Backend.query_studio_server.router (엔드포인트별 require_permission)
 7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
 8. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
    (구 /api/dashboard·뉴 대시보드·마케팅 대시보드 라우터는 미등록 — 패키지는 저장소에 보존, 재연결 시 main에 include)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.etl_server.router, Backend.campaign_dash_server
+- Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.query_studio_server, Backend.etl_server.router, Backend.campaign_dash_server
 - fastapi, uvicorn
 """
 
@@ -48,7 +48,7 @@ from Backend.auth_server.permissions import require_etl_infrastructure, require_
 from Backend.project_server import router as project_router
 from Backend.notification_server import router as notification_router
 from Backend.admin_server import router as admin_router
-from Backend.api_server.routers import health_router, report_router
+from Backend.api_server.routers import health_router, query_studio_router
 from Backend.etl_server import router as etl_router
 from Backend.campaign_dash_server import router as campaign_dashboard_router
 
@@ -88,7 +88,7 @@ app.include_router(auth_router)
 app.include_router(project_router)
 app.include_router(notification_router)
 app.include_router(admin_router)
-app.include_router(report_router)
+app.include_router(query_studio_router)
 app.include_router(
     etl_router,
     dependencies=[Depends(require_etl_infrastructure)],

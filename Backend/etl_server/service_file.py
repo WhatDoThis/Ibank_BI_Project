@@ -3,15 +3,18 @@ Backend.etl_server.service_file (배치 폴더 연결·배치 Job·실행 이력
 ==============================================================================
 09_ETL_SFTP_Connection. batch_folder_connections, batch_folder_sftp, batch_folder_s3,
 batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapter로 FolderAdapter 인스턴스 반환.
+batch_folder_connections: folder_type 또는 protocol 컬럼 자동 대응(API 응답·JOIN은 folder_type으로 통일).
+etl_batch_target_registry: PK registry_id 또는 id(실측 DDL) 자동 대응, SELECT는 registry_id 별칭으로 통일.
 
 [Main Functions]
 ===========
-- list_folder_connections, get_folder_connection, create_folder_connection,
-  update_folder_connection, delete_folder_connection, set_folder_connection_verified
+- list_folder_connections, get_folder_connection, create_folder_connection(create_user_id·동적 is_active),
+  update_folder_connection, delete_folder_connection, set_folder_connection_verified(is_verified 컬럼 있을 때만 UPDATE)
 - get_folder_adapter: folder_connection_id → FolderAdapter
-- list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (job_type=file|db, etl_table_id 있으면 DB 배치 시 etl_table_id로 중복 검사·실행 시 etl_tables 참조, 없으면 기존 connection_id·source_table·타겟·저장DB 중복 검사), update_batch_job, delete_batch_job
+- list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (information_schema 기준 동적 INSERT·중복 검사, schedule_cron만 있을 때 interval→cron 변환), update_batch_job (존재 컬럼만 SET, interval_minutes→schedule_cron 매핑), delete_batch_job
+- effective_interval_minutes_from_batch_row(행에 schedule_cron 키 있을 때만 cron 파싱), effective_batch_job_type, _interval_to_schedule_cron, _parse_minutes_from_schedule_cron
 - update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
-- etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry, upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_and_drop_table
+- etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry(rcols·스토리지 JOIN·user_info 존재 시에만 JOIN), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_rows_for_etl_table(ETL 삭제 시 FK 선삭제), delete_batch_target_registry_and_drop_table
 - try_claim_batch_job_for_run: 배치 실행 전 FOR UPDATE 선점·last_run_status='running' 갱신(중복 실행 방지). create_batch_run, finish_run, update_run_progress, update_job_status, get_last_processed_ts, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - mark_stuck_runs_finished: 비활성화 시 해당 배치의 status=running 이력을 error로 마감. force_finish_run_as_cancelled: 실행 취소 시 run을 cancelled로 마감·last_run_status 해제(이력 유지, 재실행 가능).
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
@@ -52,6 +55,130 @@ def _q(schema_name: str, table_name: str) -> str:
     return etl_service._q(schema_name, table_name)
 
 
+def _folder_conn_type_sql_select(cols: set, alias: str = "c") -> str:
+    """
+    batch_folder_connections: API·배치 실행기는 folder_type(sftp|s3) 키를 사용.
+    운영 DB는 folder_type 또는 protocol 컬럼만 존재할 수 있음(ibank_etl_data 실측: protocol).
+    """
+    if "folder_type" in cols:
+        return f"{alias}.folder_type"
+    if "protocol" in cols:
+        return f"{alias}.protocol AS folder_type"
+    return "NULL::text AS folder_type"
+
+
+def _folder_conn_type_physical_column(cols: set) -> Optional[str]:
+    """INSERT 시 물리 컬럼명. 없으면 None."""
+    if "folder_type" in cols:
+        return "folder_type"
+    if "protocol" in cols:
+        return "protocol"
+    return None
+
+
+def _normalize_folder_connection_dict(d: dict) -> None:
+    """SELECT c.* 후 protocol만 오면 folder_type에 미러."""
+    ft = d.get("folder_type")
+    if ft is not None and str(ft).strip() != "":
+        return
+    proto = d.get("protocol")
+    if proto is not None and str(proto).strip() != "":
+        d["folder_type"] = str(proto).strip().lower()
+
+
+def _registry_pk_column(rcols: set) -> str:
+    """etl_batch_target_registry PK. 실측 id 또는 레거시 registry_id."""
+    if "registry_id" in rcols:
+        return "registry_id"
+    if "id" in rcols:
+        return "id"
+    raise ValueError("etl_batch_target_registry에 registry_id 또는 id 컬럼이 필요합니다.")
+
+
+# ---------- batch_jobs: 운영 DB 컬럼 조합(schedule_cron·interval_minutes 등 실측 차이) ----------
+
+
+def _interval_to_schedule_cron(minutes: int) -> str:
+    """API interval_minutes(10~1440)를 단순 cron으로 근사. 분 단위 */N 또는 시간 단위 0 */H."""
+    m = max(10, min(int(minutes), 1440))
+    if m <= 59:
+        return f"*/{m} * * * *"
+    h = max(1, min(24, m // 60))
+    return f"0 */{h} * * *"
+
+
+def _parse_minutes_from_schedule_cron(cron: Optional[str]) -> Optional[int]:
+    """*/N * * * * 또는 0 */H * * * 패턴에서 대략적인 분 간격 추출. 그 외는 None."""
+    if not cron or not isinstance(cron, str):
+        return None
+    s = cron.strip()
+    m1 = re.match(r"^\*/(\d+)\s+\*\s+\*\s+\*\s+\*\s*$", s)
+    if m1:
+        return int(m1.group(1))
+    m2 = re.match(r"^0\s+\*/(\d+)\s+\*\s+\*\s+\*\s*$", s)
+    if m2:
+        return int(m2.group(1)) * 60
+    return None
+
+
+def effective_interval_minutes_from_batch_row(row: dict) -> int:
+    """스케줄러·UI용 분 주기. interval_minutes 우선. schedule_cron은 SELECT에 해당 키가 있을 때만 파싱(컬럼 없는 DB는 폴백 생략). 기본 10."""
+    im = row.get("interval_minutes")
+    if im is not None:
+        try:
+            v = int(im)
+            if 1 <= v <= 1440:
+                return max(10, v) if v < 10 else v
+        except (TypeError, ValueError):
+            pass
+    # batch_jobs에 schedule_cron 컬럼이 없으면 행 dict에 키가 없음 → cron 폴백 시도 안 함
+    if "schedule_cron" in row:
+        parsed = _parse_minutes_from_schedule_cron(row.get("schedule_cron"))
+        if parsed is not None:
+            return max(10, min(1440, parsed))
+    return 10
+
+
+def effective_batch_job_type(row: dict) -> str:
+    """job_type 컬럼 없을 때 etl_table_id 있으면 db, 아니면 file."""
+    jt = (row.get("job_type") or "").strip().lower()
+    if jt in ("file", "db"):
+        return jt
+    if row.get("etl_table_id") is not None:
+        return "db"
+    return "file"
+
+
+_BATCH_INSERT_COL_ORDER = [
+    "folder_connection_id",
+    "etl_table_id",
+    "storage_connection_id",
+    "job_name",
+    "file_pattern",
+    "file_extensions",
+    "target_table",
+    "pk_columns",
+    "timestamp_format",
+    "interval_minutes",
+    "schedule_cron",
+    "is_active",
+    "column_mapping",
+    "index_definitions",
+    "on_file_error",
+    "job_type",
+    "connection_id",
+    "source_table",
+    "incremental_column",
+    "sync_mode",
+    "last_synced_at",
+    "batch_size",
+    "batch_interval_seconds",
+    "on_row_error",
+    "diff_delete_orphans",
+    "create_user_id",
+]
+
+
 def list_folder_connections() -> List[dict]:
     """폴더 연결 목록. 마스터 + sftp/s3 상세 JOIN. 비밀번호·키·시크릿 제외."""
     api_db = _get_db()
@@ -59,19 +186,40 @@ def list_folder_connections() -> List[dict]:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        ccols = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        ftype_sql = _folder_conn_type_sql_select(ccols, "c")
+        fc_creator_join = ""
+        fc_creator_sel = ""
+        if "create_user_id" in ccols:
+            if etl_service._table_exists(cur, schema, "user_info"):
+                fc_creator_join = " LEFT JOIN user_info u_fc ON u_fc.user_id = c.create_user_id "
+                fc_creator_sel = (
+                    ", c.create_user_id, COALESCE(NULLIF(TRIM(u_fc.user_nickname), ''), NULLIF(TRIM(u_fc.user_email), ''), "
+                    "CASE WHEN c.create_user_id IS NOT NULL THEN 'ID ' || c.create_user_id::text ELSE NULL END) AS create_user_label"
+                )
+            else:
+                fc_creator_sel = (
+                    ", c.create_user_id, CASE WHEN c.create_user_id IS NOT NULL THEN 'ID ' || c.create_user_id::text ELSE NULL END AS create_user_label"
+                )
         cur.execute(
             f"""
-            SELECT c.folder_connection_id, c.connection_name, c.protocol, c.is_verified, c.created_at, c.updated_at,
+            SELECT c.folder_connection_id, c.connection_name, {ftype_sql}, c.created_at, c.updated_at,
                    s.host AS sftp_host, s.port AS sftp_port, s.remote_path AS sftp_remote_path,
                    s3.bucket AS s3_bucket, s3.prefix AS s3_prefix, s3.region AS s3_region
+                   {fc_creator_sel}
             FROM {_q(schema, "batch_folder_connections")} c
             LEFT JOIN {_q(schema, "batch_folder_sftp")} s ON c.folder_connection_id = s.folder_connection_id
             LEFT JOIN {_q(schema, "batch_folder_s3")} s3 ON c.folder_connection_id = s3.folder_connection_id
+            {fc_creator_join}
             ORDER BY c.created_at DESC
             """
         )
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        out = [dict(r) for r in rows]
+        for d in out:
+            d.setdefault("is_verified", None)
+            _normalize_folder_connection_dict(d)
+        return out
     finally:
         cur.close()
         conn.close()
@@ -99,7 +247,12 @@ def get_folder_connection(folder_connection_id: int) -> Optional[dict]:
             (folder_connection_id,),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        d.setdefault("is_verified", None)
+        _normalize_folder_connection_dict(d)
+        return d
     finally:
         cur.close()
         conn.close()
@@ -107,7 +260,7 @@ def get_folder_connection(folder_connection_id: int) -> Optional[dict]:
 
 def create_folder_connection(
     connection_name: str,
-    protocol: str,
+    folder_type: str,
     *,
     sftp_host: str = "",
     sftp_port: int = 22,
@@ -121,25 +274,40 @@ def create_folder_connection(
     s3_access_key_id: str = "",
     s3_secret_access_key: str = "",
     s3_endpoint_url: str = "",
+    create_user_id: Optional[int] = None,
 ) -> int:
-    """폴더 연결 등록. 마스터 INSERT 후 프로토콜별 상세 INSERT. folder_connection_id 반환."""
+    """폴더 연결 등록. 마스터 INSERT 후 folder_type(sftp|s3)별 상세 INSERT. create_user_id는 JWT user_id."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        type_col = _folder_conn_type_physical_column(cols)
+        if not type_col:
+            raise ValueError("batch_folder_connections에 folder_type 또는 protocol 컬럼이 없습니다.")
+        col_list = ["connection_name", type_col]
+        val_list: List[Any] = [connection_name.strip(), folder_type.strip().lower()]
+        if "is_active" in cols:
+            col_list.append("is_active")
+            val_list.append(True)
+        if "create_user_id" in cols:
+            col_list.append("create_user_id")
+            val_list.append(create_user_id)
+        col_list.extend(["created_at", "updated_at"])
+        ph = ", ".join(["%s"] * len(val_list)) + ", NOW(), NOW()"
         cur.execute(
             f"""
             INSERT INTO {_q(schema, "batch_folder_connections")}
-            (connection_name, protocol, is_verified, created_at, updated_at)
-            VALUES (%s, %s, FALSE, NOW(), NOW())
+            ({", ".join(col_list)})
+            VALUES ({ph})
             RETURNING folder_connection_id
             """,
-            (connection_name.strip(), protocol.strip().lower()),
+            tuple(val_list),
         )
         row = cur.fetchone()
         fid = row["folder_connection_id"]
-        if protocol.strip().lower() == "sftp":
+        if folder_type.strip().lower() == "sftp":
             cur.execute(
                 f"""
                 INSERT INTO {_q(schema, "batch_folder_sftp")}
@@ -148,7 +316,7 @@ def create_folder_connection(
                 """,
                 (fid, sftp_host, sftp_port, sftp_username, sftp_password or None, sftp_private_key or None, sftp_remote_path or "/"),
             )
-        elif protocol.strip().lower() == "s3":
+        elif folder_type.strip().lower() == "s3":
             cur.execute(
                 f"""
                 INSERT INTO {_q(schema, "batch_folder_s3")}
@@ -184,7 +352,7 @@ def update_folder_connection(
     s3_secret_access_key: str = "",
     s3_endpoint_url: str = "",
 ) -> None:
-    """폴더 연결 수정. connection_name 있으면 마스터 갱신, 프로토콜별 상세 갱신."""
+    """폴더 연결 수정. connection_name 있으면 마스터 갱신, folder_type별 상세 갱신."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -202,8 +370,8 @@ def update_folder_connection(
         row = get_folder_connection(folder_connection_id)
         if not row:
             raise ValueError("폴더 연결을 찾을 수 없습니다.")
-        protocol = (row.get("protocol") or "").strip().lower()
-        if protocol == "sftp":
+        ft = (row.get("folder_type") or "").strip().lower()
+        if ft == "sftp":
             cur.execute(
                 f"""
                 UPDATE {_q(schema, "batch_folder_sftp")}
@@ -213,7 +381,7 @@ def update_folder_connection(
                 """,
                 (sftp_host, sftp_port, sftp_username, sftp_password or "", sftp_private_key or "", sftp_remote_path or "/", folder_connection_id),
             )
-        elif protocol == "s3":
+        elif ft == "s3":
             cur.execute(
                 f"""
                 UPDATE {_q(schema, "batch_folder_s3")}
@@ -255,12 +423,15 @@ def delete_folder_connection(folder_connection_id: int) -> None:
 
 
 def set_folder_connection_verified(folder_connection_id: int, is_verified: bool) -> None:
-    """연결 테스트 성공 시 is_verified 갱신."""
+    """연결 테스트 후 검증 플래그 갱신. 운영 DB에 is_verified 컬럼이 없으면 no-op."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        cols = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        if "is_verified" not in cols:
+            return
         cur.execute(
             f"""
             UPDATE {_q(schema, "batch_folder_connections")}
@@ -282,8 +453,8 @@ def get_folder_adapter(folder_connection_id: int):
     row = get_folder_connection(folder_connection_id)
     if not row:
         raise ValueError("폴더 연결을 찾을 수 없습니다.")
-    protocol = (row.get("protocol") or "").strip().lower()
-    if protocol == "sftp":
+    ft = (row.get("folder_type") or "").strip().lower()
+    if ft == "sftp":
         return SFTPAdapter(
             host=row.get("sftp_host") or "",
             port=int(row.get("sftp_port") or 22),
@@ -292,7 +463,7 @@ def get_folder_adapter(folder_connection_id: int):
             private_key=row.get("sftp_private_key"),
             remote_path=row.get("sftp_remote_path") or "/",
         )
-    if protocol == "s3":
+    if ft == "s3":
         return S3Adapter(
             bucket=row.get("s3_bucket") or "",
             prefix=row.get("s3_prefix") or "",
@@ -301,7 +472,7 @@ def get_folder_adapter(folder_connection_id: int):
             secret_access_key=row.get("s3_secret_access_key"),
             endpoint_url=row.get("s3_endpoint_url"),
         )
-    raise ValueError(f"지원하지 않는 프로토콜: {protocol}")
+    raise ValueError(f"지원하지 않는 folder_type: {ft}")
 
 
 # ---------- batch_jobs, batch_run_history (§3.5, §3.6) ----------
@@ -323,6 +494,7 @@ def _batch_job_select_parts(schema: str, jcols: set) -> tuple[str, str, str, str
         ("pk_columns", "text"),
         ("timestamp_format", "text"),
         ("interval_minutes", "integer"),
+        ("schedule_cron", "text"),
         ("is_active", "boolean"),
         ("last_processed_ts", "text"),
         ("last_run_at", "timestamp with time zone"),
@@ -344,6 +516,7 @@ def _batch_job_select_parts(schema: str, jcols: set) -> tuple[str, str, str, str
         ("on_file_error", "text"),
         ("etl_table_id", "integer"),
         ("diff_delete_orphans", "boolean"),
+        ("create_user_id", "integer"),
     ]
     parts = []
     for name, cast in col_casts:
@@ -361,8 +534,94 @@ def _batch_job_select_parts(schema: str, jcols: set) -> tuple[str, str, str, str
         join_sc = f"""
             LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON j.storage_connection_id = sc.storage_connection_id"""
     src_name = "ec.connection_name AS source_connection_name" if join_ec else "NULL::text AS source_connection_name"
-    sto_name = "sc.connection_name AS storage_connection_name" if join_sc else "NULL::text AS storage_connection_name"
+    _dash_lit = etl_service.STORAGE_BUILTIN_DASH_ID
+    sto_name = (
+        f"CASE WHEN j.storage_connection_id IS NULL THEN '기본 DB (main)' "
+        f"WHEN j.storage_connection_id = {_dash_lit} THEN '기본 DB (dash)' "
+        f"ELSE sc.connection_name END AS storage_connection_name"
+        if join_sc
+        else "NULL::text AS storage_connection_name"
+    )
     return select_j, join_ec, join_sc, src_name, sto_name
+
+
+def _registry_batch_jobs_cols_sql(jcols: set) -> str:
+    """
+    list_batch_target_registry 메인 SELECT용 batch_jobs(j) 컬럼.
+    구 DDL에 interval_minutes 등이 없을 수 있음 → information_schema 기준 방어.
+    """
+    specs = [
+        ("job_name", "text"),
+        ("folder_connection_id", "integer"),
+        ("interval_minutes", "integer"),
+        ("schedule_cron", "text"),
+        ("is_active", "boolean"),
+        ("last_run_status", "text"),
+        ("last_run_at", "timestamp with time zone"),
+    ]
+    parts: List[str] = []
+    for name, cast in specs:
+        if name in jcols:
+            parts.append(f"j.{name}")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    return ", ".join(parts)
+
+
+def _batch_job_backfill_select_parts(jcols: set) -> List[str]:
+    """
+    list_batch_target_registry 백필용 batch_jobs SELECT 조각.
+    _batch_job_select_parts와 동일: 컬럼 없으면 NULL::cast AS name.
+    """
+    order = [
+        ("target_table", "text"),
+        ("storage_connection_id", "integer"),
+        ("batch_job_id", "integer"),
+        ("etl_table_id", "integer"),
+    ]
+    parts: List[str] = []
+    for name, cast in order:
+        if name in jcols:
+            parts.append(f"j.{name}")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    return parts
+
+
+def _registry_row_select_sql(rcols: set) -> str:
+    """etl_batch_target_registry SELECT: PK는 registry_id 또는 id(후자는 AS registry_id로 API 통일)."""
+    parts: List[str] = []
+    pk = _registry_pk_column(rcols)
+    if pk == "registry_id":
+        parts.append("r.registry_id")
+    else:
+        parts.append("r.id AS registry_id")
+    order_rest = [
+        ("target_table", "text"),
+        ("storage_connection_id", "integer"),
+        ("batch_job_id", "integer"),
+        ("is_active", "boolean"),
+        ("created_at", "timestamp with time zone"),
+        ("updated_at", "timestamp with time zone"),
+    ]
+    for name, cast in order_rest:
+        if name in rcols:
+            parts.append(f"r.{name}")
+        else:
+            parts.append(f"NULL::{cast} AS {name}")
+    return ", ".join(parts)
+
+
+def _registry_order_by(rcols: set) -> str:
+    if "updated_at" in rcols:
+        return "r.updated_at DESC"
+    if "created_at" in rcols:
+        return "r.created_at DESC"
+    if "registry_id" in rcols:
+        return "r.registry_id DESC"
+    if "id" in rcols:
+        return "r.id DESC"
+    return "1"
 
 
 def list_batch_jobs(
@@ -377,16 +636,33 @@ def list_batch_jobs(
     cur = conn.cursor()
     try:
         jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
+        ccols = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        fconn_type = _folder_conn_type_sql_select(ccols, "c")
         select_j, join_ec, join_sc, src_name, sto_name = _batch_job_select_parts(schema, jcols)
+        creator_join = ""
+        creator_sel = "NULL::text AS create_user_label"
+        if "create_user_id" in jcols:
+            if etl_service._table_exists(cur, schema, "user_info"):
+                creator_join = " LEFT JOIN user_info u_bj ON u_bj.user_id = j.create_user_id "
+                creator_sel = (
+                    "COALESCE(NULLIF(TRIM(u_bj.user_nickname), ''), NULLIF(TRIM(u_bj.user_email), ''), "
+                    "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
+                )
+            else:
+                creator_sel = (
+                    "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END AS create_user_label"
+                )
         sql = f"""
             SELECT {select_j},
-                   c.connection_name, c.protocol,
+                   c.connection_name, {fconn_type},
                    {src_name},
-                   {sto_name}
+                   {sto_name},
+                   {creator_sel}
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
             {join_ec}
             {join_sc}
+            {creator_join}
             WHERE 1=1
             """
         params: List[Any] = []
@@ -402,7 +678,14 @@ def list_batch_jobs(
         sql += " ORDER BY j.created_at DESC"
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
-        return [_row_to_dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = _row_to_dict(r)
+            _normalize_folder_connection_dict(d)
+            if d.get("interval_minutes") is None:
+                d["interval_minutes"] = effective_interval_minutes_from_batch_row(d)
+            out.append(d)
+        return out
     finally:
         cur.close()
         conn.close()
@@ -433,25 +716,48 @@ def get_batch_job(batch_job_id: int) -> Optional[dict]:
     cur = conn.cursor()
     try:
         jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
+        ccols = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        fconn_type = _folder_conn_type_sql_select(ccols, "c")
         join_ec = ""
         src_sel = "NULL::text AS source_connection_name"
         if "connection_id" in jcols:
             join_ec = f"""
             LEFT JOIN {_q(schema, "etl_connections")} ec ON j.connection_id = ec.connection_id"""
             src_sel = "ec.connection_name AS source_connection_name"
+        creator_join = ""
+        creator_sel = "NULL::text AS create_user_label"
+        if "create_user_id" in jcols:
+            if etl_service._table_exists(cur, schema, "user_info"):
+                creator_join = " LEFT JOIN user_info u_bj ON u_bj.user_id = j.create_user_id "
+                creator_sel = (
+                    "COALESCE(NULLIF(TRIM(u_bj.user_nickname), ''), NULLIF(TRIM(u_bj.user_email), ''), "
+                    "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
+                )
+            else:
+                creator_sel = (
+                    "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END AS create_user_label"
+                )
         cur.execute(
             f"""
-            SELECT j.*, c.connection_name, c.protocol,
-                   {src_sel}
+            SELECT j.*, c.connection_name, {fconn_type},
+                   {src_sel},
+                   {creator_sel}
             FROM {_q(schema, "batch_jobs")} j
             LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
             {join_ec}
+            {creator_join}
             WHERE j.batch_job_id = %s
             """,
             (batch_job_id,),
         )
         row = cur.fetchone()
-        return _row_to_dict(row) if row else None
+        if not row:
+            return None
+        d = _row_to_dict(row)
+        _normalize_folder_connection_dict(d)
+        if d.get("interval_minutes") is None:
+            d["interval_minutes"] = effective_interval_minutes_from_batch_row(d)
+        return d
     finally:
         cur.close()
         conn.close()
@@ -481,10 +787,12 @@ def create_batch_job(
     on_row_error: str = "fail",
     etl_table_id: Optional[int] = None,
     diff_delete_orphans: bool = False,
+    create_user_id: Optional[int] = None,
 ) -> int:
     """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환.
+    information_schema에 존재하는 batch_jobs 컬럼만 INSERT. schedule_cron만 있으면 interval에서 cron 문자열 생성.
     job_type='file': folder_connection_id 필수. job_type='db': connection_id 필수(etl_table_id 없을 때), folder_connection_id NULL.
-    중복: file는 (folder_connection_id, file_pattern, target_table, storage). db+etl_table_id 있으면 etl_table_id만, 없으면 (connection_id, source_table, target_table, storage)."""
+    target_table 컬럼이 없으면 etl_table_id로 etl_tables에서 타겟명을 보완."""
     if not (10 <= interval_minutes <= 1440):
         raise ValueError("interval_minutes는 10~1440 사이여야 합니다.")
     jtype = (job_type or "file").strip().lower()
@@ -500,18 +808,28 @@ def create_batch_job(
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
+        jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
         target_table_trimmed = (target_table or "").strip()
-        if not target_table_trimmed:
+        if "target_table" in jcols and not target_table_trimmed:
             raise ValueError("target_table이 비어 있습니다.")
+        if not target_table_trimmed and etl_table_id is not None:
+            etl_row = etl_service.get_etl_table(int(etl_table_id))
+            if etl_row:
+                target_table_trimmed = (etl_row.get("target_table") or "").strip()
+        if not target_table_trimmed:
+            raise ValueError(
+                "적재 대상 테이블명을 알 수 없습니다. target_table을 넣거나 etl_table_id로 등록된 ETL 테이블이 있어야 합니다."
+            )
 
         if jtype == "db":
             if etl_table_id:
+                wh_parts = ["etl_table_id = %s"]
+                dup_db_params: List[Any] = [etl_table_id]
+                if "job_type" in jcols:
+                    wh_parts.insert(0, "job_type = 'db'")
                 cur.execute(
-                    f"""
-                    SELECT 1 FROM {_q(schema, "batch_jobs")}
-                    WHERE job_type = 'db' AND etl_table_id = %s LIMIT 1
-                    """,
-                    (etl_table_id,),
+                    f"SELECT 1 FROM {_q(schema, 'batch_jobs')} WHERE {' AND '.join(wh_parts)} LIMIT 1",
+                    tuple(dup_db_params),
                 )
                 if cur.fetchone():
                     raise ValueError("이 ETL 테이블에 이미 배치 Job이 등록되어 있습니다.")
@@ -519,14 +837,26 @@ def create_batch_job(
                 source_table_trimmed = (source_table or "").strip()
                 if not source_table_trimmed:
                     raise ValueError("DB 배치에는 source_table이 필요합니다.")
+                need_legacy = {"connection_id", "source_table", "target_table"}
+                if not need_legacy.issubset(jcols):
+                    raise ValueError(
+                        "이 DB의 batch_jobs에는 connection_id·source_table·target_table 컬럼이 없어 해당 방식으로 저장할 수 없습니다. "
+                        "etl_table_id가 있는 ETL 테이블에 연결된 DB 배치로 등록하세요."
+                    )
+                wh_parts2 = [
+                    "connection_id = %s",
+                    "source_table = %s",
+                    "target_table = %s",
+                ]
+                dup_db_params2: List[Any] = [connection_id, source_table_trimmed, target_table_trimmed]
+                if "job_type" in jcols:
+                    wh_parts2.insert(0, "job_type = 'db'")
+                if "storage_connection_id" in jcols:
+                    wh_parts2.append("storage_connection_id IS NOT DISTINCT FROM %s")
+                    dup_db_params2.append(storage_connection_id)
                 cur.execute(
-                    f"""
-                    SELECT 1 FROM {_q(schema, "batch_jobs")}
-                    WHERE job_type = 'db' AND connection_id = %s AND source_table = %s
-                      AND target_table = %s AND (storage_connection_id IS NOT DISTINCT FROM %s)
-                    LIMIT 1
-                    """,
-                    (connection_id, source_table_trimmed, target_table_trimmed, storage_connection_id),
+                    f"SELECT 1 FROM {_q(schema, 'batch_jobs')} WHERE {' AND '.join(wh_parts2)} LIMIT 1",
+                    tuple(dup_db_params2),
                 )
                 if cur.fetchone():
                     raise ValueError(
@@ -535,21 +865,36 @@ def create_batch_job(
                     )
         else:
             file_pattern_trimmed = (file_pattern or "").strip()
-            if target_table_trimmed:
-                cur.execute(
-                    f"""
-                    SELECT 1 FROM {_q(schema, "batch_jobs")}
-                    WHERE folder_connection_id = %s AND (file_pattern IS NOT DISTINCT FROM %s) AND target_table = %s
-                      AND (storage_connection_id IS NOT DISTINCT FROM %s)
-                    LIMIT 1
-                    """,
-                    (folder_connection_id, file_pattern_trimmed or None, target_table_trimmed, storage_connection_id),
-                )
-                if cur.fetchone():
+            conds = ["folder_connection_id IS NOT DISTINCT FROM %s"]
+            dup_params: List[Any] = [folder_connection_id]
+            if "file_pattern" in jcols:
+                conds.append("file_pattern IS NOT DISTINCT FROM %s")
+                dup_params.append(file_pattern_trimmed or None)
+            if "target_table" in jcols:
+                conds.append("target_table = %s")
+                dup_params.append(target_table_trimmed)
+            elif etl_table_id is not None and "etl_table_id" in jcols:
+                conds.append("etl_table_id IS NOT DISTINCT FROM %s")
+                dup_params.append(int(etl_table_id))
+            if "storage_connection_id" in jcols:
+                conds.append("storage_connection_id IS NOT DISTINCT FROM %s")
+                dup_params.append(storage_connection_id)
+            if len(conds) == 1:
+                if "job_name" not in jcols:
                     raise ValueError(
-                        "이미 동일한 폴더·파일 패턴·타겟 테이블·저장 DB로 등록된 배치 Job이 있습니다. "
-                        "기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
+                        "파일 배치 중복 검사를 할 컬럼이 없습니다. job_name·target_table·file_pattern·etl_table_id 중 "
+                        "하나 이상이 batch_jobs에 있어야 합니다."
                     )
+                conds.append("job_name = %s")
+                dup_params.append((job_name or "").strip())
+            cur.execute(
+                f"SELECT 1 FROM {_q(schema, 'batch_jobs')} WHERE {' AND '.join(conds)} LIMIT 1",
+                tuple(dup_params),
+            )
+            if cur.fetchone():
+                raise ValueError(
+                    "이미 동일한 조건의 배치 Job이 있습니다. 기존 Job을 수정하거나 삭제한 뒤 다시 등록해 주세요."
+                )
 
         on_file_error_val = (on_file_error or "stop").strip().lower()
         if on_file_error_val not in ("stop", "continue"):
@@ -562,48 +907,79 @@ def create_batch_job(
             sync_mode_val = "incremental"
         diff_delete_orphans_val = bool(diff_delete_orphans) if jtype == "db" else False
 
-        cur.execute(
-            f"""
-            INSERT INTO {_q(schema, "batch_jobs")}
-            (folder_connection_id, storage_connection_id, job_name, file_pattern, file_extensions,
-             target_table, pk_columns, timestamp_format, interval_minutes, is_active, column_mapping, index_definitions, on_file_error,
-             job_type, connection_id, source_table, incremental_column, sync_mode, last_synced_at, batch_size, batch_interval_seconds, on_row_error, etl_table_id, diff_delete_orphans, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'yyyyMMddHHmmss', %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, NOW(), NOW())
-            RETURNING batch_job_id
-            """,
-            (
-                folder_connection_id if jtype == "file" else None,
-                storage_connection_id,
-                (job_name or "").strip(),
-                (file_pattern or "").strip() if jtype == "file" else None,
-                ("" if jtype == "db" else (file_extensions or "csv,xlsx,xls,parquet").strip()),
-                target_table_trimmed,
-                (pk_columns or "").strip() or None,
-                interval_minutes,
-                is_active,
-                json.dumps(column_mapping) if column_mapping is not None else None,
-                json.dumps(index_definitions) if index_definitions is not None else None,
-                on_file_error_val,
-                jtype,
-                connection_id if jtype == "db" else None,
-                (source_table or "").strip() or None if jtype == "db" else None,
-                (incremental_column or "").strip() or None if jtype == "db" else None,
-                sync_mode_val if jtype == "db" else None,
-                batch_size if jtype == "db" else None,
-                batch_interval_seconds if jtype == "db" else None,
-                on_row_error_val if jtype == "db" else None,
-                etl_table_id if jtype == "db" else None,
-                diff_delete_orphans_val,
-            ),
+        etl_tid_sql = int(etl_table_id) if etl_table_id is not None else None
+        fc_sql = folder_connection_id if jtype == "file" else None
+
+        cmap_json = json.dumps(column_mapping) if column_mapping is not None else None
+        idx_json = json.dumps(index_definitions) if index_definitions is not None else None
+        cron_val = _interval_to_schedule_cron(interval_minutes)
+
+        candidates = {
+            "folder_connection_id": fc_sql,
+            "etl_table_id": etl_tid_sql,
+            "storage_connection_id": storage_connection_id,
+            "job_name": (job_name or "").strip(),
+            "file_pattern": (file_pattern or "").strip() if jtype == "file" else None,
+            "file_extensions": ("" if jtype == "db" else (file_extensions or "csv,xlsx,xls,parquet").strip()),
+            "target_table": target_table_trimmed if "target_table" in jcols else None,
+            "pk_columns": (pk_columns or "").strip() or None,
+            "timestamp_format": "yyyyMMddHHmmss",
+            "interval_minutes": interval_minutes,
+            "schedule_cron": cron_val,
+            "is_active": is_active,
+            "column_mapping": cmap_json,
+            "index_definitions": idx_json,
+            "on_file_error": on_file_error_val,
+            "job_type": jtype,
+            "connection_id": connection_id if jtype == "db" else None,
+            "source_table": (source_table or "").strip() or None if jtype == "db" else None,
+            "incremental_column": (incremental_column or "").strip() or None if jtype == "db" else None,
+            "sync_mode": sync_mode_val if jtype == "db" else None,
+            "last_synced_at": None,
+            "batch_size": batch_size if jtype == "db" else None,
+            "batch_interval_seconds": batch_interval_seconds if jtype == "db" else None,
+            "on_row_error": on_row_error_val if jtype == "db" else None,
+            "diff_delete_orphans": diff_delete_orphans_val,
+            "create_user_id": create_user_id,
+        }
+
+        json_cols = {"column_mapping", "index_definitions"}
+        insert_cols: List[str] = []
+        placeholders: List[str] = []
+        params_ins: List[Any] = []
+        for col in _BATCH_INSERT_COL_ORDER:
+            if col not in jcols:
+                continue
+            val = candidates.get(col)
+            if col in json_cols:
+                placeholders.append("%s::jsonb")
+                params_ins.append(val)
+            else:
+                placeholders.append("%s")
+                params_ins.append(val)
+            insert_cols.append(col)
+
+        if "created_at" in jcols:
+            insert_cols.append("created_at")
+            placeholders.append("NOW()")
+        if "updated_at" in jcols:
+            insert_cols.append("updated_at")
+            placeholders.append("NOW()")
+
+        if not insert_cols:
+            raise ValueError("batch_jobs에 INSERT 가능한 컬럼이 없습니다. DDL을 확인하세요.")
+
+        sql_ins = (
+            f"INSERT INTO {_q(schema, 'batch_jobs')} ({', '.join(insert_cols)}) "
+            f"VALUES ({', '.join(placeholders)}) RETURNING batch_job_id"
         )
+        cur.execute(sql_ins, tuple(params_ins))
         row = cur.fetchone()
         batch_job_id = row["batch_job_id"]
         conn.commit()
-        # etl_table_id 기반 배치는 타겟이 이미 etl_tables에 있으므로 레지스트리 중복 등록하지 않음. 목록은 ETL 테이블 1행만 표시.
-        target_table = (target_table or "").strip()
-        if target_table and not etl_table_id:
+        if target_table_trimmed and not etl_table_id:
             try:
-                upsert_batch_target_registry(target_table, storage_connection_id, batch_job_id)
+                upsert_batch_target_registry(target_table_trimmed, storage_connection_id, batch_job_id)
             except Exception as e:
                 logger.warning("etl_batch_target_registry upsert 실패(배치 Job은 생성됨): %s", e)
         return batch_job_id
@@ -616,13 +992,11 @@ def create_batch_job(
 
 
 def update_batch_job(batch_job_id: int, **kwargs) -> None:
-    """배치 Job 수정. updatable: job_name, file_pattern, file_extensions, target_table, pk_columns,
-    interval_minutes, is_active, storage_connection_id, column_mapping, index_definitions, on_file_error,
-    connection_id, source_table, incremental_column, sync_mode, batch_size, batch_interval_seconds, on_row_error,
-    last_run_status (비활성화 시 끼어 있던 running 상태 초기화용)."""
+    """배치 Job 수정. batch_jobs에 실제 존재하는 컬럼만 SET. interval_minutes만 있고 DB에 schedule_cron만 있으면 cron으로 변환.
+    updatable: job_name, file_pattern, …, interval_minutes, schedule_cron, …, last_run_status."""
     allowed = {
         "job_name", "file_pattern", "file_extensions", "target_table", "pk_columns",
-        "interval_minutes", "is_active", "storage_connection_id", "column_mapping", "index_definitions", "on_file_error",
+        "interval_minutes", "schedule_cron", "is_active", "storage_connection_id", "column_mapping", "index_definitions", "on_file_error",
         "connection_id", "source_table", "incremental_column", "sync_mode", "batch_size", "batch_interval_seconds", "on_row_error",
         "diff_delete_orphans", "last_run_status",
     }
@@ -651,11 +1025,19 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
     conn = api_db.get_db_connection_system()
     cur = conn.cursor()
     try:
-        set_parts = []
+        jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
+        if "interval_minutes" in updates and "interval_minutes" not in jcols and "schedule_cron" in jcols:
+            im = updates.pop("interval_minutes")
+            if im is not None:
+                updates["schedule_cron"] = _interval_to_schedule_cron(int(im))
+        updates = {k: v for k, v in updates.items() if k in jcols}
+        if not updates:
+            return
+        set_parts: List[str] = []
         params: List[Any] = []
         for k, v in updates.items():
             if k == "column_mapping":
-                set_parts.append("column_mapping = %s")
+                set_parts.append("column_mapping = %s::jsonb")
                 params.append(json.dumps(v) if v is not None else None)
             elif k == "index_definitions":
                 set_parts.append("index_definitions = %s::jsonb")
@@ -663,7 +1045,10 @@ def update_batch_job(batch_job_id: int, **kwargs) -> None:
             else:
                 set_parts.append(f"{k} = %s")
                 params.append(v)
-        set_parts.append("updated_at = NOW()")
+        if "updated_at" in jcols:
+            set_parts.append("updated_at = NOW()")
+        if not set_parts:
+            return
         params.append(batch_job_id)
         cur.execute(
             f"UPDATE {_q(schema, 'batch_jobs')} SET {', '.join(set_parts)} WHERE batch_job_id = %s",
@@ -720,7 +1105,7 @@ _registry_table_ensured: bool = False
 
 
 def _ensure_batch_target_registry_table(conn) -> None:
-    """etl_batch_target_registry 테이블이 없으면 생성. (target_table, storage_connection_id) UNIQUE. 프로세스당 1회만 DDL 실행."""
+    """etl_batch_target_registry 테이블이 없으면 운영 DDL 기준으로 생성. 프로세스당 1회만 CREATE IF NOT EXISTS."""
     global _registry_table_ensured
     if _registry_table_ensured:
         return
@@ -734,9 +1119,8 @@ def _ensure_batch_target_registry_table(conn) -> None:
                 target_table VARCHAR(200) NOT NULL,
                 storage_connection_id INTEGER,
                 batch_job_id INTEGER,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE (target_table, storage_connection_id)
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
             )
             """
         )
@@ -749,8 +1133,8 @@ def _ensure_batch_target_registry_table(conn) -> None:
 def list_batch_target_registry() -> List[dict]:
     """
     ETL 목록용 배치 타겟 등록 목록. batch_jobs·folder·storage LEFT JOIN으로 job_name, connection_name, storage_connection_name 포함.
-    batch_job_id가 NULL이어도 행 반환(잡 삭제 후 테이블만 관리하는 행).
-    기존 batch_jobs 행이 레지스트리에 없으면 자동 backfill(upsert) 후 조회.
+    운영 DDL은 batch_job_id NOT NULL. 기존 batch_jobs 행이 레지스트리에 없으면 자동 backfill(upsert) 후 조회.
+    응답 dict에 registry_id가 있으면 프론트 호환용 id에 동일 값 설정.
     """
     api_db = _get_db()
     schema = _schema()
@@ -759,16 +1143,7 @@ def list_batch_target_registry() -> List[dict]:
     cur = conn.cursor()
     try:
         jcols = etl_service._table_columns_lower(cur, schema, "batch_jobs")
-        sel_parts = ["j.target_table"]
-        if "storage_connection_id" in jcols:
-            sel_parts.append("j.storage_connection_id")
-        else:
-            sel_parts.append("NULL::integer AS storage_connection_id")
-        sel_parts.append("j.batch_job_id")
-        if "etl_table_id" in jcols:
-            sel_parts.append("j.etl_table_id")
-        else:
-            sel_parts.append("NULL::integer AS etl_table_id")
+        sel_parts = _batch_job_backfill_select_parts(jcols)
         cur.execute(
             f"SELECT {', '.join(sel_parts)} FROM {_q(schema, 'batch_jobs')} j"
         )
@@ -790,22 +1165,75 @@ def list_batch_target_registry() -> List[dict]:
             etl_where = "WHERE j.etl_table_id IS NULL"
         else:
             etl_where = "WHERE TRUE"
+        rcols = etl_service._table_columns_lower(cur, schema, _REGISTRY_TABLE)
+        r_sel = _registry_row_select_sql(rcols)
+        coalesce_sid: List[str] = []
+        if "storage_connection_id" in rcols:
+            coalesce_sid.append("r.storage_connection_id")
+        if "storage_connection_id" in jcols:
+            coalesce_sid.append("j.storage_connection_id")
+        if coalesce_sid:
+            sid_expr = "COALESCE(" + ", ".join(coalesce_sid) + ")"
+            sc_join = (
+                f'LEFT JOIN {_q(schema, "etl_storage_connections")} sc '
+                f"ON {sid_expr} = sc.storage_connection_id AND sc.is_active = TRUE"
+            )
+            _dl = etl_service.STORAGE_BUILTIN_DASH_ID
+            storage_name_sel = (
+                f"CASE WHEN {sid_expr} IS NULL THEN '기본 DB (main)' "
+                f"WHEN {sid_expr} = {_dl} THEN '기본 DB (dash)' "
+                f"ELSE sc.connection_name END AS storage_connection_name"
+            )
+        else:
+            sc_join = ""
+            storage_name_sel = "NULL::text AS storage_connection_name"
+        order_by = _registry_order_by(rcols)
+        has_user_info = etl_service._table_exists(cur, schema, "user_info")
+        reg_creator_join = ""
+        reg_creator_sel = ", NULL::text AS create_user_label"
+        if "create_user_id" in jcols:
+            if has_user_info:
+                reg_creator_join = " LEFT JOIN user_info u_reg ON u_reg.user_id = j.create_user_id "
+                reg_creator_sel = (
+                    ", COALESCE(NULLIF(TRIM(u_reg.user_nickname), ''), NULLIF(TRIM(u_reg.user_email), ''), "
+                    "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
+                )
+            else:
+                reg_creator_sel = (
+                    ", CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END AS create_user_label"
+                )
+        j_list_cols = _registry_batch_jobs_cols_sql(jcols)
+        if "folder_connection_id" in jcols:
+            join_folder = f'LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id'
+        else:
+            join_folder = f'LEFT JOIN {_q(schema, "batch_folder_connections")} c ON FALSE'
+        ccols_reg = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        fconn_type_reg = _folder_conn_type_sql_select(ccols_reg, "c")
         cur.execute(
             f"""
-            SELECT r.id, r.target_table, r.storage_connection_id, r.batch_job_id, r.created_at, r.updated_at,
-                   j.job_name, j.folder_connection_id, j.interval_minutes, j.is_active, j.last_run_status, j.last_run_at,
+            SELECT {r_sel},
+                   {j_list_cols},
                    c.connection_name,
-                   sc.connection_name AS storage_connection_name
+                   {fconn_type_reg},
+                   {storage_name_sel}
+                   {reg_creator_sel}
             FROM {_q(schema, _REGISTRY_TABLE)} r
             LEFT JOIN {_q(schema, "batch_jobs")} j ON r.batch_job_id = j.batch_job_id
-            LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id
-            LEFT JOIN {_q(schema, "etl_storage_connections")} sc ON r.storage_connection_id = sc.storage_connection_id AND sc.is_active = TRUE
+            {join_folder}
+            {sc_join}
+            {reg_creator_join}
             {etl_where}
-            ORDER BY r.updated_at DESC
+            ORDER BY {order_by}
             """
         )
         rows = cur.fetchall()
-        return [_row_to_dict(r) for r in rows]
+        out = [_row_to_dict(r) for r in rows]
+        for d in out:
+            _normalize_folder_connection_dict(d)
+            rid = d.get("registry_id")
+            if rid is not None and d.get("id") is None:
+                d["id"] = rid
+        return out
     finally:
         cur.close()
         conn.close()
@@ -815,9 +1243,9 @@ def upsert_batch_target_registry(
     target_table: str, storage_connection_id: Optional[int], batch_job_id: int, conn=None
 ) -> int:
     """
-    (target_table, storage_connection_id)에 해당하는 레지스트리 행이 있으면 batch_job_id만 UPDATE, 없으면 INSERT.
-    동일 타겟으로 새 배치 Job 생성 시 기존 ETL 목록 행을 갱신하기 위함. 반환: registry id.
-    conn 이 주어지면 해당 연결을 사용하고 닫지 않음(호출자가 소유). 없으면 새 연결 후 finally에서 close.
+    target_table에 해당하는 레지스트리 행이 있으면 batch_job_id만 UPDATE, 없으면 INSERT.
+    DB에 storage_connection_id 컬럼이 없으면 target_table만으로 매칭.
+    반환: registry_id.
     """
     target_table = (target_table or "").strip()
     if not target_table:
@@ -830,33 +1258,63 @@ def upsert_batch_target_registry(
     _ensure_batch_target_registry_table(conn)
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"""
-            SELECT id FROM {_q(schema, _REGISTRY_TABLE)}
-            WHERE target_table = %s AND (storage_connection_id IS NOT DISTINCT FROM %s)
-            """,
-            (target_table, storage_connection_id),
-        )
+        rcols = etl_service._table_columns_lower(cur, schema, _REGISTRY_TABLE)
+        pk_col = _registry_pk_column(rcols)
+        has_storage = "storage_connection_id" in rcols
+
+        if has_storage:
+            cur.execute(
+                f"""
+                SELECT {pk_col} AS _pk FROM {_q(schema, _REGISTRY_TABLE)}
+                WHERE target_table = %s AND (storage_connection_id IS NOT DISTINCT FROM %s)
+                """,
+                (target_table, storage_connection_id),
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT {pk_col} AS _pk FROM {_q(schema, _REGISTRY_TABLE)}
+                WHERE target_table = %s
+                """,
+                (target_table,),
+            )
+
         row = cur.fetchone()
         if row:
-            rid = row["id"] if hasattr(row, "get") else row[0]
+            rid = row["_pk"] if hasattr(row, "get") else row[0]
             cur.execute(
-                f"UPDATE {_q(schema, _REGISTRY_TABLE)} SET batch_job_id = %s, updated_at = NOW() WHERE id = %s",
+                f"UPDATE {_q(schema, _REGISTRY_TABLE)} SET batch_job_id = %s WHERE {pk_col} = %s",
                 (batch_job_id, rid),
             )
             conn.commit()
             return int(rid)
-        cur.execute(
-            f"""
-            INSERT INTO {_q(schema, _REGISTRY_TABLE)} (target_table, storage_connection_id, batch_job_id)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
-            (target_table, storage_connection_id, batch_job_id),
-        )
+
+        if has_storage:
+            cur.execute(
+                f"""
+                INSERT INTO {_q(schema, _REGISTRY_TABLE)} (target_table, storage_connection_id, batch_job_id)
+                VALUES (%s, %s, %s)
+                RETURNING {pk_col}
+                """,
+                (target_table, storage_connection_id, batch_job_id),
+            )
+        else:
+            cur.execute(
+                f"""
+                INSERT INTO {_q(schema, _REGISTRY_TABLE)} (target_table, batch_job_id)
+                VALUES (%s, %s)
+                RETURNING {pk_col}
+                """,
+                (target_table, batch_job_id),
+            )
+
         r = cur.fetchone()
         conn.commit()
-        return int(r["id"] if hasattr(r, "get") else r[0])
+        if hasattr(r, "get"):
+            pk_val = r.get(pk_col)
+        else:
+            pk_val = r[0]
+        return int(pk_val)
     except Exception:
         conn.rollback()
         raise
@@ -867,7 +1325,7 @@ def upsert_batch_target_registry(
 
 
 def clear_batch_job_from_registry(batch_job_id: int) -> None:
-    """배치 Job 삭제 시 레지스트리에서 해당 batch_job_id만 NULL로 둠. 행은 유지(ETL 목록에 테이블 관리용으로 계속 표시)."""
+    """배치 Job 삭제 시 레지스트리에서 해당 행 삭제(batch_job_id NOT NULL 제약 대응)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -875,7 +1333,7 @@ def clear_batch_job_from_registry(batch_job_id: int) -> None:
     cur = conn.cursor()
     try:
         cur.execute(
-            f"UPDATE {_q(schema, _REGISTRY_TABLE)} SET batch_job_id = NULL, updated_at = NOW() WHERE batch_job_id = %s",
+            f"DELETE FROM {_q(schema, _REGISTRY_TABLE)} WHERE batch_job_id = %s",
             (batch_job_id,),
         )
         conn.commit()
@@ -885,6 +1343,36 @@ def clear_batch_job_from_registry(batch_job_id: int) -> None:
     finally:
         cur.close()
         conn.close()
+
+
+def delete_batch_target_registry_rows_for_etl_table(etl_table_id: int, cur: Any, schema: Optional[str] = None) -> None:
+    """
+    etl_table_id에 연결된 batch_jobs를 가리키는 etl_batch_target_registry 행 선삭제.
+    delete_etl_table 등에서 batch_jobs 삭제 전에 호출해 registry→batch_jobs FK로 인한 삭제 실패를 방지.
+    """
+    sch = schema if schema is not None else _schema()
+    if not etl_service._table_exists(cur, sch, _REGISTRY_TABLE):
+        return
+    if not etl_service._table_exists(cur, sch, "batch_jobs"):
+        return
+    jcols = etl_service._table_columns_lower(cur, sch, "batch_jobs")
+    if "etl_table_id" not in jcols:
+        return
+    try:
+        cur.execute(
+            f"""
+            DELETE FROM {_q(sch, _REGISTRY_TABLE)}
+            WHERE batch_job_id IN (
+                SELECT batch_job_id FROM {_q(sch, 'batch_jobs')} WHERE etl_table_id = %s
+            )
+            """,
+            (int(etl_table_id),),
+        )
+    except Exception as e:
+        logger.warning(
+            "delete_batch_target_registry_rows_for_etl_table etl_table_id=%s 실패(이후 batch_jobs DELETE 시 FK 오류 가능): %s",
+            etl_table_id, e,
+        )
 
 
 def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
@@ -899,16 +1387,32 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
         _ensure_batch_target_registry_table(conn)
         cur = conn.cursor()
         try:
+            rcols = etl_service._table_columns_lower(cur, schema, _REGISTRY_TABLE)
+            pk_col = _registry_pk_column(rcols)
+            sel_cols = ["target_table", "batch_job_id"]
+            if "storage_connection_id" in rcols:
+                sel_cols.insert(1, "storage_connection_id")
             cur.execute(
-                f"SELECT target_table, storage_connection_id, batch_job_id FROM {_q(schema, _REGISTRY_TABLE)} WHERE id = %s",
+                f"SELECT {', '.join(sel_cols)} FROM {_q(schema, _REGISTRY_TABLE)} WHERE {pk_col} = %s",
                 (registry_id,),
             )
             row = cur.fetchone()
             if not row:
                 raise ValueError(f"레지스트리 행을 찾을 수 없습니다: id={registry_id}")
-            target_table = (row.get("target_table") if hasattr(row, "get") else row[0]) or ""
-            storage_connection_id = row.get("storage_connection_id") if hasattr(row, "get") else row[1]
-            batch_job_id = row.get("batch_job_id") if hasattr(row, "get") else row[2]
+            if hasattr(row, "get"):
+                target_table = (row.get("target_table") or "").strip()
+                storage_connection_id = (
+                    row.get("storage_connection_id") if "storage_connection_id" in rcols else None
+                )
+                batch_job_id = row.get("batch_job_id")
+            else:
+                target_table = (row[0] or "").strip()
+                if "storage_connection_id" in rcols:
+                    storage_connection_id = row[1]
+                    batch_job_id = row[2]
+                else:
+                    storage_connection_id = None
+                    batch_job_id = row[1]
         finally:
             cur.close()
 
@@ -938,7 +1442,12 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
 
         cur = conn.cursor()
         try:
-            cur.execute(f"DELETE FROM {_q(schema, _REGISTRY_TABLE)} WHERE id = %s", (registry_id,))
+            rcols2 = etl_service._table_columns_lower(cur, schema, _REGISTRY_TABLE)
+            pk_col2 = _registry_pk_column(rcols2)
+            cur.execute(
+                f"DELETE FROM {_q(schema, _REGISTRY_TABLE)} WHERE {pk_col2} = %s",
+                (registry_id,),
+            )
             conn.commit()
         except Exception:
             conn.rollback()

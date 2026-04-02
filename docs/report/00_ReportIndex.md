@@ -27,6 +27,7 @@
 | 15_New_Dashboard_Upgrade_Plan.md | **뉴 대시보드 업그레이드 설계서(커서 실행용)**: 회원 현황·발송 인구통계·시간대별 분석 섹션 추가. Phase 1(router 3 엔드포인트) → 2(client 3함수) → 3A(회원/인구통계 컴포넌트 4종) → 3B(formatDateLabel export) → 3C(ChannelStackBarChart, HourlyBarChart) → 4(NewDashboardPage 통합) → 5(CSS) → 6(검증). 서브에이전트 배정·체크리스트·파일 목록 포함. |
 | 16_Campaign_Dashboard_Star_Schema_Plan.md | **캠페인 대시보드(Star 스키마) 개발 계획서**: `ibank_1`~`ibank_1_4` → `ibank_1_star_1`/`ibank_1_star_2` 컬럼·JSONB 매핑 검증, API 계약 유지 전제하의 `campaign_dash_server`·`campaign_dashboard` 패키지 Phase 표·체크리스트·table_id·db 검증 주의사항. |
 | 17_SystemDB_Commercialization_Implementation_Guide.md | **시스템 DB 추가 및 상용화 개발 구현 가이드**: DB·config·인증·권한·프로젝트·알림·화면·API. **§10.4 M1/M2**, **§13** 전사 공통 `table_master`/ETL·`require_etl_infrastructure`. **docs/main/04·05·06** 과 교차 참조. **§12** 서브에이전트·`.cursor/`. |
+| 18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md | **ibank_etl_data 실측 스키마·생성자·CURL/FE 체크리스트**: `protocol`/`folder_type`, `id`/`registry_id` PK, `create_user_id`·`create_user_label` API/화면 정합, 동적 컬럼 감지 요약. |
 | etc01_Backend_Learning_Flow.md | **ETL2 학습 가이드**: Backend/etl_server2 + packages/etl2 기준. 시스템 목적·아키텍처·레이어별 파일 역할·데이터 흐름(함수·라이브러리 단위)·학습 순서(의존도)·API·패턴·한도·ERD. 처음 접하는 개발자용. | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |

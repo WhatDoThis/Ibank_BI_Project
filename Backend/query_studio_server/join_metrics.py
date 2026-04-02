@@ -1,5 +1,5 @@
 """
-Backend.report_server.join_metrics (JOIN 점수·파생 컬럼)
+Backend.query_studio_server.join_metrics (JOIN 점수·파생 컬럼)
 ====================================================
 JOIN 경우의 수·정확도 점수, 파생 테이블(조인 결과) 컬럼 목록. report 라우터에서 사용.
 

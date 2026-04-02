@@ -23,7 +23,7 @@ import CollapsibleCardSection from './CollapsibleCardSection';
 
 const DEFAULT_SFTP = {
   connection_name: '',
-  protocol: 'sftp',
+  folder_type: 'sftp',
   host: '',
   port: 22,
   username: '',
@@ -34,7 +34,7 @@ const DEFAULT_SFTP = {
 
 const DEFAULT_S3 = {
   connection_name: '',
-  protocol: 's3',
+  folder_type: 's3',
   bucket: '',
   prefix: '',
   region: '',
@@ -55,7 +55,7 @@ function FolderConnectionFormFile({ onSuccess, refreshKey = 0 }) {
   const [error, setError] = useState('');
 
   function resetForm() {
-    setForm({ ...(protocol === 'sftp' ? DEFAULT_SFTP : DEFAULT_S3), protocol });
+    setForm({ ...(protocol === 'sftp' ? DEFAULT_SFTP : DEFAULT_S3), folder_type: protocol });
     setTestResult(null);
     setTestPassed(false);
   }
@@ -70,7 +70,7 @@ function FolderConnectionFormFile({ onSuccess, refreshKey = 0 }) {
   function buildTestBody() {
     if (protocol === 'sftp') {
       return {
-        protocol: 'sftp',
+        folder_type: 'sftp',
         connection_name: form.connection_name,
         host: form.host,
         port: Number(form.port) || 22,
@@ -81,7 +81,7 @@ function FolderConnectionFormFile({ onSuccess, refreshKey = 0 }) {
       };
     }
     return {
-      protocol: 's3',
+      folder_type: 's3',
       connection_name: form.connection_name,
       bucket: form.bucket,
       prefix: form.prefix || '',
@@ -93,7 +93,7 @@ function FolderConnectionFormFile({ onSuccess, refreshKey = 0 }) {
   }
 
   function buildCreateBody() {
-    const b = { connection_name: form.connection_name.trim(), protocol };
+    const b = { connection_name: form.connection_name.trim(), folder_type: protocol };
     if (protocol === 'sftp') {
       b.host = form.host;
       b.port = Number(form.port) || 22;

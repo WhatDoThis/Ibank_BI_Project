@@ -2,6 +2,7 @@
  * app/auth/SignupPage.jsx (초대 코드 회원가입)
  * ====================================
  * POST /api/auth/signup — invite_code, email, password, nickname. 성공 시 로그인 안내·/login 이동.
+ * 비밀번호 확인·정책 검증(shared/utils/passwordPolicy) 후 가입 확인 다이얼로그.
  *
  * [Main Functions]
  * ===========
@@ -9,7 +10,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/authClient, shared/utils/crudConfirm
+ * - react-router-dom, shared/api/authClient, shared/utils/crudConfirm, shared/utils/passwordPolicy
  */
 
 import { useState } from 'react'
@@ -17,6 +18,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { getInviteValidate, postSignup } from '@/shared/api/authClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
+import { getPasswordStrengthError } from '@/shared/utils/passwordPolicy.js'
 
 import { useAuth } from './AuthContext.jsx'
 import './login.css'
@@ -27,9 +29,12 @@ export default function SignupPage() {
   const [inviteCode, setInviteCode] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirm, setPasswordConfirm] = useState('')
   const [nickname, setNickname] = useState('')
   const [inviteHint, setInviteHint] = useState('')
   const [error, setError] = useState('')
+  const [pwdCheckHint, setPwdCheckHint] = useState('')
+  const [pwdCheckOk, setPwdCheckOk] = useState(false)
   const [busy, setBusy] = useState(false)
 
   if (loading) {
@@ -77,10 +82,42 @@ export default function SignupPage() {
     }
   }
 
+  function clearPwdCheckFeedback() {
+    setPwdCheckHint('')
+    setPwdCheckOk(false)
+  }
+
+  function handleVerifyPasswordClick() {
+    setError('')
+    clearPwdCheckFeedback()
+    if (password !== passwordConfirm) {
+      setPwdCheckHint('비밀번호가 일치하지 않습니다.')
+      return
+    }
+    const strengthErr = getPasswordStrengthError(password)
+    if (strengthErr) {
+      setPwdCheckHint(strengthErr)
+      return
+    }
+    setPwdCheckOk(true)
+    setPwdCheckHint('비밀번호가 정책을 만족하고 두 입력이 일치합니다. 가입하기를 눌러 계속하세요.')
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!confirmCrud('입력한 정보로 회원가입을 완료할까요?')) return
     setError('')
+    if (password !== passwordConfirm) {
+      setError('비밀번호가 일치하지 않습니다.')
+      clearPwdCheckFeedback()
+      return
+    }
+    const strengthErr = getPasswordStrengthError(password)
+    if (strengthErr) {
+      setError(strengthErr)
+      clearPwdCheckFeedback()
+      return
+    }
+    if (!confirmCrud('입력한 정보로 회원가입을 완료할까요?')) return
     setBusy(true)
     try {
       await postSignup({
@@ -132,12 +169,46 @@ export default function SignupPage() {
               type="password"
               autoComplete="new-password"
               value={password}
-              onChange={(ev) => setPassword(ev.target.value)}
+              onChange={(ev) => {
+                setPassword(ev.target.value)
+                clearPwdCheckFeedback()
+              }}
               required
               minLength={10}
               className="login-page__input"
             />
           </label>
+          <label className="login-page__label">
+            비밀번호 확인
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={passwordConfirm}
+              onChange={(ev) => {
+                setPasswordConfirm(ev.target.value)
+                clearPwdCheckFeedback()
+              }}
+              required
+              minLength={10}
+              className="login-page__input"
+            />
+          </label>
+          <button
+            type="button"
+            className="login-page__submit login-page__submit--secondary"
+            onClick={handleVerifyPasswordClick}
+          >
+            비밀번호 조건·일치 검증
+          </button>
+          {pwdCheckHint ? (
+            <p
+              className={
+                pwdCheckOk ? 'login-page__hint login-page__hint--ok' : 'login-page__error'
+              }
+            >
+              {pwdCheckHint}
+            </p>
+          ) : null}
           <label className="login-page__label">
             닉네임 (선택)
             <input

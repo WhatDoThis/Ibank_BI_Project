@@ -6,7 +6,7 @@ Backend.core.dashboard_service (대시보드 비즈니스 로직)
 [Main Functions]
 ===========
 1. get_required_columns: DASHBOARD_REQUIRED_COLUMNS 기반 필수 컬럼 목록 (API·안내용)
-2. get_aggregatable_tables: 프로젝트별 table_master·매핑(main∪dash∪star) 후보만 대상으로 필수 컬럼·타입 검사
+2. get_aggregatable_tables: 프로젝트별 table_master·매핑(main∪dash) 후보만 대상으로 필수 컬럼·타입 검사
 3. _full_table_name: table_id → schema.table
 4. _build_group_by_clause: group_by 설정 → GROUP BY 절
 5. _build_where_clause: campaign/workflow/channel 필터 → WHERE 절
@@ -78,11 +78,10 @@ def get_required_columns():
 
 # 2.
 def get_aggregatable_tables(project_info_id: int):
-    """table_project_mapping·table_master 기준 main∪dash∪star 후보만 두고, 필수 컬럼·타입을 만족하는 테이블만 반환."""
+    """table_project_mapping·table_master 기준 main∪dash 후보만 두고, 필수 컬럼·타입을 만족하는 테이블만 반환."""
     main_s = db.get_allowed_tables_by_project(int(project_info_id), "main")
     dash_s = db.get_allowed_tables_by_project(int(project_info_id), "dash")
-    star_s = db.get_allowed_tables_by_project(int(project_info_id), "star")
-    all_candidates = sorted(main_s | dash_s | star_s)
+    all_candidates = sorted(main_s | dash_s)
     required_count = len(DASHBOARD_REQUIRED_COLUMNS)
     result = []
     for table_name in all_candidates:

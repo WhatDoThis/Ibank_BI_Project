@@ -16,9 +16,17 @@
  */
 
 import React from 'react';
-import { ON_ERROR_OPTIONS, getOnErrorValue, isTypeCompatible, NEW_TABLE_VALUE } from './constants.js';
+import { ON_ERROR_OPTIONS, getOnErrorValue, isTypeCompatible, NEW_TABLE_VALUE, inferredTypeToPg } from './constants.js';
 import { TransformCell } from './TransformCell.jsx';
 import { TransformDetailRow } from './TransformDetailRow.jsx';
+
+/** 기존 테이블 매핑: 타겟 컬럼 data_type → PG 타입 힌트. 없으면 소스 추론 타입. */
+function resolveTargetPgTypeForRow(columns, targetColName, src) {
+  if (!targetColName) return null;
+  const c = (columns || []).find((x) => String(x.column_name || '').trim() === String(targetColName).trim());
+  if (c && c.data_type) return inferredTypeToPg(c.data_type);
+  return inferredTypeToPg(src.type);
+}
 
 // 1.
 export function ColumnMappingSection({
@@ -172,6 +180,7 @@ export function ColumnMappingSection({
                             src={src}
                             transformKind={transformKind}
                             setTransformKind={setTransformKind}
+                            setMaskingConfig={setMaskingConfig}
                           />
                         </td>
                         <td className="etl-target-select-modal__cell--exclude">
@@ -190,6 +199,7 @@ export function ColumnMappingSection({
                           src={src}
                           colSpan={8}
                           kind={kind}
+                          targetPgType={inferredTypeToPg(src.type)}
                           sourceColumns={sourceColumns}
                           typeCastConfig={typeCastConfig}
                           setTypeCastConfig={setTypeCastConfig}
@@ -315,6 +325,7 @@ export function ColumnMappingSection({
                           src={src}
                           transformKind={transformKind}
                           setTransformKind={setTransformKind}
+                          setMaskingConfig={setMaskingConfig}
                         />
                       </td>
                     </tr>
@@ -323,6 +334,7 @@ export function ColumnMappingSection({
                         src={src}
                         colSpan={7}
                         kind={kind}
+                        targetPgType={resolveTargetPgTypeForRow(columns, targetColName, src)}
                         sourceColumns={sourceColumns}
                         typeCastConfig={typeCastConfig}
                         setTypeCastConfig={setTypeCastConfig}

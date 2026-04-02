@@ -1,7 +1,7 @@
 """
-Backend.report_server.analysis_store (분석 결과 저장/조회)
+Backend.query_studio_server.analysis_store (분석 결과 저장/조회)
 ==========================================================
-allowlist_analysis 테이블에 분석 결과 저장/조회. report 라우터 등에서 사용.
+allowlist_analysis 테이블에 분석 결과 저장/조회. query_studio_server 라우터 등에서 사용.
 
 [Main Functions]
 ===========

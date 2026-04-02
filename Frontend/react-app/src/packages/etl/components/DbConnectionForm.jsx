@@ -1,21 +1,22 @@
 /**
  * packages/etl/components/DbConnectionForm.jsx (DB 연결·ETL 등록 폼)
  * =====================================================================
- * 연결 추가(호스트, 포트, DB명, 사용자, 비밀번호), 연결 테스트, 연결 선택 후 소스 테이블 선택 → 타겟 테이블명·설명·동기화 모드 입력, 등록. PK는 DB 소스인 경우 소스 DB에서 자동 반영. Phase 5.
+ * 연결 추가·테스트, 연결·소스 선택 → 타겟은 테이블선택 모달(라벨·설명 table_label/table_dscrtn 포함)·동기화 모드, 등록. PK는 DB 소스 시 소스에서 자동 반영.
  * UI: 2열 그리드(etl-db-form__grid--2)·카드 섹션(etl-db-form__section--card)·라벨 상단 배치·액션 버튼 영역(etl-db-form__actions).
  *
  * [Main Functions]
  * ===========
  * 1. 연결 목록 조회, 연결 추가, 연결 테스트
- * 2. 연결별 소스 테이블 목록, 소스 테이블 선택 후 타겟 테이블·라벨명 등록 (POST /api/etl/tables). 라벨명은 추후 테이블 마스터에서 관리 예정.
+ * 2. 연결별 소스 테이블 목록(활성 연결만·로딩 중 선택 해제 방지), 실패 시 에러 문구. 소스 테이블 선택 후 타겟 등록 (POST /api/etl/tables).
  * 3. onSuccess: 등록 성공 시 콜백
  *
  * [Dependencies]
  * =========
  * - React, @/packages/etl/api/etlClient.js (etl2ListTimezones, etl2ListConnections, etl2CreateConnection, etl2TestConnection, etl2ListConnectionTables, etl2CreateTable)
+ * - EtlStorageDbSelect, ../utils/storageDb.js (normalizeStorageConnectionId)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   etl2ListTimezones,
   etl2ListConnections,
@@ -31,9 +32,15 @@ import {
   etl2CreateTransformRule
 } from '@/packages/etl/api/etlClient.js';
 import { normalizeStorageConnectionId } from '../utils/storageDb.js';
-import { getOnErrorValue } from './TargetTableSelectModal/constants.js';
+import EtlStorageDbSelect from './EtlStorageDbSelect.jsx';
 import TargetTableSelectModal from './TargetTableSelectModal/index.jsx';
-import { buildEmptyTransformSettings, TRANSFORM_OPTION_LABELS } from './TargetTableSelectModal/constants.js';
+import {
+  getOnErrorValue,
+  buildEmptyTransformSettings,
+  TRANSFORM_OPTION_LABELS,
+  ETL_TABLE_LABEL_MAX_LEN,
+  ETL_TABLE_DSCRTN_MAX_LEN
+} from './TargetTableSelectModal/constants.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
 
 // 1.
@@ -43,6 +50,7 @@ function DbConnectionForm({ onSuccess }) {
   const [selectedConnId, setSelectedConnId] = useState('');
   const [sourceTables, setSourceTables] = useState([]);
   const [loadingTables, setLoadingTables] = useState(false);
+  const [tablesLoadError, setTablesLoadError] = useState('');
 
   const [newConn, setNewConn] = useState({
     connection_name: '',
@@ -87,8 +95,8 @@ function DbConnectionForm({ onSuccess }) {
   }
 
   const [targetTable, setTargetTable] = useState('');
-  const [labelName, setLabelName] = useState('');
-  const [description, setDescription] = useState('');
+  const [tableLabel, setTableLabel] = useState('');
+  const [tableDscrtn, setTableDscrtn] = useState('');
   const [syncMode, setSyncMode] = useState('incremental');
   const [incrementalColumnSelect, setIncrementalColumnSelect] = useState('');
   const [incrementalColumnCustom, setIncrementalColumnCustom] = useState('');
@@ -168,6 +176,8 @@ function DbConnectionForm({ onSuccess }) {
     setPkColumns('');
     setIndexDefinitions(null);
     setTargetTable('');
+    setTableLabel('');
+    setTableDscrtn('');
   }, [selectedSourceTable]);
 
   /** 테이블선택 모달을 연다. 연결·소스 테이블이 있으면 소스 컬럼·소스 인덱스를 먼저 불러온 뒤 모달을 연다. */
@@ -231,28 +241,45 @@ function DbConnectionForm({ onSuccess }) {
       .catch(() => setTimezones([]));
   }, []);
 
-  // DB 연결만 표시하므로, 선택된 ID가 파일 업로드 연결이면 선택 해제
-  const dbConnections = (connections || []).filter(
-    (c) => (c.source_type || '').toString().toLowerCase() !== 'file'
+  // DB 소스만 + 비활성 연결 제외(list는 활성만이어도 방어). 파일 업로드용 연결(source_type file) 제외.
+  const dbConnections = useMemo(
+    () =>
+      (connections || []).filter(
+        (c) =>
+          (c.source_type || '').toString().toLowerCase() !== 'file' &&
+          c.is_active !== false,
+      ),
+    [connections],
   );
+
   useEffect(() => {
+    if (loadingConn) return;
     const idSet = new Set(dbConnections.map((c) => String(c.connection_id)));
     if (selectedConnId && !idSet.has(String(selectedConnId))) {
       setSelectedConnId('');
       setSourceTables([]);
       setSelectedSourceTable('');
     }
-  }, [connections, dbConnections.length, selectedConnId]);
+  }, [connections, dbConnections, loadingConn, selectedConnId]);
 
   useEffect(() => {
     if (!selectedConnId) {
       setSourceTables([]);
+      setTablesLoadError('');
       return;
     }
     setLoadingTables(true);
+    setTablesLoadError('');
+    setSourceTables([]);
     etl2ListConnectionTables(Number(selectedConnId))
-      .then((res) => setSourceTables(res.tables || []))
-      .catch(() => setSourceTables([]))
+      .then((res) => {
+        setSourceTables(res.tables || []);
+        setTablesLoadError('');
+      })
+      .catch((err) => {
+        setSourceTables([]);
+        setTablesLoadError(err?.message || '소스 테이블 목록을 불러오지 못했습니다.');
+      })
       .finally(() => setLoadingTables(false));
   }, [selectedConnId]);
 
@@ -404,6 +431,16 @@ function DbConnectionForm({ onSuccess }) {
       setCreateError('연결, 소스 테이블, 타겟 테이블명을 입력하세요.');
       return;
     }
+    const tl0 = tableLabel.trim();
+    const td0 = tableDscrtn.trim();
+    if (tl0.length > ETL_TABLE_LABEL_MAX_LEN) {
+      setCreateError(`테이블 라벨은 최대 ${ETL_TABLE_LABEL_MAX_LEN}자입니다. 테이블선택 모달에서 줄여 주세요.`);
+      return;
+    }
+    if (td0.length > ETL_TABLE_DSCRTN_MAX_LEN) {
+      setCreateError(`테이블 설명은 최대 ${ETL_TABLE_DSCRTN_MAX_LEN}자입니다. 테이블선택 모달에서 줄여 주세요.`);
+      return;
+    }
     const finalIncremental =
       syncMode === 'incremental'
         ? (incrementalColumnSelect === '__custom__' ? incrementalColumnCustom.trim() : (incrementalColumnSelect || ''))
@@ -432,8 +469,8 @@ function DbConnectionForm({ onSuccess }) {
       const res = await etl2CreateTable({
         connection_id: Number(selectedConnId),
         target_table: targetTable.trim(),
-        label_name: labelName.trim() || null,
-        description: description.trim() || null,
+        table_label: tableLabel.trim() || null,
+        table_dscrtn: tableDscrtn.trim() || null,
         source_table: selectedSourceTable,
         pk_columns: (pkColumns || '').trim() || null,
         sync_mode: syncMode,
@@ -458,8 +495,8 @@ function DbConnectionForm({ onSuccess }) {
       }
       if (onSuccess) onSuccess();
       setTargetTable('');
-      setLabelName('');
-      setDescription('');
+      setTableLabel('');
+      setTableDscrtn('');
       setSyncMode('incremental');
       setIncrementalColumnSelect('');
       setIncrementalColumnCustom('');
@@ -693,7 +730,7 @@ function DbConnectionForm({ onSuccess }) {
             >
               <option value="">선택</option>
               {dbConnections.map((c) => (
-                <option key={c.connection_id} value={c.connection_id}>
+                <option key={String(c.connection_id)} value={String(c.connection_id)}>
                   {c.connection_name} ({c.host}:{c.port ?? '-'}/{c.database_name})
                 </option>
               ))}
@@ -701,13 +738,18 @@ function DbConnectionForm({ onSuccess }) {
           </div>
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">소스 테이블</label>
+            {tablesLoadError && (
+              <p className="etl-db-form__message etl-db-form__message--error" role="alert">
+                {tablesLoadError}
+              </p>
+            )}
             <select
               value={selectedSourceTable}
               onChange={(e) => setSelectedSourceTable(e.target.value)}
               disabled={!selectedConnId || loadingTables}
               className="etl-db-form__select"
             >
-              <option value="">선택</option>
+              <option value="">{loadingTables ? '불러오는 중…' : '선택'}</option>
               {sourceTableOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -717,16 +759,14 @@ function DbConnectionForm({ onSuccess }) {
           </div>
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">저장할 DB</label>
-            <select
+            <span className="etl-db-form__label-desc">내장 main·dash는 config; 그 외는 &quot;저장 DB 등록&quot; 탭에서 등록한 연결입니다.</span>
+            <EtlStorageDbSelect
               value={storageConnectionId}
-              onChange={(e) => setStorageConnectionId(e.target.value)}
+              onChange={setStorageConnectionId}
+              connections={storageConnections}
               className="etl-db-form__select"
-            >
-              <option value="">기본 DB (ibank_db)</option>
-              {storageConnections.map((c) => (
-                <option key={c.storage_connection_id} value={String(c.storage_connection_id)}>{c.connection_name}</option>
-              ))}
-            </select>
+              aria-label="저장할 DB"
+            />
           </div>
           <div className="etl-db-form__field">
             <label className="etl-db-form__label">타겟 테이블명</label>
@@ -753,15 +793,21 @@ function DbConnectionForm({ onSuccess }) {
               currentPkColumns={pkColumns}
               currentIndexDefinitions={indexDefinitions || []}
               currentTransformSettings={transformSettings}
+              currentTableLabel={tableLabel}
+              currentTableDscrtn={tableDscrtn}
               sourceColumns={sourceColumns}
               sourceIndexes={sourceIndexes}
               pkReadOnlyFromSource={sourceIndexes.length > 0 && sourceIndexes.some((i) => i && i.is_primary)}
-              onSelect={(tableName, mapping, pkCols, idxDefs, tSettings, assembledRules) => {
+              onSelect={(tableName, mapping, pkCols, idxDefs, tSettings, assembledRules, tm) => {
                 setTargetTable(tableName);
                 setColumnMapping(mapping && mapping.length > 0 ? mapping : null);
                 setPkColumns(pkCols ?? '');
                 setIndexDefinitions(idxDefs && idxDefs.length > 0 ? idxDefs : null);
                 if (tSettings) setTransformSettings(tSettings);
+                if (tm) {
+                  setTableLabel(tm.table_label != null ? String(tm.table_label) : '');
+                  setTableDscrtn(tm.table_dscrtn != null ? String(tm.table_dscrtn) : '');
+                }
                 setTargetTableSelectOpen(false);
               }}
             />
@@ -773,6 +819,12 @@ function DbConnectionForm({ onSuccess }) {
                 {targetTable.trim() && (
                   <p className="etl-db-form__summary-line">
                     <strong>타겟 테이블:</strong> {targetTable.trim()}
+                  </p>
+                )}
+                {(tableLabel.trim() || tableDscrtn.trim()) && (
+                  <p className="etl-db-form__summary-line">
+                    <strong>라벨·설명:</strong>{' '}
+                    {[tableLabel.trim() || null, tableDscrtn.trim() || null].filter(Boolean).join(' — ') || '—'}
                   </p>
                 )}
                 {columnMapping && columnMapping.length > 0 && (
@@ -832,28 +884,8 @@ function DbConnectionForm({ onSuccess }) {
               </div>
             </div>
           )}
-          <div className="etl-db-form__field">
-            <label className="etl-db-form__label">라벨명 (선택)</label>
-            <input
-              type="text"
-              value={labelName}
-              onChange={(e) => setLabelName(e.target.value)}
-              placeholder="표시용 라벨"
-              className="etl-db-form__input"
-            />
-          </div>
           <div className="etl-db-form__field etl-db-form__field--full">
-            <label className="etl-db-form__label">설명</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="테이블 설명"
-              className="etl-db-form__input"
-            />
-          </div>
-          <div className="etl-db-form__field etl-db-form__field--full">
-            <p className="etl-db-form__hint">DB 소스인 경우 PK는 소스 DB에서 자동으로 가져옵니다.</p>
+            <p className="etl-db-form__hint">테이블 라벨·설명은 &quot;테이블선택 및 컬럼매핑&quot; 모달에서 선택 입력합니다(table_master 동일 컬럼명). DB 소스인 경우 PK는 소스 DB에서 자동으로 가져옵니다.</p>
           </div>
           <div className="etl-db-form__field etl-db-form__field--full">
             <label className="etl-db-form__label">동기화 모드</label>

@@ -19,7 +19,7 @@ start_scheduler, load_active_batch_jobs, add_job, remove_job, reschedule_job, ru
 [Dependencies]
 =========
 - apscheduler (BackgroundScheduler, ThreadPoolExecutor)
-- Backend.etl_server.service_file (list_batch_jobs, get_batch_job)
+- Backend.etl_server.service_file (list_batch_jobs, get_batch_job, effective_interval_minutes_from_batch_row, effective_batch_job_type)
 - Backend.etl_server.batch_executor_file (run_batch_job), Backend.etl_server.batch_executor_db (run_db_batch_job)
 """
 
@@ -93,10 +93,12 @@ def add_job(job: dict, force_now: bool = False) -> None:
     """배치 1건 스케줄러에 등록.
     force_now=True: 재활성·수동 트리거 시 next_run_time = 지금+5초(즉시 실행).
     force_now=False(기본): 서버 재시작 시 last_run_at+interval 또는 10초 후."""
+    from Backend.etl_server import service_file as batch_service
+
     batch_job_id = job["batch_job_id"]
-    job_type = (job.get("job_type") or "file").strip().lower()
+    job_type = batch_service.effective_batch_job_type(job)
     run_func = _get_run_func(job_type)
-    interval_minutes = int(job.get("interval_minutes") or 10)
+    interval_minutes = int(batch_service.effective_interval_minutes_from_batch_row(job))
     job_id = f"batch_{batch_job_id}"
 
     if force_now:
@@ -199,7 +201,7 @@ def run_now(batch_job_id: int) -> dict:
     if not job:
         logger.warning("run_now: batch_job_id=%s not found", batch_job_id)
         return {}
-    job_type = (job.get("job_type") or "file").strip().lower()
+    job_type = batch_service.effective_batch_job_type(job)
     if (job.get("last_run_status") or "").strip().lower() == "running":
         logger.info("run_now: batch_%s already running, skip", batch_job_id)
         return {"already_running": True}
@@ -207,7 +209,7 @@ def run_now(batch_job_id: int) -> dict:
     run_func = _get_run_func(job_type)
     sched = get_scheduler()
     job_id = f"batch_{batch_job_id}"
-    interval_minutes = int(job.get("interval_minutes") or 10)
+    interval_minutes = int(batch_service.effective_interval_minutes_from_batch_row(job))
 
     # 즉시실행 직후 interval이 곧바로 다시 도는 것 방지: next_run을 지금+interval로 리셋
     try:

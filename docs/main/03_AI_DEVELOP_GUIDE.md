@@ -6,7 +6,7 @@
 |------|------|
 | **위치** | `docs/main/03_AI_DEVELOP_GUIDE.md` |
 | **주 목적** | 저장소 전체 코드를 업로드하지 않고도 **현재 시스템 구조**와 **확장·수정 시 어디를 열어야 하는지**를 파악해, AI 또는 신규 참여자가 정확한 구현 방향을 잡을 수 있게 한다. |
-| **와 함께 볼 문서** | **00_PRD.md**, **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**, **04_DB_ARCHITECTURE.md**, **05_Permission_ARCHITECTURE.md**(역할·권한 v2), **06_CUSTOMER_JOURNEY.md**(고객 여정). **작업 이력**: **docs/log/log.md**. **보조 설계**: **docs/report/**. |
+| **와 함께 볼 문서** | **00_PRD.md**, **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**, **04_DB_ARCHITECTURE.md**, **05_Permission_ARCHITECTURE.md**(권한·역할·`require_permission`), **06_CUSTOMER_JOURNEY.md**(고객 여정). **작업 이력**: **docs/log/log.md**. **보조 설계**: **docs/report/**. |
 | **갱신 원칙** | 아키텍처(패키지 분리·URL·DB 연결)가 바뀌면 본 문서와 00/01/02 중 해당 절을 함께 맞춘다. 날짜 타임라인은 두지 않는다. |
 
 ---
@@ -23,33 +23,35 @@ flowchart LR
   subgraph client [Browser]
     React[React 패키지들]
   end
-  subgraph api [단일 FastAPI 앱]
+  subgraph api [api_server/main.py]
     H[health]
-    R[report_server /api]
-    D[legacy_dashboard /api/dashboard]
+    A[auth /api/auth]
+    PR[projects /api/projects]
+    NF[notifications]
+    AD[admin /api/admin]
+    R[query_studio_server /api]
     E[etl_server /api/etl]
-    N[new_dash_server]
-    C[campaign_dash_server]
-    M[new_dash_server2]
+    C[campaign_dash /api/campaign-dashboard]
   end
-  React -->|HTTP JSON| api
-  api --> PG1[(메인 비즈니스 DB)]
-  api --> PG2[(system_db ETL 메타)]
-  api --> PG3[(dash_db 뉴·캠페인 물리테이블)]
-  api --> PG4[(star_db 마케팅 대시보드)]
+  React -->|HTTP JSON Bearer| api
+  api --> PG1[(main_db 쿼리스튜디오)]
+  api --> PG2[(system_db 메타·인증·조직)]
+  api --> PG3[(dash_db Star·집계)]
 ```
 
 ### 1.2 “기능 영역”과 백엔드 패키지 (요약)
 
 | 사용자 facing | HTTP prefix (대표) | Backend 패키지 | 비고 |
 |---------------|-------------------|----------------|------|
-| 노코드 리포트 | `/api/list-tables`, `execute-query`, … | `Backend/report_server` | 조인·라벨·분석 저장 등 동일 패키지 |
-| 구 대시보드 | `/api/dashboard/*` | `Backend/legacy_dashboard_server` | 집계 로직은 **core** |
-| ETL | `/api/etl`, `/api/etl/batch` | `Backend/etl_server` | 단일 ETL 스택 |
-| 뉴 대시보드 | `/api/new-dashboard/*` | `Backend/new_dash_server` | |
-| 캠페인 대시보드 | `/api/campaign-dashboard/*` | `Backend/campaign_dash_server` | Star 물리 테이블 |
-| 마케팅 대시보드 | `/api/new-dashboard2/*` | `Backend/new_dash_server2` | **core.db 미사용**, `star_db` 자체 연결 |
+| 인증·세션·/me | `/api/auth/*` | `Backend/auth_server` | JWT·2FA·초대 가입 |
+| 프로젝트 선택 | `/api/projects` | `Backend/project_server` | access 토큰에 `project_info_id` |
+| 알림 | `/api/notifications` | `Backend/notification_server` | |
+| 어드민(부서·사용자·권한·프로젝트) | `/api/admin/*` | `Backend/admin_server` | 조직 역할·트리 정책 |
+| 쿼리 스튜디오 | `/api/list-tables`, `execute-query`, … | `Backend/query_studio_server` | `Depends(require_permission(...))` |
+| ETL | `/api/etl`, `/api/etl/batch` | `Backend/etl_server` | 앱 레벨 `require_etl_infrastructure` |
+| 캠페인 대시보드 | `/api/campaign-dashboard/*` | `Backend/campaign_dash_server` | `require_permission("dashboard")`, dash_db Star |
 | 헬스·루트 | `/health`, `/`, `/api` | `Backend/api_server/routers/health.py` | |
+| (미등록 보존) | `/api/dashboard`, `/api/new-dashboard*`, … | `legacy_dashboard_server`, `new_dash_server`, `new_dash_server2` | **main.py 미포함** — PRD·01 기준 앱은 캠페인 대시보드 단일 |
 
 ---
 
@@ -65,21 +67,21 @@ flowchart LR
 
 | 모듈 | 역할 | 다른 패키지가 쓰는 방식 |
 |------|------|-------------------------|
-| `db.py` | 메인·시스템·dash_db 연결 풀, 테이블/컬럼 검증, `allowed_tables` | `report_server`, `etl_server`, `new_dash_server`, `campaign_dash_server`, `dependencies`, `dashboard_service`, 스크립트 |
-| `dependencies.py` | FastAPI `get_db`, `get_config` | `report_server/router`, `api_server/routers/health` |
+| `db.py` | 메인·시스템·dash_db 연결 풀, `get_allowed_tables`(JWT `project_info_id` 있으면 `table_project_mapping`·`table_master` 기반, 없으면 메인 스키마 전체 목록 호환), 테이블/컬럼 검증 | `query_studio_server`, `etl_server`, `campaign_dash_server`, `dependencies`, `dashboard_service`, 스크립트 |
+| `dependencies.py` | FastAPI `get_db`, `get_config` | `query_studio_server/router`, `api_server/routers/health` |
 | `dashboard_service.py` | 캠페인/일자/워크플로우/채널 집계·차트·필터 | `legacy_dashboard_server`, `new_dash_server`, `campaign_dash_server` |
 
 **의존 규칙 (중요)**:
 
-- `core`는 **`report_server` / `legacy_dashboard_server` / 라우터 패키지를 import하지 않는다.** (순환 방지.)
-- `report_server` → `core`만 바라본다.
+- `core`는 **`query_studio_server` / `legacy_dashboard_server` / 라우터 패키지를 import하지 않는다.** (순환 방지.)
+- `query_studio_server` → `core`만 바라본다.
 
 각 파일 상단 docstring에 **`[Package Usage]`**(어느 패키지가 어떤 함수를 쓰는지)가 번호 맞춰 적혀 있으므로, 세부 호출 관계는 코드를 열기 전에 그 블록을 보면 된다.
 
-### 2.3 리포트: `Backend/report_server`
+### 2.3 쿼리 스튜디오: `Backend/query_studio_server`
 
 - **`router.py`**: `/api` prefix 전역. `Env/config/column_labels.json` 경로는 `router.py` 기준 프로젝트 루트 계산(3단 `parent`)으로 잡힌다.
-- **스키마**: `schemas.py`(리포트용 Pydantic만).
+- **스키마**: `schemas.py`(쿼리 스튜디오용 Pydantic만).
 - **전용 유틸**: `join_path`, `join_metrics`, `relationship_inference`, `pluralize`, `analysis_store`.
 
 ### 2.4 구 대시보드: `Backend/legacy_dashboard_server`
@@ -99,7 +101,7 @@ flowchart LR
 
 | 설정 키(개념) | 용도 | 주로 쓰는 모듈 |
 |---------------|------|----------------|
-| `config.backend.main_db` | 메인 비즈니스 DB(`db_*`, `table_schema`). 레거시: 평면 `backend.db_*` | `core.db`, 리포트·구대시·ETL |
+| `config.backend.main_db` | 메인 비즈니스 DB(`db_*`, `table_schema`). 레거시: 평면 `backend.db_*` | `core.db`, 쿼리 스튜디오·구대시·ETL |
 | `config.backend.system_db` | ETL 메타·Job 등 | `core.db.get_db_connection_system`, `etl_server` |
 | `config.backend.dash_db` | `ibank_1` 계열·Star 물리 테이블 | `core.db.get_db_connection_dash` 등, 대시보드 서비스/라우터 |
 | `config.backend.star_db` | 마케팅 대시보드 전용 | `new_dash_server2/star_db.py`만 |
@@ -116,12 +118,11 @@ flowchart LR
 
 | 화면(대표) | 프론트 패키지 | API 베이스 경로(대표) |
 |------------|---------------|------------------------|
-| 리포트 | `packages/query_studio` | `/api/...` |
-| 대시보드1 | `packages/dashboard` | `/api/dashboard/...` |
-| 뉴 대시보드 | `packages/new-dashboard` | `/api/new-dashboard/...` |
-| 캠페인 대시보드 | `packages/campaign_dashboard` | `/api/campaign-dashboard/...` |
-| 마케팅 대시보드 | `packages/new-dashboard2` | `/api/new-dashboard2/...` |
-| ETL | `packages/etl` (및 etl2 관련) | `/api/etl/...`, `/api/etl/batch/...` |
+| 쿼리 스튜디오 | `packages/query_studio` | `/api/...` (`require_permission`) |
+| 대시보드(캠페인) | `packages/campaign_dashboard` | `/api/campaign-dashboard/...` |
+| 위젯보드 | `packages/widgetboard` | 쿼리 스튜디오 `/api/execute-query` 등 |
+| ETL | `packages/etl` (및 etl2 관련) | `/api/etl/...`, `/api/etl/batch/...` (`require_etl_infrastructure`) |
+| 어드민 SPA | `src/app/admin/*` + `shared/api/adminClient.js` | `/api/admin/...` |
 
 ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rules/project-conventions.mdc`** 및 **packages/etl2** 쪽 주석을 본다.
 
@@ -129,10 +130,10 @@ ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rule
 
 ## 5. 작업 유형별 “먼저 열 파일” 체크리스트
 
-### 5.1 리포트(노코드) API 추가/변경
+### 5.1 쿼리 스튜디오 API 추가/변경
 
-1. `Backend/report_server/router.py` (또는 분리 시 동일 패키지 내 라우터).
-2. 요청 바디가 필요하면 `Backend/report_server/schemas.py`.
+1. `Backend/query_studio_server/router.py` (또는 분리 시 동일 패키지 내 라우터).
+2. 요청 바디가 필요하면 `Backend/query_studio_server/schemas.py`.
 3. 프론트: `packages/query_studio/api/queryStudioClient.js` 및 호출 컴포넌트.
 4. 검증: `.cursor/skills/api-client-sync/SKILL.md`, `cross-check/SKILL.md` 절차.
 
@@ -164,7 +165,7 @@ ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rule
 
 ### 5.7 신규 React 페이지(신규 메뉴)
 
-1. `routes.jsx`, `navConfig.js`.
+1. `app/routes.jsx`, `app/layout/navConfig.js`.
 2. `packages/<새 도메인>/` (페이지, `api/*Client.js`, 전용 CSS).
 3. 백엔드 라우터를 새로 만들 경우 `api_server/main.py`에 `include_router` 추가.
 
@@ -172,7 +173,7 @@ ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rule
 
 ## 6. 품질·검증·자동화 힌트
 
-- **백엔드 import**: `python -m compileall Backend/core Backend/report_server …` 또는 프로젝트 `.venv`로 `from Backend.api_server.main import app`.
+- **백엔드 import**: `python -m compileall Backend/core Backend/query_studio_server …` 또는 프로젝트 `.venv`로 `from Backend.api_server.main import app`.
 - **API-프론트 정합성**: 스킬 **cross-check**, **api-client-sync**.
 - **테스트 명령**: **§15** 참고.
 - **Git 커밋 메시지**: 사용자 규칙에 따라 영문 접두사(`feat`/`fix`/`refactor`) 등.
@@ -197,9 +198,9 @@ ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rule
 
 ## 9. 인증·인가 (현행 구현)
 
-- **애플리케이션 레벨**: FastAPI 라우터에 **로그인·세션·JWT·API 키 검증 미들웨어가 없다.** DB 연결 문자열의 비밀번호는 설정 파일에 두되, **HTTP 요청 단위 사용자 인증은 구현되어 있지 않다.**
-- **운영 권장**: **Nginx** 등에서 IP 허용 목록(`allow`/`deny`), 사내망·VPN, 리버스 프록시 뒤에만 바인딩하는 방식으로 노출 범위를 제한한다. 배포 예시는 **docs/report/DEPLOY_SERVER.md**, **docs/report/nginx_report.conf** 참고.
-- **추가 개발 시**: “보안 레이어를 앱에 넣을지 / 게이트웨이에만 둘지”를 먼저 결정한다. 앱 내 인증을 새로 넣으면 모든 라우터·프론트 `fetch`에 토큰 전달이 연쇄된다.
+- **애플리케이션 레벨**: **`/api/auth/*`** — 로그인(1·2단계)·리프레시·세션(`session_log`)·access JWT(`Backend.auth_server.security`, `deps.get_access_payload`). 프론트는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 refresh 1회 재시도.
+- **프로젝트·권한**: 쿼리 스튜디오·캠페인 대시보드 등은 **`require_permission(*ids)`** — JWT `project_info_id`·`project_ptcpnt_info`·`pmssn_master.pmssn_list`(상세명 정규화). **ETL** 전역은 **`require_etl_infrastructure`** (`sa_dev` 또는 `etl_yn=Y`, 레거시 `user_dvsn=etl_manager` 예외). 조직 역할 캐논은 **`Backend.core.user_dvsn_codes`**. 표·흐름도는 **05_Permission_ARCHITECTURE.md**.
+- **운영**: TLS·Nginx 프록시·IP 제한은 **docs/report/DEPLOY_SERVER.md** 등과 병행 가능. 앱 인증이 이미 있으므로 “인증 없는 공개 API” 전제는 **레거시 문서 구절과 혼동하지 말 것**.
 
 ---
 
@@ -224,20 +225,20 @@ ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rule
 
 ---
 
-## 11. 메인 비즈니스 DB·allowed_tables 도메인 개요
+## 11. 메인 비즈니스 DB·쿼리 스튜디오 노출 테이블
 
-- **리포트·구 대시보드**는 `config.backend.allowed_tables`에 나열된 테이블만(또는 규칙에 맞는 테이블만) 쿼리 빌더·검증에 쓴다. **실제 목록은 배포마다 다르다.**
+- **쿼리 스튜디오(`list-tables` 등)** 는 JWT의 **`project_info_id`** 로 `Backend.core.db.get_allowed_tables(project_info_id, …)` 를 호출해, **system_db** 의 `table_project_mapping` + `table_master` 에 매핑된 테이블만 노출한다. 프로젝트 미선택·매핑 없으면 빈 목록이 될 수 있다. (구 `config.allowed_tables` 화이트리스트 파일 방식은 제거됨.)
 - **샘플(`Env/config/config.json.example`)** 에 포함된 이름 예시(의미는 도메인 설명용이며, FK는 실제 DB 제약을 **코드·DB**에서 확인할 것):
 
-| 테이블(예시) | 역할(개념) | 리포트/JOIN에서의 위치 |
+| 테이블(예시) | 역할(개념) | 쿼리 스튜디오/JOIN에서의 위치 |
 |--------------|------------|-------------------------|
 | `campaign_integrated_master` | 캠페인 통합 마스터 | 허용 테이블 집합의 축이 될 수 있음 |
 | `campaign_member_segment` | 캠페인·회원 세그먼트 | 세그먼트·타깃 분석 |
 | `campaign_metadata` | 캠페인 메타 | 캠페인 속성·기간 등 |
 | `campaign_offer_log` | 오퍼/캠페인 로그 이력 | 발송·응답 이벤트 성격 |
 
-- **관계 추론**: `report_server`의 FK 조회 + `relationship_inference`·`join_path`가 **information_schema·테이블명 규칙**을 바탕으로 동작한다. ER을 문서에 전부 적지 않아도, **“허용 테이블 = 리포트 UI에 올라올 수 있는 팩트/차원”** 이라고 이해하면 된다.
-- **상세 스키마**: 운영 DB에서 직접 `information_schema` 또는 **리포트 UI describe-table**로 확인하는 것이 정확하다.
+- **관계 추론**: `query_studio_server`의 FK 조회 + `relationship_inference`·`join_path`가 **information_schema·테이블명 규칙**을 바탕으로 동작한다. ER을 문서에 전부 적지 않아도, **“허용 테이블 = 쿼리 스튜디오 UI에 올라올 수 있는 팩트/차원”** 이라고 이해하면 된다.
+- **상세 스키마**: 운영 DB에서 직접 `information_schema` 또는 **쿼리 스튜디오 UI describe-table**로 확인하는 것이 정확하다.
 
 ---
 
@@ -318,8 +319,8 @@ flowchart TB
 
 | 영역 | 명령 | 비고 |
 |------|------|------|
-| **프론트 단위** | `cd Frontend/react-app && npm test` | **Vitest** (`vitest run`). 리포트 패키지 `__tests__` 등 |
-| **백엔드** | 프로젝트 루트에서 `pytest tests/` | `pytest` 설치 필요. `tests/test_join_path.py`, `test_table_relationship_inference.py`, `test_report_api.py` 등 |
+| **프론트 단위** | `cd Frontend/react-app && npm test` | **Vitest** (`vitest run`). `packages/query_studio` `__tests__` 등 |
+| **백엔드** | 프로젝트 루트에서 `pytest tests/` | `pytest` 설치 필요. `tests/test_join_path.py`, `test_table_relationship_inference.py`, `test_query_studio_api.py` 등 |
 | **린트(프론트)** | `cd Frontend/react-app && npm run lint` | ESLint |
 
 - **CI**: 저장소에 **GitHub Actions 등 파이프라인 설정이 없다**(로컬·수동 실행 기준).
@@ -335,4 +336,4 @@ flowchart TB
 | **02_BACKEND** | 엔드포인트 표, etl_server 장문 설명, 설정 절. |
 | **03 (본 문서)** | 위 세 문서를 **연결하는 지도** + 의존 방향 + “어디를 고칠지” + **인증·에러·데이터 요약·배포·로그·테스트**. |
 
-질문 예: *“캠페인 대시보드에 새 지표 API를 추가하려면?”* → **§1 표**에서 `campaign_dash_server` + **§5.3** → 집계가 기존과 같으면 `dashboard_service`까지 볼지 판단 → **02 §4.6.2**로 엔드포인트 네이밍 패턴 확인 → **01**에서 `campaign_dashboard` 클라이언트 경로 확인.
+질문 예: *“캠페인 대시보드에 새 지표 API를 추가하려면?”* → **§1.2 표**에서 `campaign_dash_server` + **§5.3** → 집계가 기존과 같으면 `dashboard_service`까지 볼지 판단 → **02 §4.6.2**로 엔드포인트 네이밍 패턴 확인 → **01**에서 `packages/campaign_dashboard` 클라이언트 경로 확인.

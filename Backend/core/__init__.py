@@ -1,7 +1,7 @@
 """
 Backend.core (공유 DB·의존성·대시보드 집계 서비스)
 =================================================
-api_server·report_server·campaign_dash_server·etl_server 등이 공유하는 코어 모듈.
+api_server·query_studio_server·campaign_dash_server·etl_server 등이 공유하는 코어 모듈.
 
 [Submodules]
 ===========
