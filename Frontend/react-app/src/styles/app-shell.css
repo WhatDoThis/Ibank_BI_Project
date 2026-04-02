@@ -1,6 +1,6 @@
 /**
- * Analytica형 앱 셸 — 좌측 주 메뉴(그라데이션) + 상단 헤더·브레드크럼 + 스크롤 본문
- * docs/ui/UI_UX_재사용_가이드.md §2·§5
+ * Analytica????????좌측 �?메뉴(그라?�이?? + ?�단 ?�더·브레?�크??+ ?�크�?본문
+ * docs/ui/UI_UX_?�사??가?�드.md §2·§5
  */
 
 .ibank-app-shell {
@@ -21,7 +21,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  /* 상단 패딩 없음: 브랜드 행 높이 = --header-height 로 헤더 하단선과 정렬 */
+  /* ?�단 ?�딩 ?�음: 브랜?????�이 = --header-height �??�더 ?�단?�과 ?�렬 */
   padding: 0 0 16px;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
   z-index: 20;
@@ -47,9 +47,9 @@
 
 .ibank-sidebar-brand {
   display: flex;
-  justify-content: flex-start;
+  justify-content: center;
   align-items: center;
-  /* 접힘/펼침과 무관하게 헤더(.ibank-shell-header)와 동일 높이 → 아래 선이 항상 같은 y에 위치 */
+  /* ?�힘/?�침�?무�??�게 ?�더(.ibank-shell-header)?� ?�일 ?�이 ???�래 ?�이 ??�� 같�? y???�치 */
   height: var(--header-height);
   min-height: var(--header-height);
   padding: 0 10px;
@@ -64,7 +64,7 @@
   padding-right: 6px;
 }
 
-/* 접힘: 시린 마크 · 펼침: 워드마크 PNG */
+/* ?�힘: ?�린 마크 · ?�침: ?�드마크 PNG */
 .ibank-sidebar-brand__mark {
   display: none;
   width: 40px;
@@ -78,14 +78,14 @@
   display: block;
 }
 
-/* 고정 박스: 사이드바 width 애니메이션과 무관하게 커지지 않음(100% 금지) */
+/* 고정 박스: ?�이?�바 width ?�니메이?�과 무�??�게 커�?지 ?�음(100% 금�?) */
 .ibank-sidebar-brand__wordmark {
   display: none;
   width: 136px;
   height: 32px;
   max-width: 136px;
   object-fit: contain;
-  object-position: left center;
+  object-position: center center;
   flex-shrink: 0;
 }
 
@@ -112,7 +112,7 @@
   align-items: center;
   justify-content: flex-start;
   text-align: left;
-  /* 접힘/펼침 동일 셀 패딩 — 간격·행 높이 맞춤 */
+  /* ?�힘/?�침 ?�일 ?� ?�딩 ??간격·???�이 맞춤 */
   padding: 10px 12px;
   min-height: 40px;
   box-sizing: border-box;
@@ -146,7 +146,7 @@
   color: #fff;
 }
 
-/* 접힘: 아이콘만 · 펼침: 풀 라벨 (호버) */
+/* ?�힘: ?�이콘만 · ?�침: ?� ?�벨 (?�버) */
 .ibank-sidebar-link__icon {
   display: none;
   width: 20px;
@@ -167,7 +167,7 @@
   filter: drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.9));
 }
 
-/* 로고 워드마크처럼 px 고정 + 한 줄(펼침 애니메이션 중 줄바꿈·체감 크기 변화 방지) */
+/* 로고 ?�드마크처럼 px 고정 + ??�??�침 ?�니메이??�?줄바꿈·체�??�기 변??방�?) */
 .ibank-sidebar-link__full {
   display: inline;
   font-size: var(--font-size-hint);
@@ -244,7 +244,7 @@
   white-space: nowrap;
 }
 
-/* 로그아웃과 동일 글자 크기·굵기, 테두리 채움 없는 텍스트 링크형 */
+/* 로그?�웃�??�일 글???�기·굵기, ?�두�?채�? ?�는 ?�스??링크??*/
 .ibank-shell-mypage-link {
   padding: 6px 8px;
   border-radius: var(--radius-btn-lg);
@@ -321,7 +321,7 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* 세로 스크롤: 메인 열 전체 폭 → 스크롤바가 화면(본문 영역) 맨 오른쪽에 붙음 */
+/* ?�로 ?�크�? 메인 ???�체 ?????�크롤바가 ?�면(본문 ?�역) �??�른쪽에 붙음 */
 .ibank-outlet-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -330,7 +330,7 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* 페이지 공통: 가로 패딩·최대 폭은 안쪽에서만 (스크롤은 바깥 .ibank-outlet-scroll) */
+/* ?�이지 공통: 가�??�딩·최�? ??? ?�쪽?�서�?(?�크롤�? 바깥 .ibank-outlet-scroll) */
 .ibank-outlet {
   width: 100%;
   max-width: var(--page-max-width);
@@ -352,7 +352,7 @@
   background: var(--background);
 }
 
-/* NeedProjectRoute 등 가드 메시지 — 아울렛 패딩과 중복 없음 */
+/* NeedProjectRoute ??가??메시지 ???�울???�딩�?중복 ?�음 */
 .need-project-gate {
   max-width: min(520px, 100%);
   margin: 0 auto;
@@ -377,7 +377,7 @@
   font-size: var(--font-size-label);
 }
 
-/* 본문 상단: 페이지명 + 설명 (PageHeader.jsx) */
+/* 본문 ?�단: ?�이지�?+ ?�명 (PageHeader.jsx) */
 .ibank-page-header {
   margin-bottom: 20px;
 }
