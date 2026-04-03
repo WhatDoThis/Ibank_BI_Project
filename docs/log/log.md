@@ -1,6 +1,19 @@
 # Log
 
 ## Log Index
+203. 2026-04-02 docs/report: ETL 단일 스택 경로 정합(09·etc01·ReportIndex)
+202. 2026-04-02 docs/main·README·requirements 정합(로그·코드 기준)
+201. 2026-04-02 Backend 로깅 정리(포맷 유지·태그 메시지·노이즈 제거)
+200. 2026-04-02 관리자 UI: ibank 버튼 통일·용어 ETL 관리자
+199. 2026-04-02 사용자관리: ETL 작업물 대분류 묶음·대분류 전체이관·etl_infra 일괄 모달 문구
+198. 2026-04-02 사용자관리: 전체이관 문구 명확화(카테고리 섹션만·다른 섹션 제외)
+197. 2026-04-02 사용자관리 작업물 패널: 카테고리·하위목록 구분·등록한 권한·전체이관
+196. 2026-04-02 ETL 이력 탭(JobHistoryPanel): 삭제·새로고침·상태 뱃지를 목록/배치와 통일
+195. 2026-04-02 ETL 목록: 상태 뱃지·동작 버튼을 배치 Job 목록(etl-db-form)과 통일
+194. 2026-04-02 ETL 패키지: 잔여 에메랄드·슬레이트·스카이 인라인 제거, 브랜드 토큰 통일
+193. 2026-04-03 UI: 부서·권한·사용자·ETL 테이블/버튼 스타벅스 톤 정합(ibank-btn·ap__btn·etl-db-form__btn)
+192. 2026-04-03 ETL 패키지 etl.css: design-tokens 브랜드 그린·중립 토큰 정렬
+191. 2026-04-03 공용 shared-ui.css(툴바·테이블 버튼·데이터테이블)·ap__table 정합·admin-users 액션 호버
 190. 2026-04-02 ETL 이력 탭: 라벨 열을 etl_tables.table_label로 표시(list_jobs JOIN)
 189. 2026-04-02 부서: 셀렉트 display_label(상위·하위)·사용안함 시 사용자 이관 모달·PATCH migrate
 188. 2026-04-02 사용자 역할 변경: 생성물 정합성(테이블마스터 단독 허용·ETL·etl_yn 해제)
@@ -193,6 +206,124 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+203. 2026-04-02 docs/report: ETL 단일 스택 경로 정합(09·etc01·ReportIndex)
+Purpose: 삭제된 `etl_server2`·`packages/etl2`·`/api/etl2` 표기를 현재 **`Backend/etl_server`**, **`packages/etl`**, **`/api/etl`·`/api/etl/batch`** 기준으로 맞춤. 학습 문서(etc01) 아키텍처·API 표·프론트 경로·`etlClient.js` 안내를 코드와 일치시킴.
+Changes:
+
+- 09_ETL_SFTP_Connection: 잔여 ETL2 제품 문구를 ETL/단일 패키지 표현으로 통일
+- etc01_Backend_Learning_Flow: 제목·범위·다이어그램·경로·API prefix·섹션 16 참고·Phase 6 실경로·`etlClient.js` 명시
+- 00_ReportIndex: 09·etc01 행을 정본 구조에 맞게 갱신
+
+Changed files: docs/report/09_ETL_SFTP_Connection.md, docs/report/etc01_Backend_Learning_Flow.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+202. 2026-04-02 docs/main·README·requirements 정합(로그·코드 기준)
+Purpose: `docs/log/log.md` 이후 반영된 구조(단일 `etl_server`·쿼리 스튜디오·인증·Job 큐 3동시 등)에 맞춰 **docs/main** 전반 정리, README·requirements 갱신. 구 `etl_server2`/동시 2건 등 구식 표기 삭제·치환. **docs/report/00_ReportIndex** 에 경로 정합 노트 및 09·etc01 설명 갱신.
+Changes:
+
+- 00_PRD: Backend 패키지 목록·JWT/smtp_info·Job 큐·etl_limits 문구
+- 01_FRONTEND: `etl2*` 클라이언트명·동시 3건·API 설명
+- 02_BACKEND: core·서버 트리, lifespan/스케줄러 vs queue_worker, §3.2.2 인증·메일, etl_limits·Oracle·§4.3 미등록 명시, §6.4 로그 태그, 부록 log 경로
+- 03_AI: core 표·ETL 패키지·project-conventions 연결
+- docs/report/00_ReportIndex: etl_server2 레거시 안내·09·etc01 행
+- README: Backend 트리·API 한 줄·config·Job 큐·문서 표
+- requirements.txt: ETL2 표기 제거·주석 정리
+- docs/README.md: 03 파일명 링크 수정·04~06 표 추가
+
+Changed files: docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md, 03_AI_DEVELOP_GUIDE.md, docs/report/00_ReportIndex.md, docs/README.md, README.md, requirements.txt, docs/log/log.md
+
+201. 2026-04-02 Backend 로깅 정리(포맷 유지·태그 메시지·노이즈 제거)
+Purpose: 루트 로거는 `logging_setup`의 `YYYY-MM-DD HH:MM:SS / [LEVEL] message` 유지. 불필요·중복 로그 제거, 운영·디버깅에 필요한 항목은 짧은 영문 태그 접두로 grep·AI 파싱 용이하게 통일.
+Changes:
+
+- ETL: `load_service`, `load_service_file`, `db_load_service`(diff PK fetch 요약 로그 제거), `queue_worker`, `router_file`, `preview_service`, `transform_engine`, `timezone_utils`, `table_master_hook`, `csv_reader`, `folder_adapter_file`(미사용 logger 제거), `scheduler_file` stray pass 제거, `service_file` 로그 문구 정리
+- 인증·관리: `auth_server/email_service`, `auth_server/service`, `admin_server/service_users`
+- 대시보드·기타: `new_dash_server/router`, `campaign_dash_server/router`, `new_dash_server2/router`, `query_studio_server/router`
+
+Changed files: Backend/etl_server/{load_service,load_service_file,db_load_service,queue_worker,router_file,preview_service,transform_engine,timezone_utils,table_master_hook,csv_reader,folder_adapter_file,scheduler_file,service_file}.py, Backend/auth_server/{email_service,service}.py, Backend/admin_server/service_users.py, Backend/new_dash_server/router.py, Backend/campaign_dash_server/router.py, Backend/new_dash_server2/router.py, Backend/query_studio_server/router.py, docs/log/log.md
+
+200. 2026-04-02 관리자 UI: ibank 버튼 통일·용어 ETL 관리자
+Purpose: 부서·사용자·프로젝트·권한 페이지와 모달 버튼을 `ibank-btn-toolbar`·`ibank-btn-table`(+`--danger`)로 통일. 사용자 변경 확인은「변경」. `ETL 인프라` 표현을 UI·API·문서에서 `ETL 관리자` 등으로 정리.
+Changes:
+
+- FE: AdminUsers/Org/Roles/Projects/ProjectMembers, `admin-users.css`·`admin-org.css`·`admin-pages.css`, `shared-ui.css`(`ibank-btn-table--danger`), Home·etlAccess
+- BE: `admin_server/service_users.py`, `schemas.py`, `auth_server/permissions.py`
+- docs: `main/00,04,05,06`, `report/17`
+Changed files: Frontend/react-app/src/app/admin/*, src/styles/shared-ui.css, src/app/home/HomePage.jsx, src/app/guards/etlAccess.js, Backend/admin_server/service_users.py, Backend/admin_server/schemas.py, Backend/auth_server/permissions.py, docs/main/*.md, docs/report/17_*.md, docs/log/log.md
+
+199. 2026-04-02 사용자관리: ETL 작업물 대분류 묶음·대분류 전체이관·etl_infra 일괄 모달 문구
+Purpose: DB·테이블·Job·저장DB·배치 폴더·배치 Job을 하나의「ETL」대분류 아래 중분류로 표시하고, 이관 가능 2건 이상이면 대분류「전체이관」으로 한 번에 처리. 수신 검증은 etl_infra로 동일하므로 모달·확인 문구를 ETL 일괄에 맞게 정리.
+Changes:
+
+- `AdminUsersPage.jsx`: `renderEtlMegaSection`, 6개 ETL 블록 단일 섹션·중첩 `renderAssetList`, `openBulkTransferModal`/`runTransfer`/모달 강조문 ETL·`every(etlInfra)` 분기
+- `admin-users.css`: `--etl-mega`, `--work-subsection`, `--nested` 패널·`--etl-nested-wrap`
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+198. 2026-04-02 사용자관리: 전체이관 문구 명확화(카테고리 섹션만·다른 섹션 제외)
+Purpose: 전체이관이 ‘모든 카테고리 일괄’로 오해되지 않도록, 동작은 기존과 같이 섹션별만 해당함을 모달·확인·툴팁·라벨에 명시.
+Changes: `AdminUsersPage.jsx` 문구·`title`/`aria-label`, `docs/log/log.md`
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+197. 2026-04-02 사용자관리 작업물 패널: 카테고리·하위목록 구분·등록한 권한·전체이관
+Purpose: `panel-scroll--tall` 내 카테고리 헤더와 항목 목록의 시각적 계층을 두고, 이관 가능 2건 이상인 카테고리에서「전체이관」으로 일괄 이관(첫 항목 기준 수신 후보·확인 문구).
+Changes:
+
+- `AdminUsersPage`: `work-section`·`openBulkTransferModal`·`runTransfer` bulk 루프, 커스텀 역할 표기「등록한 권한」
+- `admin-users.css`: `work-section-head`·`work-list-panel`·`btn-transfer-all`·`modal-hint--emph`
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+196. 2026-04-02 ETL 이력 탭(JobHistoryPanel): 삭제·새로고침·상태 뱃지를 목록/배치와 통일
+Purpose: `tab=history`에서 상단 Job 이력 테이블만 버튼·새로고침 스타일이 달랐음. ETL 목록과 동일하게 새로고침을 우측 정렬 툴바에 두고 삭제는 `etl-db-form__btn--danger` + `etl-db-form__btn--sm`으로 통일.
+Changes:
+
+- `JobHistoryPanel.jsx`: `etl-table-list__toolbar` + `etl-table-list__refresh`, 행 삭제 `etl-db-form__btn--sm`, 상태 열 `etl-db-form__status-badge` + 한글 라벨.
+- `etl.css`: `etl-history__bar`·`__refresh`·`__del` 제거, 필터에 하단 여백.
+Changed files: Frontend/react-app/src/packages/etl/components/JobHistoryPanel.jsx, Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+195. 2026-04-02 ETL 목록: 상태 뱃지·동작 버튼을 배치 Job 목록(etl-db-form)과 통일
+Purpose: 동일 화면에서 ETL 테이블 목록의 상태 열이 `etl-db-form__status-badge`와 다르게 보이던 문제와 동작 열 버튼 radius·글자색 불일치를 제거.
+Changes:
+
+- `ETLTableList.jsx`: 상태를 `<span class="etl-db-form__status-badge …">`로 렌더. 동작 래퍼를 `etl-batch-job-list__actions`로 통일, 버튼을 `etl-db-form__btn--sm`(primary/secondary/danger)로 교체.
+- `etl.css`: `etl-table-list__status--*`·전용 미리보기/실행/삭제 버튼 블록 제거. × 버튼은 `etl-table-list__delete-row`로 치수만 보조.
+Changed files: Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+194. 2026-04-02 ETL 패키지: 잔여 에메랄드·슬레이트·스카이 인라인 제거, 브랜드 토큰 통일
+Purpose: `packages/etl`에서 Tailwind 에메랄드(`#059669` 등)·인라인 슬레이트/스카이(`#e2e8f0`, `#f0f9ff`)를 `design-tokens`의 Starbucks 그린·중립 변수로 맞춤.
+Changes:
+
+- `etl.css`: 드롭존 `--has`, 성공 뱃지·PK 체크·Job 로그 성공·파일 폼 결과 등을 `--color-action-primary` / `--primary-light` / `rgba(0,112,74,…)`로 통일.
+- JSX: `BatchJobFormFile`, `BatchScheduleModal`, `SkippedFilesPanelFile`, `BatchHistoryDetailFile` 인라인 색을 CSS 변수 또는 워닝용 앰버(`#b45309`)로 조정.
+Changed files: Frontend/react-app/src/packages/etl/etl.css, BatchJobFormFile.jsx, BatchScheduleModal.jsx, SkippedFilesPanelFile.jsx, BatchHistoryDetailFile.jsx, docs/log/log.md
+
+193. 2026-04-03 UI: 부서·권한·사용자·ETL 테이블/버튼 스타벅스 톤 정합(ibank-btn·ap__btn·etl-db-form__btn)
+Purpose: 툴바 버튼 `ibank-btn-toolbar` 병행, 테이블 내 버튼·폼 버튼을 shared-ui·ap 패턴과 맞춤. 테이블은 clamp 폰트·nowrap·헤더 primary-light·긴 텍스트 ellipsis(ap__cell-clip).
+Changes:
+
+- `AdminOrgPage.jsx`·`admin-org.css`, `admin-pages.css`·`AdminRolesPage.jsx`, `admin-users.css`, `mypage.css`, `packages/etl/etl.css`
+Changed files: Frontend/react-app/src/app/admin/AdminOrgPage.jsx, admin-org.css, admin-pages.css, AdminRolesPage.jsx, admin-users.css, Frontend/react-app/src/app/mypage/mypage.css, Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+192. 2026-04-03 ETL 패키지 etl.css: design-tokens 브랜드 그린·중립 토큰 정렬
+Purpose: ETL UI의 파랑·인디고·슬레이트 하드코드를 `design-tokens.css`의 Starbucks 그린(`--color-action-primary`, `--primary-light` 등)과 `--color-text`·`--color-border-light` 등 중립 토큰으로 치환. 오류·파괴 동작은 기존 적색 유지.
+
+Changes:
+
+- `etl.css`: 주요 버튼·탭·포커스 링·실행 중 하이라이트·타겟 선택/모달 링크를 액션 프라이머리 톤으로 통일. 배경/테두리/보조 텍스트는 `--background`, `--color-border`, `--color-text-muted` 등으로 정리. `.etl-page`에 `font-family: var(--font-sans)`. 파일 헤더에 브랜드 팔레트 주석 추가.
+
+Changed files: Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+191. 2026-04-03 공용 shared-ui.css(툴바·테이블 버튼·데이터테이블)·ap__table 정합·admin-users 액션 호버
+Purpose: 앱 전역 재사용 UI 유틸(`ibank-btn-*`, `ibank-data-table`) 추가. 어드민 공용 `ap__table`을 반응형 clamp·nowrap·`ap__cell-clip`으로 `ibank-data-table`과 정합. 사용자관리 행 액션 호버를 Starbucks 톤으로 통일. 헤더 내비는 범위 제외(주석 명시).
+Changes:
+
+- `shared-ui.css` 신설, `main.jsx`에서 design-tokens 다음 import
+- `admin-pages.css`: `.ap__table`·`ap__cell-clip`·`td.ap__mono` 줄바꿈 예외, `--roles` 중복 제거·역할 테이블 보조 규칙 유지
+- `admin-users.css`: `.admin-users__actions button` 호버·font-weight
+
+Changed files: Frontend/react-app/src/styles/shared-ui.css, Frontend/react-app/src/main.jsx, Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
 
 190. 2026-04-02 ETL 이력 탭: 라벨 열을 etl_tables.table_label로 표시(list_jobs JOIN)
 Purpose: 이력 「라벨」을 ETL 목록과 동일한 `table_label`로 정합. `list_jobs`/`get_job`의 etl_tables JOIN에 `table_label` 추가.

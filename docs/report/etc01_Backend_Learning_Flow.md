@@ -1,8 +1,8 @@
-# ETL2 학습 가이드 (Backend + Frontend)
+# ETL 학습 가이드 (Backend + Frontend)
 
 **대상:** ETL 시스템을 처음 접하는 개발자  
 **목표:** "데이터가 어떻게 흘러가는지" 흐름을 잡은 뒤, **실제 코드(파일·함수)**를 찾아가며 학습  
-**범위:** `Backend/etl_server2` · `Frontend/react-app/src/packages/etl2` (ETL2만 기준)
+**범위:** `Backend/etl_server` · `Frontend/react-app/src/packages/etl` (단일 ETL 패키지 기준)
 
 ---
 
@@ -37,7 +37,7 @@
 - **추출:** 파일 업로드, 외부 DB SELECT, SFTP/S3 `list_files` + `download_file`  
   ▶ 코드: `router.py` → `_save_upload` / `db_load_service.py` → 소스 연결·SELECT / `batch_executor_file.py` → `adapter.download_file`
 - **변환:** `transform_engine.apply_rules` (5가지 룰) + `column_mapping` 기반 타입/이름 매핑  
-  ▶ 코드: `Backend/etl_server2/transform_engine.py` → `apply_rules`, `apply_mapping_type_cast`
+  ▶ 코드: `Backend/etl_server/transform_engine.py` → `apply_rules`, `apply_mapping_type_cast`
 - **적재:** 타겟 DB에 `DROP+CREATE+INSERT` 또는 `INSERT ... ON CONFLICT DO UPDATE` (Upsert)  
   ▶ 코드: `load_service.py` → `run_file_load` / `db_load_service.py` → `run_db_load` / `load_service_file.py` → `load_dataframe`, `_batch_upsert`
 
@@ -45,13 +45,13 @@
 
 ## 2. 전체 아키텍처 · 실행 경로 두 가지
 
-ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴더 주기 적재) 두 경로가 있다. 요청이 들어오면 아래처럼 갈린다.
+단일 ETL에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴더 주기 적재) 두 경로가 있다. 요청이 들어오면 아래처럼 갈린다.
 
 ```
                     ┌─────────────────────────────────────────────────────┐
                     │  FastAPI (main.py)                                  │
-                    │  etl_router: /api/etl2/* (router.py)                │
-                    │  etl2_router: /api/etl2/batch/* (router_file.py)    │
+                    │  etl_router: /api/etl/* (router.py)                 │
+                    │  include router_file → /api/etl/batch/*             │
                     └──────────────────────┬──────────────────────────────┘
                                            │
               ┌────────────────────────────┴────────────────────────────┐
@@ -85,7 +85,7 @@ ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴�
 
 | 단계 | 하는 일 | 코드에서 찾기 |
 |------|---------|----------------|
-| 1 | 사용자가 "실행" 클릭 → API 호출 | `Frontend` → `client.js` (etl2RunTable 등) → `router.py` **run_table_load** |
+| 1 | 사용자가 "실행" 클릭 → API 호출 | `Frontend` → `packages/etl/api/etlClient.js` (`etl2RunTable` 등) → `router.py` **run_table_load** |
 | 2 | 파일 소스면 스레드에서 적재, DB 소스면 Job을 pending 등록 | `router.py` → **run_table_load** (분기: 파일 → _run_file_load_in_process / DB → insert_job) |
 | 3 | 파일 적재: 디스크 파일 읽기 → 변환 → 타겟 DB INSERT | `load_service.py` → **run_file_load** → _read_file(csv_reader/ pandas) → apply_rules → DROP/CREATE/INSERT |
 | 4 | DB 적재: 워커가 Job 선점 → 소스 SELECT → 변환 → 타겟 COPY/INSERT | `queue_worker.py` → **_run_one_job** → `db_load_service.run_db_load` |
@@ -99,7 +99,7 @@ ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴�
 | 3 | 대기 파일 목록 → 파일별 다운로드·체크섬·파싱·적재 | 같은 파일 → for 루프: adapter.download_file → **parser_file.read_file** → **load_service_file.load_dataframe** → update_last_processed_ts |
 | 4 | Run 종료·상태 갱신 | **finish_run**, **update_job_status** (service_file) |
 
-- **진입점:** `Backend/api_server/main.py` → etl_router(router.py), etl2_router(router_file.py)
+- **진입점:** `Backend/api_server/main.py` → `etl_router`(router.py); `router.py`가 `router_file`를 include하여 `/api/etl/batch/*` 제공
 - **파일 1회:** `router.run_table_load` → `_run_file_load_in_process`(스레드) → `load_service.run_file_load`
 - **DB 1회:** `router.run_table_load` → `insert_job(pending)` → `queue_worker._run_one_job` → `db_load_service.run_db_load`
 - **배치:** `scheduler_file.get_scheduler()` → 주기 트리거 → `batch_executor_file.run_batch_job`
@@ -108,7 +108,7 @@ ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴�
 
 ## 3. 파일 역할 맵 (레이어별)
 
-**Backend/etl_server2** 를 6개 레이어로 나누면 의존 방향이 보인다. 학습 시 **"코드에서 찾기"** 열의 파일을 열고 해당 함수명으로 검색하면 된다.
+**Backend/etl_server** 를 6개 레이어로 나누면 의존 방향이 보인다. 학습 시 **"코드에서 찾기"** 열의 파일을 열고 해당 함수명으로 검색하면 된다.
 
 | 레이어 | 파일 | 역할 (실제 함수·라이브러리) | 코드에서 찾기 |
 |--------|------|-----------------------------|---------------|
@@ -143,9 +143,9 @@ ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴�
 
 | 단계 | 호출 경로 | 사용 라이브러리/함수 | ▶ 코드에서 찾기 |
 |------|-----------|----------------------|------------------|
-| 1. 업로드 | POST /api/etl2/upload → router.upload_file | 파일 디스크 저장, 스키마 추론 | `Backend/etl_server2/router.py` → **upload_file**, **_save_upload** / `schema_infer.py` → **infer_schema** |
+| 1. 업로드 | POST /api/etl/upload → router.upload_file | 파일 디스크 저장, 스키마 추론 | `Backend/etl_server/router.py` → **upload_file**, **_save_upload** / `schema_infer.py` → **infer_schema** |
 | 2. 메타 등록 | create_etl_table | 시스템 DB INSERT (etl_tables) | `service.py` → **create_etl_table** |
-| 3. 실행 요청 | POST /api/etl2/tables/{id}/run → run_table_load | insert_job(running) → 스레드 생성 | `router.py` → **run_table_load** (파일 소스 분기) |
+| 3. 실행 요청 | POST /api/etl/tables/{id}/run → run_table_load | insert_job(running) → 스레드 생성 | `router.py` → **run_table_load** (파일 소스 분기) |
 | 4. 적재 스레드 | _run_file_load_in_process → run_file_load | _read_file(CSV는 csv_reader) → apply_rules → DROP/CREATE/INSERT | `router.py` → **_run_file_load_in_process** / `load_service.py` → **run_file_load**, **_read_file** / `csv_reader.py` → **read_csv_robust** / `transform_engine.py` → **apply_rules** |
 
 **포인트:** 파일 적재는 **업로드와 동일 프로세스**에서 스레드로 실행된다. DB 적재만 `pending` → `queue_worker`로 보낸다. ZIP 일괄 추가(`add_files_zip_to_table`)도 파일별 Job 등록·스킵 파일 반환으로 **파일별 격리** 패턴 사용.
@@ -156,7 +156,7 @@ ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴�
 
 | 단계 | 호출 경로 | 사용 라이브러리/함수 | ▶ 코드에서 찾기 |
 |------|-----------|----------------------|------------------|
-| 1. 실행 요청 | POST /api/etl2/tables/{id}/run | insert_job(pending) | `router.py` → **run_table_load** (DB 소스 분기) / `service.py` → **insert_job** |
+| 1. 실행 요청 | POST /api/etl/tables/{id}/run | insert_job(pending) | `router.py` → **run_table_load** (DB 소스 분기) / `service.py` → **insert_job** |
 | 2. 워커 선점 | queue_worker 반복 → claim_next_pending_job | SELECT FOR UPDATE SKIP LOCKED | `queue_worker.py` → **run_worker_iteration** / `service.py` → **claim_next_pending_job** |
 | 3. DB 적재 진입 | _run_one_job → run_db_load | get_etl_table, get_connection_for_etl, _fetch_source_columns_* | `queue_worker.py` → **_run_one_job** / `db_load_service.py` → **run_db_load** (상단) |
 | 4. 스트리밍 루프 | run_db_load 내부 | fetchmany → apply_rules → _copy_insert_batch/_copy_upsert_batch → update_job_progress | `db_load_service.py` → **run_db_load** (while 루프), **_copy_upsert_batch**, **_copy_insert_batch** |
@@ -199,7 +199,7 @@ ETL2에는 **즉시 실행**(파일/DB 한 번 실행)과 **배치 실행**(폴�
 적재용 DataFrame
 ```
 
-- **▶ 코드:** `Backend/etl_server2/transform_engine.py` → **apply_rules** (cleansing/type_cast/code_map/derived/masking 분기), **apply_mapping_type_cast**
+- **▶ 코드:** `Backend/etl_server/transform_engine.py` → **apply_rules** (cleansing/type_cast/code_map/derived/masking 분기), **apply_mapping_type_cast**
 - **메타:** `transform_rules_service.py` → **list_transform_rules** (시스템 DB etl_transform_rules)
 
 ---
@@ -247,7 +247,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
 | S3 | 버킷, 있으면 리전 함께 표시 (예: `my-bucket (ap-northeast-2)`) | `s3_bucket`, `s3_region` |
 
 - **목적:** 같은 이름의 연결이 여러 개일 때 호스트/버킷으로 구분하기 위함.
-- **API:** `GET /api/etl2/batch/folder-connections` → `service_file.list_folder_connections()`가 마스터 + sftp/s3 상세 JOIN으로 `sftp_host`, `sftp_port`, `sftp_remote_path`, `s3_bucket`, `s3_prefix`, `s3_region` 반환 (비밀번호·키·시크릿 제외).
+- **API:** `GET /api/etl/batch/folder-connections` → `service_file.list_folder_connections()`가 마스터 + sftp/s3 상세 JOIN으로 `sftp_host`, `sftp_port`, `sftp_remote_path`, `s3_bucket`, `s3_prefix`, `s3_region` 반환 (비밀번호·키·시크릿 제외).
 
 ---
 
@@ -285,46 +285,46 @@ FolderAdapter (ABC, folder_adapter_file.py)
 
 | 순서 | 경로 | 내용 | 이 함수부터 읽기 |
 |------|------|------|------------------|
-| 1 | `Backend/etl_server2/schema_infer.py` | pandas dtype → 타입명 | **infer_schema**, _dtype_to_inferred |
-| 2 | `Backend/etl_server2/etl_limits.py` | config 또는 기본 한도 | **get_etl_limits** |
-| 3 | `Backend/etl_server2/csv_reader.py` | CSV 인코딩 감지·순차 시도 | **read_csv_robust** |
-| 4 | `Backend/etl_server2/transform_engine.py` | 5가지 룰 + column_mapping | **apply_rules**, **apply_mapping_type_cast** |
-| 5 | `Backend/etl_server2/parser_file.py` | 대기 파일·파일 읽기 | **get_pending_files**, **read_file**, parse_filename |
+| 1 | `Backend/etl_server/schema_infer.py` | pandas dtype → 타입명 | **infer_schema**, _dtype_to_inferred |
+| 2 | `Backend/etl_server/etl_limits.py` | config 또는 기본 한도 | **get_etl_limits** |
+| 3 | `Backend/etl_server/csv_reader.py` | CSV 인코딩 감지·순차 시도 | **read_csv_robust** |
+| 4 | `Backend/etl_server/transform_engine.py` | 5가지 룰 + column_mapping | **apply_rules**, **apply_mapping_type_cast** |
+| 5 | `Backend/etl_server/parser_file.py` | 대기 파일·파일 읽기 | **get_pending_files**, **read_file**, parse_filename |
 
 **Phase 2: 연결·메타**
 
-| 6 | `Backend/etl_server2/folder_adapter_file.py` | SFTP/S3 어댑터 | **FolderAdapter**, **SFTPAdapter**, **download_file** |
-| 7 | `Backend/etl_server2/service.py` | 메타 CRUD, DB 연결 | **get_target_db_connection**, **claim_next_pending_job**, get_etl_table |
-| 8 | `Backend/etl_server2/service_file.py` | 배치 메타 | **get_batch_job**, **get_folder_adapter**, **create_batch_run**, **finish_run** |
-| 9 | `Backend/etl_server2/transform_rules_service.py` | 룰 CRUD | list_transform_rules |
+| 6 | `Backend/etl_server/folder_adapter_file.py` | SFTP/S3 어댑터 | **FolderAdapter**, **SFTPAdapter**, **download_file** |
+| 7 | `Backend/etl_server/service.py` | 메타 CRUD, DB 연결 | **get_target_db_connection**, **claim_next_pending_job**, get_etl_table |
+| 8 | `Backend/etl_server/service_file.py` | 배치 메타 | **get_batch_job**, **get_folder_adapter**, **create_batch_run**, **finish_run** |
+| 9 | `Backend/etl_server/transform_rules_service.py` | 룰 CRUD | list_transform_rules |
 
 **Phase 3: 핵심 적재**
 
-| 10 | `Backend/etl_server2/load_service.py` | 파일 적재 (즉시) | **run_file_load**, **_read_file** |
-| 11 | `Backend/etl_server2/db_load_service.py` | DB 적재 (스트리밍) | **run_db_load**, **_copy_upsert_batch**, **_copy_insert_batch** |
-| 12 | `Backend/etl_server2/load_service_file.py` | 배치 파일 적재 | **load_dataframe**, **_batch_upsert**, create_table_from_dataframe |
-| 13 | `Backend/etl_server2/preview_service.py` | 10행 미리보기 | get_raw_sample 등 |
+| 10 | `Backend/etl_server/load_service.py` | 파일 적재 (즉시) | **run_file_load**, **_read_file** |
+| 11 | `Backend/etl_server/db_load_service.py` | DB 적재 (스트리밍) | **run_db_load**, **_copy_upsert_batch**, **_copy_insert_batch** |
+| 12 | `Backend/etl_server/load_service_file.py` | 배치 파일 적재 | **load_dataframe**, **_batch_upsert**, create_table_from_dataframe |
+| 13 | `Backend/etl_server/preview_service.py` | 10행 미리보기 | get_raw_sample 등 |
 
 **Phase 4: 오케스트레이션**
 
-| 14 | `Backend/etl_server2/batch_executor_file.py` | 배치 1건 실행 전체 | **run_batch_job**, **_connect_with_retry**, **_wait_for_stable_size** |
-| 15 | `Backend/etl_server2/queue_worker.py` | pending Job 처리 | **_run_one_job**, run_worker_iteration |
-| 16 | `Backend/etl_server2/scheduler_file.py` | 주기 실행 | **get_scheduler**, **add_job**, load_active_batch_jobs |
+| 14 | `Backend/etl_server/batch_executor_file.py` | 배치 1건 실행 전체 | **run_batch_job**, **_connect_with_retry**, **_wait_for_stable_size** |
+| 15 | `Backend/etl_server/queue_worker.py` | pending Job 처리 | **_run_one_job**, run_worker_iteration |
+| 16 | `Backend/etl_server/scheduler_file.py` | 주기 실행 | **get_scheduler**, **add_job**, load_active_batch_jobs |
 
 **Phase 5: API 진입점**
 
-| 17 | `Backend/etl_server2/router_file.py` | 배치·폴더 API | create_batch_job, run_batch_job_now, list_folder_connections |
-| 18 | `Backend/etl_server2/router.py` | 파일/DB ETL API | **run_table_load**, **upload_file**, _run_file_load_in_process |
+| 17 | `Backend/etl_server/router_file.py` | 배치·폴더 API | create_batch_job, run_batch_job_now, list_folder_connections |
+| 18 | `Backend/etl_server/router.py` | 파일/DB ETL API | **run_table_load**, **upload_file**, _run_file_load_in_process |
 
-**Phase 6: 프론트엔드 (packages/etl2)**
+**Phase 6: 프론트엔드 (`packages/etl`)**
 
-| 19 | `Frontend/.../shared/api/client.js` | API 호출 래퍼 | etl2ListTables, etl2RunTable, batchListJobs, batchCreateJob |
-| 20 | `Frontend/.../packages/etl2/ETLPage.jsx` | 탭·상태·폴링 | 탭 state, etl2RunTable → etl2GetJob 폴링 |
-| 21 | `Frontend/.../packages/etl2/components/ETLTableList.jsx` | ETL 목록 | 목록 fetch, 설정 모달, 실행/취소 |
-| 22 | `Frontend/.../packages/etl2/components/DbConnectionForm.jsx` | DB 연결·테이블 등록 | 소스 테이블 선택, 타겟·인덱스 설정 |
-| 23 | `Frontend/.../packages/etl2/components/FileUploadForm.jsx` | 파일 업로드 | 업로드, 스키마 추론, 타겟 선택 |
-| 24 | `Frontend/.../packages/etl2/components/FolderConnectionListFile.jsx` | 폴더 연결 목록 | 연결 정보 열 (SFTP=host, S3=bucket/리전) |
-| 25 | `Frontend/.../packages/etl2/components/BatchJobFormFile.jsx`, `BatchHistoryPanelFile.jsx` | 배치 등록·이력 | batchCreateJob, batchListJobHistory |
+| 19 | `Frontend/react-app/src/packages/etl/api/etlClient.js` | API 호출 래퍼(함수명 `etl2*`·`batch*`는 레거시 접두 유지) | etl2ListTables, etl2RunTable, batchListJobs, batchCreateJob |
+| 20 | `Frontend/react-app/src/packages/etl/ETLPage.jsx` | 탭·상태·폴링 | 탭 state, etl2RunTable → etl2GetJob 폴링 |
+| 21 | `Frontend/react-app/src/packages/etl/components/ETLTableList.jsx` | ETL 목록 | 목록 fetch, 설정 모달, 실행/취소 |
+| 22 | `Frontend/react-app/src/packages/etl/components/DbConnectionForm.jsx` | DB 연결·테이블 등록 | 소스 테이블 선택, 타겟·인덱스 설정 |
+| 23 | `Frontend/react-app/src/packages/etl/components/FileUploadForm.jsx` | 파일 업로드 | 업로드, 스키마 추론, 타겟 선택 |
+| 24 | `Frontend/react-app/src/packages/etl/components/FolderConnectionListFile.jsx` | 폴더 연결 목록 | 연결 정보 열 (SFTP=host, S3=bucket/리전) |
+| 25 | `Frontend/react-app/src/packages/etl/components/BatchJobFormFile.jsx`, `BatchHistoryPanelFile.jsx` | 배치 등록·이력 | batchCreateJob, batchListJobHistory |
 
 ---
 
@@ -344,7 +344,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
 
 ## 12. API 엔드포인트 요약 (실제 경로·함수)
 
-**파일/DB ETL** (`router.py`, prefix `/api/etl2`)
+**파일/DB ETL** (`router.py`, prefix `/api/etl`)
 
 | Method | Path | 라우터 함수 | 하는 일 |
 |--------|------|-------------|--------|
@@ -362,7 +362,7 @@ FolderAdapter (ABC, folder_adapter_file.py)
 | GET | /jobs/{id} | `get_job` | Job 상세 (폴링용) |
 | POST | /jobs/{id}/cancel | `cancel_job` | 취소 |
 
-**배치** (`router_file.py`, prefix `/api/etl2/batch`)
+**배치** (`router_file.py`, prefix `/api/etl/batch`)
 
 | Method | Path | 라우터 함수 | 하는 일 |
 |--------|------|-------------|--------|
@@ -459,8 +459,8 @@ batch_folder_connections
 ## 16. 참고
 
 - **의존 수:** `from Backend.*` / `from Env.*` 기준. 동적 import(예: queue_worker 내부의 load_service, db_load_service) 포함.
-- **ETL1(etl_server):** 본 문서는 ETL2(etl_server2 + packages/etl2)만 다룸. etl_server는 별도 학습 흐름 참고.
+- **구조:** 구 `etl_server`/`etl_server2` 이원화는 폐기되었고, 본 문서는 **`Backend/etl_server` + `packages/etl`** 단일 스택만 다룬다.
 - **상세 설계:** `docs/report/09_ETL_SFTP_Connection.md`, `08_ETL_Phase_Implement_Guide.md`.
 
 **이 문서의 활용:**  
-흐름(§1·§2·§4)으로 "어디서 무엇이 일어나는지"를 잡고, **▶ 코드에서 찾기** / **이 함수부터 읽기** 표를 따라 `Backend/etl_server2/`·`Frontend/.../packages/etl2/` 의 실제 파일을 열어 함수명으로 검색하면, 코드를 보며 학습하기 쉽다.
+흐름(§1·§2·§4)으로 "어디서 무엇이 일어나는지"를 잡고, **▶ 코드에서 찾기** / **이 함수부터 읽기** 표를 따라 `Backend/etl_server/`·`Frontend/react-app/src/packages/etl/` 의 실제 파일을 열어 함수명으로 검색하면, 코드를 보며 학습하기 쉽다.

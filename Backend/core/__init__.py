@@ -6,6 +6,7 @@ api_server·query_studio_server·campaign_dash_server·etl_server 등이 공유�
 [Submodules]
 ===========
 - db: 연결 풀·스키마·테이블 검증
+- logging_setup: 루트 로거 포맷(발생일시 / [LEVEL] 메시지)
 - dependencies: FastAPI get_db, get_config
 - dashboard_service: 캠페인 대시보드 등에서 사용하는 집계 로직(구형 라우터 미등록 시 일부 함수는 API 미사용)
 

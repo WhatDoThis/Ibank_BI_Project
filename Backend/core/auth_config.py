@@ -13,7 +13,7 @@ SMTP는 **backend.smtp_info** 우선, 없으면 레거시 **backend** 평면 키
 4. get_jwt_refresh_expire_days: refresh_token 만료(일)
 5. get_app_url: smtp_info.app_url → backend.app_url → frontend.app_url (Vite base `/ibank-bi/`와 맞는 공개 베이스; localhost 하드코딩 없음)
 6. get_smtp_settings: SMTP dict (host, port, user, password, from_addr) — smtp_info 또는 평면 키
-7. is_smtp_skipped: smtp_host 비어 있으면 True — 개발 시 콘솔 출력 모드(문서 17 §2.7)
+7. is_smtp_skipped: smtp_host 비어 있으면 True — 이때만 메일 미발송·로그 폴백(환경이 dev인지와 무관)
 
 [Dependencies]
 =========
@@ -141,5 +141,5 @@ def get_smtp_settings() -> dict:
 
 # 7.
 def is_smtp_skipped() -> bool:
-    """smtp_host 가 비어 있으면 True — 이메일 발송 스킵·콘솔 로그 모드."""
+    """smtp_host 가 비어 있으면 True — 실제 SMTP 연결 없이 발송 생략(로그 폴백만). dev 전용 동작 아님."""
     return not get_smtp_settings()["host"]

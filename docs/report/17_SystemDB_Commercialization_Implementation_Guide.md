@@ -55,7 +55,7 @@
 | | pswd_hash | varchar(255) | 비밀번호 해시 (bcrypt) |
 | | user_active_yn | varchar(1) | 활성화 여부 |
 | | user_dvsn | varchar(30) | 조직 역할 5단계 (`sa_dev` / `super_admin` / `admin` / `operator` / `user`) |
-| | etl_yn | varchar(1) | ETL 인프라 자격 `Y`/`N` (기본 `N`, `user_dvsn`과 독립) |
+| | etl_yn | varchar(1) | ETL 관리자 자격 `Y`/`N` (기본 `N`, `user_dvsn`과 독립) |
 | | auth_yn | varchar(1) | 인증 여부 |
 | | scnd_auth_token | varchar(500) | 2차 인증 코드 해시 (로그인 2차 인증) |
 | | scnd_auth_expire_dtm | timestamp | 2차 인증 만료일시 |
@@ -74,7 +74,7 @@
 | | create_dtm | timestamp | 생성일시 |
 | | update_dtm | timestamp | 수정일시 |
 
-**역할·자격 (요약)**: `user_dvsn` 5단계(`sa_dev`·`super_admin`·`admin`·`operator`·`user`). ETL 인프라 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_Permission_ARCHITECTURE.md` (v3)**.
+**역할·자격 (요약)**: `user_dvsn` 5단계(`sa_dev`·`super_admin`·`admin`·`operator`·`user`). ETL 관리자 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_Permission_ARCHITECTURE.md` (v3)**.
 
 **`scnd_auth_token` / `scnd_auth_expire_dtm`**: 로그인 2차 인증. 로그인 시 6자리 코드 생성 → 해싱하여 저장 → 이메일 발송 → 유저 입력 → 검증 통과 시 토큰 발급. 인증 완료 후 컬럼은 NULL로 초기화.
 
@@ -543,11 +543,11 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 | 쿼리 스튜디오 | query.read 또는 query.execute (JWT·프로젝트·`require_permission`) |
 | 대시보드 / 뉴 / 캠페인 / 마케팅 | dashboard |
 | 위젯보드 | widgetboard |
-| ETL 인프라 | `sa_dev` 또는 `etl_yn=Y` — 프로젝트 `pmssn`과 무관 |
+| ETL 관리자 | `sa_dev` 또는 `etl_yn=Y` — 프로젝트 `pmssn`과 무관 |
 | 유저 관리 | `user_dvsn` = admin 이상 (`sa_dev` 포함) |
 | 부서 관리 | `user_dvsn` = super_admin 또는 `sa_dev` |
 
-`etl_yn=Y` 이어도 프로젝트 참여가 0건일 수 있다. 이 경우 상단 "내 프로젝트"는 빈 상태로 표시하고, 하단 "ETL 인프라" 카드를 기본 진입점으로 사용할 수 있다.
+`etl_yn=Y` 이어도 프로젝트 참여가 0건일 수 있다. 이 경우 상단 "내 프로젝트"는 빈 상태로 표시하고, 하단 "ETL 관리자" 카드(홈 ETL 진입)를 기본 진입점으로 사용할 수 있다.
 
 ### 5.3 마이페이지 (`/mypage`)
 
@@ -881,7 +881,7 @@ shared/components/
 
 ## 13. 추가 업그레이드 — ETL 전사 공통 + 테이블 마스터
 
-본 절은 **현행 정책**이다. ETL 인프라 메타(`etl_connections` 등 4종)는 **부서에 귀속하지 않으며**, `table_master` 도 **전사 공통**이다. 프로젝트별 테이블 접근은 **`table_project_mapping`** 만으로 제어한다. 권한·역할은 **`docs/main/05_Permission_ARCHITECTURE.md`** 를 본다.
+본 절은 **현행 정책**이다. ETL 메타(`etl_connections` 등 4종)는 **부서에 귀속하지 않으며**, `table_master` 도 **전사 공통**이다. 프로젝트별 테이블 접근은 **`table_project_mapping`** 만으로 제어한다. 권한·역할은 **`docs/main/05_Permission_ARCHITECTURE.md`** 를 본다.
 
 ### 13.0 운영 반영 상태·권한 원칙
 

@@ -73,15 +73,15 @@ def _run_one_job(job_id: int, etl_table_id: int) -> None:
         except Exception as e:
             etl_service.update_job(job_id, "failed", error_message=str(e))
             etl_service.update_etl_table_status(etl_table_id, "error")
-            logger.exception("ETL job %s failed: %s", job_id, e)
+            logger.exception("etl_queue_job fail job_id=%s", job_id)
     except Exception as e:
         try:
             etl_service.update_job(job_id, "failed", error_message=str(e))
             if etl_table_id is not None:
                 etl_service.update_etl_table_status(etl_table_id, "error")
         except Exception:
-            logger.exception("Failed to update job %s status after error", job_id)
-        logger.exception("ETL job %s failed (before/outside load): %s", job_id, e)
+            logger.exception("etl_queue_job status_update_fail job_id=%s", job_id)
+        logger.exception("etl_queue_job outer_fail job_id=%s", job_id)
 
 
 # 2.
@@ -125,13 +125,13 @@ def _worker_loop() -> None:
                 now = time.time()
                 if now - _last_conn_error_log >= _CONN_ERROR_LOG_INTERVAL_SEC:
                     logger.warning(
-                        "ETL worker: DB connection unavailable (%s). Next log in %ds.",
-                        err_msg.split("\n")[0].strip(),
+                        "etl_queue_worker db_unavailable retry_in_s=%s detail=%s",
                         _CONN_ERROR_LOG_INTERVAL_SEC,
+                        err_msg.split("\n")[0].strip(),
                     )
                     _last_conn_error_log = now
             else:
-                logger.exception("ETL worker iteration error: %s", e)
+                logger.exception("etl_queue_worker iteration_error")
             time.sleep(POLL_INTERVAL_SEC)
 
 
@@ -147,7 +147,7 @@ def start_background_worker() -> None:
         t = threading.Thread(target=_worker_loop, daemon=True, name="etl_queue_worker")
         t.start()
         _worker_started = True
-        logger.info("ETL queue worker started (max_concurrent=%s, poll_interval=%ss)", MAX_CONCURRENT, POLL_INTERVAL_SEC)
+        logger.info("etl_queue_worker started max_concurrent=%s poll_s=%s", MAX_CONCURRENT, POLL_INTERVAL_SEC)
 
 
 # 5.
@@ -166,4 +166,4 @@ def stop_background_worker() -> None:
         _worker_started = False
     if executor_to_shutdown is not None:
         executor_to_shutdown.shutdown(wait=True)
-    logger.info("ETL queue worker stopped")
+    logger.info("etl_queue_worker stopped")

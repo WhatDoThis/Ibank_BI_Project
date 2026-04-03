@@ -492,7 +492,7 @@ export default function AdminOrgPage() {
           {canManageDept ? (
             <button
               type="button"
-              className="admin-org__toolbar-add"
+              className="ibank-btn-toolbar admin-org__toolbar-add"
               onClick={openAddModal}
             >
               부서 추가
@@ -547,14 +547,14 @@ export default function AdminOrgPage() {
                           <>
                             <button
                               type="button"
-                              className="admin-org__btn-inline"
+                              className="ibank-btn-table"
                               onClick={() => openEditModal(d)}
                             >
                               수정
                             </button>
                             <button
                               type="button"
-                              className="admin-org__btn-inline admin-org__btn-inline--danger"
+                              className="ibank-btn-table ibank-btn-table--danger"
                               onClick={() => handleDeleteRow(d)}
                             >
                               삭제
@@ -666,7 +666,7 @@ export default function AdminOrgPage() {
             <div className="admin-org__modal-actions">
               <button
                 type="button"
-                className="admin-org__btn-inline"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                 onClick={closeAddModal}
                 disabled={addBusy}
               >
@@ -674,7 +674,7 @@ export default function AdminOrgPage() {
               </button>
               <button
                 type="submit"
-                className="admin-org__submit"
+                className="ibank-btn-toolbar"
                 disabled={addBusy}
               >
                 {addBusy ? '처리 중…' : '추가'}
@@ -744,7 +744,7 @@ export default function AdminOrgPage() {
             <div className="admin-org__modal-actions">
               <button
                 type="button"
-                className="admin-org__btn-inline"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                 onClick={closeEditModal}
                 disabled={editBusy}
               >
@@ -752,7 +752,7 @@ export default function AdminOrgPage() {
               </button>
               <button
                 type="submit"
-                className="admin-org__submit"
+                className="ibank-btn-toolbar"
                 disabled={editBusy}
               >
                 {editBusy ? '저장 중…' : '저장'}
@@ -811,7 +811,7 @@ export default function AdminOrgPage() {
               <div className="admin-org__modal-actions">
                 <button
                   type="button"
-                  className="admin-org__btn-inline"
+                  className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                   onClick={closeMigrateModal}
                   disabled={migrateBusy}
                 >
@@ -819,7 +819,7 @@ export default function AdminOrgPage() {
                 </button>
                 <button
                   type="submit"
-                  className="admin-org__submit"
+                  className="ibank-btn-toolbar"
                   disabled={migrateBusy || migrateDeptOptions.length === 0}
                 >
                   {migrateBusy ? '처리 중…' : '이관 후 사용 안 함'}

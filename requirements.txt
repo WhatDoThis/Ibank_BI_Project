@@ -1,5 +1,5 @@
-# Backend API (FastAPI, PostgreSQL, Claude API 호출)
-# 프론트엔드(React)는 Node/npm: Frontend/react-app/package.json, npm install
+# Backend API (FastAPI, PostgreSQL, JWT, Claude API)
+# 프론트엔드(React): Frontend/react-app/package.json — npm install
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 python-multipart>=0.0.6
@@ -8,19 +8,19 @@ requests>=2.28.0
 PyJWT>=2.8.0
 bcrypt>=4.0.0
 
-# ETL (파일 파싱·스키마 추론)
+# ETL 단일 패키지 Backend/etl_server — 파일 파싱·스키마 추론
 pandas>=2.0.0
 openpyxl>=3.1.0
 xlrd>=2.0.0
 pyarrow>=14.0.0
 
-# ETL·ETL2 DB 연결 및 DB 배치 실행기 (PostgreSQL·MySQL·Oracle, batch_executor_db)
+# ETL 소스 DB 연결·DB 배치 실행 (batch_executor_db)
 PyMySQL>=1.1.0
 oracledb>=2.0.0
 
-# ETL2 배치 스케줄러 (파일·DB 배치 공통, 09_ETL_SFTP_Connection / 10_DB_Batch_Scheduling_Upgrade)
+# ETL 폴더/DB 배치 스케줄러 (scheduler_file)
 apscheduler>=3.10.0
 
-# ETL2 원격 폴더 연결 (SFTP·S3, folder_adapter_file)
+# ETL 원격 폴더 (SFTP·S3, folder_adapter_file)
 paramiko>=3.0.0
 boto3>=1.28.0

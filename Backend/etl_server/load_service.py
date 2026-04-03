@@ -129,7 +129,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     else:
         etl_service.set_job_running(job_id)
     etl_service.update_etl_table_status(etl_table_id, "running")
-    logger.info("ETL file load started etl_table_id=%s job_id=%s file_path=%s", etl_table_id, job_id, file_path)
+    logger.info("etl_file_load start job_id=%s etl_table_id=%s", job_id, etl_table_id)
 
     max_file_mb, max_rows_per_load, _ = get_etl_limits()
     if max_file_mb > 0 and os.path.isfile(file_path):
@@ -149,7 +149,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     if df.empty:
         etl_service.update_job(job_id, "completed", rows_processed=0)
         etl_service.update_etl_table_status(etl_table_id, "done")
-        logger.info("ETL file load completed job_id=%s rows_processed=0 (empty file)", job_id)
+        logger.info("etl_file_load done job_id=%s rows=0 empty", job_id)
         return {"job_id": job_id, "status": "completed", "rows_processed": 0}
 
     extra = {}
@@ -171,11 +171,9 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     df.columns = normalized_names
     try:
         rules = transform_rules_svc.list_transform_rules(etl_table_id)
-        if rules:
-            logger.info("ETL file load etl_table_id=%s: %s개 변환 룰 적용", etl_table_id, len(rules))
         df = transform_engine.apply_rules(df, rules)
     except Exception as e:
-        logger.warning("ETL file load etl_table_id=%s: 변환 룰 적용 예외 (원본으로 계속): %s", etl_table_id, e)
+        logger.warning("etl_file_load transform_rules_skip etl_table_id=%s: %s", etl_table_id, e)
 
     # Phase 4: column_mapping 있으면 타겟 컬럼/타입·INSERT 순서를 매핑 기준으로 사용 + 매핑 기반 형변환
     column_mapping = etl_row.get("column_mapping")
@@ -279,7 +277,7 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     conn_main.rollback()
                 etl_service.update_job(job_id, "cancelled", rows_processed=rows_processed, error_message="사용자 취소")
                 etl_service.update_etl_table_status(etl_table_id, "error")
-                logger.info("ETL file load cancelled job_id=%s rows_processed=%s", job_id, rows_processed)
+                logger.info("etl_file_load cancelled job_id=%s rows=%s", job_id, rows_processed)
                 return {"job_id": job_id, "status": "cancelled", "rows_processed": rows_processed, "error_message": "사용자 취소"}
             batch = rows[i : i + insert_batch_size]
             batch_ph = ", ".join([one_row_ph] * len(batch))
@@ -321,11 +319,11 @@ def run_file_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             notice="데이터 확인이 필요합니다." if data_verification_needed else None,
         )
         etl_service.update_etl_table_status(etl_table_id, "done")
-        logger.info("ETL file load completed job_id=%s rows_processed=%s", job_id, rows_processed)
+        logger.info("etl_file_load done job_id=%s rows=%s", job_id, rows_processed)
         return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed, **extra}
 
     except Exception as e:
-        logger.exception("ETL file load failed job_id=%s: %s", job_id, e)
+        logger.exception("etl_file_load fail job_id=%s", job_id)
         conn_main.rollback()
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
@@ -398,7 +396,7 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
 
     etl_service.set_job_running(job_id)
     etl_service.update_etl_table_status(etl_table_id, "running")
-    logger.info("ETL file upsert started etl_table_id=%s job_id=%s add_file=%s", etl_table_id, job_id, add_file_path)
+    logger.info("etl_file_upsert start job_id=%s etl_table_id=%s", job_id, etl_table_id)
 
     max_file_mb, max_rows_per_load, _ = get_etl_limits()
     if max_file_mb > 0:
@@ -430,11 +428,9 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
 
     try:
         rules = transform_rules_svc.list_transform_rules(etl_table_id)
-        if rules:
-            logger.info("ETL file upsert etl_table_id=%s: %s개 변환 룰 적용", etl_table_id, len(rules))
         df = transform_engine.apply_rules(df, rules)
     except Exception as e:
-        logger.warning("ETL file upsert etl_table_id=%s: 변환 룰 적용 예외 (원본으로 계속): %s", etl_table_id, e)
+        logger.warning("etl_file_upsert transform_rules_skip etl_table_id=%s: %s", etl_table_id, e)
 
     file_cols = set(df.columns)
     for pk in pk_list:
@@ -504,10 +500,10 @@ def run_file_upsert(etl_table_id: int, job_id: int) -> dict:
             )
         etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
         etl_service.update_etl_table_status(etl_table_id, "done")
-        logger.info("ETL file upsert completed job_id=%s rows_processed=%s", job_id, rows_processed)
+        logger.info("etl_file_upsert done job_id=%s rows=%s", job_id, rows_processed)
         return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}
     except Exception as e:
-        logger.exception("ETL file upsert failed job_id=%s: %s", job_id, e)
+        logger.exception("etl_file_upsert fail job_id=%s", job_id)
         conn_main.rollback()
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")

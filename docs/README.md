@@ -8,8 +8,11 @@
 |------|------|
 | [00_PRD.md](main/00_PRD.md) | 제품 범위·아키텍처 요약·설정·기능 개요 |
 | [01_FRONTEND_GUIDE.md](main/01_FRONTEND_GUIDE.md) | React 앱 구조·`app/*`·`packages/*`·패키지별 API 클라이언트·라우트 |
-| [02_BACKEND_GUIDE.md](main/02_BACKEND_GUIDE.md) | FastAPI·라우터·`etl_server`·뉴/캠페인/마케팅 대시보드 API·설정 |
-| [03_개발가이드.md](main/03_개발가이드.md) | AI·온보딩용 아키텍처 지도, 레이어·DB 매트릭스, 작업 유형별 탐색 경로 |
+| [02_BACKEND_GUIDE.md](main/02_BACKEND_GUIDE.md) | FastAPI·auth/admin/project/notification·`query_studio_server`·`etl_server`·캠페인 대시보드·설정 |
+| [03_AI_DEVELOP_GUIDE.md](main/03_AI_DEVELOP_GUIDE.md) | AI·온보딩용 아키텍처 지도, 레이어·DB 매트릭스, 작업 유형별 탐색 경로 |
+| [04_DB_ARCHITECTURE.md](main/04_DB_ARCHITECTURE.md) | system_db 테이블·FK 트리 |
+| [05_Permission_ARCHITECTURE.md](main/05_Permission_ARCHITECTURE.md) | 역할·권한·ETL 인프라·`require_permission` |
+| [06_CUSTOMER_JOURNEY.md](main/06_CUSTOMER_JOURNEY.md) | 고객 여정·Phase별 흐름 |
 
 위 파일들은 **지금 구현된 동작**만 다룬다. 로드맵·Phase·예정 기능은 적지 않는다.
 

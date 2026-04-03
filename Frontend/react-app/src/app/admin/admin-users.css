@@ -1,5 +1,6 @@
 /**
- * app/admin/admin-users.css — AdminUsersPage 전용 (이관 모달 빈 목록·empty-title·테이블마스터 연쇄 이관 상세 줄 등)
+ * app/admin/admin-users.css — AdminUsersPage 전용 (작업물 카테고리·ETL 대/중분류·전체이관·이관 모달·연쇄 이관 상세 줄 등)
+ * 행 액션(.admin-users__actions button): shared-ui `.ibank-btn-table` 호버 톤과 정합
  */
 
 .admin-users {
@@ -45,7 +46,7 @@
 .admin-users__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
 }
 
 .admin-users__table th,
@@ -54,6 +55,8 @@
   padding: 10px 12px;
   text-align: left;
   color: var(--color-text);
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .admin-users__table th {
@@ -69,26 +72,7 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.admin-users__actions button {
-  padding: 6px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-light);
-  background: #fff;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-family: var(--font-sans);
-  color: var(--color-text);
-}
-
-.admin-users__actions button:hover:not(:disabled) {
-  background: var(--primary-light);
-}
-
-.admin-users__actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  align-items: center;
 }
 
 .admin-users__invite {
@@ -161,22 +145,6 @@
   margin-bottom: 8px;
 }
 
-.admin-users__btn-head-invite {
-  padding: 10px 18px;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(0, 112, 74, 0.45);
-  background: var(--color-action-primary, #00704a);
-  color: #fff;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: var(--font-sans);
-}
-
-.admin-users__btn-head-invite:hover {
-  filter: brightness(1.06);
-}
-
 .admin-users__modal-backdrop {
   position: fixed;
   inset: 0;
@@ -225,26 +193,19 @@
   line-height: 1.45;
 }
 
+.admin-users__modal-hint--emph {
+  color: var(--color-text);
+  background: var(--primary-light);
+  padding: 8px 10px;
+  border-radius: var(--radius-card);
+  border-left: 3px solid rgba(0, 112, 74, 0.4);
+}
+
 .admin-users__modal-actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 8px;
-}
-
-.admin-users__btn-muted {
-  padding: 8px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-light);
-  background: #f5f5f5;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-family: var(--font-sans);
-}
-
-.admin-users__btn-list {
-  font-size: 0.75rem;
-  padding: 5px 8px;
 }
 
 .admin-users__modal-form {
@@ -260,23 +221,6 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
-}
-
-.admin-users__btn-change {
-  color: #1f5fbf;
-  border-color: rgba(31, 95, 191, 0.35) !important;
-}
-
-.admin-users__btn-transfer {
-  padding: 4px 10px;
-  font-size: 0.75rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(0, 112, 74, 0.4);
-  background: #fff;
-  color: var(--color-action-primary, #00704a);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  flex-shrink: 0;
 }
 
 .admin-users__detail-row td {
@@ -344,9 +288,9 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
-  border: 1px solid rgba(31, 95, 191, 0.35);
-  color: #1f5fbf;
-  background: rgba(31, 95, 191, 0.08);
+  border: 1px solid rgba(0, 112, 74, 0.35);
+  color: var(--color-action-primary-hover);
+  background: var(--primary-light);
   font-size: 0.76rem;
   white-space: nowrap;
 }
@@ -356,15 +300,99 @@
   margin-left: 22px;
 }
 
-.admin-users__work-block {
-  margin-bottom: 16px;
+.admin-users__work-section {
+  margin-bottom: 18px;
 }
 
-.admin-users__work-block-title {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
+.admin-users__work-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  background: var(--primary-light);
+  border: 1px solid var(--color-border-light);
+  border-bottom: none;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+.admin-users__work-section-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
   color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+.admin-users__work-list-panel {
+  margin: 0;
+  padding: 10px 12px 12px 16px;
+  border: 1px solid var(--color-border-light);
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: rgba(255, 255, 255, 0.98);
+  border-left: 3px solid rgba(0, 112, 74, 0.35);
+}
+
+.admin-users__work-section--etl-mega {
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(0, 112, 74, 0.22);
+  overflow: hidden;
+  background: rgba(0, 112, 74, 0.04);
+}
+
+.admin-users__work-section--etl-mega > .admin-users__work-section-head {
+  background: var(--primary-light);
+  border-color: rgba(0, 112, 74, 0.22);
+}
+
+.admin-users__work-etl-nested-wrap {
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--color-border-light);
+  border-top: none;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.admin-users__work-subsection {
+  margin: 0;
+}
+
+.admin-users__work-subsection-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--color-border-light);
+  border-bottom: none;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+.admin-users__work-subsection-title {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--color-text);
+}
+
+.admin-users__work-list-panel--nested {
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  border-left-width: 2px;
+  padding: 8px 10px 10px 12px;
+}
+
+.admin-users__work-section--etl-mega .admin-users__work-etl-note {
+  margin: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .admin-users__work-list {
@@ -378,9 +406,14 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 8px 0 8px 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   font-size: 0.8rem;
+}
+
+.admin-users__work-item:last-child {
+  border-bottom: none;
+  padding-bottom: 2px;
 }
 
 .admin-users__work-item-label {

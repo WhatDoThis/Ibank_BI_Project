@@ -213,7 +213,7 @@ function BatchHistoryDetailFile({ batchJobId, runId, onBack, onClose }) {
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={8} style={{ padding: '12px', background: 'var(--etl-bg-muted, #f5f5f5)', fontSize: '0.8rem' }}>
+                          <td colSpan={8} style={{ padding: '12px', background: 'var(--background)', fontSize: '0.8rem' }}>
                             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', margin: 0 }}>
                               <dt>파일명</dt><dd>{file.filename ?? '-'}</dd>
                               <dt>타임스탬프</dt><dd>{file.timestamp ?? '-'}</dd>

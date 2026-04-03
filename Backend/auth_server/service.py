@@ -258,7 +258,7 @@ def login_send_code(
     try:
         email_service.send_login_code_email(email_n, code)
     except Exception as e:
-        _log.exception("login_send_code email: %s", e)
+        _log.exception("auth_login_code_email_fail")
     pre = security.create_pre_auth_token(row["user_id"])
     exp_sec = auth_config.get_jwt_pre_auth_expire_minutes() * 60
     return pre, exp_sec

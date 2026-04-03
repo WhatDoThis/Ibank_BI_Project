@@ -865,9 +865,9 @@ def _save_table_worker():
                 now = time.time()
                 if now - _save_table_worker_last_conn_err_log >= _save_table_worker_conn_err_interval_sec:
                     logging.getLogger(__name__).warning(
-                        "save_table_worker: DB connection unavailable (%s). Next log in %ds.",
-                        err_msg.split("\n")[0].strip(),
+                        "query_studio_save_worker db_unavailable retry_in_s=%s detail=%s",
                         _save_table_worker_conn_err_interval_sec,
+                        err_msg.split("\n")[0].strip(),
                     )
                     _save_table_worker_last_conn_err_log = now
                 time.sleep(_save_table_worker_conn_err_sleep_sec)

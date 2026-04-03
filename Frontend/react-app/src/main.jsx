@@ -13,12 +13,13 @@
  *
  * [Dependencies]
  * =========
- * - React, react-dom/client, App.jsx, index.css, styles/main.css
+ * - React, react-dom/client, App.jsx, index.css, styles/design-tokens.css, styles/shared-ui.css, styles/main.css
  */
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/design-tokens.css'
+import './styles/shared-ui.css'
 import './index.css'
 import './styles/main.css'
 import App from './App.jsx'

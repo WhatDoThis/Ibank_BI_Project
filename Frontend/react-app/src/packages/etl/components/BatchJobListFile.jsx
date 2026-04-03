@@ -363,7 +363,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
                           onClick={() => setSkippedJobId(id)}
                           title="스킵/에러 파일 조회·삭제"
                         >
-                          문제 파일
+                          문제파일
                         </button>
                       )}
                       <button

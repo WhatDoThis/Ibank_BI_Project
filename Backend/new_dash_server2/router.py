@@ -40,7 +40,7 @@ def handle_errors(func):
         except ValueError as e:
             return JSONResponse(status_code=400, content={"error": str(e)})
         except Exception as e:
-            logger.exception("new-dashboard2 API error: %s", e)
+            logger.exception("new_dash2_router endpoint_error")
             return JSONResponse(status_code=500, content={"error": str(e)})
     return wrapper
 

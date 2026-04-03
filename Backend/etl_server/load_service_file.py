@@ -438,9 +438,7 @@ def _record_loaded_keys(
         sys_conn.commit()
     except Exception as e:
         sys_conn.rollback()
-        logger.warning(
-            "batch_loaded_keys 기록 실패 (적재는 정상): %s", e
-        )
+        logger.warning("batch_loaded_keys_insert_fail (load_ok): %s", e)
     finally:
         cur.close()
 

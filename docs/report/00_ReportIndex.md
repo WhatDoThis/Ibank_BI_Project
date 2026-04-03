@@ -3,7 +3,8 @@
 **docs/report** 는 **코드 정리·코드 분석·코드 실행** 관련 내용만 포함합니다.  
 개발문서(요구사항, 명세 등)는 **docs/main** 에만 둡니다.
 
-- **백엔드 가이드**: 구조·API·etl_server 상세는 **docs/main/02_BACKEND_GUIDE.md** 참고. Flask→FastAPI 전환 계획은 해당 문서 부록 A에 참고용으로 정리됨. 전환 완료 로그는 log.md에 기록.
+- **경로 정합(2026-04)**: 본 폴더 일부 문서에 남아 있는 `Backend/etl_server2`·`packages/etl2`·`/api/etl2` 표기는 **삭제된 구조**이다. 현재 코드 기준으로 **`Backend/etl_server`**, **`Frontend/.../packages/etl`**, API **`/api/etl`**, **`/api/etl/batch`** 로 읽는다. 동작 정의는 **docs/main** 우선.
+- **백엔드 가이드**: 구조·API·etl_server 상세는 **docs/main/02_BACKEND_GUIDE.md** 참고. Flask→FastAPI 전환 계획은 해당 문서 부록 A에 참고용으로 정리됨. 프로젝트 작업 이력은 **docs/log/log.md** 참고.
 
 ---
 
@@ -18,7 +19,7 @@
 | 06_I1_파생테이블_정의.md | I1 파생 테이블 정의, 생성 스크립트, 리포트 사이드바 폴더, 테이블명 소문자 등 |
 | 07_newDashboard_Develop_Plan.md | NewDashboard 범용 대시보드: 요구사항 정리, 현행 대비 검토, 가능성 검토, Phase 0~5 개발 계획(백엔드 범용 API → 프론트 테이블/헤더 → KPI·목표·집계 테이블 → 위젯 beta → 비교·정리) |
 | 08_ETL_Phase_Implement_Guide.md | ETL 가이드·참조: 목적·범위·시스템 개요, config·메타 테이블·모듈 의존, Job 확인(운영), 재실행·파일/DB 동작, DB 연결 실패 시 점검, Phase·구현 요약, ZIP 추가 적재, ETL 목록 버튼·설정 모달, **COPY 적재 이해하기**(비유·단계·Upsert·on_row_error), DB 적재 상세(COPY·Upsert·fallback), 매핑 형변환·행 실패 정책. |
-| 09_ETL_SFTP_Connection.md | Batch Sync 설계서: 원격 폴더(SFTP/S3) 기반 자동 증분 적재. DB(batch_*) 반영 완료. 아키텍처: Backend/etl_server2 통합(*_file.py), packages/etl2/components(*File.jsx), ETL2 페이지 "폴더 등록" 탭. |
+| 09_ETL_SFTP_Connection.md | Batch Sync 설계서: 원격 폴더(SFTP/S3) 기반 자동 증분 적재. DB(batch_*) 반영 완료. **구현 경로는 `Backend/etl_server`(*_file.py), `packages/etl`, `/api/etl`·`/api/etl/batch`**. |
 | 10_DB_Batch_Scheduling_Upgrade.md | DB 연결 기반 배치 스케줄링: batch_jobs 확장(job_type, connection_id, source_table 등), batch_executor_db·스케줄러 분기·service_file·router_file 작업 체크리스트, 정제 사항 7건, DB 실행 명령 참고. 서브에이전트 병렬 작업용. |
 | 11_ETL_Transform_Upgrade_Guide.md | ETL Transform 업그레이드 — **커서 AI 실행 가이드**: Step 1~20(엔진·서비스·라우터), **§2 화면 설계** Step UI-1~UI-10(변환 미리보기 API·버튼·패널, 문자열 4종 입력·안내, Before→After 예시, 마스킹 비가역 경고, 하이라이트/필터, 값 매핑 팝오버, boolean/date 설정). 병렬 실행 표·체크리스트 포함. |
 | 12_뉴대시보드_제작_플랜.md | **뉴대시보드(일간/주간/월간 현황판) 제작 플랜**: ibank_test_data.ibank_1 연동. Phase 1(summary+증감률, trend-multi, tables) → 2a/2b(API 4함수, period 기본값 monthly) → 3(period 기본 monthly, trendMulti) → 4(SummaryHeader, KPISummaryCards 미니도넛+증감, ChannelDonutSection, TrendLineChart 5라인, FunnelSection 5단계 전환, CampaignRankTable 탭) → 5(CSS) → 6(라우팅·사이드바) → 7(검증). 프로토타입 대조 표·체크리스트·서브에이전트 배정 포함. |
@@ -28,7 +29,7 @@
 | 16_Campaign_Dashboard_Star_Schema_Plan.md | **캠페인 대시보드(Star 스키마) 개발 계획서**: `ibank_1`~`ibank_1_4` → `ibank_1_star_1`/`ibank_1_star_2` 컬럼·JSONB 매핑 검증, API 계약 유지 전제하의 `campaign_dash_server`·`campaign_dashboard` 패키지 Phase 표·체크리스트·table_id·db 검증 주의사항. |
 | 17_SystemDB_Commercialization_Implementation_Guide.md | **시스템 DB 추가 및 상용화 개발 구현 가이드**: DB·config·인증·권한·프로젝트·알림·화면·API. **§10.4 M1/M2**, **§13** 전사 공통 `table_master`/ETL·`require_etl_infrastructure`. **docs/main/04·05·06** 과 교차 참조. **§12** 서브에이전트·`.cursor/`. |
 | 18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md | **ibank_etl_data 실측 스키마·생성자·CURL/FE 체크리스트**: `protocol`/`folder_type`, `id`/`registry_id` PK, `create_user_id`·`create_user_label` API/화면 정합, 동적 컬럼 감지 요약. |
-| etc01_Backend_Learning_Flow.md | **ETL2 학습 가이드**: Backend/etl_server2 + packages/etl2 기준. 시스템 목적·아키텍처·레이어별 파일 역할·데이터 흐름(함수·라이브러리 단위)·학습 순서(의존도)·API·패턴·한도·ERD. 처음 접하는 개발자용. | 백엔드 코드 학습 흐름도: 파일별 내부 의존도 수치·역할, 권장 학습 순서(의존 0→1→2→4단계), 학습 흐름도·기능 대응표. 코드 리뷰용 |
+| etc01_Backend_Learning_Flow.md | ETL 단일 스택 학습 가이드: **`Backend/etl_server`**, **`packages/etl`**, **`/api/etl`·`/api/etl/batch`**, `etlClient.js`(`etl2*`·`batch*` 함수명). 세부 구조는 **docs/main/02_BACKEND_GUIDE.md** 와 병행. |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |
 | DEPLOY_SERVER.md | Linux 서버 배포 절차. 실제 배포: deploy.sh (빌드 + report-api/report-front 재시작). report-front 서비스는 run.py serve |

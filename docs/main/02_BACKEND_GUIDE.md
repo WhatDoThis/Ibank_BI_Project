@@ -12,7 +12,7 @@
 - **FastAPI** 기반 REST API 서버. **`Backend/api_server/main.py`** 에서 health → **auth** → **project** → **notification** → **admin** → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) 순으로 라우터를 등록한다.
 - **PostgreSQL** 연동: **메인 DB**(쿼리 스튜디오·execute-query 물리 테이블), **시스템 DB**(`ibank_system_data` — ETL 메타·`user_info`·부서·프로젝트·`pmssn_master`·매핑 등, **04_DB_ARCHITECTURE.md**), **dash_db**(캠페인 대시보드 Star·집계 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
-- **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. ETL Job 큐 워커는 startup 시 백그라운드 기동(pending → running, 동시 2건 제한).
+- **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. **lifespan**에서 ETL **폴더/DB 배치 스케줄러**(APScheduler) 기동. ETL **Job 큐 워커**(`queue_worker`)는 `/api/etl` 등에서 pending Job이 등록될 때 **최초 1회** 백그라운드 기동(pending → running, **동시 최대 3건**, `MAX_CONCURRENT`).
 - **인증·인가**: **`/api/auth/*`** 로그인·토큰·세션. 보호 API는 **`Authorization: Bearer`** access JWT. 쿼리 스튜디오·대시보드 등은 **`Backend.auth_server.permissions.require_permission`**(JWT `project_info_id`·멤버·`pmssn_list`). 상세는 **05_Permission_ARCHITECTURE.md**.
 - **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **03_AI_DEVELOP_GUIDE.md §10**.
 
@@ -37,9 +37,11 @@
 
 ```
 Backend/
-├── core/                          # 공유 DB·의존성·대시보드 집계 (여러 서버가 import)
+├── core/                          # 공유 DB·의존성·대시보드 집계·설정·로깅 (여러 서버가 import)
 │   ├── db.py                      # config.backend 기반 DB 연결(get_db_config, get_allowed_tables, get_db_connection, get_db_connection_system, get_db_connection_dash 등)
 │   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
+│   ├── auth_config.py             # JWT·SMTP·get_app_url (인증·초대 메일)
+│   ├── logging_setup.py           # 루트 로거 포맷: asctime / [LEVEL] message
 │   └── dashboard_service.py       # 대시보드 집계 비즈니스 로직 (campaign_dash_server 등)
 │
 ├── query_studio_server/           # 쿼리 스튜디오 API (prefix /api, etl_server와 동급 패키지)
@@ -48,10 +50,15 @@ Backend/
 │   ├── pluralize.py, relationship_inference.py, join_path.py, join_metrics.py, analysis_store.py
 │
 ├── api_server/                    # FastAPI 호스트: 앱 조립·CORS·라우터 등록
-│   ├── main.py                    # FastAPI 앱·CORS·라우터 등록·예외 핸들러·ETL 워커 startup
+│   ├── main.py                    # FastAPI 앱·CORS·라우터·lifespan(배치 스케줄러)·예외 핸들러
 │   └── routers/
 │       ├── __init__.py            # health + query_studio_server.router 재export
 │       └── health.py              # GET /, /api, /api/, /health
+│
+├── auth_server/                   # /api/auth — 로그인·JWT·2FA·초대
+├── project_server/                # /api/projects
+├── notification_server/           # /api/notifications
+├── admin_server/                  # /api/admin — 부서·사용자·권한·프로젝트
 │
 ├── legacy_dashboard_server/       # 구 /api/dashboard (main 미등록, 코드 보존)
 │   ├── router.py
@@ -72,7 +79,7 @@ Backend/
 │   ├── parser_file.py             # get_pending_files
 │   ├── scheduler_file.py          # APScheduler
 │   ├── preview_service.py         # get_preview·_get_preview_with_transform
-│   ├── queue_worker.py            # pending Job·동시 2건 제한
+│   ├── queue_worker.py            # pending Job·동시 최대 3건(MAX_CONCURRENT)
 │   ├── schema_infer.py            # infer_schema
 │   ├── transform_engine.py        # 변환 룰 적용
 │   ├── transform_rules_service.py # etl_transform_rules CRUD
@@ -118,7 +125,7 @@ Backend/
 | 테이블 | 용도 |
 |--------|------|
 | **etl_connections** | 소스 연결 정보(연결명, source_type, host, port, database_name, schema_name, username, encrypted_password). |
-| **etl_storage_connections** | 저장 DB(적재 대상 PostgreSQL) 등록. connection_name, host, port, database_name, schema_name, username, encrypted_password, is_active. ETL2에서 사용. |
+| **etl_storage_connections** | 저장 DB(적재 대상 PostgreSQL) 등록. connection_name, host, port, database_name, schema_name, username, encrypted_password, is_active. `etl_server`에서 사용. |
 | **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode(full\|incremental\|**diff**), status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error**, **index_definitions** JSONB, **diff_delete_orphans** 등). on_row_error: 'fail'\|'skip'. index_definitions: 타겟 테이블 인덱스 정의(적재 후 자동 생성). |
 | **etl_transform_rules** | 변환 룰(etl_table_id, source_column, target_column, rule_type, rule_config, apply_order, is_active). |
 | **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message, notice). |
@@ -134,11 +141,16 @@ Backend/
 - **용도**: 물리 테이블 `ibank_1`(집계용)·`ibank_1_0`~`ibank_1_4`(서브 테이블) 조회. `db.get_db_connection_dash()`, `get_dash_table_schema()`, `is_new_dash_physical_table()`, `validate_dashboard_data_table_name()` 사용.
 - **연동**: `dashboard_service`는 `table_id`가 위 패턴이면 dash_db로 연결·스키마 적용. `new_dash_server`는 해당 테이블 조회를 dash_db 전용으로 수행. 마케팅 대시보드(new_dash_server2)의 Star DB(`backend.star_db`)와는 별개.
 
+### 3.2.2 인증·메일 (backend)
+
+- **jwt_secret**, **jwt_pre_auth_expire_minutes**, **jwt_access_expire_minutes**, **jwt_refresh_expire_days**: access/refresh·2차 인증 pre 토큰. `jwt_secret` 비어 있으면 기동 시 검증 실패 가능.
+- **smtp_info** (선택 객체): **smtp_host**, **smtp_port**, **smtp_user**, **smtp_password**, **smtp_from**, **app_url**(초대·가입 링크용 공개 SPA 베이스, 없으면 `backend.app_url` → `frontend.app_url` 순). **smtp_host가 비어 있으면** 실제 SMTP 발송 없이 로그 폴백만(`Backend.core.auth_config.is_smtp_skipped`). 개발·운영 구분 없이 동일 규칙.
+
 ### 3.3 ETL 한도 (etl_limits)
 
-- **backend.etl_limits**: config.json의 backend 안에 선택적으로 지정. **없으면** etl_server2의 **etl_limits 모듈 기본값** 사용(일반적 서버 4~8GB 메모리 기준 권장).
+- **backend.etl_limits**: config.json의 backend 안에 선택적으로 지정. **없으면** `Backend/etl_server/etl_limits.py` **기본값** 사용(일반적 서버 4~8GB 메모리 기준 권장).
 
-| 키 | 의미 | config 없을 때 기본값(etl_server2) | config 0일 때 |
+| 키 | 의미 | config 없을 때 기본값(etl_limits.py) | config 0일 때 |
 |----|------|-----------------------------------|----------------|
 | **max_file_size_mb** | 파일 적재 시 파일 크기 상한(MB). 초과 시 거부. | 50 | 검사 안 함 |
 | **max_rows_per_load** | 1회 적재당 최대 행 수. 파일은 해당 행까지만 읽고, DB는 이 행 수까지만 가져와 적재. | 100_000 | 무제한 |
@@ -147,7 +159,7 @@ Backend/
 
 - **파일**: 크기 > max_file_size_mb 이면 실패. CSV는 max_rows_per_load만큼만 읽고, Excel/Parquet는 읽은 뒤 해당 행 수로 자름.
 - **ZIP 추가 적재**(POST add-files-zip): 압축 해제 **전**에 `get_max_zip_extract_total_mb()`로 상한(MB) 조회 후, `zf.infolist()`의 `file_size` 합계가 상한을 초과하면 HTTP 400으로 거부. 상한 0이면 검사 생략. UI 안내: 각 파일 최대 50MB(초과 시 해당 파일 Skip), ZIP 전체 최대 2GB(초과 시 데이터 추가 실패).
-- **DB**: 사용자 batch_size가 있으면 min(사용자값, max_batch_size)로 배치. **배치 크기 미입력(batch_size=0)** 시: config의 max_rows_per_load가 있으면 그 값을 상한으로 사용하고, 없으면 **기본 10_000건** 상한 적용(PostgreSQL·MySQL·Oracle 공통). etl_server: `DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH=10000`. etl_server2: MySQL/Oracle은 effective_batch_size=0일 때 10_000 스트리밍 배치 적용.
+- **DB**: 사용자 batch_size가 있으면 min(사용자값, max_batch_size)로 배치. **배치 크기 미입력(batch_size=0)** 시: config의 max_rows_per_load가 있으면 그 값을 상한으로 사용하고, 없으면 **기본 10_000건** 상한 적용(PostgreSQL·MySQL·Oracle 공통, `db_load_service`의 `DEFAULT_FETCH_LIMIT_WHEN_NO_BATCH` 등).
 - **취소 체크 견고화(etl_server)**: DB 적재 중 `is_job_cancelled` 조회 시 시스템 DB 연결 실패 등 예외가 나면 `_safe_is_job_cancelled`가 False(취소 아님)를 반환해 적재를 계속 진행. 스트리밍·비스트리밍 경로 모두 적용.
 
 ### 3.4 ETL 배치·실행 시점
@@ -184,7 +196,10 @@ Backend/
 | POST | /api/get-column-values | 컬럼 고유값 |
 | POST | /api/query-stats | 쿼리 통계 |
 
-### 4.3 dashboard (prefix /api/dashboard)
+### 4.3 dashboard (prefix /api/dashboard) — 미등록 참고
+
+- **`api_server/main.py`에 라우터 없음** → 운영 API에서는 **404**. 패키지 `legacy_dashboard_server`만 저장소에 보존.
+- 참고용 엔드포인트(연결 시):
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -371,11 +386,11 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 ### 6.1 역할
 
 - **router.py**: /api/etl API 진입. service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service 호출.
-- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능). (동일 target_table 허용·삭제 시 DROP 생략은 **etl_server2**에서 적용.)
+- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능). 동일 target_table·삭제 시 DROP 생략 등 세부 동작은 **`service.py`·`delete_etl_table`** 구현을 본다.
 - **load_service.py**: 파일 적재 — get_etl_table → 파싱(CSV/Excel/Parquet) → 변환 룰 → 메인 DB DROP/CREATE/INSERT. 업로드 파일은 **3일** 초과 시 자동 삭제.
 - **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full / Incremental / **diff**(`_run_diff_sync`: PK 집합 비교·배치 INSERT·선택 orphan DELETE). PostgreSQL·MySQL·**Oracle** 모두 지원. COPY FROM STDIN·on_row_error·인덱스 생성 등 단일 etl_server 경로.
 - **preview_service.py**: 파일·DB 소스 미리보기(10행).
-- **queue_worker.py**: pending Job 선점 → running, 동시 2건 제한, load_service/db_load_service 호출 후 completed/failed 갱신.
+- **queue_worker.py**: pending Job 선점 → running, **동시 최대 3건**, load_service/db_load_service 호출 후 completed/failed 갱신.
 
 ### 6.2 DB 지원 현황
 
@@ -383,7 +398,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 |----|------------|------------|------------------|---------------------------|------|
 | **PostgreSQL** | 5432 | ✅ | ✅ | ✅ | psycopg2. |
 | **MySQL** | 3306 | ✅ | ✅ | ✅ | PyMySQL. TABLE_SCHEMA=DB명, backtick 인용. |
-| **Oracle** | 1521 | ✅ | ✅ | ✅ | oracledb. **Service Name만** 지원(DSN host:port/서비스명, SID 미지원). 목록·미리보기·PK 자동 조회·적재 모두 지원(etl_server2). list_source_tables: 스키마 미지정·PUBLIC이면 USER_TABLES(접속 사용자 소유만), 스키마 지정 시 ALL_TABLES 해당 OWNER. source_table 저장 형식 OWNER.TABLE_NAME. |
+| **Oracle** | 1521 | ✅ | ✅ | ✅ | oracledb. **Service Name만** 지원(DSN host:port/서비스명, SID 미지원). 목록·미리보기·PK 자동 조회·적재 모두 지원. list_source_tables: 스키마 미지정·PUBLIC이면 USER_TABLES(접속 사용자 소유만), 스키마 지정 시 ALL_TABLES 해당 OWNER. source_table 저장 형식 OWNER.TABLE_NAME. |
 
 ### 6.3 외부 DB 연결 구조·실패 시 점검
 
@@ -394,7 +409,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 6.4 Job 확인 방법 (운영)
 
-- **터미널 로그**(python run.py back): `ETL file load started etl_table_id=... job_id=...` / `ETL db load started ...` → 시작. `ETL file/db load completed job_id=... rows_processed=...` → 성공. `ETL file/db load failed job_id=...` → 실패(traceback 확인). "started"만 있고 completed/failed 없으면 실행 중 또는 워커 예외.
+- **터미널 로그**(python run.py back): 루트 로거 포맷 `YYYY-MM-DD HH:MM:SS / [LEVEL] message`(`core/logging_setup.py`). 파일 적재: `etl_file_load start`·`done`·`fail` 등. DB 적재: `etl_db_load_done`·`etl_db_load_fail` 등. 태그로 grep·스택은 `logger.exception` 블록 확인.
 - **시스템 DB**: etl_jobs에서 job_id, etl_table_id, status, started_at, finished_at, rows_processed, error_message. status='running'이고 finished_at NULL이면 실행 중 또는 미갱신. status='failed'면 error_message 확인.
 - **파일 적재**: etl_tables.file_path 경로 존재 여부(3일 지나면 정리로 삭제). 메인 DB target_table 존재·건수 확인.
 - **DB 적재**: POST /api/etl/connections/test로 소스 연결 확인. incremental 모드면 pk_columns 필수.
@@ -459,7 +474,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 ### A.1 목적·원칙
 
 - **목적**: Flask 기반 Backend API를 FastAPI로 전면 교체.
-- **상태**: **전환 완료**. 상세 로그는 docs/report/log.md 참고.
+- **상태**: **전환 완료**. 이후 변경 이력은 **docs/log/log.md** 참고.
 - **원칙**: config 로드 방식 유지, 프론트 영향 최소화, 의존성 낮은 파일부터 순차 적용.
 
 ### A.2 파일별 의존성 (전환 후 구조)

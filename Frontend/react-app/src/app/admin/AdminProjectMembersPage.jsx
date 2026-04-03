@@ -198,7 +198,7 @@ export default function AdminProjectMembersPage() {
               placeholder="user@example.com"
             />
           </label>
-          <button type="button" className="ap__btn" onClick={runSearch} disabled={busy}>
+          <button type="button" className="ibank-btn-table" onClick={runSearch} disabled={busy}>
             검색
           </button>
         </div>
@@ -236,7 +236,7 @@ export default function AdminProjectMembersPage() {
                 ))}
               </select>
             </label>
-            <button type="submit" className="ap__btn ap__btn--primary" disabled={busy}>
+            <button type="submit" className="ibank-btn-toolbar" disabled={busy}>
               멤버로 추가
             </button>
           </form>
@@ -286,7 +286,7 @@ export default function AdminProjectMembersPage() {
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          className="ap__btn ap__btn--primary"
+                          className="ibank-btn-table ibank-btn-table--primary"
                           disabled={busy || String(m.pmssn_master_id) === cur}
                           onClick={() =>
                             handleRoleChange(uid, parseInt(cur, 10))
@@ -296,7 +296,7 @@ export default function AdminProjectMembersPage() {
                         </button>
                         <button
                           type="button"
-                          className="ap__btn ap__btn--danger"
+                          className="ibank-btn-table ibank-btn-table--danger"
                           disabled={busy}
                           onClick={() => handleRemove(uid)}
                         >

@@ -414,7 +414,7 @@ export default function AdminRolesPage() {
             가능합니다.
           </p>
         </div>
-        <button type="button" className="ap__btn-head-create" onClick={openCreateModal}>
+        <button type="button" className="ibank-btn-toolbar" onClick={openCreateModal}>
           권한 생성
         </button>
       </div>
@@ -467,7 +467,7 @@ export default function AdminRolesPage() {
                       </option>
                     ))}
                   </select>
-                  <button type="button" className="ap__btn" onClick={addPermissionToNewList} disabled={createBusy}>
+                  <button type="button" className="ibank-btn-table" onClick={addPermissionToNewList} disabled={createBusy}>
                     추가
                   </button>
                 </div>
@@ -495,7 +495,7 @@ export default function AdminRolesPage() {
                             <td className="ap__permission-remove-cell">
                               <button
                                 type="button"
-                                className="ap__permission-remove-btn"
+                                className="ibank-btn-table ibank-btn-table--danger"
                                 onClick={() => removePermissionFromNewList(value)}
                                 disabled={createBusy}
                               >
@@ -511,10 +511,10 @@ export default function AdminRolesPage() {
               </div>
 
               <div className="ap__row ap__modal-actions">
-                <button type="button" className="ap__btn" disabled={createBusy} onClick={() => setCreateOpen(false)}>
+                <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" disabled={createBusy} onClick={() => setCreateOpen(false)}>
                   닫기
                 </button>
-                <button type="submit" className="ap__btn ap__btn--primary" disabled={createBusy}>
+                <button type="submit" className="ibank-btn-toolbar" disabled={createBusy}>
                   {createBusy ? '생성 중…' : '생성'}
                 </button>
               </div>
@@ -545,12 +545,14 @@ export default function AdminRolesPage() {
                 return (
                   <tr key={String(id)}>
                     <td>{row.pmssn_name || '—'}</td>
-                    <td className="ap__mono">{formatPmssnList(row.pmssn_list)}</td>
+                    <td>
+                      <span className="ap__cell-clip ap__cell-clip--mono">{formatPmssnList(row.pmssn_list)}</span>
+                    </td>
                     <td>
                       {inUse ? (
                         <span className="ap__row" style={{ alignItems: 'center' }}>
                           <span>사용중</span>
-                          <button type="button" className="ap__btn" onClick={() => openUsageModal(row)}>
+                          <button type="button" className="ibank-btn-table" onClick={() => openUsageModal(row)}>
                             목록
                           </button>
                         </span>
@@ -565,7 +567,7 @@ export default function AdminRolesPage() {
                         <span className="ap__row">
                           <button
                             type="button"
-                            className="ap__btn"
+                            className="ibank-btn-table"
                             disabled={busyId != null}
                             onClick={() => openEdit(row)}
                           >
@@ -573,7 +575,7 @@ export default function AdminRolesPage() {
                           </button>
                           <button
                             type="button"
-                            className="ap__btn ap__btn--danger"
+                            className="ibank-btn-table ibank-btn-table--danger"
                             disabled={busyId != null}
                             onClick={() => handleDelete(id)}
                           >
@@ -621,7 +623,7 @@ export default function AdminRolesPage() {
                       </option>
                     ))}
                   </select>
-                  <button type="button" className="ap__btn" onClick={addPermissionToEditList} disabled={busyId != null}>
+                  <button type="button" className="ibank-btn-table" onClick={addPermissionToEditList} disabled={busyId != null}>
                     추가
                   </button>
                 </div>
@@ -648,7 +650,7 @@ export default function AdminRolesPage() {
                             <td className="ap__permission-remove-cell">
                               <button
                                 type="button"
-                                className="ap__permission-remove-btn"
+                                className="ibank-btn-table ibank-btn-table--danger"
                                 onClick={() => removePermissionFromEditList(value)}
                                 disabled={busyId != null}
                               >
@@ -665,17 +667,17 @@ export default function AdminRolesPage() {
               <p className="ap__hint" style={{ marginTop: 0 }}>
                 권한 상세는 위 셀렉트에 있는 항목만 추가할 수 있습니다. x로 제거한 항목은 저장 시 목록에서 빠지며, 다시 넣으려면 셀렉트에서 선택하세요.
               </p>
-              <div className="ap__row">
-                <button type="submit" className="ap__btn ap__btn--primary" disabled={busyId != null}>
-                  저장
-                </button>
+              <div className="ap__row ap__modal-actions">
                 <button
                   type="button"
-                  className="ap__btn"
+                  className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                   onClick={() => setEdit(null)}
                   disabled={busyId != null}
                 >
                   취소
+                </button>
+                <button type="submit" className="ibank-btn-toolbar" disabled={busyId != null}>
+                  저장
                 </button>
               </div>
             </form>
@@ -692,11 +694,11 @@ export default function AdminRolesPage() {
               </h3>
               <div className="ap__row">
                 {usageStack.length > 0 ? (
-                  <button type="button" className="ap__btn" onClick={goBackUsage}>
+                  <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={goBackUsage}>
                     뒤로가기
                   </button>
                 ) : null}
-                <button type="button" className="ap__btn" onClick={() => setUsageOpen(false)}>
+                <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={() => setUsageOpen(false)}>
                   닫기
                 </button>
               </div>
@@ -724,7 +726,7 @@ export default function AdminRolesPage() {
                             {usageView === 'usage' ? (
                               <button
                                 type="button"
-                                className="ap__btn ap__btn--link"
+                                className="ap__btn--link"
                                 onClick={() => moveToProjectParticipants(row.project_info_id, row.project_name)}
                               >
                                 {row.project_name}
@@ -737,7 +739,7 @@ export default function AdminRolesPage() {
                             {usageView === 'usage' ? (
                               <button
                                 type="button"
-                                className="ap__btn ap__btn--link"
+                                className="ap__btn--link"
                                 onClick={() => moveToUserUsages(row.ptcpnt_user_id, row.user_name)}
                               >
                                 {row.user_name}
@@ -764,7 +766,7 @@ export default function AdminRolesPage() {
                                 </select>
                                 <button
                                   type="button"
-                                  className="ap__btn ap__btn--primary"
+                                  className="ibank-btn-table ibank-btn-table--primary"
                                   disabled={usageBusy}
                                   onClick={() => handleSaveParticipantRole(row)}
                                 >
@@ -772,7 +774,7 @@ export default function AdminRolesPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  className="ap__btn"
+                                  className="ibank-btn-table"
                                   disabled={usageBusy}
                                   onClick={() => {
                                     setMemberEditKey('')
@@ -786,7 +788,7 @@ export default function AdminRolesPage() {
                               <span className="ap__row">
                                 <button
                                   type="button"
-                                  className="ap__btn"
+                                  className="ibank-btn-table"
                                   disabled={usageBusy}
                                   onClick={() => {
                                     setMemberEditKey(key)
@@ -797,7 +799,7 @@ export default function AdminRolesPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  className="ap__btn ap__btn--danger"
+                                  className="ibank-btn-table ibank-btn-table--danger"
                                   disabled={usageBusy}
                                   onClick={() => handleRemoveParticipant(row)}
                                 >

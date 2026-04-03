@@ -16,12 +16,9 @@ test_connection, list_files, download_file, download_file_head, delete_file, clo
 """
 
 import io
-import logging
 import stat
 from abc import ABC, abstractmethod
 from typing import List
-
-logger = logging.getLogger(__name__)
 
 try:
     import paramiko

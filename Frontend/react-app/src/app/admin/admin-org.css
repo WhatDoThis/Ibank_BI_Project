@@ -75,26 +75,6 @@
   margin-bottom: 16px;
 }
 
-.admin-org__submit {
-  padding: 10px 18px;
-  background: var(--color-action-primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-btn-lg);
-  font-weight: 600;
-  cursor: pointer;
-  font-family: var(--font-sans);
-}
-
-.admin-org__submit:hover:not(:disabled) {
-  background: var(--color-action-primary-hover);
-}
-
-.admin-org__submit:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .admin-org__card {
   margin-bottom: 28px;
   padding: 20px;
@@ -124,7 +104,7 @@
 .admin-org__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
 }
 
 .admin-org__table th,
@@ -132,11 +112,14 @@
   padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--color-border-light);
+  vertical-align: middle;
+  white-space: nowrap;
+  color: var(--color-text);
 }
 
 .admin-org__table th {
   font-weight: 700;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--primary-light);
   color: var(--color-text);
 }
 
@@ -146,15 +129,6 @@
 
 .admin-org__select {
   cursor: pointer;
-}
-
-.admin-org__submit--secondary {
-  background: var(--color-text);
-  margin-top: 4px;
-}
-
-.admin-org__submit--secondary:hover:not(:disabled) {
-  filter: brightness(1.08);
 }
 
 .admin-org__table-head {
@@ -170,20 +144,9 @@
   margin: 0;
 }
 
+/* 시각: shared-ui .ibank-btn-toolbar — JSX에서 병행 */
 .admin-org__toolbar-add {
-  padding: 8px 14px;
-  background: var(--color-action-primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-btn-lg);
-  font-weight: 600;
-  font-size: 0.875rem;
-  cursor: pointer;
-  font-family: var(--font-sans);
-}
-
-.admin-org__toolbar-add:hover {
-  background: var(--color-action-primary-hover);
+  margin: 0;
 }
 
 .admin-org__th-actions {
@@ -195,11 +158,18 @@
 .admin-org__actions {
   text-align: right;
   white-space: nowrap;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  align-items: center;
 }
 
 .admin-org__parent-cell {
-  max-width: 280px;
-  word-break: break-word;
+  max-width: min(32vw, 280px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 목록 부서구분: 상위(루트) 강조 */
@@ -227,31 +197,6 @@
 .admin-org__mono {
   font-size: 0.8rem;
   font-family: ui-monospace, monospace;
-}
-
-.admin-org__btn-inline {
-  padding: 6px 10px;
-  margin-left: 6px;
-  font-size: 0.8rem;
-  border-radius: var(--radius-btn-lg);
-  border: 1px solid var(--color-border-light);
-  background: var(--background);
-  color: var(--color-text);
-  cursor: pointer;
-  font-family: var(--font-sans);
-}
-
-.admin-org__btn-inline:first-child {
-  margin-left: 0;
-}
-
-.admin-org__btn-inline:hover:not(:disabled) {
-  background: var(--primary-light);
-}
-
-.admin-org__btn-inline--danger {
-  color: var(--color-danger);
-  border-color: rgba(254, 86, 85, 0.4);
 }
 
 .admin-org__modal-overlay {
@@ -288,6 +233,7 @@
 .admin-org__modal-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 10px;
   margin-top: 8px;
   flex-wrap: wrap;

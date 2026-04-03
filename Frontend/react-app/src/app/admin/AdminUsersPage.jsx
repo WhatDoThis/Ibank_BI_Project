@@ -2,10 +2,11 @@
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
  * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼, 정지 전 이관 검증.
- * 본인 행: 목록(작업물·이관) 허용, 변경·정지·활성은 비활성 유지. 사용자 변경 모달: SA·SA_DEV만 ETL 인프라 자격(etl_yn) 토글.
+ * 본인 행: 목록(작업물·이관) 허용, 변경·정지·활성은 비활성 유지. 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글.
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
  * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
  * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
+ * 작업물 패널: 카테고리(섹션)별 헤더·하위 목록. 각 섹션「전체이관」은 해당 섹션만(전체 작업물 통합 아님). ETL은 대분류로 묶고 하위 6종은 중분류·동일 etl_infra 수신 규칙으로 대분류 전체이관 가능.
  *
  * [Main Functions]
  * ===========
@@ -51,7 +52,7 @@ function isActive(row) {
   return (row.user_active_yn || '').toUpperCase() === 'Y'
 }
 
-/** ETL 인프라 자격: sa_dev 또는 etl_yn=Y (05 문서 require_etl_infrastructure와 동일 취지) */
+/** ETL 관리자 자격: sa_dev 또는 etl_yn=Y (05 문서 require_etl_infrastructure와 동일 취지) */
 function hasEtlInfra(row) {
   const d = (row.user_dvsn || '').toLowerCase()
   if (d === 'sa_dev') return true
@@ -277,7 +278,7 @@ export default function AdminUsersPage() {
   }, [expandedUid, workByUser])
 
   const openTransferModal = useCallback(async (ctx) => {
-    setTransferCtx(ctx)
+    setTransferCtx({ ...ctx, bulkItems: undefined })
     setTransferErr('')
     setTransferTargets([])
     setTransferLoading(true)
@@ -300,19 +301,79 @@ export default function AdminUsersPage() {
     }
   }, [])
 
+  const openBulkTransferModal = useCallback(async (payloads, fromUserId, categoryTitle) => {
+    if (!Array.isArray(payloads) || payloads.length < 2) return
+    const first = payloads[0]
+    const allEtlInfra = payloads.every((p) => p.etlInfra)
+    const label =
+      categoryTitle === 'ETL' && allEtlInfra
+        ? `「ETL」${payloads.length}건 (대분류·DB·테이블·Job·저장DB·폴더·배치만)`
+        : `「${categoryTitle}」${payloads.length}건 (이 카테고리만)`
+    setTransferCtx({
+      bulkItems: payloads,
+      fromUserId,
+      categoryTitle,
+      label,
+      resourceType: first.resourceType,
+      resourceId: first.resourceId,
+      dptmtInfoId: first.dptmtInfoId,
+      etlInfra: !!first.etlInfra,
+      tableMasterId: first.resourceType === 'table_master' ? first.resourceId : undefined,
+    })
+    setTransferErr('')
+    setTransferTargets([])
+    setTransferLoading(true)
+    try {
+      const d = await getAdminOwnershipTransferTargets(
+        first.dptmtInfoId,
+        fromUserId,
+        {
+          etlInfra: !!first.etlInfra,
+          resourceType: first.resourceType === 'table_master' ? 'table_master' : null,
+          tableMasterId:
+            first.resourceType === 'table_master' ? first.resourceId : undefined,
+        },
+      )
+      setTransferTargets(Array.isArray(d?.items) ? d.items : [])
+    } catch (e) {
+      setTransferErr(e?.message || '이관 가능한 사용자 목록을 불러오지 못했습니다.')
+    } finally {
+      setTransferLoading(false)
+    }
+  }, [])
+
   const runTransfer = useCallback(
     async (toUserId) => {
       if (!transferCtx) return
-      if (!confirmCrud('정말 이관하시겠습니까?')) return
+      const bulk = transferCtx.bulkItems
+      const confirmMsg =
+        bulk && bulk.length >= 2
+          ? transferCtx.categoryTitle === 'ETL' && bulk.every((x) => x.etlInfra)
+            ? `「ETL」대분류에 속한 이관 가능 등록 건 ${bulk.length}건을 동일 수신자에게 한 번에 이관합니다. 프로젝트·권한·테이블 마스터 등 비ETL 자산은 포함되지 않습니다. 진행할까요?`
+            : `「${transferCtx.categoryTitle || '이 카테고리'}」에 속한 이관 가능 항목 ${bulk.length}건만 동일 수신자에게 이관합니다. 다른 카테고리(섹션) 자산은 포함되지 않습니다. 진행할까요?`
+          : '정말 이관하시겠습니까?'
+      if (!confirmCrud(confirmMsg)) return
       setTransferLoading(true)
       setTransferErr('')
       try {
-        await postAdminTransferOwnership({
-          resource_type: transferCtx.resourceType,
-          resource_id: transferCtx.resourceId,
-          from_user_id: transferCtx.fromUserId,
-          to_user_id: toUserId,
-        })
+        if (bulk && bulk.length >= 2) {
+          for (let i = 0; i < bulk.length; i += 1) {
+            const it = bulk[i]
+            await postAdminTransferOwnership({
+              resource_type: it.resourceType,
+              resource_id: it.resourceId,
+              from_user_id: transferCtx.fromUserId,
+              to_user_id: toUserId,
+            })
+          }
+        } else {
+          await postAdminTransferOwnership({
+            resource_type: transferCtx.resourceType,
+            resource_id: transferCtx.resourceId,
+            from_user_id: transferCtx.fromUserId,
+            to_user_id: toUserId,
+          })
+        }
         setTransferCtx(null)
         setTransferTargets([])
         const eu = expandedUid
@@ -503,78 +564,201 @@ export default function AdminUsersPage() {
     showTransfer,
     ownerDeptFallback,
     etlInfraModal,
+    nested = false,
   ) {
     if (!rows?.length) return null
-    return (
-      <div className="admin-users__work-block">
-        <h4 className="admin-users__work-block-title">{title}</h4>
-        <ul className="admin-users__work-list">
-          {rows.map((r) => {
-            const rid = r[idKey]
-            const label =
-              labelKey === 'table_label'
-                ? r.table_label || r.table_name || rid
-                : r[labelKey] || rid
-            const dept = r.dptmt_info_id ?? ownerDeptFallback
-            const canT = showTransfer && r.transferable
-            return (
-              <li key={`${title}-${rid}`} className="admin-users__work-item">
-                <span className="admin-users__work-item-label">
-                  {label}
-                  {r.active_yn != null ? ` · ${(r.active_yn || '').toUpperCase() === 'Y' ? '활성' : '비활성'}` : ''}
-                  {r.pmssn_name ? ` · ${r.pmssn_name}` : ''}
-                  {r.db_type && r.table_name && labelKey === 'table_label'
-                    ? ` · ${r.db_type} / ${r.table_name}`
-                    : ''}
-                </span>
-                {canT ? (
-                  <button
-                    type="button"
-                    className="admin-users__btn-transfer"
-                    onClick={() =>
-                      openTransferModal({
-                        resourceType,
-                        resourceId: Number(rid),
-                        fromUserId: uid,
-                        dptmtInfoId: Number(dept),
-                        label: `${title}: ${label}`,
-                        etlInfra: !!etlInfraModal,
-                      })
-                    }
-                  >
-                    이관
-                  </button>
-                ) : null}
-                {r.note ? (
-                  <span className="admin-users__work-note" title={r.note}>
-                    {r.note}
+    const transferablePayloads = rows
+      .filter((r) => showTransfer && r.transferable)
+      .map((r) => {
+        const rid = r[idKey]
+        const dept = r.dptmt_info_id ?? ownerDeptFallback
+        return {
+          resourceType,
+          resourceId: Number(rid),
+          dptmtInfoId: Number(dept),
+          etlInfra: !!etlInfraModal,
+        }
+      })
+    const showBulkTransfer = transferablePayloads.length >= 2
+    const scopeHint = nested
+      ? `「ETL」대분류 안의 중분류「${title}」에 속한 이관 가능 항목만입니다.`
+      : `「${title}」섹션의 이관 가능 항목만입니다. 다른 카테고리는 포함되지 않습니다.`
+    const headClass = nested ? 'admin-users__work-subsection-head' : 'admin-users__work-section-head'
+    const titleClass = nested ? 'admin-users__work-subsection-title' : 'admin-users__work-section-title'
+    const panelClass = nested
+      ? 'admin-users__work-list-panel admin-users__work-list-panel--nested'
+      : 'admin-users__work-list-panel'
+    const blockInner = (
+      <>
+        <div className={headClass}>
+          {nested ? (
+            <h5 className={titleClass}>{title}</h5>
+          ) : (
+            <h4 className={titleClass}>{title}</h4>
+          )}
+          {showBulkTransfer ? (
+            <button
+              type="button"
+              className="ibank-btn-table"
+              title={`${scopeHint} ${transferablePayloads.length}건 일괄 이관.`}
+              aria-label={`${title} 중분류 전체 이관, ${transferablePayloads.length}건`}
+              onClick={() => openBulkTransferModal(transferablePayloads, uid, title)}
+            >
+              전체이관
+            </button>
+          ) : null}
+        </div>
+        <div className={panelClass}>
+          <ul className="admin-users__work-list">
+            {rows.map((r) => {
+              const rid = r[idKey]
+              const label =
+                labelKey === 'table_label'
+                  ? r.table_label || r.table_name || rid
+                  : r[labelKey] || rid
+              const dept = r.dptmt_info_id ?? ownerDeptFallback
+              const canT = showTransfer && r.transferable
+              return (
+                <li key={`${title}-${rid}`} className="admin-users__work-item">
+                  <span className="admin-users__work-item-label">
+                    {label}
+                    {r.active_yn != null ? ` · ${(r.active_yn || '').toUpperCase() === 'Y' ? '활성' : '비활성'}` : ''}
+                    {r.pmssn_name ? ` · ${r.pmssn_name}` : ''}
+                    {r.db_type && r.table_name && labelKey === 'table_label'
+                      ? ` · ${r.db_type} / ${r.table_name}`
+                      : ''}
                   </span>
-                ) : null}
-                {Array.isArray(r.cascade_children) && r.cascade_children.length ? (
-                  <div className="admin-users__work-note admin-users__work-cascade">
-                    {r.cascade_children.map((line, idx) => {
-                      const s = typeof line === 'string' ? line : String(line ?? '')
-                      const isDetail = s.startsWith('·')
-                      return (
-                        <div
-                          key={`${title}-${rid}-cascade-${idx}`}
-                          className={
-                            isDetail
-                              ? 'admin-users__work-cascade-line admin-users__work-cascade-line--detail'
-                              : 'admin-users__work-cascade-line'
-                          }
-                        >
-                          {s}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+                  {canT ? (
+                    <button
+                      type="button"
+                      className="ibank-btn-table"
+                      onClick={() =>
+                        openTransferModal({
+                          resourceType,
+                          resourceId: Number(rid),
+                          fromUserId: uid,
+                          dptmtInfoId: Number(dept),
+                          label: `${title}: ${label}`,
+                          etlInfra: !!etlInfraModal,
+                        })
+                      }
+                    >
+                      이관
+                    </button>
+                  ) : null}
+                  {r.note ? (
+                    <span className="admin-users__work-note" title={r.note}>
+                      {r.note}
+                    </span>
+                  ) : null}
+                  {Array.isArray(r.cascade_children) && r.cascade_children.length ? (
+                    <div className="admin-users__work-note admin-users__work-cascade">
+                      {r.cascade_children.map((line, idx) => {
+                        const s = typeof line === 'string' ? line : String(line ?? '')
+                        const isDetail = s.startsWith('·')
+                        return (
+                          <div
+                            key={`${title}-${rid}-cascade-${idx}`}
+                            className={
+                              isDetail
+                                ? 'admin-users__work-cascade-line admin-users__work-cascade-line--detail'
+                                : 'admin-users__work-cascade-line'
+                            }
+                          >
+                            {s}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      </>
+    )
+    if (nested) {
+      return (
+        <div className="admin-users__work-subsection" role="group" aria-label={title}>
+          {blockInner}
+        </div>
+      )
+    }
+    return (
+      <section className="admin-users__work-section" aria-label={title}>
+        {blockInner}
+      </section>
+    )
+  }
+
+  /** ETL 대분류: DB연결·테이블·Job·저장DB·폴더·배치. 수신 검증은 etl_infra 동일. */
+  function renderEtlMegaSection(work, uid) {
+    const ownerDept = work.target_user_dptmt_info_id
+    const blocks = [
+      ['등록한 ETL DB 연결', work.etl_connections, 'etl_connection', 'connection_id', 'connection_name'],
+      ['등록한 ETL 테이블', work.etl_tables, 'etl_table', 'etl_table_id', 'label'],
+      ['등록한 ETL 실행 Job', work.etl_jobs, 'etl_job', 'job_id', 'label'],
+      ['등록한 저장 DB 연결', work.etl_storage_connections, 'etl_storage_connection', 'storage_connection_id', 'connection_name'],
+      ['등록한 배치 폴더 연결', work.batch_folder_connections, 'batch_folder_connection', 'folder_connection_id', 'connection_name'],
+      ['등록한 배치 Job', work.batch_jobs, 'batch_job', 'batch_job_id', 'job_name'],
+    ]
+    const allEtlPayloads = []
+    for (const [, rows, rt, ik] of blocks) {
+      if (!rows?.length) continue
+      for (const r of rows) {
+        if (!r.transferable) continue
+        const rid = r[ik]
+        const dept = r.dptmt_info_id ?? ownerDept
+        allEtlPayloads.push({
+          resourceType: rt,
+          resourceId: Number(rid),
+          dptmtInfoId: Number(dept),
+          etlInfra: true,
+        })
+      }
+    }
+    const hasAnyEtlRows = blocks.some(([, rows]) => Array.isArray(rows) && rows.length > 0)
+    if (!hasAnyEtlRows && !work.etl_assets_note) return null
+    const showMegaBulk = allEtlPayloads.length >= 2
+    return (
+      <section className="admin-users__work-section admin-users__work-section--etl-mega" aria-label="ETL">
+        <div className="admin-users__work-section-head">
+          <h4 className="admin-users__work-section-title">ETL</h4>
+          {showMegaBulk ? (
+            <button
+              type="button"
+              className="ibank-btn-table"
+              title={`「ETL」대분류의 이관 가능 등록 건 ${allEtlPayloads.length}건(DB·테이블·Job·저장DB·폴더·배치)을 한 번에 이관합니다. 프로젝트·권한·테이블 마스터 등 비ETL 자산은 포함되지 않습니다.`}
+              aria-label={`ETL 대분류 전체 이관 ${allEtlPayloads.length}건`}
+              onClick={() => openBulkTransferModal(allEtlPayloads, uid, 'ETL')}
+            >
+              전체이관
+            </button>
+          ) : null}
+        </div>
+        {hasAnyEtlRows ? (
+          <div className="admin-users__work-etl-nested-wrap">
+            {blocks.map(([btitle, rows, rt, ik, lk]) =>
+              renderAssetList(
+                btitle,
+                rows || [],
+                uid,
+                rt,
+                ik,
+                lk,
+                true,
+                ownerDept,
+                true,
+                true,
+              ),
+            )}
+          </div>
+        ) : null}
+        {work.etl_assets_note ? (
+          <p className="admin-users__hint admin-users__work-etl-note">{work.etl_assets_note}</p>
+        ) : null}
+      </section>
     )
   }
 
@@ -603,13 +787,13 @@ export default function AdminUsersPage() {
           <p className="admin-users__hint">
             {actorDvsn === 'sa_dev'
               ? 'SA_DEV는 전사 사용자를 부서·역할 순으로 봅니다. SA·A는 관리 트리 내 사용자만 표시됩니다. 정지 전 이관 필요 자산(프로젝트·역할·ETL 등록)이 있으면 안내합니다.'
-              : '관리 트리 내 사용자만 표시됩니다. 프로젝트·역할 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 자격자가 받을 수 있습니다.'}
+              : '관리 트리 내 사용자만 표시됩니다. 프로젝트·역할 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 관리자 자격(etl_yn 또는 SA_DEV)이 있는 사용자가 받을 수 있습니다.'}
           </p>
         </div>
         {roleOpts.length ? (
           <button
             type="button"
-            className="admin-users__btn-head-invite"
+            className="ibank-btn-toolbar"
             onClick={() => {
               setInviteMsg('')
               setInviteOpen(true)
@@ -691,7 +875,7 @@ export default function AdminUsersPage() {
                     checked={inviteEtl}
                     onChange={(e) => setInviteEtl(e.target.checked)}
                   />
-                  가입 직후 ETL 인프라 자격 (etl_yn=Y)
+                  가입 직후 ETL 관리자 자격 (etl_yn=Y)
                 </label>
               ) : null}
               {inviteRole === 'u' ? (
@@ -729,10 +913,10 @@ export default function AdminUsersPage() {
                 </div>
               ) : null}
               <div className="admin-users__modal-actions">
-                <button type="button" className="admin-users__btn-muted" onClick={() => setInviteOpen(false)}>
+                <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={() => setInviteOpen(false)}>
                   닫기
                 </button>
-                <button type="submit" className="admin-users__btn-ok" disabled={inviteBusy}>
+                <button type="submit" className="ibank-btn-toolbar" disabled={inviteBusy}>
                   {inviteBusy ? '발송 중…' : '초대 메일 보내기'}
                 </button>
               </div>
@@ -801,19 +985,19 @@ export default function AdminUsersPage() {
                         setChangeForm((p) => ({ ...p, etl_yn: e.target.checked ? 'Y' : 'N' }))
                       }
                     />
-                    ETL 인프라 자격 부여 (etl_yn=Y) — ETL DB·테이블·Job 등 메타 인프라 사용
+                    ETL 관리자 자격 부여
                   </label>
                 ) : changeCtx.options?.can_manage_etl_yn &&
                   String(changeCtx.options?.target_user?.user_dvsn || '')
                     .toLowerCase()
                     .trim() === 'sa_dev' ? (
                   <div className="admin-users__field">
-                    ETL 인프라 자격
+                    ETL 관리자 자격
                     <p className="admin-users__hint">SA_DEV 계정은 etl_yn을 변경할 수 없습니다.</p>
                   </div>
                 ) : (
                   <div className="admin-users__field">
-                    ETL 인프라 자격
+                    ETL 관리자 자격
                     <p className="admin-users__hint">
                       현재 {changeForm.etl_yn === 'Y' ? '부여(Y)' : '미부여(N)'} — SA 또는 SA_DEV만 변경할 수 있습니다.
                     </p>
@@ -875,14 +1059,14 @@ export default function AdminUsersPage() {
                 <div className="admin-users__modal-actions">
                   <button
                     type="button"
-                    className="admin-users__btn-muted"
+                    className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                     disabled={changeLoading}
                     onClick={() => setChangeCtx(null)}
                   >
                     취소
                   </button>
-                  <button type="button" className="admin-users__btn-ok" disabled={changeLoading} onClick={submitChange}>
-                    {changeLoading ? '반영 중…' : '변경 반영'}
+                  <button type="button" className="ibank-btn-toolbar" disabled={changeLoading} onClick={submitChange}>
+                    {changeLoading ? '변경 중…' : '변경'}
                   </button>
                 </div>
               </>
@@ -900,12 +1084,42 @@ export default function AdminUsersPage() {
           <div className="admin-users__modal admin-users__modal--transfer" onClick={(e) => e.stopPropagation()}>
             <h3 className="admin-users__modal-title">이관 대상 선택</h3>
             <p className="admin-users__modal-hint">{transferCtx.label}</p>
+            {transferCtx.bulkItems && transferCtx.bulkItems.length >= 2 ? (
+              <p className="admin-users__modal-hint admin-users__modal-hint--emph">
+                {transferCtx.bulkItems.every((x) => x.etlInfra) ? (
+                  <>
+                    <strong>「{transferCtx.categoryTitle || 'ETL'}」</strong> 범위의 ETL 등록 건만{' '}
+                    {transferCtx.bulkItems.length}건 이관합니다. 수신 조건은 모두{' '}
+                    <strong>ETL 관리자(활성·etl_yn 또는 SA_DEV·관리 범위)</strong>로 동일합니다. 수신 후보 목록은{' '}
+                    <strong>첫 번째 항목</strong> 기준으로 조회됩니다.
+                    {transferCtx.categoryTitle === 'ETL' ? (
+                      <>
+                        {' '}
+                        프로젝트·권한·테이블 마스터(원장) 등 <strong>비ETL</strong> 섹션은 포함되지 않습니다.
+                      </>
+                    ) : (
+                      <>
+                        {' '}
+                        다른 대분류(프로젝트·권한·테이블 마스터·ETL의 다른 중분류 일괄)는 이 작업에 포함되지 않습니다.
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <strong>「{transferCtx.categoryTitle || '이 카테고리'}」</strong> 안의 이관 가능 항목{' '}
+                    {transferCtx.bulkItems.length}건만 이관합니다. 위·아래 다른 섹션은 <strong>포함되지 않습니다</strong>.
+                    수신 후보 목록은 <strong>첫 번째 항목</strong> 기준으로 조회됩니다. 테이블 마스터 등은 항목별 수신
+                    조건이 달라 동일 수신자로 일부만 성공할 수 있습니다.
+                  </>
+                )}
+              </p>
+            ) : null}
             <p className="admin-users__modal-hint">
               아래 목록은 서버에서 이관 수신이 가능한 사용자만 골라 보여 줍니다. 부서원 전체가 아닙니다. 원 소유자는 제외됩니다.
             </p>
             <p className="admin-users__modal-hint">
               {transferCtx.etlInfra
-                ? '조건: 동일 부서·활성·(ETL 자격 etl_yn=Y 또는 SA_DEV 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
+                ? '조건: 동일 부서·활성·(ETL 관리자 자격 etl_yn=Y 또는 SA_DEV 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
                 : transferCtx.resourceType === 'table_master'
                   ? '조건: 매핑 프로젝트에서 query.execute(저장 테이블과 동일) 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
                   : '조건: 동일 부서·활성·SA_DEV·SA·A 역할·관리 범위 내.'}
@@ -934,7 +1148,7 @@ export default function AdminUsersPage() {
                     <p className="admin-users__empty-title">이관을 받을 수 있는 사용자가 없습니다</p>
                     <p className="admin-users__hint">
                       {transferCtx.etlInfra
-                        ? '동일 부서에서 ETL 자격(etl_yn=Y) 또는 SA_DEV이면서, 귀하의 관리 범위에 속한 다른 활성 사용자가 없습니다.'
+                        ? '동일 부서에서 ETL 관리자 자격(etl_yn=Y) 또는 SA_DEV이면서, 귀하의 관리 범위에 속한 다른 활성 사용자가 없습니다.'
                         : transferCtx.resourceType === 'table_master'
                           ? '테이블 마스터 수신 조건(query.execute·동일 부서 SA/A·SA_DEV 등)과 관리 범위를 동시에 만족하는 다른 사용자가 없습니다.'
                           : '동일 부서의 SA_DEV·SA·A 중 관리 범위에 속한 다른 활성 사용자가 없습니다.'}
@@ -943,14 +1157,16 @@ export default function AdminUsersPage() {
                 )}
               </div>
             )}
-            <button
-              type="button"
-              className="admin-users__btn-muted"
-              disabled={transferLoading}
-              onClick={() => setTransferCtx(null)}
-            >
-              취소
-            </button>
+            <div className="admin-users__modal-actions" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                disabled={transferLoading}
+                onClick={() => setTransferCtx(null)}
+              >
+                취소
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1004,7 +1220,7 @@ export default function AdminUsersPage() {
                         <div className="admin-users__actions">
                           <button
                             type="button"
-                            className="admin-users__btn-list"
+                            className="ibank-btn-table"
                             disabled={listDisabled}
                             onClick={() => toggleWorkPanel(uid)}
                           >
@@ -1012,7 +1228,7 @@ export default function AdminUsersPage() {
                           </button>
                           <button
                             type="button"
-                            className="admin-users__btn-change"
+                            className="ibank-btn-table"
                             disabled={actionDisabled}
                             onClick={() => openChangeModal(uid)}
                           >
@@ -1021,7 +1237,7 @@ export default function AdminUsersPage() {
                           {active ? (
                             <button
                               type="button"
-                              className="admin-users__btn-danger"
+                              className="ibank-btn-table ibank-btn-table--danger"
                               disabled={actionDisabled}
                               onClick={() => handleSuspend(uid)}
                             >
@@ -1030,7 +1246,7 @@ export default function AdminUsersPage() {
                           ) : (
                             <button
                               type="button"
-                              className="admin-users__btn-ok"
+                              className="ibank-btn-table ibank-btn-table--primary"
                               disabled={actionDisabled}
                               onClick={() => handleActivate(uid)}
                             >
@@ -1038,7 +1254,7 @@ export default function AdminUsersPage() {
                             </button>
                           )}
                           {isSelf ? (
-                            <span className="admin-users__hint">본인 · 목록·이관만 가능</span>
+                            <span className="admin-users__hint">본인 - 이관만 가능</span>
                           ) : null}
                           {isAdminLockedSa ? <span className="admin-users__hint">A는 SA 관리 불가</span> : null}
                         </div>
@@ -1075,7 +1291,7 @@ export default function AdminUsersPage() {
                                   false,
                                 )}
                                 {renderAssetList(
-                                  '등록한 부서 역할(커스텀)',
+                                  '등록한 권한',
                                   work.created_custom_roles,
                                   uid,
                                   'pmssn_master',
@@ -1096,75 +1312,7 @@ export default function AdminUsersPage() {
                                   work.target_user_dptmt_info_id,
                                   false,
                                 )}
-                                {renderAssetList(
-                                  '등록한 ETL DB 연결',
-                                  work.etl_connections,
-                                  uid,
-                                  'etl_connection',
-                                  'connection_id',
-                                  'connection_name',
-                                  true,
-                                  work.target_user_dptmt_info_id,
-                                  true,
-                                )}
-                                {renderAssetList(
-                                  '등록한 ETL 테이블',
-                                  work.etl_tables,
-                                  uid,
-                                  'etl_table',
-                                  'etl_table_id',
-                                  'label',
-                                  true,
-                                  work.target_user_dptmt_info_id,
-                                  true,
-                                )}
-                                {renderAssetList(
-                                  '등록한 ETL 실행 Job',
-                                  work.etl_jobs,
-                                  uid,
-                                  'etl_job',
-                                  'job_id',
-                                  'label',
-                                  true,
-                                  work.target_user_dptmt_info_id,
-                                  true,
-                                )}
-                                {renderAssetList(
-                                  '등록한 저장 DB 연결',
-                                  work.etl_storage_connections,
-                                  uid,
-                                  'etl_storage_connection',
-                                  'storage_connection_id',
-                                  'connection_name',
-                                  true,
-                                  work.target_user_dptmt_info_id,
-                                  true,
-                                )}
-                                {renderAssetList(
-                                  '등록한 배치 폴더 연결',
-                                  work.batch_folder_connections,
-                                  uid,
-                                  'batch_folder_connection',
-                                  'folder_connection_id',
-                                  'connection_name',
-                                  true,
-                                  work.target_user_dptmt_info_id,
-                                  true,
-                                )}
-                                {renderAssetList(
-                                  '등록한 배치 Job',
-                                  work.batch_jobs,
-                                  uid,
-                                  'batch_job',
-                                  'batch_job_id',
-                                  'job_name',
-                                  true,
-                                  work.target_user_dptmt_info_id,
-                                  true,
-                                )}
-                                {work.etl_assets_note ? (
-                                  <p className="admin-users__hint admin-users__work-etl-note">{work.etl_assets_note}</p>
-                                ) : null}
+                                {renderEtlMegaSection(work, uid)}
                                 {!hasAnyWorkAssets(work) ? (
                                   <p className="admin-users__hint">생성/등록한 이력이 없습니다.</p>
                                 ) : null}

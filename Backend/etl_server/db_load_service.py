@@ -98,32 +98,17 @@ def _resolve_pk_columns_for_db_load(
     if mapping_used and source_pk_list:
         mapped = [m["target"] for m in mapping_used if m["source"] in source_pk_list]
         if mapped:
-            logger.info(
-                "run_db_load etl_table_id=%s: pk_columns 소스 PK + column_mapping 으로 보강 (%s)",
-                etl_table_id, ",".join(mapped),
-            )
             return ",".join(mapped)
     if source_pk_list:
         usable = [p for p in source_pk_list if p in col_names]
         chosen = usable if usable else list(source_pk_list)
-        logger.info(
-            "run_db_load etl_table_id=%s: pk_columns 소스 테이블 PK 로 보강 (%s)",
-            etl_table_id, ",".join(chosen),
-        )
         return ",".join(chosen)
     try:
         tgt_pks = etl_service.get_target_pk_columns(storage_connection_id, target_table)
         if tgt_pks:
-            logger.info(
-                "run_db_load etl_table_id=%s: pk_columns 타겟 테이블 PK 로 보강 (%s)",
-                etl_table_id, ",".join(tgt_pks),
-            )
             return ",".join(tgt_pks)
     except Exception as exc:
-        logger.warning(
-            "run_db_load etl_table_id=%s: 타겟 PK 조회 실패 target_table=%s: %s",
-            etl_table_id, target_table, exc,
-        )
+        logger.warning("etl_pk_resolve target_fail etl_table_id=%s table=%s: %s", etl_table_id, target_table, exc)
     return None
 
 
@@ -243,7 +228,7 @@ def _fetch_source_indexes_pg(conn, schema: str, table: str) -> List[dict]:
             })
         return out
     except Exception as e:
-        logger.warning("_fetch_source_indexes_pg %s.%s: %s", schema, table, e)
+        logger.warning("etl_source_indexes_pg %s.%s: %s", schema, table, e)
         return []
 
 
@@ -287,7 +272,7 @@ def _fetch_source_indexes_mysql(conn, table_schema: str, table_name: str) -> Lis
             })
         return out
     except Exception as e:
-        logger.warning("_fetch_source_indexes_mysql %s.%s: %s", table_schema, table_name, e)
+        logger.warning("etl_source_indexes_mysql %s.%s: %s", table_schema, table_name, e)
         return []
 
 
@@ -344,7 +329,7 @@ def _fetch_source_indexes_oracle(conn, owner: str, table_name: str) -> List[dict
             })
         return out
     except Exception as e:
-        logger.warning("_fetch_source_indexes_oracle %s.%s: %s", owner, table_name, e)
+        logger.warning("etl_source_indexes_oracle %s.%s: %s", owner, table_name, e)
         return []
 
 
@@ -389,7 +374,7 @@ def get_source_indexes(connection_id: int, source_table: str) -> List[dict]:
         src_conn = _get_source_connection(connection_id)
         return _fetch_source_indexes_pg(src_conn, src_schema, source_table_name)
     except Exception as e:
-        logger.warning("get_source_indexes connection_id=%s source_table=%s: %s", connection_id, source_table, e)
+        logger.warning("etl_get_source_indexes conn=%s table=%s: %s", connection_id, source_table, e)
         return []
     finally:
         if src_conn:
@@ -619,8 +604,6 @@ def _fetch_pk_values_from_source(
     """
     if not pk_columns:
         return set()
-    t0 = time.monotonic()
-    logger.info("diff: 소스 PK 조회 시작 table=%s pk_columns=%s", quoted_table, pk_columns)
     select_list = ", ".join(quote_fn(c) for c in pk_columns)
     sql = f"SELECT {select_list} FROM {quoted_table}"
     cur = conn.cursor()
@@ -628,19 +611,13 @@ def _fetch_pk_values_from_source(
         cur.execute(sql)
         out: Set[Any] = set()
         single = len(pk_columns) == 1
-        batch_count = 0
         while True:
             rows = cur.fetchmany(_DIFF_PK_FETCH_BATCH)
             if not rows:
                 break
-            batch_count += 1
             for row in rows:
                 k = _row_to_pk_key(row, pk_columns, single)
                 out.add(_normalize_pk_for_diff(k))
-            if batch_count % 10 == 0:
-                logger.info("diff: 소스 PK 조회 진행 중 count=%s 배치=%s", len(out), batch_count)
-        elapsed = time.monotonic() - t0
-        logger.info("diff: 소스 PK 조회 완료 count=%s 배치=%s elapsed=%.1fs", len(out), batch_count, elapsed)
         return out
     finally:
         cur.close()
@@ -654,9 +631,7 @@ def _fetch_pk_values_from_target(
     """
     if not pk_columns:
         return set()
-    t0 = time.monotonic()
     full_name = f'"{schema}"."{table_name}"'
-    logger.info("diff: 타겟 PK 조회 시작 table=%s pk_columns=%s", full_name, pk_columns)
     pk_quoted = ", ".join(f'"{c}"' for c in pk_columns)
     sql = f"SELECT {pk_quoted} FROM {full_name}"
     cur = conn.cursor()
@@ -664,19 +639,13 @@ def _fetch_pk_values_from_target(
         cur.execute(sql)
         out: Set[Any] = set()
         single = len(pk_columns) == 1
-        batch_count = 0
         while True:
             rows = cur.fetchmany(_DIFF_PK_FETCH_BATCH)
             if not rows:
                 break
-            batch_count += 1
             for row in rows:
                 k = _row_to_pk_key(row, pk_columns, single)
                 out.add(_normalize_pk_for_diff(k))
-            if batch_count % 10 == 0:
-                logger.info("diff: 타겟 PK 조회 진행 중 count=%s 배치=%s", len(out), batch_count)
-        elapsed = time.monotonic() - t0
-        logger.info("diff: 타겟 PK 조회 완료 count=%s 배치=%s elapsed=%.1fs", len(out), batch_count, elapsed)
         return out
     finally:
         cur.close()
@@ -793,7 +762,7 @@ def _create_indexes_on_target(cur, conn, main_schema: str, target_table: str, in
             conn.commit()
         except Exception as e:
             conn.rollback()
-            logger.warning("인덱스 생성 실패 %s: %s", idx_name, e)
+            logger.warning("etl_target_index_create_fail name=%s: %s", idx_name, e)
 
 
 def _fetch_source_columns_oracle(conn, owner: str, table_name: str) -> List[Tuple[str, str]]:
@@ -1080,10 +1049,7 @@ def _row_fallback(
                 "data": row[:5] if len(row) > 5 else row,
                 "error": err_str,
             })
-            logger.warning(
-                "행 적재 실패 job_id=%s row_index=%s: %s",
-                job_id, batch_offset + i, err_str,
-            )
+            logger.warning("etl_row_upsert_fail job_id=%s row_index=%s err=%s", job_id, batch_offset + i, err_str)
             if last_error == err_str:
                 consecutive_same_error += 1
                 if consecutive_same_error >= 50:
@@ -1094,10 +1060,7 @@ def _row_fallback(
                         "data": None,
                         "error": f"동일 오류 50건 연속 → 조기 중단 (구조적 문제 가능성). 미적재 {remaining}건.",
                     })
-                    logger.warning(
-                        "행 단위 fallback 조기 중단 job_id=%s: 동일 에러 50건 연속, 미적재 %s건",
-                        job_id, remaining,
-                    )
+                    logger.warning("etl_row_upsert_abort job_id=%s same_err_x50 remaining_rows=%s", job_id, remaining)
                     break
             else:
                 last_error = err_str
@@ -1120,10 +1083,7 @@ def _copy_upsert_batch_safe(
         return len(rows_tuples), []
     except Exception as e:
         conn.rollback()
-        logger.warning(
-            "COPY upsert 실패, 행 단위 fallback 전환 (batch_offset=%s): %s",
-            batch_offset, e,
-        )
+        logger.warning("etl_copy_upsert_fallback batch_offset=%s err=%s", batch_offset, e)
         return _row_fallback(cur, conn, full_name, cols, pk_list, rows_tuples, job_id, batch_offset)
 
 
@@ -1158,23 +1118,13 @@ def _run_diff_sync(
     반환: {"rows_inserted": int, "rows_deleted": int}. is_batch=True면 set_job_total_rows/update_job_progress/is_job_cancelled 생략.
     """
     t_diff_start = time.monotonic()
-    logger.info(
-        "diff: _run_diff_sync 시작 etl_table_id=%s job_id=%s is_batch=%s pk_list=%s",
-        etl_table_id, job_id, is_batch, pk_list,
-    )
     target_pk_list = (
         [m["target"] for m in mapping_used if m["source"] in pk_list]
         if mapping_used
         else list(pk_list)
     )
     source_pks = _fetch_pk_values_from_source(src_conn, quoted_src, pk_list, quote_fn, stype)
-    t_after_source = time.monotonic()
     target_pks = _fetch_pk_values_from_target(conn_main, main_schema, target_table, target_pk_list)
-    t_after_target = time.monotonic()
-    logger.info(
-        "diff: PK 집합 계산 완료 source_pks=%s target_pks=%s (소스 %.1fs, 타겟 %.1fs)",
-        len(source_pks), len(target_pks), t_after_source - t_diff_start, t_after_target - t_after_source,
-    )
 
     if len(source_pks) > MAX_DIFF_PK_COUNT:
         raise ValueError(
@@ -1191,10 +1141,6 @@ def _run_diff_sync(
         )
     diff_delete_orphans = bool(row.get("diff_delete_orphans", False))
     deleted_pks = (target_pks - source_pks) if diff_delete_orphans else set()
-    logger.info(
-        "diff: new_pks=%s deleted_pks=%s diff_delete_orphans=%s",
-        len(new_pks), len(deleted_pks), diff_delete_orphans,
-    )
 
     if not is_batch and job_id:
         etl_service.set_job_total_rows(job_id, len(new_pks))
@@ -1212,6 +1158,7 @@ def _run_diff_sync(
     _col_meta = [{"column_name": c[0], "data_type": c[1]} for c in columns]
     cols_insert = [m["target"] for m in mapping_used] if mapping_used else list(col_names)
     total_inserted = 0
+    rows_deleted = 0
     cur_main = conn_main.cursor()
     try:
         # 타겟 테이블에 실제 존재하는 컬럼만 사용 (설정은 CAMPAIGN_ID 등 있으나 타겟은 예전 스키마인 경우 대비)
@@ -1221,25 +1168,22 @@ def _run_diff_sync(
             cols_insert = [c for c in cols_insert if c in target_columns]
             dropped = set(cols_insert_orig) - set(cols_insert)
             if dropped:
-                logger.warning("diff: 타겟에 없는 컬럼 제외 후 INSERT (제외: %s)", sorted(dropped))
+                logger.warning("diff_sync cols_dropped_from_target=%s", sorted(dropped))
         if not cols_insert:
             cur_main.close()
             raise ValueError("타겟 테이블에 매핑된 컬럼이 하나도 없습니다. 타겟 스키마를 확인하세요.")
         new_pks_list = list(new_pks)
         total_batches = (len(new_pks_list) + _DIFF_PK_SELECT_BATCH - 1) // _DIFF_PK_SELECT_BATCH
-        logger.info("diff: 신규 행 INSERT 시작 총 배치=%s (new_pks=%s)", total_batches, len(new_pks_list))
         batch_index = 0
         for offset in range(0, len(new_pks_list), _DIFF_PK_SELECT_BATCH):
             if not is_batch and job_id and etl_service.is_job_cancelled(job_id):
                 conn_main.rollback()
-                logger.info("diff: 사용자 취소 total_inserted=%s", total_inserted)
+                logger.warning("diff_sync cancelled job_id=%s inserted_so_far=%s", job_id, total_inserted)
                 return {"rows_inserted": total_inserted, "rows_deleted": 0}
             batch_pks = new_pks_list[offset : offset + _DIFF_PK_SELECT_BATCH]
             if not batch_pks:
                 continue
             batch_index += 1
-            if batch_index <= 3 or batch_index % 50 == 0 or batch_index == total_batches:
-                logger.info("diff: INSERT 배치 진행 batch=%s/%s total_inserted=%s", batch_index, total_batches, total_inserted)
             if oracle_composite:
                 where_parts = []
                 params_list: List[Any] = []
@@ -1293,7 +1237,7 @@ def _run_diff_sync(
                         df_batch, _col_meta, source_tz, target_tz,
                     )
                 except Exception as tz_err:
-                    logger.warning("_run_diff_sync tz convert failed (skip): %s", tz_err)
+                    logger.warning("diff_sync tz_convert_skip: %s", tz_err)
             try:
                 df_batch = transform_engine.apply_rules(df_batch, rules)
             except Exception:
@@ -1318,11 +1262,8 @@ def _run_diff_sync(
             total_inserted += len(rows_tuples)
             if not is_batch and job_id:
                 etl_service.update_job_progress(job_id, total_inserted)
-        rows_deleted = 0
         if deleted_pks:
             deleted_list = list(deleted_pks)
-            del_batches = (len(deleted_list) + _DIFF_PK_SELECT_BATCH - 1) // _DIFF_PK_SELECT_BATCH
-            logger.info("diff: 타겟 DELETE 시작 deleted_pks=%s 배치=%s", len(deleted_list), del_batches)
             pk_quoted = ", ".join(f'"{c}"' for c in target_pk_list)
             for d_offset in range(0, len(deleted_list), _DIFF_PK_SELECT_BATCH):
                 d_batch = deleted_list[d_offset : d_offset + _DIFF_PK_SELECT_BATCH]
@@ -1345,8 +1286,16 @@ def _run_diff_sync(
 
     elapsed_total = time.monotonic() - t_diff_start
     logger.info(
-        "diff: _run_diff_sync 완료 rows_inserted=%s rows_deleted=%s elapsed=%.1fs",
-        total_inserted, rows_deleted, elapsed_total,
+        "diff_sync_done etl_table_id=%s job_id=%s src_pk=%s tgt_pk=%s new=%s del_orphan=%s inserted=%s deleted=%s elapsed_s=%.1f",
+        etl_table_id,
+        job_id,
+        len(source_pks),
+        len(target_pks),
+        len(new_pks),
+        len(deleted_pks),
+        total_inserted,
+        rows_deleted,
+        elapsed_total,
     )
     return {"rows_inserted": total_inserted, "rows_deleted": rows_deleted}
 
@@ -1408,8 +1357,8 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         etl_service.set_job_running(job_id)
     etl_service.update_etl_table_status(etl_table_id, "running")
     logger.info(
-        "ETL db load started etl_table_id=%s job_id=%s sync_mode=%s incremental_column=%s",
-        etl_table_id, job_id, sync_mode, incremental_column or "(none)",
+        "etl_db_load_start etl_table_id=%s job_id=%s mode=%s inc_col=%s",
+        etl_table_id, job_id, sync_mode, incremental_column or "-",
     )
 
     try:
@@ -1675,18 +1624,15 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 else:
                     params.append(_synced_val)
         elif sync_mode == "incremental" and not incremental_column:
-            logger.info(
-                "ETL db load etl_table_id=%s: 증분 모드이나 증분 컬럼 미지정 → 소스 전체 조회 후 업서트. "
-                "소스 테이블의 시간/순서 컬럼(예: updated_at)을 증분 컬럼으로 지정하면 이후 행만 조회합니다.",
+            logger.warning(
+                "etl_db_load incremental_mode_but_no_incremental_column etl_table_id=%s (full source scan + upsert)",
                 etl_table_id,
             )
         if stype in ("mysql", "oracle") and effective_batch_size == 0:
             effective_batch_size = 10000
-            logger.info("ETL db load etl_table_id=%s: MySQL/Oracle batch_size=0 → 스트리밍 배치 10000 적용", etl_table_id)
         # MySQL SSCursor: INSERT를 COPY로 빠르게 하면 fetch 간격이 줄어 net_write_timeout 위험 감소. 상한 10000 허용.
         if stype == "mysql" and effective_batch_size > 10000:
             effective_batch_size = 10000
-            logger.info("ETL db load etl_table_id=%s: MySQL SSCursor 배치 상한 10000 적용", etl_table_id)
         if stype == "oracle":
             limit_sql = f" FETCH FIRST {max_rows_per_load} ROWS ONLY" if (effective_batch_size == 0 and max_rows_per_load > 0) else ""
         else:
@@ -1763,7 +1709,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                                 df_batch, _col_meta, source_tz, target_tz,
                             )
                         except Exception as tz_err:
-                            logger.warning("run_db_load tz convert failed (skip): %s", tz_err)
+                            logger.warning("etl_db_load_tz_skip etl_table_id=%s: %s", etl_table_id, tz_err)
                     try:
                         df_batch = transform_engine.apply_rules(df_batch, rules)
                     except Exception:
@@ -1806,7 +1752,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                         effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
                         run_is_full = (effective_sync == "full")
                         if sync_mode == "full" and effective_sync != "full":
-                            logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
+                            logger.warning("etl_db_load sync_mode_forced_incremental etl_table_id=%s", etl_table_id)
                             sync_mode = "incremental"
                         if effective_sync == "full":
                             cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
@@ -1864,11 +1810,6 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                                     return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "PK 컬럼 없음"}
                                 _cols_before = list(cols)
                                 cols_filtered = [c for c in cols if c in target_set]
-                                if len(cols_filtered) < len(cols):
-                                    logger.info(
-                                        "ETL db load etl_table_id=%s: 타겟 테이블에 없는 컬럼 %s 건 제외 후 증분 적재",
-                                        etl_table_id, len(cols) - len(cols_filtered),
-                                    )
                                 col_types = [col_types[_cols_before.index(c)] for c in cols_filtered]
                                 cols = cols_filtered
                                 pk_list_inc = [p for p in pk_list_inc if p in cols]
@@ -1978,7 +1919,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             else:
                 etl_service.update_job(job_id, "completed", rows_processed=total_processed)
             etl_service.update_etl_table_status(etl_table_id, "done")
-            logger.info("ETL db load completed job_id=%s rows_processed=%s (streaming)", job_id, total_processed)
+            logger.info("etl_db_load_done job_id=%s rows=%s mode=stream", job_id, total_processed)
             return {"job_id": job_id, "status": "completed", "rows_processed": total_processed}
         else:
             cur_src = src_conn.cursor()
@@ -1998,7 +1939,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
         if len(rows_data) == 0:
             etl_service.update_job(job_id, "completed", rows_processed=0)
             etl_service.update_etl_table_status(etl_table_id, "done")
-            logger.info("ETL db load completed job_id=%s rows_processed=0 (no rows)", job_id)
+            logger.info("etl_db_load_done job_id=%s rows=0 (empty_source)", job_id)
             return {"job_id": job_id, "status": "completed", "rows_processed": 0}
 
         # Phase 4: 변환 룰 적용 + 매핑 기반 형변환
@@ -2010,7 +1951,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     df, _col_meta, source_tz, target_tz,
                 )
             except Exception as tz_err:
-                logger.warning("run_db_load tz convert failed (skip): %s", tz_err)
+                logger.warning("etl_db_load_tz_skip etl_table_id=%s: %s", etl_table_id, tz_err)
         rules: List[dict] = []
         try:
             rules = transform_rules_svc.list_transform_rules(etl_table_id)
@@ -2059,7 +2000,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             # DROP 직전 항상 DB에서 sync_mode 재조회. full일 때만 DROP(증분인데 전체 삭제 방지).
             effective_sync = etl_service.get_sync_mode_for_load(etl_table_id)
             if sync_mode == "full" and effective_sync != "full":
-                logger.warning("ETL db load etl_table_id=%s: sync_mode re-check is incremental, forcing incremental (no DROP)", etl_table_id)
+                logger.warning("etl_db_load sync_mode_forced_incremental etl_table_id=%s", etl_table_id)
                 sync_mode = "incremental"
             full_fetch_notice = None
             try:
@@ -2136,11 +2077,6 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                                 return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": "PK 컬럼 없음"}
                             _cols_before = list(cols)
                             cols_filtered = [c for c in cols if c in target_set]
-                            if len(cols_filtered) < len(cols):
-                                logger.info(
-                                    "ETL db load etl_table_id=%s: 타겟 테이블에 없는 컬럼 %s 건 제외 후 증분 적재",
-                                    etl_table_id, len(cols) - len(cols_filtered),
-                                )
                             col_types = [col_types[_cols_before.index(c)] for c in cols_filtered]
                             cols = cols_filtered
                             pk_list = [p for p in pk_list if p in cols]
@@ -2213,7 +2149,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
             else:
                 etl_service.update_job(job_id, "completed", rows_processed=rows_processed)
             etl_service.update_etl_table_status(etl_table_id, "done")
-            logger.info("ETL db load completed job_id=%s rows_processed=%s", job_id, rows_processed)
+            logger.info("etl_db_load_done job_id=%s rows=%s mode=fetch", job_id, rows_processed)
             return {"job_id": job_id, "status": "completed", "rows_processed": rows_processed}
         finally:
             if conn_main:
@@ -2223,7 +2159,7 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                     pass
 
     except Exception as e:
-        logger.exception("ETL db load failed job_id=%s: %s", job_id, e)
+        logger.exception("etl_db_load_fail job_id=%s", job_id)
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
         return {"job_id": job_id, "status": "failed", "rows_processed": 0, "error_message": str(e)}

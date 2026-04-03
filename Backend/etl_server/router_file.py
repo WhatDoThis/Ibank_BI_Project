@@ -229,7 +229,7 @@ def list_folder_connections():
     try:
         return batch_service.list_folder_connections()
     except Exception as e:
-        logger.exception("폴더 연결 목록 조회 실패")
+        logger.exception("etl_router_file folder_connections_list")
         raise HTTPException(status_code=500, detail=_batch_table_error_detail(e))
 
 
@@ -262,7 +262,7 @@ def create_folder_connection(
         )
         return {"folder_connection_id": fid, "message": "등록되었습니다."}
     except Exception as e:
-        logger.exception("폴더 연결 등록 실패")
+        logger.exception("etl_router_file folder_connections_create")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -295,7 +295,7 @@ def update_folder_connection(folder_connection_id: int, body: UpdateFolderConnec
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("폴더 연결 수정 실패")
+        logger.exception("etl_router_file folder_connections_update")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -306,7 +306,7 @@ def delete_folder_connection(folder_connection_id: int):
         batch_service.delete_folder_connection(folder_connection_id)
         return {"message": "삭제되었습니다."}
     except Exception as e:
-        logger.exception("폴더 연결 삭제 실패")
+        logger.exception("etl_router_file folder_connections_delete")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -348,7 +348,7 @@ def test_folder_connection(body: TestFolderConnectionBody):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("폴더 연결 테스트 실패")
+        logger.exception("etl_router_file folder_connections_test")
         if body.folder_connection_id is not None:
             try:
                 batch_service.set_folder_connection_verified(body.folder_connection_id, False)
@@ -370,7 +370,7 @@ def list_folder_files(folder_connection_id: int) -> List[str]:
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("폴더 파일 목록 조회 실패")
+        logger.exception("etl_router_file folder_files_list")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if adapter:
@@ -389,7 +389,7 @@ def list_folder_patterns(folder_connection_id: int):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("폴더 패턴 추출 실패")
+        logger.exception("etl_router_file folder_patterns")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if adapter:
@@ -426,7 +426,7 @@ def list_folder_columns(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("폴더 컬럼 조회 실패")
+        logger.exception("etl_router_file folder_columns")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if local_path and os.path.exists(local_path):
@@ -453,7 +453,7 @@ def list_target_tables(
         tables = etl_service.list_target_tables(storage_connection_id)
         return {"tables": tables}
     except Exception as e:
-        logger.exception("저장 DB 테이블 목록 조회 실패")
+        logger.exception("etl_router_file target_tables_list")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -469,7 +469,7 @@ def list_batch_target_registry():
                     r[k] = v.isoformat()
         return {"targets": rows}
     except Exception as e:
-        logger.exception("배치 타겟 레지스트리 조회 실패")
+        logger.exception("etl_router_file target_registry_list")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -482,7 +482,7 @@ def delete_batch_target_registry(registry_id: int):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("배치 타겟 레지스트리 삭제 실패")
+        logger.exception("etl_router_file target_registry_delete")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -508,7 +508,7 @@ def list_batch_jobs(
                 j["next_run_time"] = None
         return {"jobs": jobs}
     except Exception as e:
-        logger.exception("배치 Job 목록 조회 실패")
+        logger.exception("etl_router_file batch_jobs_list")
         raise HTTPException(status_code=500, detail=_batch_table_error_detail(e))
 
 
@@ -570,7 +570,7 @@ def create_batch_job(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("배치 Job 등록 실패")
+        logger.exception("etl_router_file batch_jobs_create")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -628,7 +628,7 @@ def create_batch_job_from_etl_table(
             try:
                 batch_service.update_last_synced_at_db_batch(batch_job_id, initial_synced_at)
             except Exception as e:
-                logger.warning("배치 등록 후 last_synced_at 초기 세팅 실패 batch_job_id=%s: %s", batch_job_id, e)
+                logger.warning("etl_router_file batch_last_synced_init_fail batch_job_id=%s: %s", batch_job_id, e)
         if body.is_active:
             job = batch_service.get_batch_job(batch_job_id)
             if job:
@@ -637,7 +637,7 @@ def create_batch_job_from_etl_table(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("ETL 기반 배치 등록 실패")
+        logger.exception("etl_router_file batch_create_from_etl")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -665,7 +665,7 @@ def validate_target_for_batch(body: ValidateTargetBody):
         df = batch_parser.read_file(local_path, ext, max_rows=1)
         file_cols_norm = [normalize_col(str(c)) for c in df.columns.tolist()]
     except Exception as e:
-        logger.exception("validate-target 파일 컬럼 조회 실패")
+        logger.exception("etl_router_file validate_target_file_columns")
         return {"valid": False, "message": f"파일 컬럼 조회 실패: {e}"}
     finally:
         if local_path and os.path.exists(local_path):
@@ -697,7 +697,7 @@ def validate_target_for_batch(body: ValidateTargetBody):
             }
         return {"valid": True, "message": "기존 테이블에 적재 가능합니다."}
     except Exception as e:
-        logger.exception("validate-target 타겟 조회 실패")
+        logger.exception("etl_router_file validate_target_target")
         return {"valid": False, "message": f"타겟 테이블 조회 실패: {e}"}
 
 
@@ -728,7 +728,7 @@ def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("배치 Job 수정 실패")
+        logger.exception("etl_router_file batch_jobs_update")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -745,7 +745,7 @@ def delete_batch_job(batch_job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("배치 Job 삭제 실패")
+        logger.exception("etl_router_file batch_jobs_delete")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -768,7 +768,7 @@ def get_batch_job_db_preview(batch_job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("DB 배치 미리보기 실패")
+        logger.exception("etl_router_file batch_preview")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -785,7 +785,7 @@ def run_batch_job_now(batch_job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("배치 즉시 실행 실패")
+        logger.exception("etl_router_file batch_run_now")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -804,7 +804,7 @@ def toggle_batch_job(batch_job_id: int):
         if not new_active:
             n = batch_service.mark_stuck_runs_finished(batch_job_id)
             if n:
-                logger.info("toggle batch_%s: %s stuck run(s) marked error", batch_job_id, n)
+                logger.info("etl_router_file batch_toggle stuck_runs_marked_error batch_job_id=%s n=%s", batch_job_id, n)
         if new_active:
             job = batch_service.get_batch_job(batch_job_id)
             if job:
@@ -815,7 +815,7 @@ def toggle_batch_job(batch_job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("배치 토글 실패")
+        logger.exception("etl_router_file batch_toggle")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -833,7 +833,7 @@ def list_batch_run_history(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("실행 이력 목록 조회 실패")
+        logger.exception("etl_router_file batch_history_list")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -853,7 +853,7 @@ def get_batch_run_detail(batch_job_id: int, run_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("실행 이력 상세 조회 실패")
+        logger.exception("etl_router_file batch_history_detail")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -877,7 +877,7 @@ def cancel_batch_run(batch_job_id: int, run_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("실행 취소 요청 실패")
+        logger.exception("etl_router_file batch_run_cancel")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -897,7 +897,7 @@ def list_skipped_files_history(batch_job_id: int, limit: int = Query(200, ge=1, 
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("스킵 파일 이력 조회 실패")
+        logger.exception("etl_router_file skipped_files_history")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -919,7 +919,7 @@ def list_skipped_files(batch_job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("스킵 파일 목록 조회 실패")
+        logger.exception("etl_router_file skipped_files_list")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -942,7 +942,7 @@ def delete_skipped_files(batch_job_id: int, body: DeleteRemoteFilesBody):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("원격 파일 삭제 실패")
+        logger.exception("etl_router_file remote_files_delete")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -960,7 +960,7 @@ def reset_last_processed_ts(batch_job_id: int, body: ResetTsBody):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("last_processed_ts 리셋 실패")
+        logger.exception("etl_router_file reset_last_processed_ts")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -988,7 +988,7 @@ def rollback_file(batch_job_id: int, body: RollbackFileBody):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("파일 롤백 실패")
+        logger.exception("etl_router_file rollback_file")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1031,5 +1031,5 @@ def clone_batch_job(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("배치 Job 복제 실패")
+        logger.exception("etl_router_file batch_job_clone")
         raise HTTPException(status_code=500, detail=str(e))

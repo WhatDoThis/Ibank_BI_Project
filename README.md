@@ -25,7 +25,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 - **파일·외부 DB → 우리 PostgreSQL 적재.** **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑·**변환 룰**(타입·값매핑·날짜/시간 연산 등), 설정 모달(동기화 모드 **전체/증분/PK 차이(diff)**·증분 컬럼·배치·행 실패 시 동작). 소스: (1) **파일** CSV, Excel(.xlsx/.xls), Parquet. (2) **DB** PostgreSQL·MySQL·Oracle(연결 테스트·소스 테이블 목록·미리보기·Full/Incremental/**diff** 적재). **Oracle 연결은 Service Name만 지원**. 등록된 연결에 **호스트:포트/DB명** 표시. PK diff 상세: **docs/report/14_ETL_PK_DIFF.md**.
 - **동기화 모드**: 전체(삭제 후 적재) / 증분(last_synced_at 이후 Upsert). **폴더 배치**: SFTP/S3 연결·파일 패턴·주기·배치 Job 등록·이력. **DB 탭 배치**: ETL 테이블 실행(적재 완료) 후 **배치설정** 버튼으로 주기 배치 등록. **실행은 수동(실행 버튼)만**, 스케줄은 배치 설정으로 주기 실행.
-- **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 동시 2건). ZIP 다중 파일 추가(각 파일 최대 50MB·ZIP 전체 최대 2GB)·건너뛴 파일 목록.
+- **목록**: 타겟·설명·PK·소스 유형·연결·소스·배치·동기화·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). Job 큐(pending→running, 백엔드 **동시 최대 3건**). ZIP 다중 파일 추가(각 파일 최대 50MB·ZIP 전체 최대 2GB)·건너뛴 파일 목록.
 - **ETL 사용 시** config에 backend.system_db, backend.etl_limits 선택. 상세는 **docs/main/00_PRD.md §6.3·§6.3.1**, **02_BACKEND_GUIDE.md §3·§6**.
 
 ### 대시보드 (캠페인 대시보드만 연동)
@@ -36,7 +36,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 공통
 
 - **설정**: 환경은 `Env/config/config.json` 만 사용(.env 미사용).
-- **API**: FastAPI(health, report, **캠페인 대시보드**, **ETL**), PostgreSQL 연동. 리포트: join-order, save-query-as-table·status 등.
+- **API**: FastAPI — health, **auth/projects/notifications/admin**, **쿼리 스튜디오**(`/api/*`), **ETL**(`/api/etl`, `/api/etl/batch`), **캠페인 대시보드**(`/api/campaign-dashboard`). PostgreSQL 연동. 쿼리 스튜디오: join-order, save-query-as-table·status, execute-query 등.
 
 ---
 
@@ -90,9 +90,9 @@ python run.py front
 API·웹 서버 설정은 **Env/config/config.json** 에서 합니다.  
 `Env/config/config.json.example` 을 복사해 `config.json` 으로 만든 뒤 값을 채우면 됩니다.
 
-- **backend**: api_host, api_port, **main_db**(db_host, db_port, db_name, db_user, db_password, table_schema — Report 등 메인 비즈니스 DB), query_timeout_seconds, claude_api_key, claude_api_url (노출 테이블은 **main_db.table_schema** 기준 DB 메타데이터; 구버전 평면 `db_*`/`table_schema` 는 `Backend.core.db` 에서 호환)  
-  - **ETL 사용 시**: system_db(시스템 DB, ETL 메타), etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb** ZIP 압축 해제 총량 상한·기본 2GB) 선택  
-  - **뉴 대시보드·캠페인 대시보드**: **dash_db** — `ibank_1` / `ibank_1_*` / `ibank_*_star_1|2` 등 집계용 물리 테이블
+- **backend**: api_host, api_port, **jwt_secret**·jwt 만료 설정, 선택 **smtp_info**(smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, **app_url** — 초대 링크·메일; host 비면 메일 미발송·로그 폴백), **main_db**(쿼리 스튜디오·execute-query용 비즈니스 DB), query_timeout_seconds, claude_api_key, claude_api_url (노출 테이블은 **main_db.table_schema** 기준; 구 평면 `db_*`/`table_schema` 는 `Backend.core.db` 호환)  
+  - **ETL 사용 시**: **system_db**(ETL 메타·상용 메타 동일 DB), **etl_limits**(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb**·기본 2GB) 선택  
+  - **캠페인 대시보드**: **dash_db** — Star·집계 물리 테이블(`ibank_*_star_*` 등)
 - **frontend**: static_port, main_page, api_base_url, static_dir (기본: `Frontend/react-app/dist`)
 
 **.env 파일은 사용하지 않습니다.** 환경은 config.json 에만 정의합니다.
@@ -115,9 +115,15 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   ├── report/         # 보조 설계·배포·체크리스트
 │   └── README.md       # docs 폴더 안내
 ├── Backend/
-│   ├── api_server/           # FastAPI 앱·health·report·라우터 조립
+│   ├── api_server/           # FastAPI 앱·CORS·health·라우터 조립 (main.py)
 │   │   ├── main.py
 │   │   └── routers/
+│   ├── core/                 # db, dependencies, auth_config, logging_setup, dashboard_service
+│   ├── auth_server/          # /api/auth
+│   ├── project_server/       # /api/projects
+│   ├── notification_server/  # /api/notifications
+│   ├── admin_server/         # /api/admin
+│   ├── query_studio_server/  # /api/* (쿼리 빌더 API)
 │   ├── etl_server/           # /api/etl, /api/etl/batch (단일 ETL)
 │   ├── campaign_dash_server/ # /api/campaign-dashboard (앱에 등록되는 유일 대시보드 API)
 │   ├── legacy_dashboard_server/  # 구 /api/dashboard (미등록, 보존)
@@ -167,7 +173,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 현행 시스템 가이드: 00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md |
+| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, 03_AI_DEVELOP, 04_DB_ARCHITECTURE, 05_Permission, 06_CUSTOMER_JOURNEY |
 | **docs/README.md** | docs 폴더 구성( main / log / report ) |
 | **docs/log/log.md** | 작업 이력(목적·변경 파일) |
 | **docs/report/** | 배포·보조 설계·체크리스트(동작 정의는 docs/main 우선) |

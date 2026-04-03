@@ -248,18 +248,13 @@ def member_summary(
                 """
                 cur.execute(fb, (date_range[0],))
                 prev_row = cur.fetchone()
-                if prev_row is not None:
-                    logging.getLogger(__name__).info(
-                        "member-summary: prev_range empty; using fallback base_date < %s",
-                        date_range[0],
-                    )
         finally:
             cur.close()
             conn.close()
 
         if not row:
             logging.getLogger(__name__).warning(
-                "member-summary: %s 에서 %s 기간 데이터 없음", full_table, date_range
+                "dash_router member_summary_no_data table=%s range=%s", full_table, date_range
             )
             return JSONResponse(status_code=404, content={"error": "해당 기간 데이터 없음"})
 
@@ -486,12 +481,6 @@ def hourly(
             data = results
         else:
             data = row_to_hours(raw_rows[0]) if raw_rows else []
-            # 데이터 없을 때 로깅 (디버깅용)
-            if not raw_rows:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"hourly {metric}: {full_table}에서 {date_range} 기간 데이터 없음")
-
         return {
             "metric": metric,
             "data": data,

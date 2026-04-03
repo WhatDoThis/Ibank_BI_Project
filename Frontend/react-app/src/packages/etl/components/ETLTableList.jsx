@@ -7,7 +7,7 @@
  * [Main Functions]
  * ===========
  * 1. etl2ListTables + etl2ListBatchTargetRegistry 통합 로드. type 'table' | 'batch_target' 로 구분. 배치 유래 행은 삭제(타겟 DROP)만 표시.
- * 2. 테이블 행: 실행/미리보기/데이터 추가/설정/삭제/×. 배치 행: 즉시 실행/이력/삭제. 등록자(create_user_label) 열 표시.
+ * 2. 테이블 행: 동작 버튼은 etl-db-form__btn--sm(배치 Job 목록과 동일). 상태 열은 etl-db-form__status-badge.
  * 3. 삭제: 테이블 → etl2DeleteTable(동일 타겟·프로젝트 매핑 시 API 400 메시지). 배치 레지스트리 행 → etl2DeleteBatchTargetRegistry.
  *
  * [Dependencies]
@@ -21,6 +21,19 @@ import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTa
 import { formatEtlStorageLabel } from '../utils/storageDb.js';
 import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
 import BatchScheduleModal from './BatchScheduleModal.jsx';
+
+// 0. 상태 열: BatchJobListFile과 동일하게 etl-db-form__status-badge + 변형
+function etlStatusBadgeClass(kind) {
+  const map = {
+    success: 'etl-db-form__status-badge etl-db-form__status--success',
+    error: 'etl-db-form__status-badge etl-db-form__status--error',
+    running: 'etl-db-form__status-badge etl-db-form__status--running',
+    pending: 'etl-db-form__status-badge etl-db-form__status--partial',
+    draft: 'etl-db-form__status-badge etl-db-form__status--idle',
+    active: 'etl-db-form__status-badge etl-db-form__status--running',
+  };
+  return map[kind] || null;
+}
 
 // 1.
 function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistory, refreshing, runLoading, queueStatusTrigger }) {
@@ -209,7 +222,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
             if (t.type === 'batch_target') {
               const s = (t.last_run_status || '').toLowerCase();
               const batchStatusText = s === 'success' ? '완료' : s === 'error' ? '오류' : s === 'running' ? '실행 중' : (t.batch_job_id ? '활성' : '—');
-              const batchStatusClass = s === 'success' ? 'etl-table-list__status--done' : s === 'error' ? 'etl-table-list__status--error' : s === 'running' ? 'etl-table-list__status--running' : undefined;
+              const batchBadgeKind = s === 'success' ? 'success' : s === 'error' ? 'error' : s === 'running' ? 'running' : t.batch_job_id ? 'active' : null;
+              const batchStatusBadgeClass = batchBadgeKind ? etlStatusBadgeClass(batchBadgeKind) : null;
               const batchStorLabel = formatEtlStorageLabel(t.storage_connection_id, t.storage_connection_name);
               return (
                 <tr key={t._key}>
@@ -225,12 +239,12 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   <td className="etl-table-list__cell-row-error">—</td>
                   <td className="etl-table-list__cell-storage" title={batchStorLabel}>{batchStorLabel}</td>
                   <td className="etl-table-list__cell-creator" title={t.create_user_label || ''}>{t.create_user_label || '—'}</td>
-                  <td className={batchStatusClass}>{batchStatusText}</td>
+                  <td>{batchStatusBadgeClass ? <span className={batchStatusBadgeClass}>{batchStatusText}</span> : batchStatusText}</td>
                   <td className="etl-table-list__cell-actions">
-                    <span className="etl-table-list__actions">
+                    <div className="etl-batch-job-list__actions">
                       <button
                         type="button"
-                        className="etl-table-list__delete"
+                        className="etl-db-form__btn etl-db-form__btn--danger etl-db-form__btn--sm"
                         onClick={() => {
                           if (!window.confirm(`"${t.target_table}" 타겟 테이블을 적재 대상 DB에서 DROP하고, 연결된 배치 Job이 있으면 함께 삭제한 뒤 이 목록에서 제거합니다. 계속할까요?`)) return;
                           etl2DeleteBatchTargetRegistry(t.id)
@@ -240,7 +254,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                       >
                         삭제
                       </button>
-                    </span>
+                    </div>
                   </td>
                 </tr>
               );
@@ -253,7 +267,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
             const rowPending = q?.status === 'pending';
             const statusLower = (t.status || '').toLowerCase();
             const statusText = rowRunning ? '실행 중' : rowPending ? '대기 중' : (statusLower === 'done' ? '완료' : statusLower === 'error' ? '오류' : statusLower === 'draft' ? '미실행' : (t.status || '—'));
-            const statusCellClass = rowRunning ? 'etl-table-list__status--running' : rowPending ? 'etl-table-list__status--pending' : statusLower === 'done' ? 'etl-table-list__status--done' : statusLower === 'error' ? 'etl-table-list__status--error' : statusLower === 'draft' ? 'etl-table-list__status--draft' : undefined;
+            const statusBadgeKind = rowRunning ? 'running' : rowPending ? 'pending' : statusLower === 'done' ? 'success' : statusLower === 'error' ? 'error' : statusLower === 'draft' ? 'draft' : null;
+            const statusBadgeClass = statusBadgeKind ? etlStatusBadgeClass(statusBadgeKind) : null;
             const rowClass = [
               rowRunning && 'etl-table-list__row--running',
               rowPending && 'etl-table-list__row--pending'
@@ -292,15 +307,15 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
               <td className="etl-table-list__cell-storage" title={`저장 위치: ${tableStorLabel}`}>{tableStorLabel}</td>
               <td className="etl-table-list__cell-creator" title={t.create_user_label || ''}>{t.create_user_label || '—'}</td>
-              <td className={statusCellClass}>{statusText}</td>
+              <td>{statusBadgeClass ? <span className={statusBadgeClass}>{statusText}</span> : statusText}</td>
               <td className="etl-table-list__cell-actions">
-                <span className="etl-table-list__actions">
+                <div className="etl-batch-job-list__actions">
                   {(t.source_type === 'file' && (t.file_path || t.file_type)) || (['postgresql', 'mysql', 'oracle'].includes((t.source_type || '').toLowerCase()) && t.source_table) ? (
                     <>
                       {onPreview && (
                         <button
                           type="button"
-                          className="etl-table-list__preview"
+                          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
                           onClick={() => onPreview(t.etl_table_id)}
                           disabled={runDisabled || t.preview_available === false}
                           title={t.preview_available === false ? '원본 파일이 없거나 만료되었습니다.' : undefined}
@@ -310,7 +325,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                       )}
                       <button
                         type="button"
-                        className={`etl-table-list__run ${runDisabled ? 'etl-table-list__run--busy' : ''}`}
+                        className={`etl-db-form__btn etl-db-form__btn--primary etl-db-form__btn--sm${runDisabled ? ' etl-table-list__run--busy' : ''}`}
                         onClick={() => {
                           const hasPk = (t.pk_columns || '').trim().length > 0;
                           if (!hasPk && !window.confirm('PK가 설정되어 있지 않습니다. 그래도 실행하시겠습니까?\n(파일 ETL의 경우 나중에 "데이터 추가" 시 PK가 없으면 오류가 날 수 있습니다.)')) return;
@@ -323,7 +338,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                       {onAddFile && !isDbSource && (
                         <button
                           type="button"
-                          className="etl-table-list__add-file"
+                          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
                           onClick={() => onAddFile(t)}
                           disabled={runDisabled}
                         >
@@ -333,7 +348,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                       {isDbSource && (
                         <button
                           type="button"
-                          className="etl-table-list__settings"
+                          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
                           onClick={() => setSettingsModalTable(t)}
                           disabled={runDisabled}
                           title="동기화 모드, 증분 컬럼, 배치, 행 실패 시 동작 수정"
@@ -344,7 +359,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                       {isDbSource && (
                         <button
                           type="button"
-                          className="etl-table-list__batch-schedule"
+                          className="etl-db-form__btn etl-db-form__btn--secondary etl-db-form__btn--sm"
                           onClick={() => setBatchScheduleTarget(t)}
                           disabled={runDisabled || statusLower !== 'done'}
                           title={statusLower !== 'done' ? '먼저 실행하여 적재를 확인한 뒤 배치를 설정할 수 있습니다.' : '주기 자동 실행 설정'}
@@ -358,7 +373,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   )}
                   <button
                     type="button"
-                    className="etl-table-list__delete"
+                    className="etl-db-form__btn etl-db-form__btn--danger etl-db-form__btn--sm"
                     onClick={() => {
                       const msg = `다음 ETL을 삭제합니다.\n· 동일 타겟을 쓰는 다른 ETL이 있거나, 프로젝트에 테이블이 연결되어 있으면 삭제가 거절됩니다.\n· 삭제되면 배치 Job·원장(table_master)·저장 DB 물리 테이블(DROP)까지 정리됩니다.\n· 파일 소스인 경우 업로드 파일도 삭제됩니다.\n계속할까요?`;
                       if (window.confirm(msg)) {
@@ -389,7 +404,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   </button>
                   <button
                     type="button"
-                    className="etl-table-list__delete-row"
+                    className="etl-db-form__btn etl-db-form__btn--danger etl-db-form__btn--sm etl-table-list__delete-row"
                     onClick={() => {
                       const msg = '해당 ETL 등록 건만 삭제합니다.\n업로드 파일은 삭제되며, 메인 DB의 타겟 테이블은 유지됩니다.\n진행할까요?';
                       if (window.confirm(msg)) {
@@ -404,7 +419,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   >
                     ×
                   </button>
-                </span>
+                </div>
               </td>
             </tr>
             );

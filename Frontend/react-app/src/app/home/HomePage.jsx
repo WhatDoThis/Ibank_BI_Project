@@ -174,7 +174,7 @@ export default function HomePage() {
           {showEtl ? (
             <Link to="/etl" className="home__card">
               ETL
-              <span className="home__card-desc">전사 ETL 인프라 (etl_yn 또는 SA_DEV)</span>
+              <span className="home__card-desc">ETL 관리자 (etl_yn 또는 SA_DEV)</span>
             </Link>
           ) : null}
           {showUsers ? (

@@ -67,8 +67,10 @@ flowchart LR
 
 | 모듈 | 역할 | 다른 패키지가 쓰는 방식 |
 |------|------|-------------------------|
-| `db.py` | 메인·시스템·dash_db 연결 풀, `get_allowed_tables`(JWT `project_info_id` 있으면 `table_project_mapping`·`table_master` 기반, 없으면 메인 스키마 전체 목록 호환), 테이블/컬럼 검증 | `query_studio_server`, `etl_server`, `campaign_dash_server`, `dependencies`, `dashboard_service`, 스크립트 |
+| `db.py` | 메인·시스템·dash_db 연결 풀, `get_allowed_tables`(JWT `project_info_id` 있으면 `table_project_mapping`·`table_master` 기반, 없으면 메인 스키마 전체 목록 호환), 테이블/컬럼 검증 | `query_studio_server`, `etl_server`, `campaign_dash_server`, `auth_server`, `admin_server`, `dependencies`, `dashboard_service`, 스크립트 |
 | `dependencies.py` | FastAPI `get_db`, `get_config` | `query_studio_server/router`, `api_server/routers/health` |
+| `auth_config.py` | JWT·SMTP·`get_app_url` | `auth_server`, `email_service` |
+| `logging_setup.py` | 루트 로깅 포맷 구성 | `api_server/main`(기동 시) |
 | `dashboard_service.py` | 캠페인/일자/워크플로우/채널 집계·차트·필터 | `legacy_dashboard_server`, `new_dash_server`, `campaign_dash_server` |
 
 **의존 규칙 (중요)**:
@@ -101,7 +103,7 @@ flowchart LR
 
 | 설정 키(개념) | 용도 | 주로 쓰는 모듈 |
 |---------------|------|----------------|
-| `config.backend.main_db` | 메인 비즈니스 DB(`db_*`, `table_schema`). 레거시: 평면 `backend.db_*` | `core.db`, 쿼리 스튜디오·구대시·ETL |
+| `config.backend.main_db` | 메인 비즈니스 DB(`db_*`, `table_schema`). 레거시: 평면 `backend.db_*` | `core.db`, 쿼리 스튜디오·ETL |
 | `config.backend.system_db` | ETL 메타·Job 등 | `core.db.get_db_connection_system`, `etl_server` |
 | `config.backend.dash_db` | `ibank_1` 계열·Star 물리 테이블 | `core.db.get_db_connection_dash` 등, 대시보드 서비스/라우터 |
 | `config.backend.star_db` | 마케팅 대시보드 전용 | `new_dash_server2/star_db.py`만 |
@@ -121,10 +123,10 @@ flowchart LR
 | 쿼리 스튜디오 | `packages/query_studio` | `/api/...` (`require_permission`) |
 | 대시보드(캠페인) | `packages/campaign_dashboard` | `/api/campaign-dashboard/...` |
 | 위젯보드 | `packages/widgetboard` | 쿼리 스튜디오 `/api/execute-query` 등 |
-| ETL | `packages/etl` (및 etl2 관련) | `/api/etl/...`, `/api/etl/batch/...` (`require_etl_infrastructure`) |
+| ETL | `packages/etl` | `/api/etl/...`, `/api/etl/batch/...` (`require_etl_infrastructure`). 클라이언트 함수명은 역사적 이유로 `etl2*` 접두를 유지할 수 있음(`etlClient.js`). |
 | 어드민 SPA | `src/app/admin/*` + `shared/api/adminClient.js` | `/api/admin/...` |
 
-ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rules/project-conventions.mdc`** 및 **packages/etl2** 쪽 주석을 본다.
+저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rules/project-conventions.mdc`** 및 **`packages/etl/utils/storageDb.js`** 를 본다.
 
 ---
 
@@ -191,7 +193,7 @@ ETL2·저장 DB UI 규칙(기본 DB `null`, FormData vs JSON)은 **`.cursor/rule
 
 ## 8. Cursor 규칙·스킬 (요약)
 
-- **프로젝트 규칙**: `.cursor/rules/` — 설정(`config.json`), ETL2 저장 DB 표기, 패키지별 CSS, 파일 상단 한글 docstring 형식 등.
+- **프로젝트 규칙**: `.cursor/rules/` — 설정(`config.json`), ETL 저장 DB 표기, 패키지별 CSS, 파일 상단 한글 docstring 형식 등.
 - **스킬**: `.cursor/skills/` — 엔드포인트 추가, 클라이언트 동기화, DB 적재, React 컴포넌트, 에러 진단 등 작업 유형별 절차.
 
 ---

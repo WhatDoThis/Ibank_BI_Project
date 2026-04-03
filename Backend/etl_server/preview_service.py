@@ -190,7 +190,7 @@ def _normalize_mapping(column_mapping: Any) -> List[tuple]:
         try:
             column_mapping = json.loads(column_mapping)
         except Exception as e:
-            logger.warning("_normalize_mapping: column_mapping JSON 파싱 실패, 빈 매핑 반환: %s", e)
+            logger.warning("etl_preview column_mapping_json_invalid empty_mapping: %s", e)
             return []
     if not isinstance(column_mapping, list):
         return []
@@ -583,7 +583,7 @@ def _get_preview_with_transform(etl_table_id: int) -> dict:
         try:
             df = transform_engine.apply_rules(df.copy(), rules)
         except Exception as e:
-            logger.warning("get_preview apply_rules 실패, 변환 없이 진행: %s", e)
+            logger.warning("etl_preview apply_rules_skip: %s", e)
 
     mapping_dicts = [{"source": s, "target": t, "type": ty or "TEXT"} for (s, t, ty) in mapping]
     if mapping_dicts:
@@ -591,7 +591,7 @@ def _get_preview_with_transform(etl_table_id: int) -> dict:
             # 마스킹 등으로 숫자 컬럼이 비숫자 문자열이 되면 BIGINT 캐스트가 전부 null이 됨 → 미리보기에서 원문(마스킹 결과) 유지
             df = transform_engine.apply_mapping_type_cast(df, mapping_dicts, default_on_error="keep")
         except Exception as e:
-            logger.warning("get_preview apply_mapping_type_cast 실패: %s", e)
+            logger.warning("etl_preview mapping_type_cast_skip: %s", e)
         preview_columns = [m["target"] for m in mapping_dicts]
         records = df.replace({pd.NA: None}).to_dict("records")
         preview_rows = [

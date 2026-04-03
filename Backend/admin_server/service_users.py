@@ -23,7 +23,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
 13. transfer_resource_ownership — project·pmssn_master·table_master·ETL 메타 이관(ETL 생성 테이블은 연쇄 이관)
 14. user_has_transferable_ownership — 정지 전 생성자 자산(project·커스텀 역할) 존재 여부
-15. get_user_change_options / update_user_management — 부서·역할·ETL 인프라 자격(etl_yn)·프로젝트 참여 변경(+SA 마지막 1인 경고·부서 생성자 가드·역할 변경 시 생성물별 정합성: table_master 단독은 차단 안 함·ETL 등록은 o/a/sa/sa_dev만·etl_yn 해제 시 등록 건 검사)
+15. get_user_change_options / update_user_management — 부서·역할·ETL 관리자 자격(etl_yn)·프로젝트 참여 변경(+SA 마지막 1인 경고·부서 생성자 가드·역할 변경 시 생성물별 정합성: table_master 단독은 차단 안 함·ETL 등록은 o/a/sa/sa_dev만·etl_yn 해제 시 등록 건 검사)
 
 [Dependencies]
 =========
@@ -296,7 +296,7 @@ def _assert_etl_infra_recipient(
     etl_yn = (to_row.get("etl_yn") or "").strip().upper()
     if etl_yn != "Y" and td != "sa_dev":
         raise ValueError(
-            "ETL 이관 대상은 ETL 인프라 자격(etl_yn=Y)이 있거나 SA_DEV 역할이어야 합니다."
+            "ETL 이관 대상은 ETL 관리자 자격(etl_yn=Y)이 있거나 SA_DEV 역할이어야 합니다."
         )
 
 
@@ -879,7 +879,7 @@ def invite_user_by_email(
     except psycopg2.errors.UndefinedColumn as e:
         conn.rollback()
         _log.warning(
-            "[invite_user_by_email] DB column missing: %s",
+            "admin_invite db_column_missing: %s",
             getattr(e, "diag", None) and getattr(e.diag, "message_primary", str(e)) or str(e),
         )
         raise ValueError(
@@ -1018,11 +1018,7 @@ def user_has_transferable_ownership(conn, user_id: int) -> bool:
         if _etl_user_has_any_owned(etl_conn, schema, uid):
             return True
     except Exception as ex:
-        _log.warning(
-            "user_has_transferable_ownership: etl_db 확인 실패(uid=%s): %s",
-            uid,
-            ex,
-        )
+        _log.warning("admin_user etl_db_check_fail op=transferable_ownership uid=%s: %s", uid, ex)
     finally:
         if etl_conn is not None:
             try:
@@ -1846,7 +1842,7 @@ def get_user_work_assets(
         etl_conn = core_db.get_db_connection_etl()
         etl_blocks = _fetch_etl_work_blocks(etl_conn, _etl_schema_name(), tid)
     except Exception as ex:
-        _log.warning("get_user_work_assets: etl_db 조회 실패(user=%s): %s", tid, ex)
+        _log.warning("admin_user etl_db_check_fail op=work_assets user_id=%s: %s", tid, ex)
         etl_assets_note = (
             "ETL 메타 DB에 연결하지 못했습니다. 설정(backend.etl_db)과 네트워크를 확인하세요."
         )
@@ -2508,17 +2504,13 @@ def _raise_if_etl_registry_blocks_clearing_etl_yn(user_id: int) -> None:
         etl_conn = core_db.get_db_connection_etl()
         if _etl_user_has_any_owned(etl_conn, _etl_schema_name(), uid):
             raise ValueError(
-                "ETL 등록 건(연결·테이블·Job·저장 DB·배치 등)이 있으면 ETL 인프라 자격(etl_yn)을 해제할 수 없습니다. "
+                "ETL 등록 건(연결·테이블·Job·저장 DB·배치 등)이 있으면 ETL 관리자 자격(etl_yn)을 해제할 수 없습니다. "
                 "「목록」에서 이관하거나 등록을 정리한 뒤 다시 시도하세요."
             )
     except ValueError:
         raise
     except Exception as ex:
-        _log.warning(
-            "_raise_if_etl_registry_blocks_clearing_etl_yn: etl_db 확인 실패(uid=%s): %s",
-            uid,
-            ex,
-        )
+        _log.warning("admin_user etl_db_check_fail op=clear_etl_yn_guard uid=%s: %s", uid, ex)
     finally:
         if etl_conn is not None:
             try:
@@ -2569,11 +2561,7 @@ def _assert_role_change_allowed_for_owned_assets(cur, tid: int, new_dvsn: str) -
     except ValueError:
         raise
     except Exception as ex:
-        _log.warning(
-            "_assert_role_change_allowed_for_owned_assets: etl_db 확인 실패(uid=%s): %s",
-            uid,
-            ex,
-        )
+        _log.warning("admin_user etl_db_check_fail op=role_change_guard uid=%s: %s", uid, ex)
     finally:
         if etl_conn is not None:
             try:

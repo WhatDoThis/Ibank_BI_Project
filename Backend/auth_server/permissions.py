@@ -40,10 +40,10 @@ from Backend.core.user_dvsn_codes import canon_user_dvsn
 _MSG_NO_PROJECT = "프로젝트를 선택해주세요"
 _MSG_FORBIDDEN = "이 작업을 수행할 권한이 없습니다."
 _MSG_ETL_INFRA = (
-    "ETL 인프라는 SA_DEV이거나 ETL 자격(etl_yn=Y)이 있는 계정만 사용할 수 있습니다."
+    "ETL 관리 기능은 SA_DEV이거나 ETL 관리자 자격(etl_yn=Y)이 있는 계정만 사용할 수 있습니다."
 )
 
-# 프로젝트 UI 기능(매트릭스 §8). ETL 인프라는 별도 require_etl_infrastructure.
+# 프로젝트 UI 기능(매트릭스 §8). ETL 관리자 판별은 별도 require_etl_infrastructure.
 _PROJECT_FEATURE_IDS = frozenset(
     {"query.read", "query.execute", "dashboard", "widgetboard"}
 )

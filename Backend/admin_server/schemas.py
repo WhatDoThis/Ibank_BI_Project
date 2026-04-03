@@ -53,7 +53,7 @@ class UserRoleBody(BaseModel):
 
 
 class UserEtlYnBody(BaseModel):
-    etl_yn: Literal["Y", "N"] = Field(..., description="ETL 인프라 자격")
+    etl_yn: Literal["Y", "N"] = Field(..., description="ETL 관리자 자격")
 
 
 class PermissionOptionResponse(BaseModel):
@@ -186,7 +186,7 @@ class UserManageUpdateBody(BaseModel):
     user_dvsn: Literal["sa", "a", "o", "u"] | None = None
     etl_yn: Literal["Y", "N"] | None = Field(
         None,
-        description="ETL 인프라 자격(etl_yn). sa·sa_dev만 변경 가능, 생략 시 유지",
+        description="ETL 관리자 자격(etl_yn). sa·sa_dev만 변경 가능, 생략 시 유지",
     )
     project_info_ids: list[int] | None = None
     project_assignments: list[ProjectAssignmentBody] | None = Field(

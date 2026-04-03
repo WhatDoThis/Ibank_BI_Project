@@ -4,7 +4,7 @@
 > 기준일: 2026-02-25
 > DB 반영 완료 (ibank_system_data)
 >
-> **아키텍처**: 백엔드는 `Backend/etl_server2`에 통합, 신규 파일은 `*_file.py`. 프론트는 `packages/etl2/components`에 신규 컴포넌트 `*File.jsx`. ETL2 페이지에서 "DB 연결"과 "저장 DB 등록" 사이에 "폴더 등록" 탭으로 진입.
+> **아키텍처**: 백엔드는 `Backend/etl_server`에 통합, 신규 파일은 `*_file.py`. 프론트는 `packages/etl/components`에 신규 컴포넌트 `*File.jsx`. ETL 페이지에서 "DB 연결"과 "저장 DB 등록" 사이에 "폴더 등록" 탭으로 진입.
 
 ---
 
@@ -28,7 +28,7 @@ SFTP 서버 또는 AWS S3 버킷의 폴더를 등록하고,
 
 | 항목 | 재사용 대상 | 비고 |
 |------|------------|------|
-| 저장 DB | `etl_storage_connections` (ETL2) | 적재 대상 PostgreSQL, get_target_db_connection() |
+| 저장 DB | `etl_storage_connections` (단일 ETL) | 적재 대상 PostgreSQL, get_target_db_connection() |
 | 스키마 추론 | `schema_infer.py` 패턴 | pandas dtype → PG 타입 매핑 |
 | etl_limits | `config.backend.etl_limits` | max_file_size_mb, max_rows_per_load |
 | 시스템 DB | `ibank_system_data` | batch_* 메타 테이블 |
@@ -51,8 +51,8 @@ SFTP 서버 또는 AWS S3 버킷의 폴더를 등록하고,
 |------|------|
 | 파일 파싱 | pandas + openpyxl + xlrd + pyarrow |
 | DB 적재 | psycopg2 |
-| 프론트 | React 19 + Vite (packages/etl2) |
-| API | FastAPI (Backend/etl_server2) |
+| 프론트 | React 19 + Vite (packages/etl) |
+| API | FastAPI (Backend/etl_server) |
 
 ---
 
@@ -413,7 +413,7 @@ SFTP:
 S3:
   - S3 PutObject는 atomic → 업로드 완료 전에는 객체 미노출
   - 별도 처리 불필요
-8. API 엔드포인트 (prefix: /api/etl2/batch — etl_server2 라우터에 포함)
+8. API 엔드포인트 (prefix: /api/etl/batch — etl_server 라우터에 포함)
 8.1 폴더 연결
 메서드	경로	용도
 GET	/folder-connections	목록 (마스터 + 프로토콜 상세 JOIN)
@@ -434,7 +434,7 @@ POST	/jobs/{id}/toggle	활성/비활성 토글 + 스케줄러 동기화
 GET	/jobs/{id}/history	실행 이력 목록
 GET	/jobs/{id}/history/{run_id}	실행 이력 상세 (파일별 결과)
 8.3 패턴 추출 API
-GET /api/etl2/batch/folder-connections/{id}/patterns
+GET /api/etl/batch/folder-connections/{id}/patterns
 
 응답:
 {
@@ -463,13 +463,13 @@ GET /api/etl2/batch/folder-connections/{id}/patterns
 4. 패턴별 파일 수, 최신/최고 타임스탬프, 사용 확장자 반환
 9. 백엔드 모듈 구조
 
-**위치**: `Backend/etl_server2` (기존 ETL2 서버에 통합).  
+**위치**: `Backend/etl_server` (폴더·배치는 `*_file.py`·`router_file.py`에 통합).  
 **규칙**: 본 설계서로 신규 제작되는 파일은 확장자 앞에 `file`을 붙여 `*_file.py` 형태로 작성한다.
 
-Backend/etl_server2/
+Backend/etl_server/
 ├── (기존) __init__.py, router.py, service.py, load_service.py, db_load_service.py, ...
 └── [본 설계서로 신규 제작 — *_file.py]
-    ├── router_file.py            # /api/etl2/batch 하위 엔드포인트 (폴더 연결·배치·이력)
+    ├── router_file.py            # /api/etl/batch 하위 엔드포인트 (폴더 연결·배치·이력)
     ├── service_file.py           # 배치 메타 CRUD, 어댑터 팩토리, 패턴 추출
     ├── folder_adapter_file.py    # FolderAdapter ABC, SFTPAdapter, S3Adapter
     ├── parser_file.py            # 파일명 파싱(_ib_+14자리), 타임스탬프 추출·검증, pandas 읽기
@@ -477,7 +477,7 @@ Backend/etl_server2/
     ├── load_service_file.py      # 배치용: 테이블 존재 확인, CREATE, upsert, 타입 캐스팅
     └── scheduler_file.py        # APScheduler 초기화, active 배치 로드, add/remove/reschedule
 
-기존 `router.py`에서 `router_file.router`를 `prefix="/batch"` 등으로 include하여 `/api/etl2/batch/*` 로 노출.
+기존 `router.py`에서 `router_file.router`를 `prefix="/batch"` 등으로 include하여 `/api/etl/batch/*` 로 노출.
 
 9.1 모듈 의존
 main.py (startup)
@@ -498,7 +498,7 @@ batch_executor_file.py
   ├── folder_adapter_file.py         (다운로드)
   ├── parser_file.py                 (파싱, pandas 읽기)
   └── load_service_file.py           (CREATE, upsert)
-        └── etl_server2.service.get_target_db_connection  (저장 DB 연결 재사용)
+        └── etl_server.service.get_target_db_connection  (저장 DB 연결 재사용)
 10. 실행 흐름 상세 (batch_executor_file.run_batch_job)
 Copydef run_batch_job(batch_job_id: int):
     """스케줄러 또는 즉시 실행에서 호출"""
@@ -615,11 +615,11 @@ Copydef run_batch_job(batch_job_id: int):
 Copy
 11. 프론트엔드 구조
 
-**위치**: `Frontend/react-app/src/packages/etl2/components`  
+**위치**: `Frontend/react-app/src/packages/etl/components`  
 **규칙**: 본 설계서로 신규 제작되는 컴포넌트·파일은 카멜표기법을 따르며, 배치(폴더) 기능용임을 나타내기 위해 이름에 `File`을 붙인다 (예: FolderConnectionFormFile.jsx).
 
-11.1 패키지 (ETL2 기존 구조 내 추가)
-packages/etl2/
+11.1 패키지 (`packages/etl` 내 배치·폴더 컴포넌트)
+packages/etl/
 ├── (기존) ETLPage.jsx, index.jsx, etl.css, components/DbConnectionForm.jsx, StorageConnectionForm.jsx, ...
 └── components/
     └── [본 설계서로 신규 제작 — *File.jsx]
@@ -631,9 +631,9 @@ packages/etl2/
         ├── BatchHistoryPanelFile.jsx     # 배치별 실행 이력 목록
         └── BatchHistoryDetailFile.jsx    # 파일별 처리 결과 상세
 
-11.2 ETL2 페이지 내 배치(폴더) 진입
-- ETL2 페이지의 상단 탭 순서: **파일 업로드 | DB 연결 | 폴더 등록 | 저장 DB 등록 | ETL 이력**
-- **폴더 등록** 탭을 선택하면 폴더 연결·배치 관리·실행 이력 UI가 표시된다 (별도 페이지/라우트가 아닌 동일 ETL2 페이지 내 탭).
+11.2 ETL 페이지 내 배치(폴더) 진입
+- ETL 페이지의 상단 탭 순서: **파일 업로드 | DB 연결 | 폴더 등록 | 저장 DB 등록 | ETL 이력**
+- **폴더 등록** 탭을 선택하면 폴더 연결·배치 관리·실행 이력 UI가 표시된다 (별도 페이지/라우트가 아닌 동일 ETL 페이지 내 탭).
 - 기존 SourceTypeSelector에 "폴더 등록" 버튼(탭)을 DB 연결과 저장 DB 등록 사이에 추가하고, 해당 탭에서 위 *File.jsx 컴포넌트들을 사용한다.
 
 11.3 주요 UI 흐름
@@ -667,7 +667,7 @@ packages/etl2/
   → 이력 목록: 시작 | 종료 | 상태 | 파일수 | insert | update | 에러
   → 이력 클릭 → 파일별 상세 (파일명 | TS | 상태 | 행수 | 경고)
 
-11.4 API 클라이언트 (shared/api/client.js 추가 — base path /api/etl2, batch 하위는 /api/etl2/batch)
+11.4 API 클라이언트 (shared/api/client.js 추가 — base path /api/etl, batch 하위는 /api/etl/batch)
 batchListFolderConnections()
 batchCreateFolderConnection(body)
 batchUpdateFolderConnection(id, body)
@@ -688,7 +688,7 @@ batchGetJobHistoryDetail(id, runId)
 
 | Phase | 범위 | 주요 산출물 |
 |-------|------|-------------|
-| 0 | 백엔드 router_file 등록 + 프론트 탭·라우팅 | etl_server2/router_file.py (include), ETLPage 탭에 'folder' 추가, SourceTypeSelector에 "폴더 등록" |
+| 0 | 백엔드 router_file 등록 + 프론트 탭·라우팅 | etl_server/router_file.py (include), ETLPage 탭에 'folder' 추가, SourceTypeSelector에 "폴더 등록" |
 | 1 | 폴더 연결 CRUD + 연결 테스트 (SFTP/S3) + 프론트 폼/목록 | folder_adapter_file.py, service_file.py, FolderConnectionFormFile.jsx, FolderConnectionListFile.jsx |
 | 2 | 파일 목록 + 패턴 추출 API + 패턴 선택 모달 | parser_file.py (파싱·_ib_ 패턴), PatternSelectModalFile.jsx |
 | 3 | 배치 CRUD + 스케줄러 초기화/등록/제거 + 프론트 배치 폼/목록 | scheduler_file.py, BatchJobFormFile.jsx, BatchJobListFile.jsx |

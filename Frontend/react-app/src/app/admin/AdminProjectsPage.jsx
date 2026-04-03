@@ -170,7 +170,7 @@ export default function AdminProjectsPage() {
                 maxLength={500}
               />
             </label>
-            <button type="submit" className="ap__btn ap__btn--primary">
+            <button type="submit" className="ibank-btn-toolbar">
               생성
             </button>
           </form>
@@ -217,7 +217,7 @@ export default function AdminProjectsPage() {
                         </Link>
                         <button
                           type="button"
-                          className="ap__btn"
+                          className="ibank-btn-table"
                           disabled={busyId != null}
                           onClick={() => openEdit(row)}
                         >
@@ -226,7 +226,7 @@ export default function AdminProjectsPage() {
                         {isOrgAdmin ? (
                           <button
                             type="button"
-                            className="ap__btn ap__btn--danger"
+                            className="ibank-btn-table ibank-btn-table--danger"
                             disabled={busyId != null || !active}
                             onClick={() => handleDeactivate(pid)}
                           >
@@ -281,17 +281,17 @@ export default function AdminProjectsPage() {
                   </select>
                 </label>
               ) : null}
-              <div className="ap__row">
-                <button type="submit" className="ap__btn ap__btn--primary" disabled={busyId != null}>
-                  저장
-                </button>
+              <div className="ap__row ap__modal-actions">
                 <button
                   type="button"
-                  className="ap__btn"
+                  className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                   onClick={() => setEdit(null)}
                   disabled={busyId != null}
                 >
                   취소
+                </button>
+                <button type="submit" className="ibank-btn-toolbar" disabled={busyId != null}>
+                  저장
                 </button>
               </div>
             </form>

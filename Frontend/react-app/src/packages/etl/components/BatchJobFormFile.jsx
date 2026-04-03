@@ -360,7 +360,7 @@ function BatchJobFormFile({ onSuccess, refreshKey = 0 }) {
             ) : availableColumns.length > 0 ? (
               <>
                 {(index_definitions || []).map((def, idx) => (
-                  <div key={idx} className="etl-db-form__index-row" style={{ marginBottom: '12px', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <div key={idx} className="etl-db-form__index-row" style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--color-border-light)', borderRadius: '8px' }}>
                     <div style={{ marginBottom: '8px' }}>
                       <span className="etl-db-form__muted" style={{ marginRight: '8px' }}>컬럼 선택:</span>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>

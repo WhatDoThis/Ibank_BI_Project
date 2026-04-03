@@ -579,7 +579,7 @@ def _apply_datetime_transform(
         source_tz_str = (config.get("source_timezone") or "").strip()
         target_tz_str = (config.get("target_timezone") or "").strip()
         if not source_tz_str or not target_tz_str:
-            logger.warning("timezone_convert: source_timezone 또는 target_timezone 미지정, 원본 유지")
+            logger.warning("etl_transform timezone_convert missing_tz keep_source")
             return series
         if source_tz_str == target_tz_str:
             return series
@@ -587,7 +587,7 @@ def _apply_datetime_transform(
             src_tz = _get_tz(source_tz_str)
             tgt_tz = _get_tz(target_tz_str)
         except Exception as e:
-            logger.warning("timezone_convert: 시간대 파싱 실패 (%s → %s): %s", source_tz_str, target_tz_str, e)
+            logger.warning("etl_transform timezone_parse_fail %s_to_%s: %s", source_tz_str, target_tz_str, e)
             return series
         # 텍스트 날짜 파싱 성공률 검증: 50% 미만이면 원본 유지
         non_null_count = int(series.notna().sum())
@@ -595,8 +595,7 @@ def _apply_datetime_transform(
             parsed_count = int(dt.notna().sum())
             if parsed_count < non_null_count * 0.5:
                 logger.warning(
-                    "timezone_convert: 날짜 파싱 성공률 %.0f%% (%s/%s). "
-                    "텍스트 형식이 파싱되지 않을 수 있습니다. 원본 유지.",
+                    "etl_transform timezone_parse_low_rate pct=%.0f parsed=%s total=%s keep_source",
                     (parsed_count / non_null_count) * 100, parsed_count, non_null_count,
                 )
                 return series
@@ -611,7 +610,7 @@ def _apply_datetime_transform(
             converted = localized.dt.tz_convert(tgt_tz)
             return converted.dt.tz_localize(None)
         except Exception as e:
-            logger.warning("timezone_convert: 변환 실패 (%s → %s): %s. 원본 유지.", source_tz_str, target_tz_str, e)
+            logger.warning("etl_transform timezone_convert_fail %s_to_%s keep_source: %s", source_tz_str, target_tz_str, e)
             return series
     return series
 
@@ -843,7 +842,7 @@ def apply_rules(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> pd.DataFrame:
                 out = _ROW_TRANSFORMERS[category](out, config)  # out 교체·인덱스 리셋됨
             except Exception as exc:
                 logger.warning(
-                    "Transform rule %s (row.%s) 실패: %s",
+                    "etl_transform rule_fail rule_id=%s row_op=%s: %s",
                     r.get("rule_id"), config.get("operation", "default"), exc,
                 )
             continue
@@ -852,7 +851,7 @@ def apply_rules(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> pd.DataFrame:
         if not src or src not in out.columns:
             if src:
                 logger.warning(
-                    "Transform rule %s: source_column '%s' not found in DataFrame columns %s. Skipping.",
+                    "etl_transform rule_skip_missing_source rule_id=%s source=%s cols=%s",
                     r.get("rule_id"), src, list(out.columns),
                 )
             continue
@@ -866,13 +865,13 @@ def apply_rules(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> pd.DataFrame:
                 result = transformer(out[src], config)
             if category == "datetime" and result is not None and result.equals(out[src]):
                 logger.warning(
-                    "Transform rule %s (%s.%s → %s): 변환 전후 데이터 동일. operation='%s'",
-                    r.get("rule_id"), category, config.get("operation", "?"), tgt, config.get("operation", "?"),
+                    "etl_transform rule_noop rule_id=%s cat=%s op=%s target=%s",
+                    r.get("rule_id"), category, config.get("operation", "?"), tgt,
                 )
             out[tgt] = result
         except Exception as exc:
             logger.warning(
-                "Transform rule %s (%s.%s → %s) 실패: %s",
+                "etl_transform rule_fail rule_id=%s cat=%s op=%s target=%s: %s",
                 r.get("rule_id"), category, config.get("operation", "default"), tgt, exc,
             )
     return out

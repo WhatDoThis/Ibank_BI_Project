@@ -6,7 +6,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 라벨 열은 etl_tables.table_label(ETL 목록과 동일)
+ * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 상태 뱃지·삭제 버튼·새로고침은 ETL 목록/배치 목록과 동일 클래스(etl-db-form__status-badge, etl-db-form__btn--sm, etl-table-list__refresh).
  *
  * [Dependencies]
  * =========
@@ -24,6 +24,27 @@ const STATUS_OPTIONS = [
   { value: 'running', label: '실행 중' },
   { value: 'pending', label: '대기 중' }
 ];
+
+// 0. 상태 열: ETLTableList·BatchJobListFile와 동일 뱃지
+function jobStatusLabel(status) {
+  const s = (status || '').toLowerCase();
+  if (s === 'completed') return '완료';
+  if (s === 'failed') return '실패';
+  if (s === 'cancelled') return '취소';
+  if (s === 'running') return '실행 중';
+  if (s === 'pending') return '대기 중';
+  return status || '—';
+}
+
+function jobStatusBadgeClass(status) {
+  const s = (status || '').toLowerCase();
+  if (s === 'completed') return 'etl-db-form__status-badge etl-db-form__status--success';
+  if (s === 'failed') return 'etl-db-form__status-badge etl-db-form__status--error';
+  if (s === 'cancelled') return 'etl-db-form__status-badge etl-db-form__status--idle';
+  if (s === 'running') return 'etl-db-form__status-badge etl-db-form__status--running';
+  if (s === 'pending') return 'etl-db-form__status-badge etl-db-form__status--partial';
+  return null;
+}
 
 // 1.
 function JobHistoryPanel() {
@@ -72,18 +93,18 @@ function JobHistoryPanel() {
 
   return (
     <div className="etl-history">
-      <div className="etl-history__bar">
-        <div className="etl-history__filters">
-          {STATUS_OPTIONS.map((o) => (
-            <label key={o.value} className="etl-history__check">
-              <input type="checkbox" checked={!!checks[o.value]} onChange={() => toggleCheck(o.value)} />
-              <span>{o.label}</span>
-            </label>
-          ))}
-        </div>
+      <div className="etl-history__filters">
+        {STATUS_OPTIONS.map((o) => (
+          <label key={o.value} className="etl-history__check">
+            <input type="checkbox" checked={!!checks[o.value]} onChange={() => toggleCheck(o.value)} />
+            <span>{o.label}</span>
+          </label>
+        ))}
+      </div>
+      <div className="etl-table-list__toolbar">
         <button
           type="button"
-          className="etl-history__refresh"
+          className="etl-table-list__refresh"
           onClick={() => load()}
           disabled={loading}
           aria-label="이력 새로고침"
@@ -124,7 +145,13 @@ function JobHistoryPanel() {
                   </td>
                   <td className="etl-history__cell-creator" title={j.create_user_label || ''}>{j.create_user_label || '—'}</td>
                   <td className="etl-history__cell--overflow" title={j.target_table || ''}>{j.target_table || '—'}</td>
-                  <td>{j.status || '—'}</td>
+                  <td>
+                    {jobStatusBadgeClass(j.status) ? (
+                      <span className={jobStatusBadgeClass(j.status)}>{jobStatusLabel(j.status)}</span>
+                    ) : (
+                      jobStatusLabel(j.status)
+                    )}
+                  </td>
                   <td>{j.started_at ? new Date(j.started_at).toLocaleString('ko-KR', { hour12: false }) : '—'}</td>
                   <td>{j.finished_at ? new Date(j.finished_at).toLocaleString('ko-KR', { hour12: false }) : '—'}</td>
                   <td>{j.rows_processed != null ? j.rows_processed : '—'}</td>
@@ -134,7 +161,7 @@ function JobHistoryPanel() {
                   <td>
                     <button
                       type="button"
-                      className="etl-history__del"
+                      className="etl-db-form__btn etl-db-form__btn--danger etl-db-form__btn--sm"
                       onClick={() => handleDelete(j.job_id)}
                       disabled={deletingId != null}
                     >

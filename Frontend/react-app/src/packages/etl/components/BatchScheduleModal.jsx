@@ -203,11 +203,11 @@ function BatchScheduleModal({ open, onClose, etlTable, onSuccess }) {
           ) : (
             <div className="etl-db-form__connect-form">
               {existingJob && (
-                <div style={{ marginBottom: '12px', padding: '10px', background: '#f0f9ff', borderRadius: '8px' }}>
+                <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--primary-light)', borderRadius: '8px', border: '1px solid rgba(0, 112, 74, 0.2)' }}>
                   <p>
                     <strong>현재 배치:</strong> {existingJob.job_name}
                     {' — '}
-                    <span style={{ color: existingJob.is_active ? '#16a34a' : '#9ca3af' }}>
+                    <span style={{ color: existingJob.is_active ? 'var(--color-action-primary)' : 'var(--color-text-muted)' }}>
                       {existingJob.is_active ? '활성' : '비활성'}
                     </span>
                     {existingJob.last_run_status && ` (최근: ${existingJob.last_run_status})`}

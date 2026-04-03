@@ -167,20 +167,20 @@ Frontend/react-app/
 
 ### 4.4 etl (ETL, 단일)
 
-- **ETLPage.jsx**: 탭(파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력). SourceTypeSelector → FileUploadForm, DbConnectionForm, 폴더 연결·배치 Job, StorageConnectionForm, JobHistoryPanel. ETLTableList(etlListTables+배치 레지스트리)·배치설정(status=done 시 활성). App.jsx에서 `/etl` 라우트. API prefix **/api/etl**, **/api/etl/batch/**.
+- **ETLPage.jsx**: 탭(파일 업로드 | DB 연결 | 폴더 | 저장 DB 등록 | ETL 이력). SourceTypeSelector → FileUploadForm, DbConnectionForm, 폴더 연결·배치 Job, StorageConnectionForm, JobHistoryPanel. ETLTableList(`etl2ListTables`+배치 레지스트리)·배치설정(status=done 시 활성). App.jsx에서 `/etl` 라우트. API prefix **/api/etl**, **/api/etl/batch/**.
 - **SourceTypeSelector.jsx**: 소스 유형(파일 / PostgreSQL·MySQL·Oracle) 선택.
 - **FileUploadForm.jsx**: 파일 업로드(CSV/Excel/Parquet), etlUploadFile(multipart). target_table·description·created_by. 업로드 파일은 서버에서 **3일** 초과 시 자동 삭제되며, 3일 후 동일 ETL 재실행 시 파일 없음으로 실패할 수 있음.
 - **DbConnectionForm.jsx**: 연결 등록(이름·host·port·database·schema·username·password). **연결 테스트(etlTestConnection) 통과 후에만** 등록 가능. Oracle 선택 시 **서비스명(Service Name)** 라벨·안내(JDBC @호스트:1521/서비스명, SID 미지원)·placeholder 예: FREEPDB1. **등록된 연결** 목록·**ETL 테이블 등록** 연결 선택 옵션에 **호스트:포트/DB명** 형식 표시. 소스 테이블 목록(etlListConnectionTables)·타겟 테이블·설명·sync_mode(전체/증분)·batch_size·batch_interval_seconds·etlCreateTable. Oracle 소스 테이블 선택 시 **OWNER.TABLE_NAME**으로 저장(드롭다운 value·label). 2열 그리드·카드 섹션 UI. **DB 연결 실패 시**: 실제 연결은 브라우저가 아닌 Backend가 수행하므로, 외부 DB 방화벽에 **Backend가 실행 중인 호스트 IP**가 허용돼야 함.
-- **ETLTableList.jsx**: etlListTables 목록. **목록 열**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(batch_size/batch_interval_seconds, "5,000행 / 1초" 등)·**동기화**(전체·증분·**PK 차이(diff)** 등)·상태(draft/error/done)·동작(미리보기·실행·데이터 추가·PK 설정·삭제). **도움말(?)**: 상태별 버튼 설명·배치·실행 시점 안내.
+- **ETLTableList.jsx**: `etl2ListTables` 목록. **목록 열**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(batch_size/batch_interval_seconds, "5,000행 / 1초" 등)·**동기화**(전체·증분·**PK 차이(diff)** 등)·상태(draft/error/done)·동작(미리보기·실행·데이터 추가·PK 설정·삭제). **도움말(?)**: 상태별 버튼 설명·배치·실행 시점 안내.
 - **상태별 버튼 동작**:
   - **draft/error**(타겟 테이블 없거나 불확실): **미리보기** — 등록된 파일 읽어 10행+컬럼 표시. **실행** — 파일로 메인 DB DROP→CREATE→INSERT(전체 교체). **데이터 추가** — 타겟 테이블 없으면 실패(이미 있는 테이블에 새 파일 업서트용). **삭제** — 메타+파일 삭제, DROP TABLE IF EXISTS.
   - **done**(타겟 테이블 있음): **미리보기** — 동일(파일 10행). **실행** — 파일로 테이블 **전체 교체**(실행 전 타겟 존재 시 컨펌). **데이터 추가** — 새 파일을 같은 타겟 테이블에 PK 기준 **업서트**(분할 적재용). **삭제** — 메타+파일 삭제, 테이블 DROP.
 - **배치·실행 시점**(도움말 및 UI 안내): **배치 크기·배치 간 대기**는 **한 번 실행할 때** 소스에서 몇 행씩 가져오는지·배치마다 쉬는 초. **"매일 몇 시 자동 실행"**은 **미구현**. 실행은 **사용자가 "실행" 버튼을 눌렀을 때만** 대기열 등록 → 워커가 처리. draft/done 여부와 관계없이 자동 실행 없음.
-- **JobHistoryPanel.jsx**: etlListJobs·etlGetJob 폴링. Job 목록·실행 이력·상태(pending→running→completed/failed/cancelled). 동시 실행 2건 제한.
+- **JobHistoryPanel.jsx**: `etl2ListJobs`·`etl2GetJob` 폴링. Job 목록·실행 이력·상태(pending→running→completed/failed/cancelled). 백엔드 워커 **동시 최대 3건**(`queue_worker.MAX_CONCURRENT`).
 - **AddFileModal.jsx**: 단일 파일 추가 적재. **ZIP 다중 파일**: etlAddFilesZipToTable. 서버가 ZIP 압축 해제 후 지원 형식(.csv, .xlsx, .xls, .parquet)·용량 한도 이하 파일만 순서대로 Job 등록. **건너뛴 파일**이 있으면 API 응답 skipped_files(파일명·사유: file_too_large, unsupported_format, schema_or_pk_failed 등)로 전달되며, UI에서 "다음 파일은 건너뛰었습니다" 안내+파일명·사유 목록 표시.
 - **PreviewModal.jsx**: 미리보기 10행. **PkColumnsModal.jsx**: PK 컬럼 체크박스.
 - **etl.css**: ETL 목록·연결·배치·동기화 열 스타일.
-- **API**(`packages/etl/api/etlClient.js`): etl2ListTables, etl2UploadFile, batchListJobs, batchCreateJobFromEtlTable 등(함수명은 `etl2*`·`batch*` 접두). 라우트 **/etl**, API prefix **/api/etl**, **/api/etl/batch/**.
+- **API**(`packages/etl/api/etlClient.js`): `etl2ListTables`, `etl2UploadFile`, `batchListJobs`, `batchCreateJobFromEtlTable` 등(함수명은 역사적 `etl2*`·`batch*` 접두, HTTP 경로는 **/api/etl**, **/api/etl/batch/**). 패키지 경로는 **`packages/etl`** 단일.
 
 ### 4.5 shared (최소 공용)
 

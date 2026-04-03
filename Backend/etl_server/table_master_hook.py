@@ -100,22 +100,10 @@ def upsert_table_master_after_load(
                 (dt, tn, create_user_id, tl, td),
             )
             conn.commit()
-            logger.info(
-                "table_master upsert ok db_type=%s table_name=%s create_user_id=%s table_label=%s",
-                dt,
-                tn,
-                create_user_id,
-                tl,
-            )
         finally:
             cur.close()
     except Exception as e:
-        logger.warning(
-            "table_master upsert failed (load success kept) db_type=%s table_name=%s: %s",
-            dt,
-            tn,
-            e,
-        )
+        logger.warning("table_master_upsert_fail db_type=%s table=%s (load_kept): %s", dt, tn, e)
         if conn:
             try:
                 conn.rollback()

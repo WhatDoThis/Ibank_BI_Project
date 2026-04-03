@@ -160,7 +160,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
         <div
           style={{
             marginBottom: 8,
-            color: message.includes('실패') ? '#c0392b' : '#27ae60'
+            color: message.includes('실패') ? 'var(--color-danger)' : 'var(--color-action-primary)'
           }}
           role="status"
         >
@@ -171,7 +171,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
       {files.length === 0 ? (
         <div className="etl-db-form__muted" style={{ padding: '12px 0' }}>
           스킵/에러 파일이 없습니다.
-          <p style={{ margin: '8px 0 0 0', fontSize: '0.85em', color: '#64748b' }}>
+          <p style={{ margin: '8px 0 0 0', fontSize: '0.85em', color: 'var(--color-text-muted)' }}>
             이 목록은 <strong>실행 중에 파일 단위로 스킵·에러된 파일</strong>만 표시합니다. 실행 자체가 &quot;처리할 대기 파일 0건&quot;으로 스킵된 경우에는 여기에 나오지 않습니다.
           </p>
         </div>
@@ -199,7 +199,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
               {files.map((f) => (
                 <tr
                   key={f.filename}
-                  style={{ background: selected.has(f.filename) ? '#fef3e2' : undefined }}
+                  style={{ background: selected.has(f.filename) ? 'var(--primary-light)' : undefined }}
                 >
                   <td>
                     <input
@@ -214,7 +214,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
                   <td>
                     <span
                       style={{
-                        color: f.status === 'error' ? '#c0392b' : '#e67e22',
+                        color: f.status === 'error' ? 'var(--color-danger)' : '#b45309',
                         fontWeight: 600
                       }}
                     >
@@ -260,7 +260,7 @@ export default function SkippedFilesPanelFile({ batchJobId, onClose }) {
                           <td className="etl-history__cell--overflow" title={f.filename}>{f.filename}</td>
                           <td>{f.timestamp || '—'}</td>
                           <td>
-                            <span style={{ color: f.status === 'error' ? '#b91c1c' : '#e67e22', fontWeight: 600 }}>
+                            <span style={{ color: f.status === 'error' ? 'var(--color-danger)' : '#b45309', fontWeight: 600 }}>
                               {f.status === 'error' ? '에러' : '스킵'}
                             </span>
                           </td>

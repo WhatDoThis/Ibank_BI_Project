@@ -1,7 +1,7 @@
 
 # 권한·역할 아키텍처 (최종 v3)
 
-**용도**: 조직 역할(`user_info.user_dvsn`)·ETL 인프라 자격(`user_info.etl_yn`)·프로젝트 역할(`pmssn_master`)을 한 문서에서 정의한다. 세부 고객 여정은 **`06_CUSTOMER_JOURNEY.md`**, DB는 **`04_DB_ARCHITECTURE.md`**, 구현 가이드는 **`docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`** 를 본다.
+**용도**: 조직 역할(`user_info.user_dvsn`)·ETL 관리자 자격(`user_info.etl_yn`)·프로젝트 역할(`pmssn_master`)을 한 문서에서 정의한다. 세부 고객 여정은 **`06_CUSTOMER_JOURNEY.md`**, DB는 **`04_DB_ARCHITECTURE.md`**, 구현 가이드는 **`docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`** 를 본다.
 
 ---
 
@@ -68,7 +68,7 @@ HTTP 요청 도착
 
 **참고**
 
-- **ETL 인프라**(`/api/etl/*` 등)는 별도 `require_etl_infrastructure` — 위 흐름과 다르게 `sa_dev` 또는 `etl_yn=Y`(및 레거시 `user_dvsn=etl_manager` 예외)만 본다.
+- **ETL 관리 API**(`/api/etl/*` 등)는 별도 `require_etl_infrastructure` — 위 흐름과 다르게 `sa_dev` 또는 `etl_yn=Y`(및 레거시 `user_dvsn=etl_manager` 예외)만 본다.
 - DB `user_dvsn`이 `Backend.core.user_dvsn_codes.ALLOWED_USER_DVSN`(`sa_dev`·`sa`·`a`·`o`·`u`)에 없으면 `canon_user_dvsn`이 `""`가 되어 Fast Path ①을 통과하지 못한다. 레거시 문자열이 남아 있으면 동일하게 실패할 수 있으므로 저장 값은 다섯 코드로 통일한다.
 
 ### 엣지 케이스 (`require_permission`)
@@ -95,15 +95,15 @@ HTTP 요청 도착
 | `o` | O | Operator(프로젝트 운영자) |
 | `u` | U | User(일반 사용자) |
 
-`user_info.user_dvsn` 및 `canon_user_dvsn` 기준 **유효 값은 위 다섯 가지뿐**이다. 초대 가입 시 허용되는 저장 값은 `sa`·`a`·`o`·`u`(`Backend.auth_server.service._SIGNUP_DVSN_ALLOWED`). 부서 생성 최초 가입은 `sa`. ETL 전담 조직 역할값(`etl_manager`)은 사용하지 않으며, ETL 인프라 접근은 `etl_yn`·`require_etl_infrastructure`로 판별한다.
+`user_info.user_dvsn` 및 `canon_user_dvsn` 기준 **유효 값은 위 다섯 가지뿐**이다. 초대 가입 시 허용되는 저장 값은 `sa`·`a`·`o`·`u`(`Backend.auth_server.service._SIGNUP_DVSN_ALLOWED`). 부서 생성 최초 가입은 `sa`. ETL 전담 조직 역할값(`etl_manager`)은 사용하지 않으며, ETL 관리자 접근은 `etl_yn`·`require_etl_infrastructure`로 판별한다.
 
-### ETL 인프라 자격 `etl_yn`
+### ETL 관리자 자격 `etl_yn`
 
 | 컬럼 | 값 | 설명 |
 |------|-----|------|
 | `user_info.etl_yn` | `Y` / `N` (기본 `N`) | 전사 ETL API(`/api/etl/*`) 접근 자격. **조직 역할과 독립** (`a`+`Y`, `o`+`Y` 등 조합 가능). |
 
-**ETL 인프라 접근(백엔드 `require_etl_infrastructure`)**: `user_dvsn = sa_dev` **또는** `etl_yn = 'Y'`. 프로젝트 선택·`pmssn` 불필요.
+**ETL 관리자 접근(백엔드 `require_etl_infrastructure`)**: `user_dvsn = sa_dev` **또는** `etl_yn = 'Y'`. 프로젝트 선택·`pmssn` 불필요.
 
 **ETL 자격 부여**: `PATCH /api/admin/users/{id}/etl-access`(요청 본문 `etl_yn`), 호출 가능 조직 역할은 **`sa`·`sa_dev`**(`require_super_admin`).
 
@@ -179,7 +179,7 @@ SA_D = SA_DEV | SA = Super Admin | A = Admin | O = Operator | U = User
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| ETL 인프라 API 전반 (`/api/etl/*` 등) | ✓ | ○ | ○ | ○ | ○ |
+| ETL 관리 API 전반 (`/api/etl/*` 등) | ✓ | ○ | ○ | ○ | ○ |
 
 ※ **○** = `user_dvsn = sa_dev` 이거나 `etl_yn = 'Y'` 인 경우. 그 외에는 ETL API 불가(프로젝트 `pmssn`의 `etl` 권한과 무관).
 

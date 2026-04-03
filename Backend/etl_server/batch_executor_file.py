@@ -56,10 +56,7 @@ def _connect_with_retry(folder_connection_id: int, retries: int = 3):
             if attempt == retries - 1:
                 break
             wait = 2 ** (attempt + 1)
-            logger.warning(
-                "폴더 연결 실패 (시도 %d/%d), %d초 후 재시도: %s",
-                attempt + 1, retries, wait, e,
-            )
+            logger.warning("file_batch folder_connect_retry attempt=%d/%d wait_s=%d err=%s", attempt + 1, retries, wait, e)
             time.sleep(wait)
     raise last_exc
 
@@ -82,7 +79,7 @@ def _wait_for_stable_size(adapter, filename: str, checks: int = 3, interval: int
         prev_size = curr_size
         if i < checks - 1:
             time.sleep(interval)
-    logger.warning("파일 크기 안정화 대기 초과: %s", filename)
+    logger.warning("file_batch stable_size_timeout file=%s", filename)
 
 
 def run_batch_job(batch_job_id: int) -> None:
@@ -102,13 +99,12 @@ def run_batch_job(batch_job_id: int) -> None:
 
     job = batch_service.get_batch_job(batch_job_id)
     if not job:
-        logger.warning("run_batch_job: job_id=%s not found", batch_job_id)
+        logger.warning("file_batch_job missing job_id=%s", batch_job_id)
         return
     if not job.get("is_active"):
-        logger.debug("run_batch_job: job_id=%s is_active=False, skip", batch_job_id)
         return
     if (job.get("last_run_status") or "").strip().lower() == "running":
-        logger.warning("run_batch_job: batch %s (job_type=file) already running (last_run_status=running), skip", batch_job_id)
+        logger.warning("file_batch_job skip already_running job_id=%s", batch_job_id)
         return
 
     run_id = None
@@ -132,7 +128,6 @@ def run_batch_job(batch_job_id: int) -> None:
         )
 
         if not pending:
-            logger.debug("run_batch_job job_id=%s: no pending files", batch_job_id)
             batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
             try:
                 from Backend.etl_server import scheduler_file as sched_mod
@@ -146,7 +141,6 @@ def run_batch_job(batch_job_id: int) -> None:
         if skipped_filenames:
             pending = [(f, ts) for f, ts in pending if f not in skipped_filenames]
         if not pending:
-            logger.debug("run_batch_job job_id=%s: all pending filtered out (skipped/error or ts<=last_processed_ts)", batch_job_id)
             batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
             try:
                 from Backend.etl_server import scheduler_file as sched_mod
@@ -157,7 +151,7 @@ def run_batch_job(batch_job_id: int) -> None:
 
         # 중복 실행 방지: FOR UPDATE로 선점 후 running 갱신. 스케줄러·run_now 동시 진입 시 한 쪽만 진행.
         if not batch_service.try_claim_batch_job_for_run(batch_job_id, sys_conn):
-            logger.warning("run_batch_job: batch %s already running (claimed by another), skip", batch_job_id)
+            logger.warning("file_batch_job skip claimed_by_other job_id=%s", batch_job_id)
             return
         run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
 
@@ -205,7 +199,7 @@ def run_batch_job(batch_job_id: int) -> None:
                 )
                 run_completed_ok = True
                 batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
-                logger.info("run_batch_job run_id=%s cancelled by user (이미 처리된 파일은 커밋 유지)", run_id)
+                logger.warning("file_batch_job cancelled run_id=%s files_done=%s", run_id, len(file_results))
                 return
 
             local_path = None
@@ -268,10 +262,7 @@ def run_batch_job(batch_job_id: int) -> None:
                         if rules:
                             df = transform_engine.apply_rules(df, rules)
                     except Exception as e:
-                        logger.warning(
-                            "run_batch_job job_id=%s: 변환 룰 적용 실패 (skip): %s",
-                            batch_job_id, e,
-                        )
+                        logger.warning("file_batch_job transform_rules_skip job_id=%s: %s", batch_job_id, e)
 
                 try:
                     _stor_id = job.get("storage_connection_id")
@@ -306,7 +297,7 @@ def run_batch_job(batch_job_id: int) -> None:
                 try:
                     target_conn.commit()
                 except Exception as commit_err:
-                    logger.exception("run_batch_job commit failed for %s: %s", filename, commit_err)
+                    logger.exception("file_batch_job commit_fail file=%s", filename)
                     if target_conn:
                         try:
                             target_conn.rollback()
@@ -336,7 +327,7 @@ def run_batch_job(batch_job_id: int) -> None:
                     try:
                         batch_service.check_consecutive_failures(batch_job_id, threshold=5, conn=sys_conn)
                     except Exception:
-                        logger.exception("check_consecutive_failures 실패")
+                        logger.exception("file_batch_job check_consecutive_failures")
                     try:
                         from Backend.etl_server import scheduler_file as sched_mod
                         sched_mod.refresh_interval_after_run(batch_job_id)
@@ -360,7 +351,7 @@ def run_batch_job(batch_job_id: int) -> None:
                 batch_service.update_last_processed_ts(batch_job_id, ts, conn=sys_conn)
 
             except Exception as e:
-                logger.exception("run_batch_job file %s: %s", filename, e)
+                logger.exception("file_batch_job file_fail name=%s", filename)
                 if target_conn:
                     try:
                         target_conn.rollback()
@@ -390,7 +381,7 @@ def run_batch_job(batch_job_id: int) -> None:
                 try:
                     batch_service.check_consecutive_failures(batch_job_id, threshold=5, conn=sys_conn)
                 except Exception:
-                    logger.exception("check_consecutive_failures 실패")
+                    logger.exception("file_batch_job check_consecutive_failures")
                 try:
                     from Backend.etl_server import scheduler_file as sched_mod
                     sched_mod.refresh_interval_after_run(batch_job_id)
@@ -402,7 +393,7 @@ def run_batch_job(batch_job_id: int) -> None:
                     try:
                         os.remove(local_path)
                     except OSError as oe:
-                        logger.warning("run_batch_job temp file remove %s: %s", local_path, oe)
+                        logger.warning("file_batch_job temp_remove_fail path=%s: %s", local_path, oe)
             batch_service.update_run_progress(
                 run_id,
                 files_processed=len(file_results),
@@ -433,6 +424,10 @@ def run_batch_job(batch_job_id: int) -> None:
         run_completed_ok = True  # run finished success/partial_error; do not overwrite to "error" if update_job_status below fails
         job_status = "success" if run_status == "success" else run_status
         batch_service.update_job_status(batch_job_id, job_status, conn=sys_conn)
+        logger.info(
+            "file_batch_job done job_id=%s status=%s files=%s ins=%s upd=%s",
+            batch_job_id, job_status, len(file_results), total_ins, total_upd,
+        )
         try:
             from Backend.etl_server import scheduler_file as sched_mod
             sched_mod.refresh_interval_after_run(batch_job_id)
@@ -440,7 +435,7 @@ def run_batch_job(batch_job_id: int) -> None:
             pass
 
     except Exception as e:
-        logger.exception("run_batch_job job_id=%s error: %s", batch_job_id, e)
+        logger.exception("file_batch_job fail job_id=%s", batch_job_id)
         if run_id is not None:
             try:
                 batch_service.finish_run(
@@ -451,7 +446,7 @@ def run_batch_job(batch_job_id: int) -> None:
                     conn=sys_conn,
                 )
             except Exception:
-                logger.exception("finish_run 복구 실패")
+                logger.exception("file_batch_job finish_run_recover_fail")
         if not run_completed_ok:
             try:
                 batch_service.update_job_status(
@@ -461,7 +456,7 @@ def run_batch_job(batch_job_id: int) -> None:
                     conn=sys_conn,
                 )
             except Exception:
-                logger.exception("update_job_status 복구 실패")
+                logger.exception("file_batch_job update_job_status_recover_fail")
         if run_id is not None:
             batch_service.check_consecutive_failures(batch_job_id, threshold=5)
         try:

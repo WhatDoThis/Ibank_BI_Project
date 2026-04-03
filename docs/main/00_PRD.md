@@ -29,7 +29,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
 - **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/layout/navConfig.js`, `src/app/routes.jsx`. **앱 페이지**: `src/app/auth|home|mypage|admin|layout|guards/`. **packages**: **query_studio**, **campaign_dashboard**, **widgetboard**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(공유 `db`, `dependencies`, `dashboard_service`), **query_studio_server**(쿼리 스튜디오 `/api/*`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard` — 등록되는 유일 대시보드 API). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 저장소 보존·main 미등록. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **03_AI_DEVELOP_GUIDE.md**.
+- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(`db`, `dependencies`, `dashboard_service`, `auth_config`, `logging_setup`), **auth_server**(`/api/auth`), **project_server**(`/api/projects`), **notification_server**(`/api/notifications`), **admin_server**(`/api/admin`), **query_studio_server**(쿼리 스튜디오 `/api/*`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard` — 앱에 등록되는 유일 대시보드 API). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 저장소 보존·`main` 미등록. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **03_AI_DEVELOP_GUIDE.md**.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -79,7 +79,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 - `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
 - **쿼리 스튜디오 API 노출 테이블**: `backend.main_db.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거). 레거시: 평면 `backend.db_*`·`backend.table_schema` 도 `Backend.core.db` 가 인식한다.
-- **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(파일 크기·행 수·배치 상한·**ZIP 압축 해제 총량 상한**) 선택. **etl_limits 미지정 시** etl_server2 기본값 적용(파일 50MB·행 10만·배치 5만·**ZIP 총량 2GB** 등). **max_zip_extract_total_mb**: add-files-zip 시 압축 해제 전 총 용량 상한(MB), 초과 시 전체 실패(ZIP bomb 방지). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
+- **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(파일 크기·행 수·배치 상한·**ZIP 압축 해제 총량 상한**) 선택. **etl_limits 미지정 시** `Backend/etl_server/etl_limits.py` 기본값(파일 50MB·행 10만·배치 5만·**ZIP 총량 2GB** 등). **max_zip_extract_total_mb**: add-files-zip 시 압축 해제 전 총 용량 상한(MB), 초과 시 전체 실패(ZIP bomb 방지). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
+- **인증·메일(상용)**: backend.jwt_secret·jwt_*_expire_*, 선택 **backend.smtp_info**(smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, **app_url** — 초대 링크 베이스). `smtp_host`가 비어 있으면 메일 발송 생략·로그 폴백만(`auth_config.is_smtp_skipped`). 상세 **02_BACKEND_GUIDE.md §3**, **docs/report/17_SystemDB_Commercialization_Implementation_Guide.md**.
 - **뉴 대시보드 물리 테이블**: backend.**dash_db**(예: `ibank_dash_data`) — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 집계·서브 테이블. 메인 `db_name`과 분리. 상세는 **02_BACKEND_GUIDE.md §3.2.1·§4.6**.
 - **Linux 배포 시**: Nginx에서 프론트는 `/ibank-bi/`, API는 `/report_api/` 등으로 프록시할 경우 `frontend.api_base_url` 은 **API 쪽 URL** (예: `https://도메인/report_api`) 로 설정.
 
@@ -100,7 +101,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 5.1 역할
 - **FastAPI** REST API: **`Backend/api_server/main.py`** 가 `auth`·`project`·`notification`·`admin`·`query_studio_server`·`etl_server`·`campaign_dash_server` 라우터를 한 프로세스에 조립한다. 쿼리 스튜디오·캠페인 대시보드·ETL 등은 **Bearer access JWT**·`require_permission` / `require_etl_infrastructure` 로 보호된다. 위젯보드는 별도 라우터 없이 쿼리 스튜디오 API를 사용한다.
-- **인증·인가**: 로그인·2차 인증·리프레시·세션(`session_log`)·access JWT(`typ=access`, `user_id`·`project_info_id` 등 클레임)은 **`Backend/auth_server`** 및 **`/api/auth/*`**. 프로젝트 기능은 **`Backend/auth_server/permissions.require_permission`**(프로젝트 멤버·`pmssn_master.pmssn_list`)·조직 역할 Fast Path로 판별. ETL 인프라는 **`require_etl_infrastructure`**(`sa_dev` 또는 `etl_yn=Y`). 정책 표는 **05_Permission_ARCHITECTURE.md**, 흐름도·엣지 케이스 동일 문서 상단.
+- **인증·인가**: 로그인·2차 인증·리프레시·세션(`session_log`)·access JWT(`typ=access`, `user_id`·`project_info_id` 등 클레임)은 **`Backend/auth_server`** 및 **`/api/auth/*`**. 프로젝트 기능은 **`Backend/auth_server/permissions.require_permission`**(프로젝트 멤버·`pmssn_master.pmssn_list`)·조직 역할 Fast Path로 판별. ETL 관리자 판별은 **`require_etl_infrastructure`**(`sa_dev` 또는 `etl_yn=Y`). 정책 표는 **05_Permission_ARCHITECTURE.md**, 흐름도·엣지 케이스 동일 문서 상단.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성
@@ -134,8 +135,8 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **배치·실행 시점**: 배치 크기(batch_size)·배치 간 대기(batch_interval_seconds)는 **한 번 실행 시** 적용(스트리밍 행 수·배치 간 쉬는 초). **매일 몇 시 자동 실행** 스케줄 없음. 실행은 사용자 "실행" 버튼만(pending 등록 → 워커 처리). draft/done 여부와 관계없이 자동 실행 없음.
 - **목록 표시**: 타겟 테이블·설명·PK·소스 유형·**연결**(connection_name, 서버 구분)·소스·**배치**(크기/대기)·**동기화**(전체/증분)·상태·동작(미리보기·실행·데이터 추가·PK 설정·삭제). 도움말(?)에 상태별 버튼 설명·배치·실행 시점 안내.
 - **파일 ETL**: 미리보기(10행)·PK 설정(체크박스)·실행(전체 교체)·데이터 추가(단일 파일 또는 ZIP 다중 파일, 건너뛴 파일 목록 표시). 데이터 추가 모달 ZIP 안내: ZIP 해제 시 CSV·Excel(.xlsx/.xls)·Parquet 확장자만 지원, 각 파일 최대 50MB(한도 초과 시 해당 파일 Skip), ZIP 파일 전체 최대 2GB(한도 초과 시 데이터 추가 실패). config의 max_zip_extract_total_mb로 ZIP 총량 상한 변경 가능. 파일 업로드용 연결은 삭제 불가(보호).
-- **Job 큐**: pending → running(동시 2건 제한), completed/failed/cancelled. Job 목록·실행 이력 패널.
-- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb). 미지정 시 etl_server 기본값. 배치 미입력 시 1만 건 기본 상한. 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
+- **Job 큐**: pending → running(**동시 최대 3건**, `etl_server/queue_worker.MAX_CONCURRENT`), completed/failed/cancelled. 워커는 ETL 라우터에서 Job 등록 등 필요 시 **최초 1회** 기동. Job 목록·실행 이력 패널.
+- **설정**: backend.system_db(ETL 메타), backend.etl_limits(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb). 미지정 시 `etl_server/etl_limits.py` 기본값. 배치 미입력 시 1만 건 기본 상한. 상세·메타 테이블·모듈·COPY 적재는 **02_BACKEND_GUIDE.md §3·§6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 
 ### 6.3.1 ETL (단일) — 저장 DB·배치·설정·폴더
 

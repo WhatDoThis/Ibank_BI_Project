@@ -400,7 +400,7 @@ def refresh_table_column_mapping(etl_table_id: int):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("POST /tables/%s/refresh-column-mapping failed: %s", etl_table_id, e)
+        logger.exception("etl_router refresh_column_mapping etl_table_id=%s", etl_table_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -412,7 +412,7 @@ def delete_table_row_only(etl_table_id: int):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("DELETE /tables/%s/row failed: %s", etl_table_id, e)
+        logger.exception("etl_router delete_row etl_table_id=%s", etl_table_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -427,7 +427,7 @@ def delete_table(etl_table_id: int):
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
-        logger.exception("DELETE /tables/%s failed: %s", etl_table_id, e)
+        logger.exception("etl_router delete_table etl_table_id=%s", etl_table_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -872,12 +872,8 @@ def list_connections():
 @router.post("/connections/test")
 def test_connection(body: TestConnectionBody):
     """연결 테스트. connection_id 또는 host/database_name/username/password."""
-    logger.info(
-        "[ETL 연결테스트] API 요청 수신: connection_id=%s source_type=%s host=%s port=%s database_name=%s username=%s",
-        body.connection_id, body.source_type, body.host, body.port, body.database_name, body.username,
-    )
     try:
-        result = etl_service.test_connection(
+        return etl_service.test_connection(
             connection_id=body.connection_id,
             host=body.host,
             port=body.port,
@@ -886,10 +882,8 @@ def test_connection(body: TestConnectionBody):
             password=body.password,
             source_type=body.source_type,
         )
-        logger.info("[ETL 연결테스트] API 응답: ok=%s message=%s", result.get("ok"), result.get("message"))
-        return result
     except Exception as e:
-        logger.exception("[ETL 연결테스트] API 예외: %s", e)
+        logger.exception("etl_router connections/test")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1110,7 +1104,7 @@ def test_storage_connection(body: TestStorageConnectionBody):
         )
         return result
     except Exception as e:
-        logger.exception("저장 DB 연결 테스트 예외: %s", e)
+        logger.exception("etl_router storage_connection_test")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1123,7 +1117,7 @@ def list_target_tables(storage_connection_id: Optional[int] = None):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("저장 DB 테이블 목록 조회 예외: %s", e)
+        logger.exception("etl_router storage_tables_list")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1138,7 +1132,7 @@ def list_target_columns(storage_connection_id: Optional[int] = None, table_name:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("저장 DB 컬럼 목록 조회 예외: %s", e)
+        logger.exception("etl_router storage_columns_list")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1206,7 +1200,7 @@ def _run_file_load_in_process(etl_table_id: int, job_id: int) -> None:
     except Exception as e:
         etl_service.update_job(job_id, "failed", error_message=str(e))
         etl_service.update_etl_table_status(etl_table_id, "error")
-        logger.exception("ETL file load (in-process) job_id=%s failed: %s", job_id, e)
+        logger.exception("etl_router file_load_inprocess job_id=%s", job_id)
 
 
 @router.post("/tables/{etl_table_id}/run")
@@ -1295,7 +1289,7 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Opt
                     r[key] = val.isoformat()
         return {"jobs": rows}
     except Exception as e:
-        logger.exception("GET /api/etl/jobs failed: %s", e)
+        logger.exception("etl_router list_jobs")
         raise HTTPException(status_code=500, detail=str(e))
 
 

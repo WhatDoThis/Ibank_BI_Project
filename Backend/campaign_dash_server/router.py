@@ -285,18 +285,13 @@ def member_summary(
                 """
                 cur.execute(fb, (date_range[0],))
                 prev_row = cur.fetchone()
-                if prev_row is not None:
-                    logging.getLogger(__name__).info(
-                        "campaign member-summary: prev_range empty; fallback base_date < %s",
-                        date_range[0],
-                    )
         finally:
             cur.close()
             conn.close()
 
         if not row:
             logging.getLogger(__name__).warning(
-                "campaign member-summary: %s 에서 %s 기간 데이터 없음", full_table, date_range
+                "campaign_dash_router member_summary_no_data table=%s range=%s", full_table, date_range
             )
             return JSONResponse(status_code=404, content={"error": "해당 기간 데이터 없음"})
 
@@ -514,11 +509,6 @@ def hourly(
             data = results
         else:
             data = row_to_hours(raw_rows[0]) if raw_rows else []
-            if not raw_rows:
-                logging.getLogger(__name__).warning(
-                    "campaign hourly %s: %s 에서 %s 데이터 없음", metric, full_table, date_range
-                )
-
         return {
             "metric": metric,
             "data": data,

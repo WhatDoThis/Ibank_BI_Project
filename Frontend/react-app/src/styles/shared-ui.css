@@ -1,0 +1,153 @@
+/**
+ * shared-ui.css (앱 공용 UI 유틸리티)
+ * ================================
+ * 툴바·테이블 행 액션·반응형 데이터 테이블용 재사용 클래스.
+ * 헤더 내비게이션(.header, 앱 셸 nav 링크 등)은 범위에서 제외한다 — 전역 버튼 리셋이나
+ * 헤더/내비 전용 스타일을 이 파일에 추가하지 않는다.
+ *
+ * [Main Functions]
+ * ===========
+ * - .ibank-btn-toolbar / --secondary: 툴바·주요 액션·모달 주요 버튼
+ * - .ibank-btn-table / --primary / --danger: 테이블·패널 소형 액션 버튼
+ * - .ibank-table-wrap, table.ibank-data-table, .ibank-data-table__clip: 반응형 데이터 테이블
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - CSS 클래스만 (컴포넌트 없음)
+ *
+ * [Dependencies]
+ * =========
+ * - design-tokens.css (--color-*, --radius-*, --font-sans, --primary-light 등)
+ */
+
+/* A) Toolbar / primary actions */
+.ibank-btn-toolbar,
+button.ibank-btn-toolbar,
+a.ibank-btn-toolbar {
+  padding: 8px 14px;
+  background: var(--color-action-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-btn-lg);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.ibank-btn-toolbar:hover:not(:disabled) {
+  background: var(--color-action-primary-hover);
+}
+
+.ibank-btn-toolbar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* B) Secondary toolbar (outline green) */
+.ibank-btn-toolbar--secondary {
+  background: #fff;
+  color: var(--color-action-primary);
+  border: 1px solid rgba(0, 112, 74, 0.35);
+}
+
+.ibank-btn-toolbar--secondary:hover:not(:disabled) {
+  background: var(--primary-light);
+  border-color: var(--color-action-primary);
+}
+
+/* C) Table row actions */
+.ibank-btn-table,
+button.ibank-btn-table {
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+}
+
+.ibank-btn-table:hover:not(:disabled) {
+  background: var(--primary-light);
+  border-color: rgba(0, 112, 74, 0.28);
+  color: var(--color-action-primary-hover);
+}
+
+.ibank-btn-table:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ibank-btn-table--primary {
+  background: var(--color-action-primary);
+  color: #fff;
+  border-color: var(--color-action-primary);
+}
+
+.ibank-btn-table--primary:hover:not(:disabled) {
+  background: var(--color-action-primary-hover);
+  border-color: var(--color-action-primary-hover);
+  color: #fff;
+}
+
+.ibank-btn-table--danger {
+  color: var(--color-danger);
+  border-color: rgba(254, 86, 85, 0.35);
+}
+
+.ibank-btn-table--danger:hover:not(:disabled) {
+  background: rgba(254, 86, 85, 0.08);
+  border-color: rgba(254, 86, 85, 0.45);
+  color: var(--color-danger);
+}
+
+/* D) Responsive data tables */
+.ibank-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  background: #fff;
+}
+
+table.ibank-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
+}
+
+table.ibank-data-table th,
+table.ibank-data-table td {
+  border-bottom: 1px solid var(--color-border-light);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+table.ibank-data-table th {
+  background: var(--primary-light);
+  font-weight: 600;
+}
+
+table.ibank-data-table .ibank-data-table__clip {
+  display: block;
+  max-width: min(32vw, 360px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  table.ibank-data-table .ibank-data-table__clip {
+    max-width: min(48vw, 240px);
+  }
+}

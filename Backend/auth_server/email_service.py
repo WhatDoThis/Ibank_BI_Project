@@ -1,11 +1,11 @@
 """
 Backend.auth_server.email_service (인증·초대 메일 발송)
 =====================================================
-SMTP 설정 시 발송, 미설정 시 서버 로그에 인증코드·링크 출력(문서 17 §2.7).
+SMTP 발송: `backend.smtp_info.smtp_host`(또는 레거시 평면 `smtp_host`)가 **비어 있지 않으면** 항상 실제 SMTP로 발송(개발·운영 구분 없음). host가 비었을 때만 서버 로그에 본문 출력 폴백(문서 17 §2.7).
 
 [Main Functions]
 ===========
-1. send_email: SMTP 또는 로그 폴백(비 465 포트 STARTTLS 실패 시 경고 후 평문 시도)
+1. send_email: smtp_host 있으면 SMTP(465 SSL / 그 외 STARTTLS→실패 시 평문 재시도); host 없으면 로그 폴백만
 2. send_login_code_email: 2차 인증 코드
 3. send_invite_email: 초대 가입 URL
 
@@ -32,7 +32,7 @@ def send_email(subject: str, body_text: str, to_addrs: list[str]) -> None:
     settings = auth_config.get_smtp_settings()
     if auth_config.is_smtp_skipped():
         _log.warning(
-            "[email_service.send_email] SMTP 생략(개발). to=%s subject=%s\n%s",
+            "auth_email console_fallback reason=no_smtp_host to=%s subject=%s\n%s",
             to_addrs,
             subject,
             body_text,
@@ -70,12 +70,7 @@ def send_email(subject: str, body_text: str, to_addrs: list[str]) -> None:
             smtp.send_message(msg)
             return
     except Exception as ex:
-        _log.warning(
-            "[email_service] STARTTLS 연결 실패, 평문 재시도. host=%s port=%s: %s",
-            host,
-            port,
-            ex,
-        )
+        _log.warning("auth_email starttls_fail fallback_plain host=%s port=%s: %s", host, port, ex)
 
     # --- 2차: 새 소켓으로 평문 발송 ---
     with smtplib.SMTP(host, port, timeout=10) as smtp:

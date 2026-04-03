@@ -59,12 +59,12 @@ def get_scheduler() -> BackgroundScheduler:
 def start_scheduler() -> None:
     """스케줄러 시작. SCHEDULER_ENABLED=false면 no-op (단일 프로세스에서만 스케줄러 기동 권장)."""
     if os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() == "false":
-        logger.info("SCHEDULER_ENABLED=false, batch file scheduler disabled")
+        logger.info("batch_scheduler disabled (SCHEDULER_ENABLED=false)")
         return
     sched = get_scheduler()
     if not sched.running:
         sched.start()
-        logger.info("batch file scheduler started")
+        logger.info("batch_scheduler started")
 
 
 # 3.
@@ -75,7 +75,7 @@ def load_active_batch_jobs() -> None:
     jobs = batch_service.list_batch_jobs(is_active=True)
     for job in jobs:
         add_job(job)
-    logger.info("loaded %d active batch jobs into scheduler", len(jobs))
+    logger.info("batch_scheduler loaded_jobs count=%s", len(jobs))
 
 
 # 4.
@@ -130,7 +130,7 @@ def add_job(job: dict, force_now: bool = False) -> None:
         next_run_time=next_run_time,
     )
     logger.info(
-        "scheduler add_job batch_%s interval=%smin next_run=%s force_now=%s",
+        "batch_scheduler add_job id=%s interval_min=%s next_run=%s force_now=%s",
         batch_job_id, interval_minutes, next_run_time, force_now,
     )
 
@@ -141,9 +141,8 @@ def remove_job(batch_job_id: int) -> None:
     job_id = f"batch_{batch_job_id}"
     try:
         get_scheduler().remove_job(job_id)
-        logger.debug("scheduler remove_job %s", job_id)
     except Exception as e:
-        logger.warning("scheduler remove_job %s: %s", job_id, e)
+        logger.warning("batch_scheduler remove_job id=%s err=%s", job_id, e)
 
 
 # 7.
@@ -155,9 +154,6 @@ def reschedule_job(batch_job_id: int, interval_minutes: int) -> None:
         job_id,
         trigger=IntervalTrigger(minutes=interval_minutes, start_date=next_run),
     )
-    logger.debug("scheduler reschedule_job %s interval=%smin next_run=%s", job_id, interval_minutes, next_run)
-
-
 # 8.
 def refresh_interval_after_run(batch_job_id: int) -> None:
     """
@@ -184,11 +180,11 @@ def refresh_interval_after_run(batch_job_id: int) -> None:
             trigger=IntervalTrigger(seconds=int(interval_seconds), start_date=next_run),
         )
         logger.info(
-            "scheduler refresh_interval_after_run batch_%s next_run=%s (interval=%sm)",
+            "batch_scheduler refresh_next batch_id=%s next_run=%s interval_min=%s",
             batch_job_id, next_run, int(interval_seconds / 60),
         )
-    except Exception as e:
-        logger.debug("refresh_interval_after_run batch_%s ignored: %s", batch_job_id, e)
+    except Exception:
+        pass
 
 
 # 9.
@@ -199,11 +195,11 @@ def run_now(batch_job_id: int) -> dict:
 
     job = batch_service.get_batch_job(batch_job_id)
     if not job:
-        logger.warning("run_now: batch_job_id=%s not found", batch_job_id)
+        logger.warning("batch_scheduler run_now missing batch_job_id=%s", batch_job_id)
         return {}
     job_type = batch_service.effective_batch_job_type(job)
     if (job.get("last_run_status") or "").strip().lower() == "running":
-        logger.info("run_now: batch_%s already running, skip", batch_job_id)
+        logger.warning("batch_scheduler run_now skip_running batch_id=%s", batch_job_id)
         return {"already_running": True}
 
     run_func = _get_run_func(job_type)
@@ -220,9 +216,8 @@ def run_now(batch_job_id: int) -> dict:
                 job_id,
                 trigger=IntervalTrigger(minutes=interval_minutes, start_date=next_after_run),
             )
-            logger.info("run_now: batch_%s interval reset, next_run=%s", batch_job_id, next_after_run)
-    except Exception as e:
-        logger.debug("run_now: batch_%s interval reset skipped: %s", batch_job_id, e)
+    except Exception:
+        pass
 
     one_shot_id = f"batch_{batch_job_id}_run_now_{uuid.uuid4().hex[:8]}"
     run_at = datetime.now() + timedelta(seconds=2)
@@ -233,5 +228,5 @@ def run_now(batch_job_id: int) -> dict:
         args=[batch_job_id],
         replace_existing=True,
     )
-    logger.info("run_now: batch_%s one-shot scheduled", batch_job_id)
+    logger.info("batch_scheduler run_now one_shot batch_id=%s", batch_job_id)
     return {}

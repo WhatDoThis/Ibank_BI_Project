@@ -13,16 +13,13 @@ load_service, parser_file에서 사용하는 CSV 읽기 로직 통합.
 [Dependencies]
 =========
 - pandas, io
-- chardet 또는 charset_normalizer (선택, 없으면 순차 시도만 사용)
+- chardet 또는 charset_normalizer (선택, 없으면 순차 시도만 사용; 감지 실패는 무시)
 """
 
 import io
-import logging
 from typing import Optional, Tuple
 
 import pandas as pd
-
-logger = logging.getLogger(__name__)
 
 # 선택적 인코딩 감지: chardet 또는 charset_normalizer
 _detector = None
@@ -102,8 +99,8 @@ def read_csv_robust(
                     enc = detect_fn(raw)
                 if enc:
                     encodings_to_try.append(enc)
-        except Exception as e:
-            logger.debug("csv_reader: encoding detection failed: %s", e)
+        except Exception:
+            pass
 
     for enc in _DEFAULT_ENCODINGS:
         if enc not in encodings_to_try:

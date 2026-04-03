@@ -122,16 +122,14 @@ def run_db_batch_job(batch_job_id: int) -> None:
 
     job = batch_service.get_batch_job(batch_job_id)
     if not job:
-        logger.warning("run_db_batch_job: job_id=%s not found", batch_job_id)
+        logger.warning("db_batch_job missing job_id=%s", batch_job_id)
         return
     if (job.get("job_type") or "file").strip().lower() != "db":
-        logger.debug("run_db_batch_job: job_id=%s job_type is not 'db', skip", batch_job_id)
         return
     if not job.get("is_active"):
-        logger.debug("run_db_batch_job: job_id=%s is_active=False, skip", batch_job_id)
         return
     if (job.get("last_run_status") or "").strip().lower() == "running":
-        logger.warning("run_db_batch_job: batch %s (job_type=db) already running (last_run_status=running), skip", batch_job_id)
+        logger.warning("db_batch_job skip already_running job_id=%s", batch_job_id)
         return
 
     etl_table_id = job.get("etl_table_id")
@@ -140,10 +138,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
         # ETL 테이블 참조 모드: 소스/타겟/매핑·증분은 etl_tables에서 실시간 조회
         etl_def = etl_service.get_etl_table(etl_table_id)
         if not etl_def:
-            logger.error(
-                "run_db_batch_job: job_id=%s 연결된 ETL 테이블(id=%s)이 삭제됨. 배치 비활성화 또는 ETL 테이블 재등록 필요.",
-                batch_job_id, etl_table_id,
-            )
+            logger.error("db_batch_job etl_table_deleted job_id=%s etl_table_id=%s", batch_job_id, etl_table_id)
             return
         connection_id = etl_def.get("connection_id")
         source_table = (etl_def.get("source_table") or "").strip()
@@ -225,7 +220,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
             pass
 
     if not connection_id or not source_table or not target_table:
-        logger.warning("run_db_batch_job: job_id=%s missing connection_id/source_table/target_table", batch_job_id)
+        logger.warning("db_batch_job missing_config job_id=%s", batch_job_id)
         return
 
     run_id = None
@@ -241,7 +236,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
         # 중복 실행 방지: FOR UPDATE로 선점 후 running 갱신. 스케줄러·run_now 동시 진입 시 한 쪽만 진행.
         sys_conn = api_db.get_db_connection_system()
         if not batch_service.try_claim_batch_job_for_run(batch_job_id, sys_conn):
-            logger.warning("run_db_batch_job: batch %s already running (claimed by another), skip", batch_job_id)
+            logger.warning("db_batch_job skip claimed_by_other job_id=%s", batch_job_id)
             return
         run_id = batch_service.create_batch_run(batch_job_id, conn=sys_conn)
 
@@ -275,7 +270,6 @@ def run_db_batch_job(batch_job_id: int) -> None:
         effective_batch_size = batch_size if batch_size > 0 else 10000
         if stype == "mysql" and effective_batch_size > MYSQL_BATCH_SIZE_CAP:
             effective_batch_size = MYSQL_BATCH_SIZE_CAP
-            logger.info("run_db_batch_job job_id=%s: MySQL batch_size cap %s 적용", batch_job_id, MYSQL_BATCH_SIZE_CAP)
         if stype == "oracle" and batch_size == 0:
             effective_batch_size = ORACLE_BATCH_SIZE_DEFAULT
 
@@ -330,15 +324,8 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 src_pk = _fetch_source_pk(src_conn, stype, pk_schema, source_table_name)
                 if src_pk:
                     pk_columns_str = ", ".join(src_pk)
-                    logger.info(
-                        "run_db_batch_job job_id=%s: pk_columns 미설정, 소스 DB에서 PK 자동 감지: %s",
-                        batch_job_id, pk_columns_str,
-                    )
             except Exception as e:
-                logger.warning(
-                    "run_db_batch_job job_id=%s: 소스 PK 자동 감지 실패: %s",
-                    batch_job_id, e,
-                )
+                logger.warning("db_batch_job pk_autodetect_fail job_id=%s: %s", batch_job_id, e)
 
         where_clause = ""
         params: List[Any] = []
@@ -359,27 +346,12 @@ def run_db_batch_job(batch_job_id: int) -> None:
                         _synced_val = timezone_utils.convert_single_datetime(
                             last_synced_at, from_tz=target_tz, to_tz=source_tz,
                         )
-                        logger.info(
-                            "run_db_batch_job job_id=%s: last_synced_at 시간대 변환 %s(%s) → %s(%s)",
-                            batch_job_id, last_synced_at, target_tz, _synced_val, source_tz,
-                        )
                     except Exception as tz_err:
-                        logger.warning(
-                            "run_db_batch_job job_id=%s: last_synced_at 시간대 변환 실패, 원본 사용: %s",
-                            batch_job_id, tz_err,
-                        )
+                        logger.warning("db_batch_job last_synced_tz_fail job_id=%s: %s", batch_job_id, tz_err)
                         _synced_val = last_synced_at
                 params.append(_synced_val)
 
         select_sql = f"SELECT {select_list} FROM {quoted_src}{where_clause}"
-        logger.info(
-            "run_db_batch_job job_id=%s: last_synced_at=%s (batch_jobs 기준)",
-            batch_job_id, last_synced_at,
-        )
-        logger.info(
-            "run_db_batch_job job_id=%s: 증분 SELECT 쿼리: %s ; params=%s",
-            batch_job_id, select_sql, params if params else None,
-        )
 
         if stype == "mysql":
             _type_mapper = db_load_service._pg_type_from_mysql
@@ -466,7 +438,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
             run_completed_ok = True
             batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
             logger.info(
-                "run_db_batch_job job_id=%s diff completed rows_inserted=%s rows_deleted=%s",
+                "db_batch_job diff_done job_id=%s ins=%s del=%s",
                 batch_job_id, result["rows_inserted"], result.get("rows_deleted", 0),
             )
             return
@@ -492,15 +464,11 @@ def run_db_batch_job(batch_job_id: int) -> None:
 
         while True:
             if batch_service.is_run_cancel_requested(run_id, conn=sys_conn):
-                logger.info("run_db_batch_job run_id=%s 취소 요청 감지, 중단", run_id)
+                logger.warning("db_batch_job cancel_requested run_id=%s", run_id)
                 break
             batch = cur_src.fetchmany(effective_batch_size)
             if not batch:
                 break
-            logger.info(
-                "run_db_batch_job job_id=%s batch_offset=%s: 소스에서 %s행 조회",
-                batch_job_id, batch_offset, len(batch),
-            )
             # row가 이미 dict-like(RealDictRow 등)면 zip 시 key만 나와 값이 컬럼명으로 채워지는 버그 방지
             if batch and hasattr(batch[0], "keys"):
                 rows_dict = [dict(r) for r in batch]
@@ -514,10 +482,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                         df, columns, source_tz, target_tz,
                     )
                 except Exception as tz_err:
-                    logger.warning(
-                        "run_db_batch_job job_id=%s: 시간대 변환 실패 (skip): %s",
-                        batch_job_id, tz_err,
-                    )
+                    logger.warning("db_batch_job tz_skip job_id=%s: %s", batch_job_id, tz_err)
             # 소스에 헤더가 한 행으로 들어온 경우 제외: 첫 번째 컬럼 값이 해당 컬럼명과 동일한 행 제거 (설정으로 비활성화 가능)
             if SKIP_HEADER_LIKE_ROWS and col_names and len(df) > 0:
                 first_col = col_names[0]
@@ -526,10 +491,6 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 header_like = first_series.astype(str).str.strip().str.lower() == str(first_col).strip().lower()
                 if header_like.any():
                     df = df.loc[~header_like].reset_index(drop=True)
-                    logger.info(
-                        "run_db_batch_job job_id=%s batch_offset=%s: 헤더 유사 행 %s건 제외 (컬럼 '%s' 값=컬럼명)",
-                        batch_job_id, batch_offset, int(header_like.sum()), first_col,
-                    )
             if df.empty:
                 batch_offset += 1
                 continue
@@ -540,10 +501,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     if rules:
                         df = transform_engine.apply_rules(df, rules)
                 except Exception as e:
-                    logger.warning(
-                        "run_db_batch_job job_id=%s: 변환 룰 적용 실패 (skip): %s",
-                        batch_job_id, e,
-                    )
+                    logger.warning("db_batch_job transform_rules_skip job_id=%s: %s", batch_job_id, e)
             if mapping_used:
                 mapping_used = db_load_service._override_mapping_types_for_transform_rules(
                     df, mapping_used, rules,
@@ -577,7 +535,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
             try:
                 target_conn.commit()
             except Exception as commit_err:
-                logger.exception("run_db_batch_job commit failed batch_offset=%s: %s", batch_offset, commit_err)
+                logger.exception("db_batch_job commit_fail batch_offset=%s", batch_offset)
                 target_conn.rollback()
                 raise
             total_ins += result.get("inserted", 0) or 0
@@ -608,11 +566,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                         break
 
         if batch_offset == 0:
-            logger.warning(
-                "run_db_batch_job job_id=%s: 소스에서 조회된 행 없음. "
-                "증분 모드일 경우 last_synced_at이 너무 최근이면 새 행이 없을 수 있음. full 동기화 또는 last_synced_at 초기화 권장.",
-                batch_job_id,
-            )
+            logger.warning("db_batch_job zero_rows job_id=%s (check incremental last_synced_at)", batch_job_id)
 
         if last_synced_candidate is not None:
             if not isinstance(last_synced_candidate, datetime):
@@ -625,10 +579,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                 try:
                     etl_service.update_last_synced_at(etl_table_id, last_synced_candidate)
                 except Exception as sync_err:
-                    logger.warning(
-                        "run_db_batch_job job_id=%s: etl_tables.last_synced_at 갱신 실패(배치 자체는 성공): %s",
-                        batch_job_id, sync_err,
-                    )
+                    logger.warning("db_batch_job last_synced_update_fail job_id=%s: %s", batch_job_id, sync_err)
 
         batch_service.finish_run(
             run_id,
@@ -639,10 +590,10 @@ def run_db_batch_job(batch_job_id: int) -> None:
         )
         run_completed_ok = True  # run finished success; do not overwrite to "error" if update_job_status below fails
         batch_service.update_job_status(batch_job_id, "success", conn=sys_conn)
-        logger.info("run_db_batch_job job_id=%s completed rows_inserted=%s rows_updated=%s", batch_job_id, total_ins, total_upd)
+        logger.info("db_batch_job done job_id=%s ins=%s upd=%s", batch_job_id, total_ins, total_upd)
 
     except Exception as e:
-        logger.exception("run_db_batch_job job_id=%s error: %s", batch_job_id, e)
+        logger.exception("db_batch_job fail job_id=%s", batch_job_id)
         if sys_conn:
             try:
                 sys_conn.rollback()
@@ -659,7 +610,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     conn=None,
                 )
             except Exception:
-                logger.exception("finish_run 복구 실패")
+                logger.exception("db_batch_job finish_run_recover_fail")
         if not run_completed_ok:
             try:
                 batch_service.update_job_status(
@@ -669,7 +620,7 @@ def run_db_batch_job(batch_job_id: int) -> None:
                     conn=None,
                 )
             except Exception:
-                logger.exception("update_job_status 복구 실패")
+                logger.exception("db_batch_job update_job_status_recover_fail")
     finally:
         # MySQL SSCursor: 미소비 결과가 있으면 close 시 대기/타임아웃 가능. 먼저 소비 후 close.
         if stype == "mysql" and cur_src is not None:
@@ -711,4 +662,4 @@ def run_db_batch_job(batch_job_id: int) -> None:
     try:
         batch_service.check_consecutive_failures(batch_job_id, threshold=5)
     except Exception:
-        logger.exception("check_consecutive_failures 실패")
+        logger.exception("db_batch_job check_consecutive_failures")

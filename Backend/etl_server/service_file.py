@@ -981,7 +981,7 @@ def create_batch_job(
             try:
                 upsert_batch_target_registry(target_table_trimmed, storage_connection_id, batch_job_id)
             except Exception as e:
-                logger.warning("etl_batch_target_registry upsert 실패(배치 Job은 생성됨): %s", e)
+                logger.warning("batch_target_registry upsert_fail (job_created): %s", e)
         return batch_job_id
     except Exception:
         conn.rollback()
@@ -1155,8 +1155,7 @@ def list_batch_target_registry() -> List[dict]:
             if (tt or "").strip() and jid is not None and etl_tid is None:
                 try:
                     upsert_batch_target_registry(tt.strip(), sid, int(jid), conn=conn)
-                except Exception as e:
-                    logger.debug("registry backfill skip %s: %s", (tt, sid), e)
+                except Exception:
                     try:
                         conn.rollback()
                     except Exception:
@@ -1369,10 +1368,7 @@ def delete_batch_target_registry_rows_for_etl_table(etl_table_id: int, cur: Any,
             (int(etl_table_id),),
         )
     except Exception as e:
-        logger.warning(
-            "delete_batch_target_registry_rows_for_etl_table etl_table_id=%s 실패(이후 batch_jobs DELETE 시 FK 오류 가능): %s",
-            etl_table_id, e,
-        )
+        logger.warning("batch_registry_delete_for_etl_fail etl_table_id=%s: %s", etl_table_id, e)
 
 
 def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
@@ -1420,12 +1416,12 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
             try:
                 from Backend.etl_server import scheduler_file as sched
                 sched.remove_job(int(batch_job_id))
-            except Exception as e:
-                logger.debug("스케줄러 제거 스킵(batch_job_id=%s): %s", batch_job_id, e)
+            except Exception:
+                pass
             try:
                 delete_batch_job(int(batch_job_id))
             except Exception as e:
-                logger.warning("배치 Job cascade 삭제 실패(batch_job_id=%s), 테이블·레지스트리 삭제는 계속 진행: %s", batch_job_id, e)
+                logger.warning("batch_job_cascade_delete_fail batch_job_id=%s (registry_drop continues): %s", batch_job_id, e)
 
         target_table = (target_table or "").strip()
         if target_table and isinstance(target_table, str) and len(target_table) <= 200:
@@ -1730,7 +1726,7 @@ def set_run_cancel_requested(run_id: int, conn: Any = None) -> bool:
         return cur.rowcount > 0
     except Exception as e:
         conn.rollback()
-        logger.warning("set_run_cancel_requested run_id=%s: %s (cancel_requested_at 컬럼 필요할 수 있음)", run_id, e)
+        logger.warning("batch_run_cancel_flag_fail run_id=%s (column cancel_requested_at?): %s", run_id, e)
         return False
     finally:
         cur.close()
@@ -1936,10 +1932,10 @@ def check_consecutive_failures(batch_job_id: int, threshold: int = 5, conn: Any 
         conn.commit()
         from Backend.etl_server import scheduler_file as sched_mod
         sched_mod.remove_job(batch_job_id)
-        logger.warning("batch %s 연속 %d회 실패 → 자동 비활성화", batch_job_id, threshold)
+        logger.warning("batch_auto_disable batch_job_id=%s consecutive_failures=%s", batch_job_id, threshold)
     except Exception as e:
         conn.rollback()
-        logger.exception("check_consecutive_failures batch_job_id=%s: %s", batch_job_id, e)
+        logger.exception("batch_consecutive_failures_check batch_job_id=%s", batch_job_id)
     finally:
         cur.close()
         if should_close:

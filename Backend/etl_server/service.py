@@ -238,12 +238,12 @@ def _builtin_storage_connections_for_list() -> List[dict]:
     dash_name = "dash_db"
     try:
         main_name = api.get_db_config()["database"]
-    except Exception:
-        logger.warning("_builtin_storage_connections_for_list: main_db 이름 조회 실패", exc_info=True)
+    except Exception as e:
+        logger.warning("builtin_storage_list main_db_name fallback err=%s", e)
     try:
         dash_name = api.get_dash_db_config()["database"]
-    except Exception:
-        logger.warning("_builtin_storage_connections_for_list: dash_db 이름 조회 실패", exc_info=True)
+    except Exception as e:
+        logger.warning("builtin_storage_list dash_db_name fallback err=%s", e)
     return [
         {
             "storage_connection_id": None,
@@ -495,11 +495,6 @@ def _validate_source_table(value: str) -> str:
         if not p:
             raise ValueError("source_table의 스키마 또는 테이블명이 비어 있습니다.")
         if not re.match(r"^[a-zA-Z0-9_]+$", p):
-            bad_chars = [c for c in p if not re.match(r"[a-zA-Z0-9_]", c)]
-            logger.warning(
-                "_validate_source_table 실패: part=%r bad_chars=%r ord=%s",
-                p, bad_chars, [hex(ord(c)) for c in bad_chars],
-            )
             raise ValueError(f"source_table에 허용되지 않은 문자가 있습니다: {v}")
     return v
 
@@ -565,10 +560,6 @@ def _connect_postgres(host: str, port: int, database: str, user: str, password: 
     """외부 PostgreSQL 연결. psycopg2 connection 반환. connect_timeout 적용."""
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    logger.info(
-        "ETL DB 연결 시도: host=%s port=%s dbname=%s user=%s connect_timeout=%ss (연결은 ETL 백엔드가 동작 중인 호스트에서 대상으로 나감)",
-        host, port, database, user, _CONNECT_TIMEOUT_SEC,
-    )
     try:
         conn = psycopg2.connect(
             host=host,
@@ -580,12 +571,11 @@ def _connect_postgres(host: str, port: int, database: str, user: str, password: 
             cursor_factory=RealDictCursor,
         )
         conn.set_client_encoding("UTF8")
-        logger.info("ETL DB 연결 성공: host=%s port=%s dbname=%s", host, port, database)
         return conn
     except Exception as e:
         logger.warning(
-            "ETL DB 연결 실패: host=%s port=%s dbname=%s error_type=%s error=%s",
-            host, port, database, type(e).__name__, str(e),
+            "etl_connect postgres host=%s port=%s db=%s %s: %s",
+            host, port, database, type(e).__name__, e,
         )
         raise
 
@@ -600,10 +590,6 @@ def _connect_mysql(host: str, port: int, database: str, user: str, password: str
         import pymysql
     except ImportError:
         raise RuntimeError("MySQL 연결을 위해 PyMySQL이 필요합니다. pip install PyMySQL")
-    logger.info(
-        "ETL MySQL 연결 시도: host=%s port=%s database=%s user=%s connect_timeout=%ss read_timeout=%ss",
-        host, port, database, user, _CONNECT_TIMEOUT_SEC, _MYSQL_READ_WRITE_TIMEOUT_SEC,
-    )
     try:
         conn = pymysql.connect(
             host=host,
@@ -615,12 +601,11 @@ def _connect_mysql(host: str, port: int, database: str, user: str, password: str
             read_timeout=_MYSQL_READ_WRITE_TIMEOUT_SEC,
             write_timeout=_MYSQL_READ_WRITE_TIMEOUT_SEC,
         )
-        logger.info("ETL MySQL 연결 성공: host=%s port=%s database=%s", host, port, database)
         return conn
     except Exception as e:
         logger.warning(
-            "ETL MySQL 연결 실패: host=%s port=%s database=%s error_type=%s error=%s",
-            host, port, database, type(e).__name__, str(e),
+            "etl_connect mysql host=%s port=%s db=%s %s: %s",
+            host, port, database, type(e).__name__, e,
         )
         raise
 
@@ -632,10 +617,6 @@ def _connect_oracle(host: str, port: int, database: str, user: str, password: st
     except ImportError:
         raise RuntimeError("Oracle 연결을 위해 oracledb가 필요합니다. pip install oracledb")
     dsn = f"{host}:{port}/{database}"
-    logger.info(
-        "ETL Oracle 연결 시도: dsn=%s user=%s connect_timeout=%ss",
-        dsn, user, _CONNECT_TIMEOUT_SEC,
-    )
     try:
         conn = oracledb.connect(
             user=user,
@@ -643,13 +624,9 @@ def _connect_oracle(host: str, port: int, database: str, user: str, password: st
             dsn=dsn,
             tcp_connect_timeout=_CONNECT_TIMEOUT_SEC,
         )
-        logger.info("ETL Oracle 연결 성공: dsn=%s", dsn)
         return conn
     except Exception as e:
-        logger.warning(
-            "ETL Oracle 연결 실패: dsn=%s error_type=%s error=%s",
-            dsn, type(e).__name__, str(e),
-        )
+        logger.warning("etl_connect oracle dsn=%s %s: %s", dsn, type(e).__name__, e)
         raise
 
 
@@ -1328,12 +1305,10 @@ def test_connection(
     source_type: connection_id 없을 때 필수. postgresql | mysql | oracle.
     반환: { ok: bool, message: str }
     """
-    logger.info("[ETL 연결테스트] 1/5 서비스 진입 (connection_id=%s, host=%s, source_type=%s)", connection_id, host, source_type)
     if connection_id is not None:
-        logger.info("[ETL 연결테스트] 2/5 connection_id로 시스템 DB에서 연결 정보 조회")
         c = get_connection_for_etl(connection_id)
         if not c:
-            logger.warning("[ETL 연결테스트] 2/5 실패: 연결을 찾을 수 없음 connection_id=%s", connection_id)
+            logger.warning("etl_connection_test not_found connection_id=%s", connection_id)
             return {"ok": False, "message": "연결을 찾을 수 없습니다."}
         host = c.get("host")
         port = c.get("port")
@@ -1341,20 +1316,18 @@ def test_connection(
         username = c.get("username")
         password = c.get("encrypted_password") or ""
         source_type = (c.get("source_type") or "postgresql").strip().lower()
-        logger.info("[ETL 연결테스트] 2/5 조회 완료 host=%s port=%s database_name=%s source_type=%s", host, port, database_name, source_type)
     else:
-        logger.info("[ETL 연결테스트] 2/5 인자로 전달된 값 사용 (connection_id 없음)")
         source_type = (source_type or "postgresql").strip().lower()
         if source_type not in ("postgresql", "mysql", "oracle"):
             return {"ok": False, "message": "source_type은 postgresql, mysql, oracle 중 하나여야 합니다."}
-    logger.info("[ETL 연결테스트] 3/5 필수값 검증 (host, database_name, username)")
     if not host or not database_name or not username:
-        logger.warning("[ETL 연결테스트] 3/5 실패: 필수값 누락 host=%s database_name=%s username=%s", bool(host), bool(database_name), bool(username))
+        logger.warning(
+            "etl_connection_test missing_fields connection_id=%s has_host=%s has_db=%s has_user=%s",
+            connection_id, bool(host), bool(database_name), bool(username),
+        )
         return {"ok": False, "message": "host, database_name, username가 필요합니다."}
     effective_port = port or _DEFAULT_PORTS.get(source_type, 5432)
-    logger.info("[ETL 연결테스트] 3/5 검증 통과 host=%s port=%s database_name=%s user=%s source_type=%s", host, effective_port, database_name, username, source_type)
     try:
-        logger.info("[ETL 연결테스트] 4/5 %s TCP 연결 시도", source_type)
         if source_type == "mysql":
             conn = _connect_mysql(host, effective_port, database_name, username, password or "")
             cur = conn.cursor()
@@ -1376,12 +1349,15 @@ def test_connection(
             cur.fetchone()
             cur.close()
             conn.close()
-        logger.info("[ETL 연결테스트] 5/5 SELECT 실행 및 연결 종료 완료. 성공: host=%s port=%s", host, effective_port)
+        logger.info(
+            "etl_connection_test OK type=%s host=%s port=%s db=%s",
+            source_type, host, effective_port, database_name,
+        )
         return {"ok": True, "message": "연결 성공"}
     except Exception as e:
         logger.exception(
-            "[ETL 연결테스트] 실패(4/5 또는 5/5): host=%s port=%s database_name=%s source_type=%s error_type=%s error=%s",
-            host, effective_port, database_name, source_type, type(e).__name__, e,
+            "etl_connection_test FAIL type=%s host=%s port=%s db=%s",
+            source_type, host, effective_port, database_name,
         )
         out = _connection_error_to_user_message(e, port=effective_port)
         return {"ok": False, "message": out["message"], "hint": out.get("hint")}
@@ -1497,10 +1473,6 @@ def list_source_tables(connection_id: int) -> list:
                 cur.execute("SELECT TABLE_NAME FROM USER_TABLES ORDER BY TABLE_NAME")
                 rows = cur.fetchall()
                 result = [{"table_schema": owner, "table_name": r[0]} for r in rows]
-            logger.info(
-                "ETL Oracle list_source_tables: connection_id=%s schema_filter=%s rows=%s",
-                connection_id, schema_name or "(current user)", len(result),
-            )
             return result
         finally:
             cur.close()
@@ -1825,7 +1797,7 @@ def create_etl_table(
                 if pk_list:
                     pk_columns_val = ",".join(pk_list)
         except Exception as e:
-            logger.warning("소스 DB PK 자동 조회 실패(connection_id=%s, source_table=%s, source_type=%s): %s", connection_id, source_table, stype, e)
+            logger.warning("etl_pk_autodetect_fail conn=%s table=%s type=%s: %s", connection_id, source_table, stype, e)
         finally:
             if src_conn:
                 try:
@@ -1999,7 +1971,7 @@ def _storage_pg_identity_tuple(storage_connection_id: Any) -> Optional[tuple]:
             (sc.get("schema_name") or "public").strip(),
         )
     except Exception as e:
-        logger.warning("_storage_pg_identity_tuple failed: %s", e)
+        logger.warning("storage_pg_identity_tuple: %s", e)
         return None
 
 
@@ -2029,7 +2001,7 @@ def _find_downstream_etl_reading_target_pg(
     try:
         _, tgt_schema = get_target_db_connection(storage_connection_id)
     except Exception as e:
-        logger.warning("_find_downstream_etl_reading_target_pg: get_target_db_connection: %s", e)
+        logger.warning("downstream_etl_target_pg: %s", e)
         return []
     tgt_schema = (tgt_schema or "public").strip()
     tgt_tbl = (target_table or "").strip()
@@ -2236,7 +2208,7 @@ def delete_etl_table(etl_table_id: int) -> dict:
             cur_main.execute(f"DROP TABLE IF EXISTS {full_name}")
             conn_main.commit()
             out["target_table_dropped"] = True
-            logger.info("delete_etl_table etl_table_id=%s: 저장 DB DROP 완료 %s", etl_table_id, full_name)
+            logger.warning("etl_drop_target etl_table_id=%s full_name=%s", etl_table_id, full_name)
         except Exception:
             conn_main.rollback()
             conn_sys.rollback()

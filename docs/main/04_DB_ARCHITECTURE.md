@@ -129,7 +129,7 @@ user_phone               varchar(20)                   연락처
 user_active_yn           varchar(1)      DEFAULT 'Y'   계정 활성 여부
 user_dvsn                varchar(20)     NOT NULL      조직 역할(5단계, 앱·캐논 기준):
                                                        sa_dev / sa / a / o / u
-etl_yn                   varchar(1)      NOT NULL      ETL 인프라 API 자격
+etl_yn                   varchar(1)      NOT NULL      ETL 관리자 API 자격
                                                  DEFAULT 'N'  Y/N (역할과 독립)
 auth_yn                  varchar(1)      DEFAULT 'N'   이메일 인증 완료 여부
 scnd_auth_token          varchar(255)                  2차 인증 토큰 (해시)

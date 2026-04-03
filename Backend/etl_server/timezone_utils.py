@@ -111,7 +111,6 @@ def convert_timezone_columns(
         return df
 
     df = df.copy()
-    converted_count = 0
 
     for col in df.columns:
         if col not in date_columns:
@@ -134,21 +133,14 @@ def convert_timezone_columns(
 
             series = series.dt.tz_convert(tgt)
             df[col] = series.dt.tz_localize(None)  # naive로 strip (타겟 DB가 timestamp without tz인 경우 대비)
-            converted_count += 1
 
         except Exception as e:
             logger.warning(
-                "timezone_utils: 컬럼 '%s' 시간대 변환 실패 (%s → %s): %s. 원본 유지.",
+                "etl_tz_convert column_fail col=%s %s_to_%s keep_source: %s",
                 col, s, t, e,
             )
             # 변환 실패 시 원본 유지 (데이터 유실 방지)
             continue
-
-    if converted_count > 0:
-        logger.info(
-            "timezone_utils: %s개 컬럼 시간대 변환 완료 (%s → %s)",
-            converted_count, s, t,
-        )
 
     return df
 
