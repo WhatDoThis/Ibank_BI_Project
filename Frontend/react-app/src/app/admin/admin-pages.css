@@ -122,25 +122,71 @@
 
 .ap__table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-card);
   background: #fff;
 }
 
 .ap__table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
+  font-size: clamp(0.66rem, 0.28rem + 1vw, 0.8rem);
 }
 
 .ap__table th,
 .ap__table td {
   border-bottom: 1px solid var(--color-border-light);
-  padding: 10px 12px;
+  padding: 8px 10px;
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
   color: var(--color-text);
+}
+
+/* 작업 열: 버튼·링크 한 줄, 넘치면 테이블 가로 스크롤 */
+.ap__th-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.ap__cell-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ap__cell-actions .ibank-btn-table,
+.ap__cell-actions .ap__btn--link {
+  flex-shrink: 0;
+}
+
+.ap__cell-actions .ap__select {
+  flex-shrink: 0;
+  min-width: 7.5rem;
+  max-width: 14rem;
+}
+
+.ap__btn--link.ap__cell-actions__link {
+  white-space: nowrap;
+  margin: 0;
+}
+
+/* 생성자 열: 사용자 관리 이메일 셀과 동일(텍스트 + 선택적 본인 배지) */
+.ap__creator-cell {
+  min-width: 0;
+  max-width: min(30vw, 280px);
+  vertical-align: middle;
+}
+
+.ap__creator-cell .admin-users__email-cell {
+  max-width: 100%;
 }
 
 .ap__table th {
@@ -179,7 +225,12 @@
   font-size: 0.875rem;
 }
 
-.ap__table.ap__table--roles .ap__row {
+.ap__table.ap__table--roles td .ap__row,
+.ap__table.ap__table--roles .ap__cell-actions {
+  align-items: center;
+}
+
+.ap__table td .ap__cell-actions {
   align-items: center;
 }
 
@@ -232,6 +283,123 @@
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.ap__modal--create-wide {
+  min-width: min(720px, 100%);
+  max-width: 920px;
+  width: 100%;
+}
+
+.ap__create-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ap__muted {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+.ap__req {
+  color: #c0392b;
+}
+
+.ap__textarea--3 {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.ap__create-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.ap__create-section-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.ap__create-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.ap__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ap__table-pick-head {
+  margin-bottom: 6px;
+}
+
+.ap__table-pick-body,
+.ap__member-pick-body {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+}
+
+.ap__member-pick-body {
+  max-height: 200px;
+}
+
+.ap__table--compact {
+  font-size: 0.88rem;
+}
+
+.ap__table--compact th,
+.ap__table--compact td {
+  padding: 6px 8px;
+}
+
+.ap__select--sm {
+  min-width: 140px;
+  font-size: 0.85rem;
+}
+
+.ap__row--warn {
+  background: rgba(192, 57, 43, 0.08);
+}
+
+.ap__ext-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ap__ext-results {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px dashed var(--color-border-light);
+  border-radius: var(--radius-card);
+}
+
+.ap__ext-results li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.ap__ext-results li:last-child {
+  border-bottom: none;
 }
 
 .ap__header-row {

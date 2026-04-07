@@ -256,7 +256,7 @@ export default function AdminProjectMembersPage() {
                 <th>이메일</th>
                 <th>닉네임</th>
                 <th>역할</th>
-                <th>작업</th>
+                <th className="ap__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
@@ -283,7 +283,7 @@ export default function AdminProjectMembersPage() {
                       </select>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <div className="ap__cell-actions">
                         <button
                           type="button"
                           className="ibank-btn-table ibank-btn-table--primary"

@@ -2,20 +2,23 @@
  * packages/etl/components/JobHistoryPanel.jsx (ETL Job 이력)
  * ==========================================================
  * 체크박스로 상태별 필터(완료/실패/취소/실행 중/대기 중) 후 테이블로 표시. 행별 삭제(DB 반영).
- * [새로고침] 버튼으로 해당 이력 테이블만 다시 불러오기.
+ * [새로고침]은 ibank-btn-toolbar--secondary, 테이블은 etl-history__table-wrap에서만 가로 스크롤.
  *
  * [Main Functions]
  * ===========
- * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 상태 뱃지·삭제 버튼·새로고침은 ETL 목록/배치 목록과 동일 클래스(etl-db-form__status-badge, etl-db-form__btn--sm, etl-table-list__refresh).
+ * 1. JobHistoryPanel: GET /api/etl/jobs (statuses 쿼리), DELETE /api/etl/jobs/:id. 생성자 열: 이메일 셀 + 본인 배지는 adminAccess `isEtlCreateLabelSelf(me, create_user_label, create_user_id)` (`/me` email·user_id 정합, docs/log/log.md 219). 상태 뱃지·삭제·새로고침은 ETL 목록과 동일 클래스.
  *
  * [Dependencies]
  * =========
  * - React, @/packages/etl/api/etlClient.js, @/shared/utils/crudConfirm.js
+ * - @/app/admin/adminAccess.js (isEtlCreateLabelSelf), @/app/auth/AuthContext.jsx (me)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { etl2ListJobs, etl2DeleteJob } from '@/packages/etl/api/etlClient.js';
 import { confirmCrud } from '@/shared/utils/crudConfirm.js';
+import { useAuth } from '@/app/auth/AuthContext.jsx';
+import { isEtlCreateLabelSelf } from '@/app/admin/adminAccess.js';
 
 const STATUS_OPTIONS = [
   { value: 'completed', label: '완료' },
@@ -48,6 +51,7 @@ function jobStatusBadgeClass(status) {
 
 // 1.
 function JobHistoryPanel() {
+  const { me } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [checks, setChecks] = useState({ completed: true, failed: true, cancelled: true, running: true, pending: true });
@@ -104,7 +108,7 @@ function JobHistoryPanel() {
       <div className="etl-table-list__toolbar">
         <button
           type="button"
-          className="etl-table-list__refresh"
+          className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
           onClick={() => load()}
           disabled={loading}
           aria-label="이력 새로고침"
@@ -121,7 +125,7 @@ function JobHistoryPanel() {
               <tr>
                 <th>Job ID</th>
                 <th>라벨</th>
-                <th>등록자</th>
+                <th>생성자</th>
                 <th>타겟 테이블</th>
                 <th>상태</th>
                 <th>시작</th>
@@ -143,7 +147,18 @@ function JobHistoryPanel() {
                   <td className="etl-history__cell--overflow" title={tableLabelStr || ''}>
                     {tableLabelShown}
                   </td>
-                  <td className="etl-history__cell-creator" title={j.create_user_label || ''}>{j.create_user_label || '—'}</td>
+                  <td className="etl-history__cell-creator">
+                    <span className="admin-users__email-cell">
+                      <span className="admin-users__email-text" title={j.create_user_label || ''}>
+                        {j.create_user_label || '—'}
+                      </span>
+                      {isEtlCreateLabelSelf(me, j.create_user_label, j.create_user_id) ? (
+                        <span className="admin-users__self-badge" title="본인 계정">
+                          본인
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td className="etl-history__cell--overflow" title={j.target_table || ''}>{j.target_table || '—'}</td>
                   <td>
                     {jobStatusBadgeClass(j.status) ? (

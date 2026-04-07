@@ -1,8 +1,8 @@
 /**
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
- * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼, 정지 전 이관 검증.
- * 본인 행: 목록(작업물·이관) 허용, 변경·정지·활성은 비활성 유지. 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글.
+ * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·목록에서 부서 생성자 이관(dptmt_creator).
+ * 본인 행: 이메일 옆「본인」배지. 목록(작업물·이관)만 허용·변경·정지·활성 비활성 시 호버로 안내. 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글.
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
  * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
  * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
@@ -52,11 +52,16 @@ function isActive(row) {
   return (row.user_active_yn || '').toUpperCase() === 'Y'
 }
 
-/** ETL 관리자 자격: sa_dev 또는 etl_yn=Y (05 문서 require_etl_infrastructure와 동일 취지) */
+/** ETL 관리자 자격: sa_dev·레거시 etl_manager·또는 etl_yn=Y (프로젝트 pmssn과 무관, 05 문서와 동일) */
 function hasEtlInfra(row) {
-  const d = (row.user_dvsn || '').toLowerCase()
-  if (d === 'sa_dev') return true
-  return (row.etl_yn || '').toUpperCase() === 'Y'
+  const d = String(row.user_dvsn || '')
+    .trim()
+    .toLowerCase()
+  if (d === 'sa_dev' || d === 'etl_manager') return true
+  const e = String(row.etl_yn ?? 'N')
+    .trim()
+    .toUpperCase()
+  return e === 'Y'
 }
 
 const ROLE_OPTIONS_SA = [
@@ -109,6 +114,10 @@ export default function AdminUsersPage() {
   const [changeCtx, setChangeCtx] = useState(null)
   const [changeLoading, setChangeLoading] = useState(false)
   const [changeErr, setChangeErr] = useState('')
+  /** PUT management 409 — 소유 매트릭스 불가 시 서버 detail(changeable·blocking_assets) */
+  const [changeOwnershipBlock, setChangeOwnershipBlock] = useState(null)
+  /** PATCH suspend 409 — 동일 payload를 전역 모달로 표시 */
+  const [suspendOwnershipBlock, setSuspendOwnershipBlock] = useState(null)
   const [changeForm, setChangeForm] = useState({
     dptmt_info_id: '',
     user_dvsn: '',
@@ -288,7 +297,12 @@ export default function AdminUsersPage() {
         ctx.fromUserId,
         {
           etlInfra: !!ctx.etlInfra,
-          resourceType: ctx.resourceType === 'table_master' ? 'table_master' : null,
+          resourceType:
+            ctx.resourceType === 'table_master'
+              ? 'table_master'
+              : ctx.resourceType === 'dptmt_creator'
+                ? 'dptmt_creator'
+                : null,
           tableMasterId:
             ctx.resourceType === 'table_master' ? ctx.resourceId : undefined,
         },
@@ -329,7 +343,12 @@ export default function AdminUsersPage() {
         fromUserId,
         {
           etlInfra: !!first.etlInfra,
-          resourceType: first.resourceType === 'table_master' ? 'table_master' : null,
+          resourceType:
+            first.resourceType === 'table_master'
+              ? 'table_master'
+              : first.resourceType === 'dptmt_creator'
+                ? 'dptmt_creator'
+                : null,
           tableMasterId:
             first.resourceType === 'table_master' ? first.resourceId : undefined,
         },
@@ -406,6 +425,7 @@ export default function AdminUsersPage() {
   const openChangeModal = useCallback(async (uid) => {
     setChangeCtx({ userId: uid, options: null })
     setChangeErr('')
+    setChangeOwnershipBlock(null)
     setChangeLoading(true)
     try {
       const data = await getAdminUserChangeOptions(uid)
@@ -512,10 +532,17 @@ export default function AdminUsersPage() {
       }
       await putAdminUserManagement(changeCtx.userId, payload)
       setChangeCtx(null)
+      setChangeOwnershipBlock(null)
       await load()
       setExpandedUid(null)
       setWorkByUser({})
     } catch (e) {
+      const d = e?.data?.detail
+      if (e?.status === 409 && d && typeof d === 'object' && d.changeable === false) {
+        setChangeOwnershipBlock(d)
+        setChangeErr('')
+        return
+      }
       setChangeErr(e?.message || '변경 실패')
     } finally {
       setChangeLoading(false)
@@ -529,7 +556,13 @@ export default function AdminUsersPage() {
     try {
       await patchAdminUserSuspend(userId)
       await load()
+      setSuspendOwnershipBlock(null)
     } catch (e) {
+      const d = e?.data?.detail
+      if (e?.status === 409 && d && typeof d === 'object' && d.changeable === false) {
+        setSuspendOwnershipBlock({ userId, detail: d })
+        return
+      }
       const msg = e?.message || '정지 처리 실패'
       window.alert(msg)
       setError(msg)
@@ -565,6 +598,7 @@ export default function AdminUsersPage() {
     ownerDeptFallback,
     etlInfraModal,
     nested = false,
+    allowBulk = true,
   ) {
     if (!rows?.length) return null
     const transferablePayloads = rows
@@ -579,7 +613,7 @@ export default function AdminUsersPage() {
           etlInfra: !!etlInfraModal,
         }
       })
-    const showBulkTransfer = transferablePayloads.length >= 2
+    const showBulkTransfer = allowBulk && transferablePayloads.length >= 2
     const scopeHint = nested
       ? `「ETL」대분류 안의 중분류「${title}」에 속한 이관 가능 항목만입니다.`
       : `「${title}」섹션의 이관 가능 항목만입니다. 다른 카테고리는 포함되지 않습니다.`
@@ -615,7 +649,9 @@ export default function AdminUsersPage() {
               const label =
                 labelKey === 'table_label'
                   ? r.table_label || r.table_name || rid
-                  : r[labelKey] || rid
+                  : resourceType === 'dptmt_creator' && (r.parent_dptmt_name || '').trim()
+                    ? `${r[labelKey] || rid} · 상위 ${r.parent_dptmt_name}`
+                    : r[labelKey] || rid
               const dept = r.dptmt_info_id ?? ownerDeptFallback
               const canT = showTransfer && r.transferable
               return (
@@ -768,6 +804,7 @@ export default function AdminUsersPage() {
       'created_projects',
       'participant_projects',
       'created_custom_roles',
+      'created_departments',
       'linked_tables',
       'etl_connections',
       'etl_tables',
@@ -777,6 +814,52 @@ export default function AdminUsersPage() {
       'batch_jobs',
     ]
     return keys.some((k) => Array.isArray(work[k]) && work[k].length > 0)
+  }
+
+  function ownershipGroupTitle(t) {
+    const m = {
+      project: '프로젝트 (생성자)',
+      pmssn_master: '등록한 권한',
+      table_master: '테이블 마스터',
+      dptmt_creator: '등록한 부서 (생성자)',
+      etl_meta: 'ETL 등록',
+    }
+    return m[t] || t
+  }
+
+  function renderOwnershipBlock(detail) {
+    if (!detail?.blocking_assets?.length) return null
+    return (
+      <div className="admin-users__ownership-block" role="region" aria-label="이관 필요 소유">
+        {detail.message ? <p className="admin-users__ownership-summary">{detail.message}</p> : null}
+        {detail.blocking_assets.map((g) => (
+          <div key={g.type} className="admin-users__ownership-group">
+            <h4 className="admin-users__ownership-group-title">{ownershipGroupTitle(g.type)}</h4>
+            <ul className="admin-users__ownership-list">
+              {(g.items || []).map((it, idx) => (
+                <li key={`${g.type}-${it.resource_type}-${it.resource_id}-${idx}`}>
+                  <span className="admin-users__ownership-name">{it.name}</span>
+                  <span className="admin-users__ownership-reason">{it.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {Array.isArray(detail.allowed_assets) && detail.allowed_assets.length ? (
+          <div className="admin-users__ownership-allowed">
+            <strong>역할·ETL 자격 유지 시 그대로 두는 항목</strong>
+            <ul>
+              {detail.allowed_assets.map((a) => (
+                <li key={a.type}>
+                  {ownershipGroupTitle(a.type)} {a.count}건 — {a.note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <p className="admin-users__hint">「목록」에서 해당 항목을 이관한 뒤 다시 저장하세요.</p>
+      </div>
+    )
   }
 
   return (
@@ -937,10 +1020,19 @@ export default function AdminUsersPage() {
       ) : null}
 
       {changeCtx ? (
-        <div className="admin-users__modal-backdrop" role="presentation" onClick={() => !changeLoading && setChangeCtx(null)}>
+        <div
+          className="admin-users__modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (changeLoading) return
+            setChangeCtx(null)
+            setChangeOwnershipBlock(null)
+          }}
+        >
           <div className="admin-users__modal admin-users__modal--change" onClick={(e) => e.stopPropagation()}>
             <h3 className="admin-users__modal-title">사용자 변경</h3>
             {changeErr ? <p className="admin-users__error">{changeErr}</p> : null}
+            {changeOwnershipBlock ? renderOwnershipBlock(changeOwnershipBlock) : null}
             {changeLoading && !changeCtx.options ? (
               <p className="admin-users__hint">불러오는 중…</p>
             ) : (
@@ -1061,7 +1153,10 @@ export default function AdminUsersPage() {
                     type="button"
                     className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
                     disabled={changeLoading}
-                    onClick={() => setChangeCtx(null)}
+                    onClick={() => {
+                      setChangeCtx(null)
+                      setChangeOwnershipBlock(null)
+                    }}
                   >
                     취소
                   </button>
@@ -1122,7 +1217,9 @@ export default function AdminUsersPage() {
                 ? '조건: 동일 부서·활성·(ETL 관리자 자격 etl_yn=Y 또는 SA_DEV 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
                 : transferCtx.resourceType === 'table_master'
                   ? '조건: 매핑 프로젝트에서 query.execute(저장 테이블과 동일) 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
-                  : '조건: 동일 부서·활성·SA_DEV·SA·A 역할·관리 범위 내.'}
+                  : transferCtx.resourceType === 'dptmt_creator'
+                    ? '조건: 해당 부서와 동일 부서 트리(상·하위) 소속·활성·부서 추가 가능 역할(SA 또는 SA_DEV)·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
+                    : '조건: 동일 부서·활성·SA_DEV·SA·A 역할·관리 범위 내.'}
             </p>
             {transferErr ? <p className="admin-users__error">{transferErr}</p> : null}
             {transferLoading ? (
@@ -1151,7 +1248,9 @@ export default function AdminUsersPage() {
                         ? '동일 부서에서 ETL 관리자 자격(etl_yn=Y) 또는 SA_DEV이면서, 귀하의 관리 범위에 속한 다른 활성 사용자가 없습니다.'
                         : transferCtx.resourceType === 'table_master'
                           ? '테이블 마스터 수신 조건(query.execute·동일 부서 SA/A·SA_DEV 등)과 관리 범위를 동시에 만족하는 다른 사용자가 없습니다.'
-                          : '동일 부서의 SA_DEV·SA·A 중 관리 범위에 속한 다른 활성 사용자가 없습니다.'}
+                          : transferCtx.resourceType === 'dptmt_creator'
+                            ? '동일 부서 트리에서 부서 생성 가능(SA·SA_DEV)이면서 관리 범위에 속한 다른 활성 사용자가 없습니다.'
+                            : '동일 부서의 SA_DEV·SA·A 중 관리 범위에 속한 다른 활성 사용자가 없습니다.'}
                     </p>
                   </div>
                 )}
@@ -1185,10 +1284,14 @@ export default function AdminUsersPage() {
                 <th>이메일</th>
                 <th>닉네임</th>
                 <th>역할</th>
-                <th>ETL</th>
+                <th
+                  title="ETL API(etl_db) 관리 자격: SA_DEV 또는 user_info.etl_yn=Y. 프로젝트 pmssn(예: project_all)과 별개입니다."
+                >
+                  ETL 관리
+                </th>
                 <th>상태</th>
                 <th>가입일</th>
-                <th>작업</th>
+                <th className="admin-users__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
@@ -1200,6 +1303,14 @@ export default function AdminUsersPage() {
                   actorDvsn === 'a' && String(row.user_dvsn || '').toLowerCase() === 'sa'
                 const listDisabled = busyId === uid
                 const actionDisabled = isSelf || busyId === uid || isAdminLockedSa
+                const actionDisabledTitle =
+                  busyId === uid
+                    ? '처리 중입니다.'
+                    : isSelf
+                      ? '본인 계정입니다. 목록에서 작업물 확인·소유 이관만 가능합니다.'
+                      : isAdminLockedSa
+                        ? 'Admin(A)은 SA 사용자의 변경·정지·활성을 할 수 없습니다.'
+                        : ''
                 const expanded = expandedUid === uid
                 const work = workByUser[uid]
                 const wBusy = workLoadingUid === uid
@@ -1208,7 +1319,16 @@ export default function AdminUsersPage() {
                     <tr>
                       <td>{row.dept_name || '—'}</td>
                       <td>{row.dept_sub_name || '—'}</td>
-                      <td>{row.user_email || '—'}</td>
+                      <td>
+                        <span className="admin-users__email-cell">
+                          <span className="admin-users__email-text">{row.user_email || '—'}</span>
+                          {isSelf ? (
+                            <span className="admin-users__self-badge" title="본인 계정">
+                              본인
+                            </span>
+                          ) : null}
+                        </span>
+                      </td>
                       <td>{row.user_nickname || '—'}</td>
                       <td>{row.user_dvsn || '—'}</td>
                       <td className="admin-users__cell-center">
@@ -1226,37 +1346,61 @@ export default function AdminUsersPage() {
                           >
                             {expanded ? '목록 닫기' : '목록'}
                           </button>
-                          <button
-                            type="button"
-                            className="ibank-btn-table"
-                            disabled={actionDisabled}
-                            onClick={() => openChangeModal(uid)}
-                          >
-                            변경
-                          </button>
-                          {active ? (
+                          {actionDisabled ? (
+                            <span
+                              className="admin-users__action-disabled-wrap"
+                              title={actionDisabledTitle}
+                            >
+                              <button type="button" className="ibank-btn-table" disabled>
+                                변경
+                              </button>
+                            </span>
+                          ) : (
                             <button
                               type="button"
-                              className="ibank-btn-table ibank-btn-table--danger"
-                              disabled={actionDisabled}
-                              onClick={() => handleSuspend(uid)}
+                              className="ibank-btn-table"
+                              onClick={() => openChangeModal(uid)}
                             >
-                              정지
+                              변경
                             </button>
+                          )}
+                          {active ? (
+                            actionDisabled ? (
+                              <span
+                                className="admin-users__action-disabled-wrap"
+                                title={actionDisabledTitle}
+                              >
+                                <button type="button" className="ibank-btn-table ibank-btn-table--danger" disabled>
+                                  정지
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ibank-btn-table ibank-btn-table--danger"
+                                onClick={() => handleSuspend(uid)}
+                              >
+                                정지
+                              </button>
+                            )
+                          ) : actionDisabled ? (
+                            <span
+                              className="admin-users__action-disabled-wrap"
+                              title={actionDisabledTitle}
+                            >
+                              <button type="button" className="ibank-btn-table ibank-btn-table--primary" disabled>
+                                활성
+                              </button>
+                            </span>
                           ) : (
                             <button
                               type="button"
                               className="ibank-btn-table ibank-btn-table--primary"
-                              disabled={actionDisabled}
                               onClick={() => handleActivate(uid)}
                             >
                               활성
                             </button>
                           )}
-                          {isSelf ? (
-                            <span className="admin-users__hint">본인 - 이관만 가능</span>
-                          ) : null}
-                          {isAdminLockedSa ? <span className="admin-users__hint">A는 SA 관리 불가</span> : null}
                         </div>
                       </td>
                     </tr>
@@ -1302,6 +1446,18 @@ export default function AdminUsersPage() {
                                   false,
                                 )}
                                 {renderAssetList(
+                                  '등록한 부서',
+                                  work.created_departments,
+                                  uid,
+                                  'dptmt_creator',
+                                  'dptmt_info_id',
+                                  'dptmt_name',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  false,
+                                  false,
+                                )}
+                                {renderAssetList(
                                   '등록한 테이블 마스터(저장·적재 원장)',
                                   work.linked_tables,
                                   uid,
@@ -1331,6 +1487,39 @@ export default function AdminUsersPage() {
           </table>
         </div>
       )}
+
+      {suspendOwnershipBlock ? (
+        <div
+          className="admin-users__modal-backdrop"
+          role="presentation"
+          onClick={() => setSuspendOwnershipBlock(null)}
+        >
+          <div className="admin-users__modal admin-users__modal--change" onClick={(e) => e.stopPropagation()}>
+            <h3 className="admin-users__modal-title">정지 전 이관 필요</h3>
+            {renderOwnershipBlock(suspendOwnershipBlock.detail)}
+            <div className="admin-users__modal-actions">
+              <button
+                type="button"
+                className="ibank-btn-toolbar"
+                onClick={() => {
+                  const uid = suspendOwnershipBlock.userId
+                  setSuspendOwnershipBlock(null)
+                  setExpandedUid(uid)
+                }}
+              >
+                목록 열고 이관
+              </button>
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                onClick={() => setSuspendOwnershipBlock(null)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

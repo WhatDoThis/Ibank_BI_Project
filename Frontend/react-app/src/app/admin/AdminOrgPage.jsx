@@ -3,6 +3,7 @@
  * ===================================================
  * GET /api/admin/org — 내 소속 부서명·코드 표시(읽기 전용).
  * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가·수정(사용여부 포함)·행 삭제(DB 삭제).
+ * 부서 목록에 creator_email(생성자) 열 표시 — 사용자관리와 동일 이메일 셀·본인 행만 배지.
  * 부서 목록: 부서구분(상위·하위) 열, 상위 부서 없으면 상위 부서 칸은 「—」. SA는 본인 소속 행 수정·삭제 UI 비표시(백엔드 동일 정책).
  * 사용 안 함 저장 시 소속 사용자가 있으면 이관 대상 부서 선택 모달(사용 중 부서만·display_label).
  *
@@ -27,8 +28,10 @@ import {
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
+import { isCreatorSelf } from '@/app/admin/adminAccess.js'
 
 import './admin-org.css'
+import './admin-users.css'
 
 function formatParentCell(d) {
   const pid = d.parent_dptmt_info_id
@@ -513,6 +516,7 @@ export default function AdminOrgPage() {
                   <th>부서명</th>
                   <th>상위 부서 (이름 · 코드)</th>
                   <th>사용 여부</th>
+                  <th className="admin-org__th-creator">생성자</th>
                   {canManageDept ? <th className="admin-org__th-actions">작업</th> : null}
                 </tr>
               </thead>
@@ -541,6 +545,18 @@ export default function AdminOrgPage() {
                     <td>{d.dptmt_name ?? '—'}</td>
                     <td className="admin-org__parent-cell">{formatParentCell(d)}</td>
                     <td>{useYnLabel(d.use_yn)}</td>
+                    <td className="admin-org__creator-cell">
+                      <span className="admin-users__email-cell">
+                        <span className="admin-users__email-text" title={d.creator_email || undefined}>
+                          {d.creator_email || '—'}
+                        </span>
+                        {isCreatorSelf(me, d) ? (
+                          <span className="admin-users__self-badge" title="본인 계정">
+                            본인
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     {canManageDept ? (
                       <td className="admin-org__actions">
                         {canManageDeptRow(d) ? (

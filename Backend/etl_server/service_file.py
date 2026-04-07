@@ -8,13 +8,13 @@ etl_batch_target_registry: PK registry_id 또는 id(실측 DDL) 자동 대응, S
 
 [Main Functions]
 ===========
-- list_folder_connections, get_folder_connection, create_folder_connection(create_user_id·동적 is_active),
+- list_folder_connections(create_user_label: email→nickname→ID), get_folder_connection, create_folder_connection(create_user_id·동적 is_active),
   update_folder_connection, delete_folder_connection, set_folder_connection_verified(is_verified 컬럼 있을 때만 UPDATE)
 - get_folder_adapter: folder_connection_id → FolderAdapter
 - list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (information_schema 기준 동적 INSERT·중복 검사, schedule_cron만 있을 때 interval→cron 변환), update_batch_job (존재 컬럼만 SET, interval_minutes→schedule_cron 매핑), delete_batch_job
 - effective_interval_minutes_from_batch_row(행에 schedule_cron 키 있을 때만 cron 파싱), effective_batch_job_type, _interval_to_schedule_cron, _parse_minutes_from_schedule_cron
 - update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
-- etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry(rcols·스토리지 JOIN·user_info 존재 시에만 JOIN), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_rows_for_etl_table(ETL 삭제 시 FK 선삭제), delete_batch_target_registry_and_drop_table
+- etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry(rcols·스토리지 JOIN·create_user_label은 JOIN 후 service._enrich_rows_create_user_label로 core 정본 보강), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_rows_for_etl_table(ETL 삭제 시 FK 선삭제), delete_batch_target_registry_and_drop_table
 - try_claim_batch_job_for_run: 배치 실행 전 FOR UPDATE 선점·last_run_status='running' 갱신(중복 실행 방지). create_batch_run, finish_run, update_run_progress, update_job_status, get_last_processed_ts, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
 - mark_stuck_runs_finished: 비활성화 시 해당 배치의 status=running 이력을 error로 마감. force_finish_run_as_cancelled: 실행 취소 시 run을 cancelled로 마감·last_run_status 해제(이력 유지, 재실행 가능).
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
@@ -190,11 +190,13 @@ def list_folder_connections() -> List[dict]:
         ftype_sql = _folder_conn_type_sql_select(ccols, "c")
         fc_creator_join = ""
         fc_creator_sel = ""
+        fc_ui_tbl = None
         if "create_user_id" in ccols:
-            if etl_service._table_exists(cur, schema, "user_info"):
-                fc_creator_join = " LEFT JOIN user_info u_fc ON u_fc.user_id = c.create_user_id "
+            fc_ui_tbl = etl_service._user_info_qualified_table(cur, schema)
+            if fc_ui_tbl:
+                fc_creator_join = f" LEFT JOIN {fc_ui_tbl} u_fc ON u_fc.user_id = c.create_user_id "
                 fc_creator_sel = (
-                    ", c.create_user_id, COALESCE(NULLIF(TRIM(u_fc.user_nickname), ''), NULLIF(TRIM(u_fc.user_email), ''), "
+                    ", c.create_user_id, COALESCE(NULLIF(TRIM(u_fc.user_email), ''), NULLIF(TRIM(u_fc.user_nickname), ''), "
                     "CASE WHEN c.create_user_id IS NOT NULL THEN 'ID ' || c.create_user_id::text ELSE NULL END) AS create_user_label"
                 )
             else:
@@ -216,6 +218,8 @@ def list_folder_connections() -> List[dict]:
         )
         rows = cur.fetchall()
         out = [dict(r) for r in rows]
+        if "create_user_id" in ccols:
+            etl_service._enrich_rows_create_user_label(out)
         for d in out:
             d.setdefault("is_verified", None)
             _normalize_folder_connection_dict(d)
@@ -545,11 +549,13 @@ def _batch_job_select_parts(schema: str, jcols: set) -> tuple[str, str, str, str
     return select_j, join_ec, join_sc, src_name, sto_name
 
 
-def _registry_batch_jobs_cols_sql(jcols: set) -> str:
+def _registry_batch_jobs_cols_sql(jcols: set, fcols: Optional[set] = None) -> str:
     """
-    list_batch_target_registry 메인 SELECT용 batch_jobs(j) 컬럼.
-    구 DDL에 interval_minutes 등이 없을 수 있음 → information_schema 기준 방어.
+    list_batch_target_registry 메인 SELECT용 batch_jobs(j) 컬럼(+ 폴더 연결 c).
+    create_user_id: Job에 없으면 폴더 연결 등록자(batch_folder_connections.create_user_id)로 보강(COALESCE).
+    반드시 AS create_user_id 포함 → _enrich_rows_create_user_label이 core user_info로 이메일 보강 가능.
     """
+    fcols = fcols or set()
     specs = [
         ("job_name", "text"),
         ("folder_connection_id", "integer"),
@@ -565,6 +571,13 @@ def _registry_batch_jobs_cols_sql(jcols: set) -> str:
             parts.append(f"j.{name}")
         else:
             parts.append(f"NULL::{cast} AS {name}")
+    if "create_user_id" in jcols:
+        if fcols and "create_user_id" in fcols and "folder_connection_id" in jcols:
+            parts.append("COALESCE(j.create_user_id, c.create_user_id) AS create_user_id")
+        else:
+            parts.append("j.create_user_id")
+    else:
+        parts.append("NULL::integer AS create_user_id")
     return ", ".join(parts)
 
 
@@ -641,11 +654,13 @@ def list_batch_jobs(
         select_j, join_ec, join_sc, src_name, sto_name = _batch_job_select_parts(schema, jcols)
         creator_join = ""
         creator_sel = "NULL::text AS create_user_label"
+        bj_ui_tbl = None
         if "create_user_id" in jcols:
-            if etl_service._table_exists(cur, schema, "user_info"):
-                creator_join = " LEFT JOIN user_info u_bj ON u_bj.user_id = j.create_user_id "
+            bj_ui_tbl = etl_service._user_info_qualified_table(cur, schema)
+            if bj_ui_tbl:
+                creator_join = f" LEFT JOIN {bj_ui_tbl} u_bj ON u_bj.user_id = j.create_user_id "
                 creator_sel = (
-                    "COALESCE(NULLIF(TRIM(u_bj.user_nickname), ''), NULLIF(TRIM(u_bj.user_email), ''), "
+                    "COALESCE(NULLIF(TRIM(u_bj.user_email), ''), NULLIF(TRIM(u_bj.user_nickname), ''), "
                     "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
                 )
             else:
@@ -685,6 +700,8 @@ def list_batch_jobs(
             if d.get("interval_minutes") is None:
                 d["interval_minutes"] = effective_interval_minutes_from_batch_row(d)
             out.append(d)
+        if "create_user_id" in jcols:
+            etl_service._enrich_rows_create_user_label(out)
         return out
     finally:
         cur.close()
@@ -726,11 +743,13 @@ def get_batch_job(batch_job_id: int) -> Optional[dict]:
             src_sel = "ec.connection_name AS source_connection_name"
         creator_join = ""
         creator_sel = "NULL::text AS create_user_label"
+        gb_ui_tbl = None
         if "create_user_id" in jcols:
-            if etl_service._table_exists(cur, schema, "user_info"):
-                creator_join = " LEFT JOIN user_info u_bj ON u_bj.user_id = j.create_user_id "
+            gb_ui_tbl = etl_service._user_info_qualified_table(cur, schema)
+            if gb_ui_tbl:
+                creator_join = f" LEFT JOIN {gb_ui_tbl} u_bj ON u_bj.user_id = j.create_user_id "
                 creator_sel = (
-                    "COALESCE(NULLIF(TRIM(u_bj.user_nickname), ''), NULLIF(TRIM(u_bj.user_email), ''), "
+                    "COALESCE(NULLIF(TRIM(u_bj.user_email), ''), NULLIF(TRIM(u_bj.user_nickname), ''), "
                     "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
                 )
             else:
@@ -757,6 +776,8 @@ def get_batch_job(batch_job_id: int) -> Optional[dict]:
         _normalize_folder_connection_dict(d)
         if d.get("interval_minutes") is None:
             d["interval_minutes"] = effective_interval_minutes_from_batch_row(d)
+        if "create_user_id" in jcols:
+            etl_service._enrich_rows_create_user_label([d])
         return d
     finally:
         cur.close()
@@ -1134,6 +1155,7 @@ def list_batch_target_registry() -> List[dict]:
     """
     ETL 목록용 배치 타겟 등록 목록. batch_jobs·folder·storage LEFT JOIN으로 job_name, connection_name, storage_connection_name 포함.
     운영 DDL은 batch_job_id NOT NULL. 기존 batch_jobs 행이 레지스트리에 없으면 자동 backfill(upsert) 후 조회.
+    create_user_id: SELECT에 반드시 포함(COALESCE(j, c)로 레거시 Job 미기록 시 폴더 등록자 보강) 후 _enrich_rows_create_user_label로 core 이메일 적용.
     응답 dict에 registry_id가 있으면 프론트 호환용 id에 동일 값 설정.
     """
     api_db = _get_db()
@@ -1187,26 +1209,33 @@ def list_batch_target_registry() -> List[dict]:
             sc_join = ""
             storage_name_sel = "NULL::text AS storage_connection_name"
         order_by = _registry_order_by(rcols)
-        has_user_info = etl_service._table_exists(cur, schema, "user_info")
+        ccols_reg = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
+        reg_ui_tbl = etl_service._user_info_qualified_table(cur, schema) if "create_user_id" in jcols else None
+        reg_creator_uid_sql = "j.create_user_id"
+        if (
+            "create_user_id" in jcols
+            and "create_user_id" in ccols_reg
+            and "folder_connection_id" in jcols
+        ):
+            reg_creator_uid_sql = "COALESCE(j.create_user_id, c.create_user_id)"
         reg_creator_join = ""
         reg_creator_sel = ", NULL::text AS create_user_label"
         if "create_user_id" in jcols:
-            if has_user_info:
-                reg_creator_join = " LEFT JOIN user_info u_reg ON u_reg.user_id = j.create_user_id "
+            if reg_ui_tbl:
+                reg_creator_join = f" LEFT JOIN {reg_ui_tbl} u_reg ON u_reg.user_id = {reg_creator_uid_sql} "
                 reg_creator_sel = (
-                    ", COALESCE(NULLIF(TRIM(u_reg.user_nickname), ''), NULLIF(TRIM(u_reg.user_email), ''), "
-                    "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
+                    ", COALESCE(NULLIF(TRIM(u_reg.user_email), ''), NULLIF(TRIM(u_reg.user_nickname), ''), "
+                    f"CASE WHEN ({reg_creator_uid_sql}) IS NOT NULL THEN 'ID ' || ({reg_creator_uid_sql})::text ELSE NULL END) AS create_user_label"
                 )
             else:
                 reg_creator_sel = (
-                    ", CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END AS create_user_label"
+                    f", CASE WHEN ({reg_creator_uid_sql}) IS NOT NULL THEN 'ID ' || ({reg_creator_uid_sql})::text ELSE NULL END AS create_user_label"
                 )
-        j_list_cols = _registry_batch_jobs_cols_sql(jcols)
+        j_list_cols = _registry_batch_jobs_cols_sql(jcols, ccols_reg)
         if "folder_connection_id" in jcols:
             join_folder = f'LEFT JOIN {_q(schema, "batch_folder_connections")} c ON j.folder_connection_id = c.folder_connection_id'
         else:
             join_folder = f'LEFT JOIN {_q(schema, "batch_folder_connections")} c ON FALSE'
-        ccols_reg = etl_service._table_columns_lower(cur, schema, "batch_folder_connections")
         fconn_type_reg = _folder_conn_type_sql_select(ccols_reg, "c")
         cur.execute(
             f"""
@@ -1227,6 +1256,8 @@ def list_batch_target_registry() -> List[dict]:
         )
         rows = cur.fetchall()
         out = [_row_to_dict(r) for r in rows]
+        if "create_user_id" in jcols:
+            etl_service._enrich_rows_create_user_label(out)
         for d in out:
             _normalize_folder_connection_dict(d)
             rid = d.get("registry_id")

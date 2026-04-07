@@ -1,7 +1,7 @@
 /**
  * packages/etl/etl.css
  * ETL 페이지 스타일. Phase 5: 소스 선택·폼·목록·Job 로그.
- * Phase 6: etl-db-form__message--warning(PK 미설정 경고), etl-db-form__status-badge(ETL 목록·배치 Job 공통 상태 뱃지).
+ * Phase 6: etl-db-form__message--warning(PK 미설정 경고), etl-db-form__status-badge(ETL 목록·배치 Job 공통 상태 뱃지). 넓은 테이블 가로 스크롤: etl-db-form__table-wrap(등록 ETL·배치 Job 목록 공통), 툴바는 래퍼 밖.
  * TargetTableSelectModal: etl-target-select-modal__transform-guidance(변환 타입·적재 안내).
  * 파일 폼: 드래그 오버(--over)·파일 선택됨(--has) 시 가시적 드롭존 스타일.
  * 색상: styles/design-tokens.css 브랜드(Starbucks 그린) — --color-action-primary, --primary-light, --color-text, --color-border-light 등.
@@ -915,7 +915,12 @@
 }
 .etl-db-form__table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   margin-top: 12px;
+}
+/* ETL 등록 목록: 위에 이미 툴바 여백이 있어 래퍼 상단 마진 생략 */
+.etl-table-list > .etl-db-form__table-wrap {
+  margin-top: 0;
 }
 /* 실행 이력 모달 등: 테이블 스크롤을 보이는 창 안에 두기 위해 최대 높이 제한 후 스크롤 */
 .etl-db-form__table-wrap--viewport-scroll {
@@ -953,10 +958,7 @@
   vertical-align: middle;
   padding: 10px 12px;
 }
-.etl-db-form__table--compact .etl-db-form__btn,
-.etl-db-form__table--compact .etl-db-form__btn--sm {
-  font-size: 0.8rem;
-}
+/* compact 테이블의 글자 버튼은 전역 sm 크기 유지(× 전용 축소는 etl-table-list__delete-row만) */
 .etl-db-form__table th,
 .etl-db-form__table td {
   padding: 8px 12px;
@@ -969,7 +971,7 @@
   background: var(--primary-light);
   font-weight: 600;
 }
-/* 배치 Job 목록: 상단 여백, 툴바·새로고침 */
+/* 배치 Job 목록: 상단 여백, 툴바(새로고침은 shared-ui ibank-btn-toolbar--secondary) */
 .etl-batch-job-list__section {
   margin-top: 24px;
 }
@@ -977,25 +979,6 @@
   display: flex;
   justify-content: flex-end;
   margin-bottom: 10px;
-}
-.etl-batch-job-list__refresh {
-  padding: 8px 14px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  font-family: var(--font-sans);
-  border: 1px solid rgba(0, 112, 74, 0.35);
-  border-radius: var(--radius-btn-lg);
-  background: #fff;
-  color: var(--color-action-primary);
-  cursor: pointer;
-}
-.etl-batch-job-list__refresh:hover:not(:disabled) {
-  background: var(--primary-light);
-  border-color: var(--color-action-primary);
-}
-.etl-batch-job-list__refresh:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
 }
 /* 배치 Job 목록: ETL 목록과 동일하게 셀·동작 버튼 줄바꿈 방지 */
 .etl-db-form__table.etl-batch-job-list__table {
@@ -1009,19 +992,23 @@
 .etl-batch-job-list__actions {
   display: inline-flex;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
   white-space: nowrap;
 }
+/* 테이블 동작 열용 소형 버튼(텍스트 라벨). 행만 삭제 ×는 ETLTableList에서 .etl-table-list__delete-row로 더 작게 */
 .etl-db-form__btn--sm {
-  padding: 6px 10px;
-  font-size: 0.8rem;
-  border-radius: var(--radius-pill);
-}
-.etl-db-form__btn--sm.etl-db-form__btn--primary {
   padding: 6px 12px;
   font-size: 0.8rem;
-  border-radius: var(--radius-pill);
+  font-weight: 500;
+  border-radius: 6px;
+  line-height: 1.25;
+  min-height: 0;
+}
+.etl-db-form__btn--sm.etl-db-form__btn--primary {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  border-radius: 6px;
 }
 .etl-db-form__test-ok {
   color: var(--color-action-primary);
@@ -1044,37 +1031,17 @@
   color: var(--color-text-muted);
 }
 
-/* ETL 목록 */
+/* ETL 등록 목록 — 툴바는 etl-db-form__table-wrap 밖, 가로 스크롤은 배치 Job 목록과 동일 래퍼 */
 .etl-table-list {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 .etl-table-list__toolbar {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 10px;
 }
-.etl-table-list__refresh {
-  padding: 8px 14px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  font-family: var(--font-sans);
-  border: 1px solid rgba(0, 112, 74, 0.35);
-  border-radius: var(--radius-btn-lg);
-  background: #fff;
-  color: var(--color-action-primary);
-  cursor: pointer;
-}
-.etl-table-list__refresh:hover:not(:disabled) {
-  background: var(--primary-light);
-  border-color: var(--color-action-primary);
-}
-.etl-table-list__refresh:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
 .etl-table-list__table {
-  width: 100%;
+  width: max-content;
   min-width: 880px;
   border-collapse: collapse;
   font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
@@ -1176,6 +1143,22 @@
   font-size: 0.92em;
   color: var(--color-text-muted);
 }
+/* 생성자 열: admin-users__email-cell(ETLPage에서 admin-users.css 로드)이 셀 폭을 넘지 않도록 */
+.etl-table-list__cell-creator .admin-users__email-cell,
+.etl-batch-job-list__cell-creator .admin-users__email-cell,
+.etl-history__cell-creator .admin-users__email-cell {
+  max-width: 100%;
+  min-width: 0;
+}
+.etl-table-list__cell-actions .etl-batch-job-list__actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+.etl-table-list__cell-actions .etl-batch-job-list__actions .etl-db-form__btn--sm {
+  flex-shrink: 0;
+}
 .etl-table-list__select-row-error,
 .etl-table-list__select-sync-mode {
   font-size: inherit;
@@ -1204,7 +1187,7 @@
   color: var(--color-text);
   border-color: var(--color-text-muted);
 }
-/* 동작 열 버튼: BatchJobListFile과 동일 etl-db-form__btn--sm(필·세컨더리·위험). 실행 중 라벨만 보조 굵기 */
+/* 동작 열: 미리보기·실행·삭제 등은 sm 기본(0.8rem). × 한 줄 삭제만 etl-table-list__delete-row로 축소 */
 .etl-table-list__run--busy:disabled {
   font-weight: 500;
 }
@@ -1215,14 +1198,15 @@
   background: #fef3c7;
 }
 /* 상태 열: ETLTableList는 etl-db-form__status-badge + 변형(배치 Job 목록과 동일) */
-.etl-table-list__cell-actions .etl-table-list__delete-row {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
+.etl-table-list__cell-actions .etl-db-form__btn--sm.etl-table-list__delete-row {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
   padding: 0;
-  margin-left: 4px;
-  font-size: 1.15rem;
+  margin-left: 3px;
+  font-size: 0.85rem;
   line-height: 1;
+  border-radius: 4px;
 }
 .etl-table-list__delete-row:disabled {
   opacity: 0.65;
@@ -1443,11 +1427,14 @@
 .etl-history__check input { cursor: pointer; }
 .etl-history__table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 .etl-history__table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
+  font-size: clamp(0.66rem, 0.28rem + 1vw, 0.8rem);
 }
 .etl-history__table th,
 .etl-history__table td {

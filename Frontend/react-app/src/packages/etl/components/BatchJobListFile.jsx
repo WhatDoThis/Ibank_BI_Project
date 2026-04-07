@@ -7,9 +7,10 @@
  * [Main Functions]
  * ===========
  * 1. batchListJobs() 로 목록 조회 (mount, refreshKey 변경 시)
- * 2. 테이블: job_name, folder, file_pattern, storage, 주기, 상태, 마지막 상태(뱃지), 마지막 실행, 다음 예상, 동작
- * 3. 툴바: 새로고침 버튼(loadList) — 목록만 재조회
- * 4. 동작: 활성/비활성(batchToggleJob), 주기 수정(batchUpdateJob), 즉시 실행(batchRunJobNow), 이력(onOpenHistory?), 삭제(batchDeleteJob + 확인)
+ * 2. 테이블: … 마지막 실행·다음 예상 다음에 생성자(동작 직전), create_user_label·이메일셀 패턴, 동작
+ * 3. 본인 배지: adminAccess `isEtlCreateLabelSelf(me, create_user_label, create_user_id)` + `/me`의 email·user_id 정합 (docs/log/log.md 219)
+ * 4. 툴바: 새로고침(ibank-btn-toolbar--secondary, ETL 등록 목록과 동일) — 목록만 재조회
+ * 5. 동작: 활성/비활성(batchToggleJob), 주기 수정(batchUpdateJob), 즉시 실행(batchRunJobNow), 이력(onOpenHistory?), 삭제(batchDeleteJob + 확인)
  *
  * [Props]
  * =====
@@ -22,6 +23,7 @@
  * =========
  * - React, @/packages/etl/api/etlClient.js (batchListJobs, batchToggleJob, batchRunJobNow, batchDeleteJob)
  * - ../utils/storageDb.js (formatEtlStorageLabel)
+ * - @/app/admin/adminAccess.js (isEtlCreateLabelSelf), @/app/auth/AuthContext.jsx (me)
  * - etl.css (etl-db-form__table, etl-db-form__status--*)
  */
 
@@ -36,10 +38,13 @@ import {
 } from '@/packages/etl/api/etlClient.js';
 import { formatEtlStorageLabel } from '../utils/storageDb.js';
 import SkippedFilesPanelFile from './SkippedFilesPanelFile';
+import { useAuth } from '@/app/auth/AuthContext.jsx';
+import { isEtlCreateLabelSelf } from '@/app/admin/adminAccess.js';
 import '../etl.css';
 
 // 1.
 function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFilter = null, embedded = false }) {
+  const { me } = useAuth();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -212,7 +217,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
   const refreshBtn = (
     <button
       type="button"
-      className="etl-batch-job-list__refresh"
+      className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
       onClick={() => loadList()}
       disabled={loading}
       aria-label="목록 새로고침"
@@ -259,7 +264,6 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
             <tr>
               <th>유형</th>
               <th>Job 이름</th>
-              <th className="etl-batch-job-list__th-creator">등록자</th>
               <th>{jobTypeFilter === 'db' ? '소스 연결' : jobTypeFilter === 'file' ? '폴더' : '소스/폴더'}</th>
               <th>{jobTypeFilter === 'db' ? '소스 테이블' : jobTypeFilter === 'file' ? '파일 패턴' : '소스/패턴'}</th>
               <th>저장 DB</th>
@@ -268,6 +272,7 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
               <th>마지막 상태</th>
               <th>마지막 실행 시각</th>
               <th>다음 예상 실행</th>
+              <th className="etl-batch-job-list__th-creator">생성자</th>
               <th>동작</th>
             </tr>
           </thead>
@@ -300,7 +305,6 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
                       {noPk && <span className="etl-db-form__message etl-db-form__message--warning" style={{ marginLeft: '6px', fontSize: '0.8rem' }} title="중복 행 발생 가능">PK 미설정</span>}
                     </span>
                   </td>
-                  <td className="etl-batch-job-list__cell-creator" title={row.create_user_label || ''}>{row.create_user_label || '—'}</td>
                   <td>{folderName}</td>
                   <td>{patternCell}</td>
                   <td>{storageName}</td>
@@ -309,6 +313,18 @@ function BatchJobListFile({ onSuccess, refreshKey = 0, onOpenHistory, jobTypeFil
                   <td><span className={getStatusClass(lastStatus)}>{getStatusLabel(lastStatus)}</span></td>
                   <td>{displayLastRunAt}</td>
                   <td title={nextRun !== '-' ? `다음 예상: ${nextRun}` : undefined}>{nextRun}</td>
+                  <td className="etl-batch-job-list__cell-creator">
+                    <span className="admin-users__email-cell">
+                      <span className="admin-users__email-text" title={row.create_user_label || ''}>
+                        {row.create_user_label || '—'}
+                      </span>
+                      {isEtlCreateLabelSelf(me, row.create_user_label, row.create_user_id) ? (
+                        <span className="admin-users__self-badge" title="본인 계정">
+                          본인
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td>
                     <div className="etl-batch-job-list__actions">
                       <button

@@ -9,11 +9,12 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/notificationsClient, shared/utils/crudConfirm
+ * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { postAcceptProjectInvite } from '@/shared/api/authClient.js'
 import {
   getNotifications,
   getUnreadCount,
@@ -39,6 +40,16 @@ function formatDtm(iso) {
 function isUnread(row) {
   const r = (row.read_yn || '').toUpperCase()
   return r !== 'Y'
+}
+
+function parseProjectInviteContent(raw) {
+  try {
+    const o = JSON.parse(raw || '{}')
+    const pid = o.project_info_id
+    return pid != null ? Number(pid) : null
+  } catch {
+    return null
+  }
 }
 
 export function NotificationBell() {
@@ -119,6 +130,20 @@ export function NotificationBell() {
     }
   }
 
+  async function handleAcceptProjectInvite(row) {
+    const nid = row.notification_info_id
+    const pid = parseProjectInviteContent(row.noti_content)
+    if (nid == null || pid == null || Number.isNaN(pid)) return
+    if (!confirmCrud('프로젝트 초대를 수락할까요?')) return
+    try {
+      await postAcceptProjectInvite(pid, { notification_info_id: Number(nid) })
+      await refreshCount()
+      await loadList()
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div className="nb-wrap" ref={wrapRef}>
       <button
@@ -146,20 +171,42 @@ export function NotificationBell() {
             ) : items.length === 0 ? (
               <div className="nb-empty">알림이 없습니다.</div>
             ) : (
-              items.map((row) => (
-                <button
-                  key={String(row.notification_info_id)}
-                  type="button"
-                  className={`nb-item ${isUnread(row) ? 'nb-item--unread' : ''}`}
-                  onClick={() => handleReadOne(row)}
-                >
-                  <div className="nb-item__title">{row.noti_title || '(제목 없음)'}</div>
-                  {row.noti_content ? (
-                    <div className="nb-item__meta">{row.noti_content}</div>
-                  ) : null}
-                  <div className="nb-item__meta">{formatDtm(row.create_dtm)}</div>
-                </button>
-              ))
+              items.map((row) => {
+                const isInvite = (row.noti_type || '').trim() === 'project_invite'
+                const invitePid = isInvite ? parseProjectInviteContent(row.noti_content) : null
+                return (
+                  <div
+                    key={String(row.notification_info_id)}
+                    className={`nb-item ${isUnread(row) ? 'nb-item--unread' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="nb-item__main"
+                      onClick={() => handleReadOne(row)}
+                    >
+                      <div className="nb-item__title">{row.noti_title || '(제목 없음)'}</div>
+                      {!isInvite && row.noti_content ? (
+                        <div className="nb-item__meta">{row.noti_content}</div>
+                      ) : null}
+                      <div className="nb-item__meta">{formatDtm(row.create_dtm)}</div>
+                    </button>
+                    {isInvite && invitePid != null && !Number.isNaN(invitePid) ? (
+                      <div className="nb-item__actions">
+                        <button
+                          type="button"
+                          className="nb-item__accept"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAcceptProjectInvite(row)
+                          }}
+                        >
+                          수락
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })
             )}
           </div>
         </div>

@@ -1,6 +1,27 @@
 # Log
 
 ## Log Index
+224. 2026-04-03 프로젝트 생성 전면 개편: creator_pmssn·테이블·멤버·타부서 초대·수락 API
+223. 2026-04-03 ETL batch_target_registry: create_user_id SELECT 누락 보완·폴더 등록자 COALESCE로 생성자 이메일 보강
+222. 2026-04-03 사용자관리: 등록 부서 목록·생성자 이관(dptmt_creator)·역할 변경 스마트 가드(409)
+221. 2026-04-03 ETL 패키지: 생성자 본인 배지 정합(adminAccess·log219) 모듈 주석·Dependencies 보강
+220. 2026-04-02 update_user_management 역할 UPDATE 들여쓰기 수정(허용 역할도 DB 미반영 버그)
+219. 2026-04-03 생성자「본인」배지: /api/auth/me 의 email·user_id와 목록 FK 정합
+218. 2026-04-03 ETL 등록·배치 Job 테이블: 생성자 열을 동작 열 바로 앞으로 이동
+217. 2026-04-03 사용자 변경·정지: 소유 매트릭스 스마트 검사(409·blocking_assets)·ownership_guards
+216. 2026-04-03 ETL 목록 동작 열: 글자 버튼 sm 크기 복구·×(행 삭제)만 소형 유지
+215. 2026-04-03 ETL create_user_label: user_info JOIN만 쓸 때 core 보강 누락으로「ID n」표시되던 문제 수정
+214. 2026-04-03 사용자 변경: 역할 미변경 시 소유물 검사 생략(etl_yn만 부여 가능)
+213. 2026-04-03 ETL 등록·배치 Job 목록: 테이블 스크롤 래퍼 통일(etl-db-form__table-wrap)·새로고침 버튼 통일(ibank secondary)
+212. 2026-04-03 ETL 관리자 표시·권한 정합: etl_yn vs 프로젝트 pmssn 안내·etl_manager 판별·u 역할 시 etl_yn 동기화
+211. 2026-04-03 ETL 등록 목록: 새로고침 툴바를 테이블 가로 스크롤 밖으로 분리(ibank-btn-toolbar)
+210. 2026-04-03 관리·ETL 생성자 열: 이메일 셀 패턴으로 통일(전원 배지 제거)
+209. 2026-04-03 프로젝트 생성: 기본 pmssn_master 선택 로직 수정·오류 문구 정리
+208. 2026-04-03 관리·ETL 테이블 작업 열 nowrap·가로 스크롤·생성자 admin-users 배지
+207. 2026-04-03 ETL create_user_label: user_info 크로스 스키마 JOIN·core DB 보강
+206. 2026-04-03 ETL UI: 테이블 동작 버튼 소형화·열 헤더「생성자」통일
+205. 2026-04-03 Admin·ETL API: 목록 creator_email·create_user_label 이메일 우선
+204. 2026-04-02 사용자관리: 본인 배지(이메일 옆)·작업 열 비활성 버튼 title 툴팁
 203. 2026-04-02 docs/report: ETL 단일 스택 경로 정합(09·etc01·ReportIndex)
 202. 2026-04-02 docs/main·README·requirements 정합(로그·코드 기준)
 201. 2026-04-02 Backend 로깅 정리(포맷 유지·태그 메시지·노이즈 제거)
@@ -206,6 +227,169 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+224. 2026-04-03 프로젝트 생성 전면 개편: creator_pmssn·테이블·멤버·타부서 초대·수락 API
+Purpose: 시스템 기본 pmssn 자동 배정 제거. 생성 API 확장·알림 수락·관리 화면 모달·문서 인덱스 갱신.
+Changes:
+
+- Backend: `create_project_full`, `accept_project_invite`, `GET /users?scope=dept_tree`, `GET /tables?sort=project_create`, 스키마 `ProjectCreateBody` 확장
+- Frontend: `AdminProjectsPage` 생성 모달, `NotificationBell` project_invite 수락, `adminClient`·`authClient` API 래퍼
+- docs: `00_ReportIndex`에 19번, `docs/report/19_Project_Creation_Overhaul.md` 참고
+Changed files: Backend/admin_server/service_projects.py, service_users.py, service_tables.py, router.py, schemas.py, Backend/project_server/service.py, router.py, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, admin-pages.css, shared/api/adminClient.js, authClient.js, app/layout/NotificationBell.jsx, notification-bell.css, docs/report/00_ReportIndex.md, docs/log/log.md
+
+223. 2026-04-03 ETL batch_target_registry: create_user_id SELECT 누락 보완·폴더 등록자 COALESCE로 생성자 이메일 보강
+Purpose: `list_batch_target_registry` 메인 SELECT에 `j.create_user_id`가 없어 `_enrich_rows_create_user_label`이 동작하지 않고 SQL 폴백 `ID n`만 노출되던 문제 수정. `_registry_batch_jobs_cols_sql`에 `create_user_id`(가능 시 `COALESCE(j.create_user_id, c.create_user_id)`) 추가, `user_info` JOIN·라벨 CASE도 동일 식 사용.
+Changes: `Backend/etl_server/service_file.py` (`_registry_batch_jobs_cols_sql`, `list_batch_target_registry`)
+
+Changed files: Backend/etl_server/service_file.py, docs/log/log.md
+
+222. 2026-04-03 사용자관리: 등록 부서 목록·생성자 이관(dptmt_creator)·역할 변경 스마트 가드(409)
+Purpose: work-assets에 dptmt_create_user_id 부서 표시, 이관은 동일 부서 트리 내 SA·SA_DEV만, SA가 비SA로 변경 시 등록 부서 잔존 시 409·blocking_assets
+Changes:
+
+- get_user_work_assets: created_departments, 이관 API resource_type dptmt_creator·list_department_creator_transfer_targets·transfer_resource_ownership
+- ownership_guards: dptmt_creator 논리 타입·build_ownership_violation_payload departments
+- update_user_management: 부서 생성자 전용 ValueError 제거(가드로 일원화)
+- AdminUsersPage·adminClient: 섹션·이관 모달·ownershipGroupTitle
+Changed files: Backend/admin_server/service_users.py, ownership_guards.py, router.py, schemas.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/shared/api/adminClient.js
+
+221. 2026-04-03 ETL 패키지: 생성자 본인 배지 정합(adminAccess·log219) 모듈 주석·Dependencies 보강
+Purpose: 동작 코드는 이미 `isEtlCreateLabelSelf(me, label, create_user_id)` 사용 중 — 파일 상단에 `/api/auth/me`의 `email`·`user_id`와의 정합·log 219 교차 참조를 명시해 이후 수정 시 회귀 방지.
+Changes: `ETLTableList.jsx`, `BatchJobListFile.jsx`, `FolderConnectionListFile.jsx`, `JobHistoryPanel.jsx` docstring·Dependencies
+
+Changed files: Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, BatchJobListFile.jsx, FolderConnectionListFile.jsx, JobHistoryPanel.jsx, docs/log/log.md
+
+220. 2026-04-02 update_user_management 역할 UPDATE 들여쓰기 수정(허용 역할도 DB 미반영 버그)
+Purpose: 허용된 역할 변경 시에도 user_dvsn UPDATE가 실행되지 않던 논리 오류 수정
+Changes:
+
+- `if nd not in allowed: raise` 이후의 `if td_before != nd`·UPDATE·u일 때 etl_yn 동기화 블록을 동일 `if user_dvsn is not None` 수준으로 이동(허용 시에만 실행)
+Changed files: Backend/admin_server/service_users.py
+
+219. 2026-04-03 생성자「본인」배지: /api/auth/me 의 email·user_id와 목록 FK 정합
+Purpose: `isCreatorSelfEmail`이 `me.user_email`만 읽어 `/me` 응답(`email`)과 불일치·본인 배지 미표시. `meLoginEmail`·`isCreatorSelf`(이메일 또는 project_create_user_id·dptmt_create_user_id·creator_user_id·create_user_id)로 수정. ETL은 `create_user_id` 인자 추가.
+Changes: `adminAccess.js`, admin·ETL 생성자 열, `service_projects`·`service_users` 부서·`service_roles` 목록에 생성자 FK 포함
+
+Changed files: Frontend/react-app/src/app/admin/adminAccess.js, AdminOrgPage.jsx, AdminRolesPage.jsx, AdminProjectsPage.jsx, packages/etl/components/ETLTableList.jsx, BatchJobListFile.jsx, FolderConnectionListFile.jsx, JobHistoryPanel.jsx, Backend/admin_server/service_projects.py, service_users.py, service_roles.py, docs/log/log.md
+
+218. 2026-04-03 ETL 등록·배치 Job 테이블: 생성자 열을 동작 열 바로 앞으로 이동
+Purpose: `etl-table-list__table`은 저장 DB → 상태 → 생성자 → 동작 순으로 정렬. `etl-batch-job-list__table`은 유형·Job 이름·소스…·다음 예상 실행 다음에 생성자·동작.
+Changes: `ETLTableList.jsx`, `BatchJobListFile.jsx`, `docs/log/log.md`
+
+Changed files: Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, BatchJobListFile.jsx, docs/log/log.md
+
+217. 2026-04-03 사용자 변경·정지: 소유 매트릭스 스마트 검사(409·blocking_assets)·ownership_guards
+Purpose: 목표 `user_dvsn`·`etl_yn`(또는 정지) 기준으로 프로젝트·커스텀 pmssn·table_master·ETL 메타 소유 가능 여부를 매트릭스로 판정. 불가 시 409·`blocking_assets`·`allowed_assets`. 프론트 변경 모달·정지 안내 모달. `user_has_transferable_ownership`·`_assert_role_change_allowed_for_owned_assets` 제거.
+Changes: `ownership_guards.py`, `service_users.py`, `router.py`, `AdminUsersPage.jsx`, `admin-users.css`, `docs/log/log.md`
+
+Changed files: Backend/admin_server/ownership_guards.py, Backend/admin_server/service_users.py, Backend/admin_server/router.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+216. 2026-04-03 ETL 목록 동작 열: 글자 버튼 sm 크기 복구·×(행 삭제)만 소형 유지
+Purpose: 전역 `.etl-db-form__btn--sm`를 과도하게 줄여 등록 ETL·배치 등 테이블의「미리보기·실행·삭제」까지 모두 작아진 문제를 바로잡는다. × 한 건만 `.etl-db-form__btn--sm.etl-table-list__delete-row`로 22px 고정.
+Changes: `etl.css` — sm 패딩·글자 크기 복구, compact 테이블에서 sm 0.7rem 강제 제거, delete-row 셀렉터에 `.etl-db-form__btn--sm` 포함해 글자 버튼 규칙과 구분
+
+Changed files: Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+215. 2026-04-03 ETL create_user_label: user_info JOIN만 쓸 때 core 보강 누락으로「ID n」표시되던 문제 수정
+Purpose: ETL DB 스키마에 `user_info`가 있으면 SQL LEFT JOIN만 수행하고 `_enrich_rows_create_user_label`(system_core 정본)을 호출하지 않아, ETL 쪽 `user_info`에 해당 `user_id` 행이 없거나 이메일·닉네임이 비어 있으면 `ID 4` 같은 폴백만 노출되었다. 사용자 이관 누락이 아니라 보강 조건(`not ui_tbl`일 때만 호출) 버그다.
+Changes:
+
+- `service.py`: `list_etl_tables`, `get_etl_table`, `list_jobs`에서 `create_user_id` 컬럼이 있으면 JOIN 여부와 관계없이 `_enrich_rows_create_user_label` 호출. 함수 docstring·모듈 헤더 설명 갱신.
+- `service_file.py`: `list_folder_connections`, `list_batch_jobs`, `get_batch_job`, `list_batch_target_registry` 동일.
+
+Changed files: Backend/etl_server/service.py, Backend/etl_server/service_file.py, docs/log/log.md
+
+214. 2026-04-03 사용자 변경: 역할 미변경 시 소유물 검사 생략(etl_yn만 부여 가능)
+Purpose: `PUT .../management`에 `user_dvsn`이 항상 포함될 때, 캐논 역할이 기존과 같으면 `_assert_role_change_allowed_for_owned_assets`·`UPDATE user_dvsn`·u일 때 etl_yn 클리어를 건너뜀. 동일 dvsn에서 etl_yn·부서·프로젝트만 바꿀 수 있음.
+Changes: `Backend/admin_server/service_users.py` `update_user_management`
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+213. 2026-04-03 ETL 등록·배치 Job 목록: 테이블 스크롤 래퍼 통일(etl-db-form__table-wrap)·새로고침 버튼 통일(ibank secondary)
+Purpose: 등록 ETL만 `etl-table-list__table-wrap`를 쓰던 것을 배치 Job 목록과 동일한 `etl-db-form__table-wrap`로 맞추고, 배치 쪽 전용 `etl-batch-job-list__refresh` 스타일을 제거해 같은 화면의 새로고침이 모두 `ibank-btn-toolbar ibank-btn-toolbar--secondary`로 보이게 한다. 터치 스크롤은 공용 래퍼에 `-webkit-overflow-scrolling: touch`를 추가하고, ETL 목록은 툴바 아래 중복 여백을 피하려 `.etl-table-list > .etl-db-form__table-wrap { margin-top: 0 }`로 조정한다.
+Changes:
+
+- `ETLTableList.jsx`: 테이블을 `etl-db-form__table-wrap`로 감쌈
+- `BatchJobListFile.jsx`: 새로고침 클래스를 ibank 툴바 secondary로 변경
+- `etl.css`: `etl-table-list__table-wrap` 제거, `etl-batch-job-list__refresh` 블록 제거, `etl-db-form__table-wrap` 보강 및 ETL 목록 하위 마진 오버라이드
+
+Changed files: Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, BatchJobListFile.jsx, packages/etl/etl.css, docs/log/log.md
+
+212. 2026-04-03 ETL 관리자 표시·권한 정합: etl_yn vs 프로젝트 pmssn 안내·etl_manager 판별·u 역할 시 etl_yn 동기화
+Purpose: 사용자관리「ETL 관리」열이 `user_info.etl_yn`·SA_DEV(및 레거시 etl_manager)만 반영함을 UI에 명시. 프로젝트 권한(project_all 등)만 바꿔서는 열이 안 바뀌는 것이 정상임을 안내. `permissions.user_has_etl_infrastructure_access`에서 etl_manager가 canon 후 비교되어 도달 불가이던 버그 수정. `update_user_management`에서 조직 역할을 u로 변경 시 etl_yn을 N으로 맞춤(이후 본문 etl_yn이 있으면 그대로 재설정 가능).
+Changes: `permissions.py`, `service_users.py`, `AdminUsersPage.jsx`, `etlAccess.js`, `docs/log/log.md`
+
+Changed files: Backend/auth_server/permissions.py, Backend/admin_server/service_users.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/guards/etlAccess.js, docs/log/log.md
+
+211. 2026-04-03 ETL 등록 목록: 새로고침 툴바를 테이블 가로 스크롤 밖으로 분리(ibank-btn-toolbar)
+Purpose: `.etl-table-list`에 걸려 있던 `overflow-x: auto` 때문에 새로고침 버튼이 넓은 테이블과 함께 가로로 밀려 보이던 문제를 제거한다. 부서 관리의 `admin-org__table-wrap`과 같이 스크롤은 테이블 래퍼만 담당한다.
+Changes:
+
+- `ETLTableList.jsx`: `<div class="etl-table-list__table-wrap">`로 `<table>`만 감쌈, 새로고침에 `ibank-btn-toolbar ibank-btn-toolbar--secondary`
+- `etl.css`: 루트 overflow 제거, `__table-wrap`에 가로 스크롤, 전용 `__refresh` 스타일 제거(공용 툴바로 대체)
+- `JobHistoryPanel.jsx`: 동일 툴바 클래스로 정합(삭제된 `__refresh` CSS 의존 제거)
+
+Changed files: Frontend/react-app/src/packages/etl/components/ETLTableList.jsx, JobHistoryPanel.jsx, packages/etl/etl.css, docs/log/log.md
+
+210. 2026-04-03 관리·ETL 생성자 열: 이메일 셀 패턴으로 통일(전원 배지 제거)
+Purpose: 생성자 이메일/라벨을 `admin-users__self-badge`로 감싸 전부 pill처럼 보이던 것을 사용자 관리의 `admin-users__email-cell` + `admin-users__email-text`와 동일하게 표시하고, 본인 행만「본인」배지를 붙인다.
+Changes:
+
+- `adminAccess.js`: `isCreatorSelfEmail`, `isEtlCreateLabelSelf`
+- 부서·권한·프로젝트: JSX 교체, `ap__creator-cell`·`admin-org__creator-cell` CSS 정리(배지 래퍼 제거)
+- ETL 목록·배치·폴더연결·이력: 동일 패턴, `etl.css` 생성자 열 폭 규칙 갱신
+
+Changed files: Frontend/react-app/src/app/admin/adminAccess.js, AdminOrgPage.jsx, AdminRolesPage.jsx, AdminProjectsPage.jsx, admin-pages.css, admin-org.css, packages/etl/components/ETLTableList.jsx, BatchJobListFile.jsx, FolderConnectionListFile.jsx, JobHistoryPanel.jsx, packages/etl/etl.css, docs/log/log.md
+
+209. 2026-04-03 프로젝트 생성: 기본 pmssn_master 선택 로직 수정·오류 문구 정리
+Purpose: `default_manager_pmssn_master_id`가 `"admin" in names`로만 판별해 실제 시드(pmssn_list=query.read 등)와 맞지 않아 생성이 실패하고, 사용자에게 DB 시드 오류로 오인될 수 있던 문제를 수정한다.
+Changes:
+
+- `service_projects.default_manager_pmssn_master_id`: `관리자` 역할명·전체 프로젝트 기능 ID 집합 포함 여부로 우선 선택, 없으면 시스템 기본 첫 행 fallback. 시드 0건일 때만 `프로젝트 생성 권한이 없습니다.` 반환.
+
+Changed files: Backend/admin_server/service_projects.py, docs/log/log.md
+
+208. 2026-04-03 관리·ETL 테이블 작업 열 nowrap·가로 스크롤·생성자 admin-users 배지
+Purpose: 부서·사용자·권한·프로젝트 관리 및 ETL 목록에서 작업 열 버튼이 세로로 줄바꿈되지 않도록 레이아웃·폰트·래퍼 스크롤을 정리하고, 생성자 열은 사용자 관리와 동일한 `admin-users__self-badge` 칩으로 통일.
+Changes:
+
+- admin: `admin-pages.css`, `admin-org.css`, `admin-users.css` — `ap__cell-actions`·`admin-org__actions` 등 inline-flex nowrap, 테이블 `max-content`·가로 스크롤, 생성자 래퍼+배지
+- admin JSX: `AdminOrgPage`, `AdminUsersPage`, `AdminRolesPage`, `AdminProjectsPage`, `AdminProjectMembersPage` — 작업/생성자 클래스 정합
+- ETL: `ETLPage.jsx`에서 `admin-users.css` 로드, `ETLTableList`·`BatchJobListFile`·`FolderConnectionListFile`·`JobHistoryPanel` 생성자에 배지, `etl.css`에 `etl-creator-badge-in-cell`·이력/목록 테이블 스크롤·배치 동작 열 버튼 `flex-shrink: 0`
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, admin-org.css, admin-users.css, AdminOrgPage.jsx, AdminUsersPage.jsx, AdminRolesPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, Frontend/react-app/src/packages/etl/ETLPage.jsx, etl.css, ETLTableList.jsx, BatchJobListFile.jsx, FolderConnectionListFile.jsx, JobHistoryPanel.jsx, docs/log/log.md
+
+207. 2026-04-03 ETL create_user_label: user_info 크로스 스키마 JOIN·core DB 보강
+Purpose: ETL 메타 스키마(etl_db.table_schema)에 `user_info`가 없어 `create_user_label`이 항상 `ID n`으로만 나오던 문제 수정. `user_info`는 system_db 스키마(보통 public)에만 있는 전형적 배포를 지원한다.
+Changes:
+
+- service.py: `_user_info_qualified_table`(ETL 스키마→core_schema→public 순 탐색), `_enrich_rows_create_user_label`(ETL DB에 user_info 없을 때 get_db_connection_system_core로 일괄 조회). list_etl_tables·get_etl_table·list_jobs에 적용.
+- service_file.py: 폴더 연결·배치 Job·레지스트리 목록/단건 동일 패턴 및 보강.
+
+Changed files: Backend/etl_server/service.py, Backend/etl_server/service_file.py, docs/log/log.md
+
+206. 2026-04-03 ETL UI: 테이블 동작 버튼 소형화·열 헤더「생성자」통일
+Purpose: ETL 목록·배치·이력·폴더 연결 테이블의 삭제 등 동작 버튼이 커서 오클릭 위험이 있어 `etl-db-form__btn--sm`·`etl-table-list__delete-row` 크기를 축소. 용어는 관리자 화면과 맞춰 등록자→생성자.
+Changes:
+
+- etl.css: `btn--sm` 패딩·글자 크기 축소, compact 테이블 내 버튼 폰트 축소, 동작 열 `gap` 축소, 삭제(×) 셀 32px→22px
+- ETLTableList, BatchJobListFile, JobHistoryPanel, FolderConnectionListFile: 테이블 헤더「생성자」
+
+Changed files: Frontend/react-app/src/packages/etl/etl.css, ETLTableList.jsx, BatchJobListFile.jsx, JobHistoryPanel.jsx, FolderConnectionListFile.jsx, docs/log/log.md
+
+205. 2026-04-03 Admin·ETL API: 목록 creator_email·create_user_label 이메일 우선
+Purpose: 관리자 프로젝트·역할·부서 목록에 생성자 이메일 노출, ETL 메타 등록자 라벨은 이메일→닉네임→ID 순.
+Changes:
+
+- admin_server: list_projects_in_dept·list_projects_for_participant에 creator_email, list_roles_for_dept에 creator_email(MAX), list_departments_for_org_settings에 creator_email·CTE에 dptmt_create_user_id
+- etl_server service·service_file: user_info JOIN 시 create_user_label COALESCE 순서를 email 우선으로 통일
+  Changed files: Backend/admin_server/service_projects.py, service_roles.py, service_users.py, Backend/etl_server/service.py, service_file.py
+
+204. 2026-04-02 사용자관리: 본인 배지(이메일 옆)·작업 열 비활성 버튼 title 툴팁
+Purpose: 본인 행은 이메일 옆「본인」pill로 표시하고, 작업 열에서는 안내 문구를 제거한 뒤 변경·정지·활성 비활성 시 래퍼 `title`로만 설명(호버). A가 SA 행 제한·처리 중도 동일 패턴.
+Changes: `AdminUsersPage.jsx` 이메일 셀·액션 래핑, `admin-users.css` `email-cell`·`self-badge`·`action-disabled-wrap`
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
 
 203. 2026-04-02 docs/report: ETL 단일 스택 경로 정합(09·etc01·ReportIndex)
 Purpose: 삭제된 `etl_server2`·`packages/etl2`·`/api/etl2` 표기를 현재 **`Backend/etl_server`**, **`packages/etl`**, **`/api/etl`·`/api/etl/batch`** 기준으로 맞춤. 학습 문서(etc01) 아키텍처·API 표·프론트 경로·`etlClient.js` 안내를 코드와 일치시킴.

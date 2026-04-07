@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 목록·우상단「권한 생성」모달(프로젝트 권한 생성)·수정/삭제·사용현황 드릴다운을 제공한다.
+ * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황 드릴다운. 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
  * ===========
@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, shared/utils/crudConfirm
+ * - shared/api/adminClient, shared/utils/crudConfirm, app/auth/AuthContext, app/admin/adminAccess
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -28,7 +28,11 @@ import {
 } from '@/shared/api/adminClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
+import { useAuth } from '@/app/auth/AuthContext.jsx'
+import { isCreatorSelf } from '@/app/admin/adminAccess.js'
+
 import './admin-pages.css'
+import './admin-users.css'
 
 function formatPmssnList(pl) {
   if (Array.isArray(pl)) return pl.join(', ')
@@ -89,6 +93,7 @@ function normalizeUsageRows(data) {
 }
 
 export default function AdminRolesPage() {
+  const { me } = useAuth()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -533,7 +538,8 @@ export default function AdminRolesPage() {
                 <th>권한명</th>
                 <th>권한상세목록</th>
                 <th>사용현황</th>
-                <th>작업</th>
+                <th>생성자</th>
+                <th className="ap__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
@@ -550,7 +556,7 @@ export default function AdminRolesPage() {
                     </td>
                     <td>
                       {inUse ? (
-                        <span className="ap__row" style={{ alignItems: 'center' }}>
+                        <span className="ap__cell-actions">
                           <span>사용중</span>
                           <button type="button" className="ibank-btn-table" onClick={() => openUsageModal(row)}>
                             목록
@@ -560,11 +566,23 @@ export default function AdminRolesPage() {
                         '-'
                       )}
                     </td>
+                    <td className="ap__creator-cell">
+                      <span className="admin-users__email-cell">
+                        <span className="admin-users__email-text" title={row.creator_email || undefined}>
+                          {row.creator_email || '—'}
+                        </span>
+                        {isCreatorSelf(me, row) ? (
+                          <span className="admin-users__self-badge" title="본인 계정">
+                            본인
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td>
                       {sys ? (
                         '—'
                       ) : (
-                        <span className="ap__row">
+                        <span className="ap__cell-actions">
                           <button
                             type="button"
                             className="ibank-btn-table"
@@ -713,7 +731,7 @@ export default function AdminRolesPage() {
                     <tr>
                       <th>프로젝트명</th>
                       <th>사용자명</th>
-                      <th>작업</th>
+                      <th className="ap__th-actions">작업</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -752,7 +770,7 @@ export default function AdminRolesPage() {
                             {usageView === 'usage' ? (
                               '-'
                             ) : inEdit ? (
-                              <span className="ap__row">
+                              <span className="ap__cell-actions">
                                 <select
                                   className="ap__select"
                                   value={memberEditRoleId}
@@ -785,7 +803,7 @@ export default function AdminRolesPage() {
                                 </button>
                               </span>
                             ) : (
-                              <span className="ap__row">
+                              <span className="ap__cell-actions">
                                 <button
                                   type="button"
                                   className="ibank-btn-table"

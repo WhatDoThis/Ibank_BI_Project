@@ -1,6 +1,8 @@
 /**
  * app/admin/admin-users.css — AdminUsersPage 전용 (작업물 카테고리·ETL 대/중분류·전체이관·이관 모달·연쇄 이관 상세 줄 등)
  * 행 액션(.admin-users__actions button): shared-ui `.ibank-btn-table` 호버 톤과 정합
+ * 본인 배지(이메일 옆)·비활성 액션 버튼 래퍼(title 툴팁, pointer-events로 호버 수신)
+ * 409 소유 차단 패널(ownership-block·group·list)
  */
 
 .admin-users {
@@ -38,21 +40,24 @@
 
 .admin-users__table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
   background: #fff;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-card);
 }
 
 .admin-users__table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
+  font-size: clamp(0.66rem, 0.28rem + 1vw, 0.8rem);
 }
 
 .admin-users__table th,
 .admin-users__table td {
   border-bottom: 1px solid var(--color-border-light);
-  padding: 10px 12px;
+  padding: 8px 10px;
   text-align: left;
   color: var(--color-text);
   vertical-align: middle;
@@ -68,11 +73,125 @@
   text-align: center;
 }
 
-.admin-users__actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+.admin-users__email-cell {
+  display: inline-flex;
   align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.admin-users__email-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-users__self-badge {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  color: var(--color-action-primary, #1f5fbf);
+  background: rgba(31, 95, 191, 0.1);
+  border: 1px solid rgba(31, 95, 191, 0.35);
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.admin-users__action-disabled-wrap {
+  display: inline-block;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.admin-users__action-disabled-wrap .ibank-btn-table:disabled {
+  pointer-events: none;
+}
+
+.admin-users__ownership-block {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  border: 1px solid rgba(254, 86, 85, 0.35);
+  border-radius: var(--radius-card);
+  background: rgba(254, 86, 85, 0.06);
+  font-size: 0.8rem;
+}
+
+.admin-users__ownership-summary {
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: var(--color-danger);
+  line-height: 1.45;
+}
+
+.admin-users__ownership-group {
+  margin-bottom: 12px;
+}
+
+.admin-users__ownership-group-title {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.admin-users__ownership-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.admin-users__ownership-list li {
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.admin-users__ownership-name {
+  display: block;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.admin-users__ownership-reason {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.admin-users__ownership-allowed {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border-light);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.admin-users__ownership-allowed ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.admin-users__actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.admin-users__actions .ibank-btn-table {
+  flex-shrink: 0;
+}
+
+.admin-users__th-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .admin-users__invite {

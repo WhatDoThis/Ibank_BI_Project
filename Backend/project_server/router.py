@@ -7,14 +7,16 @@ Backend.project_server.router (/api/projects)
 ===========
 1. GET /api/projects
 2. POST /api/projects/{project_info_id}/select
+3. POST /api/projects/{project_info_id}/accept-invite — 타부서 초대 알림 수락
 
 [Dependencies]
 =========
-- Backend.project_server.service, Backend.auth_server.deps, Backend.core.dependencies
+- Backend.project_server.service, Backend.auth_server.deps, Backend.core.dependencies, Backend.admin_server.schemas
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from Backend.admin_server import schemas
 from Backend.auth_server.deps import get_access_payload
 from Backend.core.dependencies import get_system_db
 from Backend.project_server import service
@@ -56,3 +58,21 @@ def projects_select(
         return service.select_project_tokens(conn, uid, int(sid), project_info_id)
     except ValueError as e:
         raise _map_val(e) from e
+
+
+# 3.
+@router.post("/{project_info_id}/accept-invite")
+def projects_accept_invite(
+    project_info_id: int,
+    body: schemas.AcceptProjectInviteBody,
+    payload: dict = Depends(get_access_payload),
+    conn=Depends(get_system_db),
+):
+    uid = int(payload["user_id"])
+    try:
+        service.accept_project_invite(
+            conn, uid, int(project_info_id), int(body.notification_info_id)
+        )
+    except ValueError as e:
+        raise _map_val(e) from e
+    return {"ok": True}

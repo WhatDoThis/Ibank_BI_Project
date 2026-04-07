@@ -5,7 +5,7 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 
 [Main Functions]
 ===========
-1. list_table_master
+1. list_table_master(project_create 정렬: dash 우선·update_dtm·table_name)
 2. update_table_master
 3. list_project_tables
 4. add_project_table_mapping
@@ -63,10 +63,13 @@ def list_table_master(
     db_type: str | None = None,
     q: str | None = None,
     limit: int = 300,
+    sort_mode: str | None = None,
 ) -> list[dict[str, Any]]:
     dbt = _normalize_db_type(db_type)
     term = (q or "").strip()
-    lim = max(1, min(int(limit), 1000))
+    sm = (sort_mode or "").strip().lower()
+    project_create = sm in ("project_create", "project-create")
+    lim = max(1, min(int(limit), 2000 if project_create else 1000))
     sql = """
         SELECT table_master_id, db_type, table_name, table_label, table_dscrtn,
                create_dtm, update_dtm, create_user_id
@@ -86,7 +89,16 @@ def list_table_master(
             )
         """
         params.extend([like_term, like_term])
-    sql += " ORDER BY db_type, table_name LIMIT %s"
+    if project_create:
+        sql += """
+            ORDER BY
+                CASE WHEN LOWER(TRIM(COALESCE(db_type,''))) = 'dash' THEN 0 ELSE 1 END,
+                update_dtm DESC NULLS LAST,
+                table_name ASC
+            LIMIT %s
+        """
+    else:
+        sql += " ORDER BY db_type, table_name LIMIT %s"
     params.append(lim)
 
     cur = conn.cursor()

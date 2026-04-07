@@ -1,7 +1,7 @@
 /**
  * packages/etl/components/FolderConnectionListFile.jsx (폴더 연결 목록)
  * =======================================================================
- * - 등록된 폴더 연결 목록, 삭제. 연결 정보(SFTP=host, S3=bucket+리전), 원격 경로(SFTP=remote_path, S3=prefix), 등록자(create_user_label) 표시.
+ * - 등록된 폴더 연결 목록, 삭제. 연결 정보(SFTP=host, S3=bucket+리전), 원격 경로(SFTP=remote_path, S3=prefix), 생성자(create_user_label·본인은 adminAccess isEtlCreateLabelSelf(me, label, create_user_id), log 219).
  *
  * [Main Functions]
  * ===========
@@ -11,14 +11,18 @@
  * [Dependencies]
  * =========
  * - React, @/packages/etl/api/etlClient.js (batchListFolderConnections, batchDeleteFolderConnection)
+ * - @/app/admin/adminAccess.js (isEtlCreateLabelSelf), @/app/auth/AuthContext.jsx (me)
  */
 
 import { useState, useEffect } from 'react';
 import { batchListFolderConnections, batchDeleteFolderConnection } from '@/packages/etl/api/etlClient.js';
 import CollapsibleCardSection from './CollapsibleCardSection';
+import { useAuth } from '@/app/auth/AuthContext.jsx';
+import { isEtlCreateLabelSelf } from '@/app/admin/adminAccess.js';
 
 // 1.
 function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
+  const { me } = useAuth();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [deleteLoadingId, setDeleteLoadingId] = useState(null);
@@ -104,7 +108,7 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
               <th>프로토콜</th>
               <th>연결 정보</th>
               <th>원격 경로</th>
-              <th>등록자</th>
+              <th>생성자</th>
               <th>상태</th>
               <th>동작</th>
             </tr>
@@ -116,7 +120,18 @@ function FolderConnectionListFile({ onSuccess, refreshKey = 0 }) {
                 <td>{(row.folder_type || '').toUpperCase()}</td>
                 <td>{getConnectionInfo(row)}</td>
                 <td>{getRemotePath(row)}</td>
-                <td className="etl-table-list__cell-creator" title={row.create_user_label || ''}>{row.create_user_label || '—'}</td>
+                <td className="etl-table-list__cell-creator">
+                  <span className="admin-users__email-cell">
+                    <span className="admin-users__email-text" title={row.create_user_label || ''}>
+                      {row.create_user_label || '—'}
+                    </span>
+                    {isEtlCreateLabelSelf(me, row.create_user_label, row.create_user_id) ? (
+                      <span className="admin-users__self-badge" title="본인 계정">
+                        본인
+                      </span>
+                    ) : null}
+                  </span>
+                </td>
                 <td>{row.is_verified ? '연결됨' : '미검증'}</td>
                 <td>
                   <button

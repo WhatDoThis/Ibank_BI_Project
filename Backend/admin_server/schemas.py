@@ -5,8 +5,8 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 
 [Classes]
 ===========
-- InviteBody(invite_target_dvsn·invite_etl_yn·프로젝트·pmssn), UserRoleBody, UserEtlYnBody, TransferOwnershipBody, UserManageUpdateBody(etl_yn 선택)
-- RoleCreateBody, RoleUpdateBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody
+- InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(dptmt_creator 포함), UserManageUpdateBody(etl_yn 선택)
+- RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 
@@ -70,15 +70,32 @@ class RoleUpdateBody(BaseModel):
     pmssn_list: list[str] | None = None
 
 
+class ProjectMemberAssignBody(BaseModel):
+    user_id: int = Field(..., ge=1)
+    pmssn_master_id: int = Field(..., ge=1)
+
+
 class ProjectCreateBody(BaseModel):
-    project_name: str = Field(..., max_length=100)
-    project_dscrtn: str | None = Field(None, max_length=500)
+    project_name: str = Field(..., min_length=1, max_length=20)
+    project_dscrtn: str | None = Field(None, max_length=100)
+    enabled_pages: list[str] | None = Field(
+        default=None,
+        description="예약 필드 — 백엔드에서 저장하지 않음(무시)",
+    )
+    table_master_ids: list[int] = Field(default_factory=list)
+    creator_pmssn_master_id: int = Field(..., ge=1)
+    members: list[ProjectMemberAssignBody] = Field(default_factory=list)
+    external_invites: list[ProjectMemberAssignBody] = Field(default_factory=list)
 
 
 class ProjectUpdateBody(BaseModel):
     project_name: str | None = Field(None, max_length=100)
     project_dscrtn: str | None = Field(None, max_length=500)
     active_yn: str | None = Field(None, max_length=1)
+
+
+class AcceptProjectInviteBody(BaseModel):
+    notification_info_id: int = Field(..., ge=1)
 
 
 class MemberAddBody(BaseModel):
@@ -161,6 +178,7 @@ class TransferOwnershipBody(BaseModel):
         "project",
         "pmssn_master",
         "table_master",
+        "dptmt_creator",
         "etl_connection",
         "etl_table",
         "etl_job",
@@ -169,7 +187,7 @@ class TransferOwnershipBody(BaseModel):
         "batch_job",
     ] = Field(
         ...,
-        description="project·pmssn_master·table_master(create_user_id) 또는 etl_db 메타",
+        description="project·pmssn_master·table_master·dptmt_creator(dptmt_create_user_id) 또는 etl_db 메타",
     )
     resource_id: int = Field(..., ge=1)
     from_user_id: int = Field(..., ge=1, description="현재 생성자·등록자")

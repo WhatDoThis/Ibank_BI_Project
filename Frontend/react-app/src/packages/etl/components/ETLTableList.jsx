@@ -2,18 +2,20 @@
  * packages/etl/components/ETLTableList.jsx (ETL 테이블 목록)
  * ========================================================
  * 등록된 ETL 목록(파일·DB ETL + 폴더 배치 Job 통합), 행별 실행/즉시실행·삭제. 큐 상태 2초 폴링.
- * 상단 [새로고침] 버튼으로 해당 목록만 다시 불러오기.
+ * 상단 [새로고침]은 `ibank-btn-toolbar--secondary`(배치 Job 목록과 동일). 가로 스크롤은 배치 목록과 같은 `etl-db-form__table-wrap` 안의 `etl-table-list__table`에만 적용.
  *
  * [Main Functions]
  * ===========
  * 1. etl2ListTables + etl2ListBatchTargetRegistry 통합 로드. type 'table' | 'batch_target' 로 구분. 배치 유래 행은 삭제(타겟 DROP)만 표시.
- * 2. 테이블 행: 동작 버튼은 etl-db-form__btn--sm(배치 Job 목록과 동일). 상태 열은 etl-db-form__status-badge.
- * 3. 삭제: 테이블 → etl2DeleteTable(동일 타겟·프로젝트 매핑 시 API 400 메시지). 배치 레지스트리 행 → etl2DeleteBatchTargetRegistry.
+ * 2. 테이블 열 순서: … 저장 DB → 상태 → 생성자(동작 직전) → 동작. 동작 버튼은 etl-db-form__btn--sm. 생성자는 create_user_label 이메일 셀+본인 배지. 상태는 etl-db-form__status-badge.
+ * 3. 본인 배지: @/app/admin/adminAccess.js `isEtlCreateLabelSelf(me, create_user_label, create_user_id)` — `/api/auth/me`는 `email`만 주므로 이메일 비교는 `meLoginEmail(me)`(email·user_email 호환), 우선 `create_user_id` === `me.user_id`. (docs/log/log.md 219)
+ * 4. 삭제: 테이블 → etl2DeleteTable(동일 타겟·프로젝트 매핑 시 API 400 메시지). 배치 레지스트리 행 → etl2DeleteBatchTargetRegistry.
  *
  * [Dependencies]
  * =========
  * - React, @/packages/etl/api/etlClient.js (etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTable, etl2DeleteTableRow, etl2DeleteBatchTargetRegistry, batchRunJobNow, batchListJobs)
  * - ../utils/storageDb.js (formatEtlStorageLabel)
+ * - @/app/admin/adminAccess.js (isEtlCreateLabelSelf), @/app/auth/AuthContext.jsx (me)
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -21,6 +23,8 @@ import { etl2ListTables, etl2ListJobs, etl2ListBatchTargetRegistry, etl2DeleteTa
 import { formatEtlStorageLabel } from '../utils/storageDb.js';
 import EtlTableSettingsModal from './EtlTableSettingsModal.jsx';
 import BatchScheduleModal from './BatchScheduleModal.jsx';
+import { useAuth } from '@/app/auth/AuthContext.jsx';
+import { isEtlCreateLabelSelf } from '@/app/admin/adminAccess.js';
 
 // 0. 상태 열: BatchJobListFile과 동일하게 etl-db-form__status-badge + 변형
 function etlStatusBadgeClass(kind) {
@@ -37,6 +41,7 @@ function etlStatusBadgeClass(kind) {
 
 // 1.
 function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistory, refreshing, runLoading, queueStatusTrigger }) {
+  const { me } = useAuth();
   const [tables, setTables] = useState([]);
   const [batchTargets, setBatchTargets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +126,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
       interval_minutes: r.interval_minutes,
       last_run_status: r.last_run_status,
       create_user_label: r.create_user_label,
+      create_user_id: r.create_user_id,
     }));
     return [...tableRows, ...batchTargetRows];
   }, [tables, batchTargets]);
@@ -145,7 +151,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
   const refreshBtn = (
     <button
       type="button"
-      className="etl-table-list__refresh"
+      className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
       onClick={() => load()}
       disabled={loading}
       aria-label="목록 새로고침"
@@ -187,6 +193,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
   return (
     <div className="etl-table-list">
       <div className="etl-table-list__toolbar">{refreshBtn}</div>
+      <div className="etl-db-form__table-wrap">
       <table className="etl-table-list__table">
         <thead>
           <tr>
@@ -201,8 +208,8 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
             <th className="etl-table-list__th-sync">동기화</th>
             <th className="etl-table-list__th-row-error">행 실패 시</th>
             <th className="etl-table-list__th-storage">저장 DB</th>
-            <th className="etl-table-list__th-creator">등록자</th>
             <th>상태</th>
+            <th className="etl-table-list__th-creator">생성자</th>
             <th className="etl-table-list__th-actions">
               동작
               <button
@@ -238,8 +245,19 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
                   <td className="etl-table-list__cell-sync">—</td>
                   <td className="etl-table-list__cell-row-error">—</td>
                   <td className="etl-table-list__cell-storage" title={batchStorLabel}>{batchStorLabel}</td>
-                  <td className="etl-table-list__cell-creator" title={t.create_user_label || ''}>{t.create_user_label || '—'}</td>
                   <td>{batchStatusBadgeClass ? <span className={batchStatusBadgeClass}>{batchStatusText}</span> : batchStatusText}</td>
+                  <td className="etl-table-list__cell-creator">
+                    <span className="admin-users__email-cell">
+                      <span className="admin-users__email-text" title={t.create_user_label || ''}>
+                        {t.create_user_label || '—'}
+                      </span>
+                      {isEtlCreateLabelSelf(me, t.create_user_label, t.create_user_id) ? (
+                        <span className="admin-users__self-badge" title="본인 계정">
+                          본인
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td className="etl-table-list__cell-actions">
                     <div className="etl-batch-job-list__actions">
                       <button
@@ -306,8 +324,19 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
               <td className="etl-table-list__cell-sync" title={isDbSource ? (syncMode === 'diff' ? 'PK 비교: 소스·타겟 PK만 비교해 신규/삭제만 반영. 설정 버튼에서 변경' : syncMode === 'incremental' ? '증분: last_synced_at 이후 행만 Upsert. 설정 버튼에서 변경' : '전체: DROP+CREATE+INSERT. 설정 버튼에서 변경') : undefined}>{syncText}</td>
               <td className="etl-table-list__cell-row-error" title={isDbSource ? (onRowErrorVal === 'skip' ? '한 건 실패 시 해당 행만 제외하고 적재' : '한 건이라도 실패 시 Job 전체 실패') : undefined}>{onRowErrorText}</td>
               <td className="etl-table-list__cell-storage" title={`저장 위치: ${tableStorLabel}`}>{tableStorLabel}</td>
-              <td className="etl-table-list__cell-creator" title={t.create_user_label || ''}>{t.create_user_label || '—'}</td>
               <td>{statusBadgeClass ? <span className={statusBadgeClass}>{statusText}</span> : statusText}</td>
+              <td className="etl-table-list__cell-creator">
+                <span className="admin-users__email-cell">
+                  <span className="admin-users__email-text" title={t.create_user_label || ''}>
+                    {t.create_user_label || '—'}
+                  </span>
+                  {isEtlCreateLabelSelf(me, t.create_user_label, t.create_user_id) ? (
+                    <span className="admin-users__self-badge" title="본인 계정">
+                      본인
+                    </span>
+                  ) : null}
+                </span>
+              </td>
               <td className="etl-table-list__cell-actions">
                 <div className="etl-batch-job-list__actions">
                   {(t.source_type === 'file' && (t.file_path || t.file_type)) || (['postgresql', 'mysql', 'oracle'].includes((t.source_type || '').toLowerCase()) && t.source_table) ? (
@@ -426,6 +455,7 @@ function ETLTableList({ onRun, onPreview, onAddFile, onDelete, onOpenBatchHistor
           })}
         </tbody>
       </table>
+      </div>
       {helpOpen && (
         <div className="etl-help-modal" role="dialog" aria-modal="true" aria-labelledby="etl-help-modal-title">
           <div className="etl-help-modal__backdrop" onClick={() => setHelpOpen(false)} />

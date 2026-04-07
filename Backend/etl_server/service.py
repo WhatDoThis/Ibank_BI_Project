@@ -6,7 +6,7 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 [Main Functions]
 ===========
 1. _resolve_upload_path_for_delete: 삭제할 파일 경로 해석
-2. _get_db, _schema, _q, _table_columns_lower, _table_exists, _etl_conn_*·_storage_conn_type_*·_storage_conn_password_column_for_insert·_storage_physical_select_fragments, _etl_jobs_j_select_sql, _etl_tables_join_select_parts(list_jobs/get_job용 t.*), _apply_etl_job_list_compat_keys, _etl_tables_t_select_sql, _append_creator_columns_etl, _normalize_etl_connection_row, _normalize_storage_connection_row, _builtin_storage_connections_for_list, _sys_cursor: DB·스키마·쿼리·information_schema·커서 헬퍼
+2. _get_db, _schema, _q, _table_columns_lower, _table_exists, _user_info_qualified_table(ETL 스키마≠user_info 스키마 시 public·core 스키마로 JOIN), _enrich_rows_create_user_label(system_core user_info로 create_user_label 정본 보강·목록/단건 조회 후 JOIN 유무와 관계없이 호출), _etl_conn_*·_storage_conn_type_*·_storage_conn_password_column_for_insert·_storage_physical_select_fragments, _etl_jobs_j_select_sql, _etl_tables_join_select_parts(list_jobs/get_job용 t.*), _apply_etl_job_list_compat_keys, _etl_tables_t_select_sql, _append_creator_columns_etl, _normalize_etl_connection_row, _normalize_storage_connection_row, _builtin_storage_connections_for_list, _sys_cursor: DB·스키마·쿼리·information_schema·커서 헬퍼
 3. get_target_db_connection: 적재 대상 DB 연결 (NULL=내장 main_db, STORAGE_BUILTIN_DASH_ID=-1=내장 dash_db, 양수=etl_storage_connections). should_upsert_table_master_for_storage·table_master_db_type_for_storage: 프로젝트용 table_master 반영은 내장 main|dash만.
 4. _validate_identifier, _normalize_source_table_dots, _validate_source_table, parse_source_table_parts
 5. _connection_error_to_user_message, _connect_postgres, _connect_mysql, _connect_oracle
@@ -14,12 +14,12 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 7. list_timezones, create_connection, list_connections(활성만·is_active 컬럼 시), get_connection_for_etl, test_connection
 8. list_storage_connections(선두 내장 main·dash + etl_storage_connections), get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
-10. list_etl_tables(_etl_tables_t_select_sql), create_etl_table(동적 INSERT), get_etl_table, get_sync_mode_for_load(full|incremental|diff), _storage_pg_identity_tuple·_find_downstream_etl_reading_target_pg(다운스트림 소스 검사), _count_table_project_mapping_for_target, delete_etl_table(공유타겟·다운스트림·프로젝트매핑 검증 후 배치·table_master·DROP·메타 일괄)·delete_etl_table_row_only(etl_jobs.add_file_path 있을 때만 SELECT), update_last_synced_at, update_etl_table(컬럼 존재 시만 SET), refresh_etl_table_column_mapping
-11. insert_job(add_file_path·add_file_type 컬럼 있을 때만 해당 INSERT), set_job_running, list_jobs·get_job(etl_tables JOIN에 table_label 포함; description 등 job 메타 키는 compat None), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
+10. list_etl_tables(_etl_tables_t_select_sql·create_user_label email→nickname→ID), create_etl_table(동적 INSERT), get_etl_table, get_sync_mode_for_load(full|incremental|diff), _storage_pg_identity_tuple·_find_downstream_etl_reading_target_pg(다운스트림 소스 검사), _count_table_project_mapping_for_target, delete_etl_table(공유타겟·다운스트림·프로젝트매핑 검증 후 배치·table_master·DROP·메타 일괄)·delete_etl_table_row_only(etl_jobs.add_file_path 있을 때만 SELECT), update_last_synced_at, update_etl_table(컬럼 존재 시만 SET), refresh_etl_table_column_mapping
+11. insert_job(add_file_path·add_file_type 컬럼 있을 때만 해당 INSERT), set_job_running, list_jobs·get_job(etl_tables JOIN·create_user_label email 우선), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
 
 [Dependencies]
 =========
-- Backend.core.db (get_db_connection_system, get_system_table_schema)
+- Backend.core.db (get_db_connection_system, get_db_connection_system_core, get_system_table_schema, get_system_table_schema_core)
 - psycopg2, PyMySQL, oracledb (외부 DB 연결·테스트·소스 테이블 목록)
 """
 
@@ -124,6 +124,93 @@ def _table_exists(cur, schema_name: str, table_name: str) -> bool:
         (schema_name, table_name),
     )
     return cur.fetchone() is not None
+
+
+def _user_info_qualified_table(cur, etl_schema: str) -> Optional[str]:
+    """
+    create_user_label용 user_info JOIN 대상. ETL 메타는 etl_db.table_schema에 있고 user_info는
+    system_db.table_schema(보통 public)에만 있는 구성이 흔해, 동일 DB 내 크로스 스키마로 조인한다.
+    반환: "schema"."user_info" 또는 None.
+    """
+    if _table_exists(cur, etl_schema, "user_info"):
+        return _q(etl_schema, "user_info")
+    db = _get_db()
+    core_schema = (db.get_system_table_schema_core() or "public").strip()
+    if core_schema != etl_schema and _table_exists(cur, core_schema, "user_info"):
+        return _q(core_schema, "user_info")
+    if str(etl_schema).lower() != "public" and _table_exists(cur, "public", "user_info"):
+        return _q("public", "user_info")
+    return None
+
+
+def _enrich_rows_create_user_label(rows: list[dict], id_key: str = "create_user_id") -> None:
+    """
+    system_db(core)의 user_info에서 user_id→이메일·닉네임을 일괄 조회해 create_user_label을 맞춘다.
+    ETL 스키마에 user_info가 있어도 JOIN 대상이 구버전·불완전하면 'ID n'만 나올 수 있으므로,
+    목록/단건 조회 후에는 ui_tbl 유무와 관계없이 호출해 정본(core)으로 덮어쓴다.
+    """
+    if not rows:
+        return
+    id_set: set[int] = set()
+    for r in rows:
+        uid = r.get(id_key)
+        if uid is None:
+            continue
+        try:
+            id_set.add(int(uid))
+        except (TypeError, ValueError):
+            continue
+    if not id_set:
+        return
+    uniq = sorted(id_set)
+    db = _get_db()
+    conn = None
+    cur = None
+    try:
+        conn = db.get_db_connection_system_core()
+        cur = conn.cursor()
+        sch = (db.get_system_table_schema_core() or "public").strip()
+        ui_table = _q(sch, "user_info")
+        if not _table_exists(cur, sch, "user_info"):
+            if sch.lower() != "public" and _table_exists(cur, "public", "user_info"):
+                ui_table = _q("public", "user_info")
+            else:
+                return
+        ph = ",".join(["%s"] * len(uniq))
+        cur.execute(
+            f"SELECT user_id, user_email, user_nickname FROM {ui_table} WHERE user_id IN ({ph})",
+            uniq,
+        )
+        by_id: dict[int, str] = {}
+        for row in cur.fetchall():
+            d = dict(row)
+            uid = int(d["user_id"])
+            email = (d.get("user_email") or "").strip()
+            nick = (d.get("user_nickname") or "").strip()
+            by_id[uid] = email or nick or f"ID {uid}"
+        for r in rows:
+            uid = r.get(id_key)
+            if uid is None:
+                continue
+            try:
+                i = int(uid)
+            except (TypeError, ValueError):
+                continue
+            if i in by_id:
+                r["create_user_label"] = by_id[i]
+    except Exception:
+        logger.debug("_enrich_rows_create_user_label failed", exc_info=True)
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _etl_conn_type_select_sql(cols: set, alias: Optional[str]) -> str:
@@ -1646,11 +1733,13 @@ def list_etl_tables() -> list:
         creator_sel = "t.create_user_id" if has_creator else "NULL::integer AS create_user_id"
         creator_join = ""
         creator_label_sql = ", NULL::text AS create_user_label"
+        ui_tbl = None
         if has_creator:
-            if _table_exists(cur, schema, "user_info"):
-                creator_join = f" LEFT JOIN user_info u_cr ON u_cr.user_id = t.create_user_id "
+            ui_tbl = _user_info_qualified_table(cur, schema)
+            if ui_tbl:
+                creator_join = f" LEFT JOIN {ui_tbl} u_cr ON u_cr.user_id = t.create_user_id "
                 creator_label_sql = (
-                    ", COALESCE(NULLIF(TRIM(u_cr.user_nickname), ''), NULLIF(TRIM(u_cr.user_email), ''), "
+                    ", COALESCE(NULLIF(TRIM(u_cr.user_email), ''), NULLIF(TRIM(u_cr.user_nickname), ''), "
                     "CASE WHEN t.create_user_id IS NOT NULL THEN 'ID ' || t.create_user_id::text ELSE NULL END) AS create_user_label"
                 )
             else:
@@ -1691,7 +1780,10 @@ def list_etl_tables() -> list:
                 """
             )
         rows = cur.fetchall()
-        return [_normalize_etl_connection_row(dict(r)) for r in rows]
+        out = [_normalize_etl_connection_row(dict(r)) for r in rows]
+        if has_creator:
+            _enrich_rows_create_user_label(out)
+        return out
     finally:
         cur.close()
         conn.close()
@@ -1884,11 +1976,13 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
         creator_sel = "t.create_user_id" if has_creator else "NULL::integer AS create_user_id"
         creator_join = ""
         creator_label_sql = ", NULL::text AS create_user_label"
+        ui_tbl = None
         if has_creator:
-            if _table_exists(cur, schema, "user_info"):
-                creator_join = f" LEFT JOIN user_info u_cr ON u_cr.user_id = t.create_user_id "
+            ui_tbl = _user_info_qualified_table(cur, schema)
+            if ui_tbl:
+                creator_join = f" LEFT JOIN {ui_tbl} u_cr ON u_cr.user_id = t.create_user_id "
                 creator_label_sql = (
-                    ", COALESCE(NULLIF(TRIM(u_cr.user_nickname), ''), NULLIF(TRIM(u_cr.user_email), ''), "
+                    ", COALESCE(NULLIF(TRIM(u_cr.user_email), ''), NULLIF(TRIM(u_cr.user_nickname), ''), "
                     "CASE WHEN t.create_user_id IS NOT NULL THEN 'ID ' || t.create_user_id::text ELSE NULL END) AS create_user_label"
                 )
             else:
@@ -1911,7 +2005,12 @@ def get_etl_table(etl_table_id: int) -> Optional[dict]:
             (etl_table_id,),
         )
         row = cur.fetchone()
-        return _normalize_etl_connection_row(dict(row)) if row else None
+        if not row:
+            return None
+        d = _normalize_etl_connection_row(dict(row))
+        if has_creator:
+            _enrich_rows_create_user_label([d])
+        return d
     finally:
         cur.close()
         conn.close()
@@ -2400,7 +2499,7 @@ def set_job_running(job_id: int) -> None:
 
 
 def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Optional[list] = None) -> list:
-    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. etl_tables·etl_jobs 컬럼은 information_schema 기준 방어. user_info 없으면 등록자 라벨은 ID만."""
+    """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. create_user_label: user_info 크로스 스키마 JOIN 또는 core DB 보강(email→nickname→ID)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -2410,13 +2509,13 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Opt
         tcols = _table_columns_lower(cur, schema, "etl_tables")
         t_join_sql = _etl_tables_join_select_parts(tcols)
         has_creator = "create_user_id" in jcols
-        has_user_info = _table_exists(cur, schema, "user_info") if has_creator else False
+        ui_tbl = _user_info_qualified_table(cur, schema) if has_creator else None
         cr_join = ""
-        if has_creator and has_user_info:
-            cr_join = " LEFT JOIN user_info u_j ON u_j.user_id = j.create_user_id "
-        if has_creator and has_user_info:
+        if has_creator and ui_tbl:
+            cr_join = f" LEFT JOIN {ui_tbl} u_j ON u_j.user_id = j.create_user_id "
+        if has_creator and ui_tbl:
             cr_sel = (
-                ", j.create_user_id, COALESCE(NULLIF(TRIM(u_j.user_nickname), ''), NULLIF(TRIM(u_j.user_email), ''), "
+                ", j.create_user_id, COALESCE(NULLIF(TRIM(u_j.user_email), ''), NULLIF(TRIM(u_j.user_nickname), ''), "
                 "CASE WHEN j.create_user_id IS NOT NULL THEN 'ID ' || j.create_user_id::text ELSE NULL END) AS create_user_label"
             )
         elif has_creator:
@@ -2445,6 +2544,8 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Opt
         cur.execute(select_sql, tuple(params))
         out = [dict(r) for r in cur.fetchall()]
         _apply_etl_job_list_compat_keys(out)
+        if has_creator:
+            _enrich_rows_create_user_label(out)
         if not has_creator:
             for d in out:
                 d.setdefault("create_user_id", None)

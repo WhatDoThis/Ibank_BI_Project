@@ -5,7 +5,7 @@ Backend.admin_server.router (/api/admin)
 
 [Endpoints]
 ===========
-1. users, users/search, users/invite, users/ownership-transfer-targets(resource_type=table_master+table_master_id), users/{id}/work-assets, users/transfer-ownership(table_master), users/{id}/change-options|management, invite/departments|projects|roles, users/{id}/suspend|activate|role|etl-access
+1. users, users/invite, users/ownership-transfer-targets(table_master|dptmt_creator), users/{id}/work-assets, users/transfer-ownership, users/{id}/change-options|management(409), invite/departments|projects|roles, users/{id}/suspend|activate(409)
 2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
@@ -20,6 +20,7 @@ Backend.admin_server.router (/api/admin)
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from Backend.admin_server import schemas
+from Backend.admin_server.ownership_guards import ManagementBlockedError
 from Backend.admin_server.deps import (
     get_authenticated_user_row,
     require_org_admin,
@@ -49,11 +50,20 @@ def _ve(e: ValueError) -> HTTPException:
 # 1. [users]
 @router.get("/users")
 def admin_users_list(
+    scope: str | None = Query(None, description="dept_tree: 프로젝트 생성 모달용 부서 트리·본인 제외"),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
     if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
         return {"items": []}
+    if (scope or "").strip().lower() == "dept_tree":
+        return {
+            "items": service_users.list_users_dept_tree_for_project_create(
+                conn,
+                int(actor["dptmt_info_id"]),
+                int(actor["user_id"]),
+            )
+        }
     return {
         "items": service_users.list_users_for_admin_ui(
             conn,
@@ -110,7 +120,7 @@ def admin_ownership_transfer_targets(
     ),
     resource_type: str | None = Query(
         None,
-        description="table_master 이면 table_master_id와 함께 권한 기반 이관 후보",
+        description="table_master·dptmt_creator(부서 생성자 이관, dptmt_info_id=해당 부서 PK)",
     ),
     table_master_id: int | None = Query(
         None,
@@ -134,6 +144,14 @@ def admin_ownership_transfer_targets(
                 int(actor["dptmt_info_id"]),
                 int(exclude_user_id),
                 int(table_master_id),
+            )
+        elif rt == "dptmt_creator":
+            items = service_users.list_department_creator_transfer_targets(
+                conn,
+                str(actor.get("user_dvsn") or ""),
+                int(actor["dptmt_info_id"]),
+                int(dptmt_info_id),
+                int(exclude_user_id),
             )
         else:
             items = service_users.list_ownership_transfer_targets(
@@ -224,6 +242,8 @@ def admin_user_management_update(
             [a.model_dump() for a in body.project_assignments] if body.project_assignments else None,
             body.etl_yn,
         )
+    except ManagementBlockedError as e:
+        raise HTTPException(status_code=409, detail=e.payload) from e
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "사용자 변경사항이 반영되었습니다."}
@@ -297,6 +317,8 @@ def admin_user_suspend(
             str(actor.get("user_dvsn") or ""),
             user_id,
         )
+    except ManagementBlockedError as e:
+        raise HTTPException(status_code=409, detail=e.payload) from e
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "정지 처리되었습니다."}
@@ -479,9 +501,14 @@ def admin_org_departments_delete(
 # 3. [roles]
 @router.get("/roles")
 def admin_roles_list(
+    scope: str | None = Query(
+        None,
+        description="project_assignable: 시스템 기본+부서 커스텀(프로젝트 멤버 역할 선택용)",
+    ),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
+    _ = scope
     if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
         return {"items": []}
     did = int(actor["dptmt_info_id"])
@@ -634,16 +661,20 @@ def admin_projects_create(
     conn=Depends(get_system_db),
 ):
     try:
-        pid = service_projects.create_project_with_creator_member(
+        out = service_projects.create_project_full(
             conn,
             int(actor["user_id"]),
             int(actor["dptmt_info_id"]),
             body.project_name,
             body.project_dscrtn,
+            int(body.creator_pmssn_master_id),
+            list(body.table_master_ids),
+            [m.model_dump() for m in body.members],
+            [x.model_dump() for x in body.external_invites],
         )
     except ValueError as e:
         raise _ve(e) from e
-    return {"project_info_id": pid}
+    return out
 
 
 @router.patch("/projects/{project_info_id}")
@@ -686,14 +717,20 @@ def admin_projects_delete(
 def admin_tables_list(
     db_type: str | None = Query(None, description="main|dash"),
     q: str = Query("", min_length=0),
-    limit: int = Query(300, ge=1, le=1000),
+    limit: int = Query(300, ge=1, le=2000),
+    sort: str | None = Query(
+        None,
+        description="project_create: dash 우선·update_dtm desc·table_name",
+    ),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):
     if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
         return {"items": []}
     try:
-        items = service_tables.list_table_master(conn, db_type=db_type, q=q, limit=limit)
+        items = service_tables.list_table_master(
+            conn, db_type=db_type, q=q, limit=limit, sort_mode=sort
+        )
     except ValueError as e:
         raise _ve(e) from e
     return {"items": items}

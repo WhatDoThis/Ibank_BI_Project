@@ -1,7 +1,7 @@
 """
 Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 ======================================================
-1) require_etl_infrastructure: JWT + user_info — `user_dvsn=sa_dev` 또는 `etl_yn='Y'` 이면 ETL API 허용(프로젝트 불필요).
+1) require_etl_infrastructure: JWT + user_info — `user_dvsn=sa_dev`, 레거시 원문 `etl_manager`, 또는 `etl_yn='Y'` 이면 ETL API 허용(프로젝트 불필요).
 2) require_permission: JWT access + system_db에서 project_ptcpnt_info·pmssn_master.pmssn_list 조회.
    `pmssn_list` 원소는 `pmssn_detail_name` 문자열이 표준; 레거시 PK 숫자 문자열은
    `pmssn_master_detail`로 치환한다. **구 `etl_manager` 역할 폐지** — 프로젝트 기능은 `user_dvsn·pmssn`만으로 판별.
@@ -11,7 +11,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 [Main Functions]
 ===========
 1. get_user_dvsn_lower: user_id → user_dvsn 소문자
-2. user_has_etl_infrastructure_access: sa_dev 또는 etl_yn=Y (레거시 user_dvsn=etl_manager 허용)
+2. user_has_etl_infrastructure_access: sa_dev·원문 etl_manager·또는 etl_yn=Y
 3. is_project_participant: project_ptcpnt_info 존재 여부
 4. resolve_pmssn_list_to_names: pmssn_list 배열 → pmssn_detail_name 목록
 5. get_permission_ids_for_user_project: 유저·프로젝트별 권한ID 목록(정규화)
@@ -78,10 +78,11 @@ def user_has_etl_infrastructure_access(conn, user_id: int) -> bool:
         row = cur.fetchone()
         if not row:
             return False
+        raw_dvsn = (row.get("user_dvsn") or "").strip().lower()
+        if raw_dvsn == "etl_manager":
+            return True
         dvsn = canon_user_dvsn(row.get("user_dvsn"))
         if dvsn == "sa_dev":
-            return True
-        if dvsn == "etl_manager":
             return True
         return (row.get("etl_yn") or "N").strip().upper() == "Y"
     finally:

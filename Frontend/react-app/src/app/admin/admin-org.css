@@ -97,19 +97,22 @@
 
 .admin-org__table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-card);
 }
 
 .admin-org__table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  font-size: clamp(0.72rem, 0.35rem + 1.1vw, 0.875rem);
+  font-size: clamp(0.66rem, 0.28rem + 1vw, 0.8rem);
 }
 
 .admin-org__table th,
 .admin-org__table td {
-  padding: 10px 12px;
+  padding: 8px 10px;
   text-align: left;
   border-bottom: 1px solid var(--color-border-light);
   vertical-align: middle;
@@ -149,6 +152,20 @@
   margin: 0;
 }
 
+.admin-org__th-creator {
+  max-width: min(28vw, 240px);
+}
+
+.admin-org__creator-cell {
+  max-width: min(28vw, 240px);
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.admin-org__creator-cell .admin-users__email-cell {
+  max-width: 100%;
+}
+
 .admin-org__th-actions {
   width: 1%;
   white-space: nowrap;
@@ -158,11 +175,15 @@
 .admin-org__actions {
   text-align: right;
   white-space: nowrap;
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 6px;
   align-items: center;
+}
+
+.admin-org__actions .ibank-btn-table {
+  flex-shrink: 0;
 }
 
 .admin-org__parent-cell {

@@ -27,6 +27,21 @@ export async function getAdminUsers() {
   return request('GET', '/api/admin/users')
 }
 
+/** 프로젝트 생성 모달: 부서 트리 내 사용자(본인 제외) */
+export async function getAdminUsersDeptTree() {
+  return request('GET', '/api/admin/users?scope=dept_tree')
+}
+
+/** 프로젝트 멤버에 부여 가능한 pmssn 목록(시스템 기본+부서 커스텀) */
+export async function getAdminRolesProjectAssignable() {
+  return request('GET', '/api/admin/roles?scope=project_assignable')
+}
+
+/** 테이블 마스터 — sort=project_create 시 dash 우선 정렬 */
+export async function getAdminTablesForProjectCreate() {
+  return request('GET', '/api/admin/tables?limit=2000&sort=project_create')
+}
+
 export async function patchAdminUserSuspend(userId) {
   return request('PATCH', `/api/admin/users/${userId}/suspend`, {})
 }
@@ -91,7 +106,7 @@ export async function getAdminUserWorkAssets(userId) {
 /**
  * @param {number} dptmtInfoId
  * @param {number} excludeUserId 소유자 user_id
- * @param {{ etlInfra?: boolean, resourceType?: 'table_master'|null, tableMasterId?: number }} [opts]
+ * @param {{ etlInfra?: boolean, resourceType?: 'table_master'|'dptmt_creator'|null, tableMasterId?: number }} [opts]
  */
 export async function getAdminOwnershipTransferTargets(dptmtInfoId, excludeUserId, opts = {}) {
   const o = typeof opts === 'boolean' ? { etlInfra: opts } : opts || {}
@@ -104,6 +119,9 @@ export async function getAdminOwnershipTransferTargets(dptmtInfoId, excludeUserI
   if (o.resourceType === 'table_master' && o.tableMasterId != null) {
     q.set('resource_type', 'table_master')
     q.set('table_master_id', String(o.tableMasterId))
+  }
+  if (o.resourceType === 'dptmt_creator') {
+    q.set('resource_type', 'dptmt_creator')
   }
   return request('GET', `/api/admin/users/ownership-transfer-targets?${q}`)
 }
@@ -165,7 +183,17 @@ export async function getAdminProjects() {
   return request('GET', '/api/admin/projects')
 }
 
-/** @param {{ project_name: string, project_dscrtn?: string|null }} body */
+/**
+ * @param {{
+ *   project_name: string,
+ *   project_dscrtn?: string|null,
+ *   enabled_pages?: string[]|null,
+ *   table_master_ids?: number[],
+ *   creator_pmssn_master_id: number,
+ *   members?: { user_id: number, pmssn_master_id: number }[],
+ *   external_invites?: { user_id: number, pmssn_master_id: number }[],
+ * }} body
+ */
 export async function postAdminProject(body) {
   return request('POST', '/api/admin/projects', body)
 }

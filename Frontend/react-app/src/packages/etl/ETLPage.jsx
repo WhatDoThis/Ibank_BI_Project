@@ -34,6 +34,7 @@ import AddFileModal from './components/AddFileModal';
 import JobHistoryPanel from './components/JobHistoryPanel';
 import PreviewModal from './components/PreviewModal';
 import { PageHeader } from '@/app/layout/PageHeader.jsx';
+import '@/app/admin/admin-users.css';
 import './etl.css';
 
 const VALID_TABS = ['file', 'db', 'folder', 'storage', 'history'];
