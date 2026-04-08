@@ -103,14 +103,20 @@ function isGroupByColumn(groupBy, table, column) {
   return groupBy.some((g) => g.table === table && g.column === column)
 }
 
+// 9a. 날짜 단위 TO_CHAR: 메타는 날짜형인데 DB 컬럼이 text/varchar인 경우 대비해 timestamptz로 캐스트
+function toCharByGran(sqlColumnExpr, granPattern) {
+  const ts = `(${sqlColumnExpr})::timestamptz`
+  return `TO_CHAR(${ts}, '${granPattern}')`
+}
+
 // 10. GROUP BY 절에 쓸 컬럼 표현식 (날짜 단위 적용)
 function groupByExpression(alias, table, column, dateGranularity) {
   let expr = `${alias}.${quoteIdent(column)}`
   const key = `${table}.${column}`
   const gran = dateGranularity && dateGranularity[key]
-  if (gran === 'YYYY') expr = `TO_CHAR(${expr}, 'YYYY')`
-  else if (gran === 'YYYY-MM') expr = `TO_CHAR(${expr}, 'YYYY-MM')`
-  else if (gran === 'YYYY-MM-DD') expr = `TO_CHAR(${expr}, 'YYYY-MM-DD')`
+  if (gran === 'YYYY') expr = toCharByGran(expr, 'YYYY')
+  else if (gran === 'YYYY-MM') expr = toCharByGran(expr, 'YYYY-MM')
+  else if (gran === 'YYYY-MM-DD') expr = toCharByGran(expr, 'YYYY-MM-DD')
   return expr
 }
 
@@ -120,9 +126,9 @@ function getSelectExpression(col, gridColumns, groupBy, dateGranularity) {
   let base = `${alias}.${quoteIdent(col.column)}`
   const key = `${col.table}.${col.column}`
   const gran = dateGranularity && dateGranularity[key]
-  if (gran === 'YYYY') base = `TO_CHAR(${base}, 'YYYY')`
-  else if (gran === 'YYYY-MM') base = `TO_CHAR(${base}, 'YYYY-MM')`
-  else if (gran === 'YYYY-MM-DD') base = `TO_CHAR(${base}, 'YYYY-MM-DD')`
+  if (gran === 'YYYY') base = toCharByGran(base, 'YYYY')
+  else if (gran === 'YYYY-MM') base = toCharByGran(base, 'YYYY-MM')
+  else if (gran === 'YYYY-MM-DD') base = toCharByGran(base, 'YYYY-MM-DD')
 
   const isGB = isGroupByColumn(groupBy, col.table, col.column)
   if (groupBy && groupBy.length > 0 && !isGB && col.aggFunc) {
@@ -185,7 +191,9 @@ export function generateSQL(
     const pivotKey = `${pivot.table}.${pivot.column}`
     const isPivotDate = pivotCol && isPivotColumnDateType(pivotCol.type)
     const pivotGran = isPivotDate ? (dateGranularity[pivotKey] || 'YYYY-MM-DD') : null
-    const pivotCompareExpr = pivotGran ? `TO_CHAR(${pivotAlias}.${quoteIdent(pivot.column)}, '${pivotGran}')` : `${pivotAlias}.${quoteIdent(pivot.column)}`
+    const pivotCompareExpr = pivotGran
+      ? toCharByGran(`${pivotAlias}.${quoteIdent(pivot.column)}`, pivotGran)
+      : `${pivotAlias}.${quoteIdent(pivot.column)}`
     pivot.values.forEach((value) => {
       const safeVal = String(value).replace(/'/g, "''")
       selectParts.push(
@@ -390,7 +398,7 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
   const isDate = col && isPivotColumnDateType(col.type)
   const gran = isDate ? (dateGranularity[pivotKey] || 'YYYY-MM-DD') : null
   const pivotSelectExpr = gran
-    ? `TO_CHAR(${alias}.${quoteIdent(column)}, '${gran}')`
+    ? toCharByGran(`${alias}.${quoteIdent(column)}`, gran)
     : `${alias}.${quoteIdent(column)}`
   const pivotSelectAlias = quoteIdent(`${alias}.${column}`)
 

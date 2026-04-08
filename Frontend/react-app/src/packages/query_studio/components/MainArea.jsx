@@ -1,7 +1,7 @@
 /**
  * query_studio/components/MainArea.jsx (쿼리 스튜디오 메인 영역)
  * =======================================================
- * 그리드·드롭 존·기준축/피벗/HAVING/조건/정렬·페이지네이션·SQL 패널·해석·JOIN 설정 UI·관계 다이어그램.
+ * 그리드·드롭 존·툴바 모달(조건·정렬·피벗·HAVING 통합·조인·관계도)·페이지네이션·SQL 패널·해석.
  *
  * [Main Functions]
  * ===========
@@ -13,7 +13,7 @@
  * - React, query_studio/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), query_studio/utils/helpers (isDateColumn, isDateType, isDateTimeType), query_studio/utils/relationshipDiagram (buildRelationshipTree, buildRelationshipMermaid)
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
 import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relationshipDiagram'
@@ -129,8 +129,9 @@ export default function MainArea({
   const [addPivotAggMenuOpen, setAddPivotAggMenuOpen] = useState(false)
   const [addHavingMenuOpen, setAddHavingMenuOpen] = useState(false)
   const [addHavingPopup, setAddHavingPopup] = useState(null)
-  const [filterOrderBarOpen, setFilterOrderBarOpen] = useState(false)
+  const [showQueryOptionsModal, setShowQueryOptionsModal] = useState(false)
   const [showRelationshipDiagram, setShowRelationshipDiagram] = useState(false)
+  const [showJoinConditionsModal, setShowJoinConditionsModal] = useState(false)
   const [expandedJoinKey, setExpandedJoinKey] = useState(null)
 
   const isGroupByActive = groupBy && groupBy.length > 0
@@ -221,35 +222,19 @@ export default function MainArea({
     return (relationshipOptions[key] || []).length === 0
   })
   useEffect(() => {
-    if (hasImpossibleJoin) setFilterOrderBarOpen(false)
+    if (hasImpossibleJoin) setShowQueryOptionsModal(false)
   }, [hasImpossibleJoin])
-
-  const prevTablesCountRef = useRef(0)
-  useEffect(() => {
-    const n = addedTables.length
-    if (n >= 2 && prevTablesCountRef.current < 2) setFilterOrderBarOpen(true)
-    prevTablesCountRef.current = n
-  }, [addedTables.length])
 
   const relationshipTree = buildRelationshipTree(joinOrder, addedTables)
   const relationshipMermaid = buildRelationshipMermaid(joinOrder, addedTables)
 
-  const joinConditionsBlock = joinPairs.length > 0 && (
-    <div className="join-row">
-      <span className="bar-label">조인 조건</span>
+  const joinConditionsModalContent = joinPairs.length > 0 && (
+    <div className="qs-join-modal__content">
       {joinAccuracy != null && (
         <span className="join-conditions-bar__accuracy" title="JOIN 경로 정확도 (엣지별 신뢰도 평균)">
           정확도 {Math.round(joinAccuracy * 100)}%
         </span>
       )}
-      <button
-        type="button"
-        className="btn-small relationship-diagram-btn"
-        onClick={() => setShowRelationshipDiagram(true)}
-        title="현재 테이블 기준 관계도 (족보)"
-      >
-        테이블 관계도
-      </button>
       <div className="join-conditions-bar__pairs">
         {joinPairs.map(({ prevTable, currTable }) => {
           const key = `${prevTable}||${currTable}`
@@ -355,6 +340,247 @@ export default function MainArea({
     </div>
   )
 
+  const whereClauseModalContent = gridColumns.length > 0 && (
+    <div className="qs-where-modal__content">
+      <div className="filter-chips">
+        {filters.map((f, i) => {
+          const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)
+          if (!c) return null
+          const opLabel = OPERATOR_LABELS[f.operator] || f.operator
+          const noValueOp = f.operator === 'IS NULL' || f.operator === 'IS NOT NULL'
+          return (
+            <span key={i} className="filter-chips-inline">
+              {i > 0 && (
+                <select
+                  className="filter-logical-op"
+                  value={filters[i - 1].logicalOperator || 'AND'}
+                  onChange={(e) => onFilterLogicalOpChange?.(i - 1, e.target.value)}
+                  aria-label="다음 조건과"
+                >
+                  <option value="AND">AND</option>
+                  <option value="OR">OR</option>
+                </select>
+              )}
+              <span className="filter-chip">
+                {getColumnDisplayName(c, gridColumns)} <span className="chip-op">{opLabel}</span>
+                {!noValueOp && f.value != null && f.value !== '' && ` ${f.value}`}{' '}
+                <span className="chip-remove" onClick={() => onRemoveFilter?.(i)} role="button" tabIndex={0}>×</span>
+              </span>
+            </span>
+          )
+        })}
+        {addFilterColumnIndex == null ? (
+          <button type="button" className="btn-small secondary" onClick={() => setAddFilterColumnIndex(gridColumns.length ? 0 : null)}>+ 조건 추가</button>
+        ) : (
+          <span className="filter-chip" style={{ flexWrap: 'nowrap' }}>
+            <select value={addFilterColumnIndex} onChange={(e) => setAddFilterColumnIndex(Number(e.target.value))}>
+              {gridColumns.map((c, i) => (
+                <option key={i} value={i}>{getColumnDisplayName(c, gridColumns)}</option>
+              ))}
+            </select>
+            <select value={addFilterOp} onChange={(e) => setAddFilterOp(e.target.value)}>
+              {Object.entries(OPERATOR_LABELS).map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
+            </select>
+            {(addFilterOp !== 'IS NULL' && addFilterOp !== 'IS NOT NULL') && (
+              <input
+                type={isDateTimeType(gridColumns[addFilterColumnIndex]?.type) ? 'datetime-local' : isDateType(gridColumns[addFilterColumnIndex]?.type) ? 'date' : 'text'}
+                placeholder={addFilterOp === 'IN' ? 'a,b,c' : addFilterOp === 'BETWEEN' ? 'min,max' : '값'}
+                value={addFilterVal}
+                onChange={(e) => setAddFilterVal(e.target.value)}
+                style={{ width: '120px', padding: '4px' }}
+              />
+            )}
+            <button type="button" className="btn-small primary" onClick={applyFilter}>적용</button>
+            <span className="chip-remove" onClick={() => setAddFilterColumnIndex(null)} role="button">×</span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+
+  const aggregateOptionsModalBody = (
+    <div className="qs-filters-body qs-aggregate-modal__body">
+      {isGroupByActive && (
+        <>
+          <div className="groupby-row">
+            <span className="bar-label">기준축</span>
+            <div className="filter-chips">
+              {groupBy.map((g) => (
+                <span key={`${g.table}.${g.column}`} className="filter-chip gb-chip">
+                  {getColumnDisplayName(g, gridColumns)}{' '}
+                  <span className="chip-remove" onClick={() => onToggleGroupBy?.(g.table, g.column)} role="button" tabIndex={0}>×</span>
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="pivot-row">
+            <span className="bar-label">피벗축</span>
+            <div className="filter-chips">
+              {pivot ? (
+                <span className="filter-chip pivot-chip">
+                  {getColumnDisplayName(pivot, gridColumns)}{' '}
+                  {pivot.values.map((v) => (
+                    <span key={v} className="pivot-value-badge">{v}</span>
+                  ))}{' '}
+                  <span className="chip-remove" onClick={onRemovePivot} role="button" tabIndex={0}>×</span>
+                </span>
+              ) : null}
+              {!pivot && (
+                <>
+                  <button type="button" className="btn-small secondary" onClick={() => setAddPivotMenuOpen(!addPivotMenuOpen)}>+ 피벗 추가</button>
+                  {addPivotMenuOpen && (
+                    <div className="add-filter-menu" style={{ position: 'absolute', marginTop: 4 }}>
+                      {pivotAvailableCols.length === 0 ? (
+                        <div className="add-filter-menu-empty">피벗 가능한 컬럼이 없습니다</div>
+                      ) : (
+                        pivotAvailableCols.map((col) => (
+                          <button
+                            key={`${col.table}.${col.column}`}
+                            type="button"
+                            onClick={() => {
+                              onFetchAndSetPivot?.(col.table, col.column)
+                              setAddPivotMenuOpen(false)
+                            }}
+                          >
+                            {getColumnDisplayName(col, gridColumns)}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          {false && hasPivot && (
+            <div className="pivot-agg-row">
+              <span className="bar-label">행별집계</span>
+              <div className="filter-chips">
+                {pivotRowAggs.map((agg, i) => {
+                  const aggLabel = AGG_FUNCTIONS.find((a) => a.value === agg.aggFunc)?.label || agg.aggFunc
+                  return (
+                    <span key={i} className="filter-chip pivot-agg-chip">
+                      {aggLabel}({getColumnDisplayName(agg, gridColumns)}) <span className="chip-remove" onClick={() => onRemovePivotAgg?.(i)} role="button" tabIndex={0}>×</span>
+                    </span>
+                  )
+                })}
+                <button type="button" className="btn-small secondary" onClick={() => setAddPivotAggMenuOpen(!addPivotAggMenuOpen)}>+ 집계 추가</button>
+                {addPivotAggMenuOpen && (
+                  <div className="add-filter-menu" style={{ position: 'absolute', marginTop: 4 }}>
+                    {pivotAggAvailableCols.length === 0 ? (
+                      <div className="add-filter-menu-empty">집계 가능한 숫자형 컬럼이 없습니다</div>
+                    ) : (
+                      pivotAggAvailableCols.flatMap((col) =>
+                        AGG_FUNCTIONS.map((agg) => (
+                          <button
+                            key={`${col.table}.${col.column}.${agg.value}`}
+                            type="button"
+                            onClick={() => {
+                              onAddPivotAgg?.({ table: col.table, column: col.column, aggFunc: agg.value })
+                              setAddPivotAggMenuOpen(false)
+                            }}
+                          >
+                            {agg.label}({getColumnDisplayName(col, gridColumns)})
+                          </button>
+                        ))
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="having-row">
+            <span className="bar-label">HAVING</span>
+            <div className="filter-chips">
+              {havings.map((h, i) => {
+                const aggLabel = AGG_FUNCTIONS.find((a) => a.value === h.aggFunc)?.label || h.aggFunc
+                const opLabel = OPERATOR_LABELS[h.operator] || h.operator
+                return (
+                  <span key={i} className="filter-chips-inline">
+                    {i > 0 && (
+                      <select
+                        className="filter-logical-op"
+                        value={havings[i - 1].logicalOperator || 'AND'}
+                        onChange={(e) => onHavingLogicalOpChange?.(i - 1, e.target.value)}
+                        aria-label="다음 조건과"
+                      >
+                        <option value="AND">AND</option>
+                        <option value="OR">OR</option>
+                      </select>
+                    )}
+                    <span className="filter-chip having-chip">
+                      {aggLabel}({getColumnDisplayName(h, gridColumns)}) <span className="chip-op">{opLabel}</span> {h.value}{' '}
+                      <span className="chip-remove" onClick={() => onRemoveHaving?.(i)} role="button" tabIndex={0}>×</span>
+                    </span>
+                  </span>
+                )
+              })}
+              <button type="button" className="btn-small secondary" onClick={() => setAddHavingMenuOpen(!addHavingMenuOpen)}>+ HAVING 추가</button>
+              {addHavingMenuOpen && (
+                <div className="add-filter-menu" style={{ position: 'absolute', marginTop: 4 }}>
+                  {havingCandidates.length === 0 ? (
+                    <div className="add-filter-menu-empty">집계 컬럼이 없습니다</div>
+                  ) : (
+                    havingCandidates.map((c) => {
+                      const aggLabel = AGG_FUNCTIONS.find((a) => a.value === c.aggFunc)?.label || c.aggFunc
+                      return (
+                        <button
+                          key={`${c.table}.${c.column}`}
+                          type="button"
+                          onClick={() => {
+                            setAddHavingMenuOpen(false)
+                            setAddHavingPopup({ table: c.table, column: c.column, aggFunc: c.aggFunc })
+                          }}
+                        >
+                          {aggLabel}({getColumnDisplayName(c, gridColumns)})
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+      <div className="order-row">
+        <span className="bar-label">정렬</span>
+        <div className="filter-chips">
+          {orderBy.map((ob, i) => {
+            const c = gridColumns[ob.columnIndex]
+            if (!c) return null
+            return (
+              <span key={i} className="filter-chip">
+                {orderByLabel(ob)} {ob.dir === 'DESC' ? '내림차순' : '오름차순'}{' '}
+                <span className="chip-remove" onClick={() => onRemoveOrderBy?.(i)} role="button" tabIndex={0}>×</span>
+              </span>
+            )
+          })}
+          {addOrderByColumnIndex == null ? (
+            <button type="button" className="btn-small secondary" disabled={availableOrderByColumns.length === 0} onClick={() => availableOrderByColumns.length > 0 && setAddOrderByColumnIndex(availableOrderByColumns[0].i)}>+ 정렬 추가</button>
+          ) : (
+            <span className="filter-chip" style={{ flexWrap: 'nowrap' }}>
+              <select value={addOrderByColumnIndex} onChange={(e) => setAddOrderByColumnIndex(Number(e.target.value))}>
+                {availableOrderByColumns.map(({ c, i }) => (
+                  <option key={i} value={i}>{orderByLabel({ columnIndex: i })}</option>
+                ))}
+              </select>
+              <select value={addOrderByDir} onChange={(e) => setAddOrderByDir(e.target.value)}>
+                <option value="ASC">오름차순</option>
+                <option value="DESC">내림차순</option>
+              </select>
+              <button type="button" className="btn-small primary" onClick={applyOrderBy}>적용</button>
+              <span className="chip-remove" onClick={() => setAddOrderByColumnIndex(null)} role="button">×</span>
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <>
     <div className="main-area qs-main">
@@ -370,6 +596,34 @@ export default function MainArea({
               <button type="button" className="btn btn-query-studio-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
                 결과 저장
               </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-query-studio-secondary"
+              onClick={() => setShowQueryOptionsModal(true)}
+              title="WHERE·기준축·피벗·HAVING·정렬(ORDER BY) 편집"
+            >
+              조건·정렬·피벗·HAVING
+            </button>
+            {joinPairs.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-query-studio-secondary"
+                  onClick={() => setShowRelationshipDiagram(true)}
+                  title="현재 테이블 기준 관계도 (족보)"
+                >
+                  테이블 관계도
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-query-studio-secondary"
+                  onClick={() => setShowJoinConditionsModal(true)}
+                  title="테이블 간 JOIN 조건 편집"
+                >
+                  조인 조건
+                </button>
+              </>
             )}
           </div>
           <div className="qs-toolbar__right">
@@ -395,269 +649,11 @@ export default function MainArea({
         </header>
       )}
 
-      {gridColumns.length > 0 && joinPairs.length > 0 && (
-        <div className="qs-join-strip" role="region" aria-label="조인 조건">
-          {joinConditionsBlock}
-        </div>
-      )}
-
       <div className="qs-workspace">
         <div className="grid-area qs-grid-area">
-        {gridColumns.length > 0 && (
-          <div className={`qs-filters-panel ${filterOrderBarOpen ? 'qs-filters-panel--open' : ''}`}>
-            <button
-              type="button"
-              className="qs-filters-toggle"
-              onClick={() => setFilterOrderBarOpen((v) => !v)}
-              aria-expanded={filterOrderBarOpen}
-            >
-              <span className="qs-filters-toggle__chev" aria-hidden>{filterOrderBarOpen ? '▼' : '▶'}</span>
-              <span className="qs-filters-toggle__text">조건, 정렬, 피벗, HAVING</span>
-            </button>
-            {filterOrderBarOpen && (
-              <div className="qs-filters-body">
-            {isGroupByActive && (
-              <>
-                <div className="groupby-row">
-                  <span className="bar-label">기준축</span>
-                  <div className="filter-chips">
-                    {groupBy.map((g) => (
-                      <span key={`${g.table}.${g.column}`} className="filter-chip gb-chip">
-                        {getColumnDisplayName(g, gridColumns)}{' '}
-                        <span className="chip-remove" onClick={() => onToggleGroupBy?.(g.table, g.column)} role="button" tabIndex={0}>×</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="pivot-row">
-                  <span className="bar-label">피벗축</span>
-                  <div className="filter-chips">
-                    {pivot ? (
-                      <span className="filter-chip pivot-chip">
-                        {getColumnDisplayName(pivot, gridColumns)}{' '}
-                        {pivot.values.map((v) => (
-                          <span key={v} className="pivot-value-badge">{v}</span>
-                        ))}{' '}
-                        <span className="chip-remove" onClick={onRemovePivot} role="button" tabIndex={0}>×</span>
-                      </span>
-                    ) : null}
-                    {!pivot && (
-                      <>
-                        <button type="button" className="btn-small secondary" onClick={() => setAddPivotMenuOpen(!addPivotMenuOpen)}>+ 피벗 추가</button>
-                        {addPivotMenuOpen && (
-                          <div className="add-filter-menu" style={{ position: 'absolute', marginTop: 4 }}>
-                            {pivotAvailableCols.length === 0 ? (
-                              <div className="add-filter-menu-empty">피벗 가능한 컬럼이 없습니다</div>
-                            ) : (
-                              pivotAvailableCols.map((col) => (
-                                <button
-                                  key={`${col.table}.${col.column}`}
-                                  type="button"
-                                  onClick={() => {
-                                    onFetchAndSetPivot?.(col.table, col.column)
-                                    setAddPivotMenuOpen(false)
-                                  }}
-                                >
-                                  {getColumnDisplayName(col, gridColumns)}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                {/* 행별집계: 일단 비활성화 */}
-                {false && hasPivot && (
-                  <div className="pivot-agg-row">
-                    <span className="bar-label">행별집계</span>
-                    <div className="filter-chips">
-                      {pivotRowAggs.map((agg, i) => {
-                        const aggLabel = AGG_FUNCTIONS.find((a) => a.value === agg.aggFunc)?.label || agg.aggFunc
-                        return (
-                          <span key={i} className="filter-chip pivot-agg-chip">
-                            {aggLabel}({getColumnDisplayName(agg, gridColumns)}) <span className="chip-remove" onClick={() => onRemovePivotAgg?.(i)} role="button" tabIndex={0}>×</span>
-                          </span>
-                        )
-                      })}
-                      <button type="button" className="btn-small secondary" onClick={() => setAddPivotAggMenuOpen(!addPivotAggMenuOpen)}>+ 집계 추가</button>
-                      {addPivotAggMenuOpen && (
-                        <div className="add-filter-menu" style={{ position: 'absolute', marginTop: 4 }}>
-                          {pivotAggAvailableCols.length === 0 ? (
-                            <div className="add-filter-menu-empty">집계 가능한 숫자형 컬럼이 없습니다</div>
-                          ) : (
-                            pivotAggAvailableCols.flatMap((col) =>
-                              AGG_FUNCTIONS.map((agg) => (
-                                <button
-                                  key={`${col.table}.${col.column}.${agg.value}`}
-                                  type="button"
-                                  onClick={() => {
-                                    onAddPivotAgg?.({ table: col.table, column: col.column, aggFunc: agg.value })
-                                    setAddPivotAggMenuOpen(false)
-                                  }}
-                                >
-                                  {agg.label}({getColumnDisplayName(col, gridColumns)})
-                                </button>
-                              ))
-                            )
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <div className="having-row">
-                  <span className="bar-label">HAVING</span>
-                  <div className="filter-chips">
-                    {havings.map((h, i) => {
-                      const aggLabel = AGG_FUNCTIONS.find((a) => a.value === h.aggFunc)?.label || h.aggFunc
-                      const opLabel = OPERATOR_LABELS[h.operator] || h.operator
-                      return (
-                        <span key={i} className="filter-chips-inline">
-                          {i > 0 && (
-                            <select
-                              className="filter-logical-op"
-                              value={havings[i - 1].logicalOperator || 'AND'}
-                              onChange={(e) => onHavingLogicalOpChange?.(i - 1, e.target.value)}
-                              aria-label="다음 조건과"
-                            >
-                              <option value="AND">AND</option>
-                              <option value="OR">OR</option>
-                            </select>
-                          )}
-                          <span className="filter-chip having-chip">
-                            {aggLabel}({getColumnDisplayName(h, gridColumns)}) <span className="chip-op">{opLabel}</span> {h.value}{' '}
-                            <span className="chip-remove" onClick={() => onRemoveHaving?.(i)} role="button" tabIndex={0}>×</span>
-                          </span>
-                        </span>
-                      )
-                    })}
-                    <button type="button" className="btn-small secondary" onClick={() => setAddHavingMenuOpen(!addHavingMenuOpen)}>+ HAVING 추가</button>
-                    {addHavingMenuOpen && (
-                      <div className="add-filter-menu" style={{ position: 'absolute', marginTop: 4 }}>
-                        {havingCandidates.length === 0 ? (
-                          <div className="add-filter-menu-empty">집계 컬럼이 없습니다</div>
-                        ) : (
-                          havingCandidates.map((c) => {
-                            const aggLabel = AGG_FUNCTIONS.find((a) => a.value === c.aggFunc)?.label || c.aggFunc
-                            return (
-                              <button
-                                key={`${c.table}.${c.column}`}
-                                type="button"
-                                onClick={() => {
-                                  setAddHavingMenuOpen(false)
-                                  setAddHavingPopup({ table: c.table, column: c.column, aggFunc: c.aggFunc })
-                                }}
-                              >
-                                {aggLabel}({getColumnDisplayName(c, gridColumns)})
-                              </button>
-                            )
-                          })
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-            <div className="where-row">
-              <span className="bar-label">조건</span>
-              <div className="filter-chips">
-                {filters.map((f, i) => {
-                  const c = gridColumns.find((col) => col.table === f.table && col.column === f.column)
-                  if (!c) return null
-                  const opLabel = OPERATOR_LABELS[f.operator] || f.operator
-                  const noValueOp = f.operator === 'IS NULL' || f.operator === 'IS NOT NULL'
-                  return (
-                    <span key={i} className="filter-chips-inline">
-                      {i > 0 && (
-                        <select
-                          className="filter-logical-op"
-                          value={filters[i - 1].logicalOperator || 'AND'}
-                          onChange={(e) => onFilterLogicalOpChange?.(i - 1, e.target.value)}
-                          aria-label="다음 조건과"
-                        >
-                          <option value="AND">AND</option>
-                          <option value="OR">OR</option>
-                        </select>
-                      )}
-                      <span className="filter-chip">
-                        {getColumnDisplayName(c, gridColumns)} <span className="chip-op">{opLabel}</span>
-                        {!noValueOp && f.value != null && f.value !== '' && ` ${f.value}`}{' '}
-                        <span className="chip-remove" onClick={() => onRemoveFilter?.(i)} role="button" tabIndex={0}>×</span>
-                      </span>
-                    </span>
-                  )
-                })}
-                {addFilterColumnIndex == null ? (
-                  <button type="button" className="btn-small secondary" onClick={() => setAddFilterColumnIndex(gridColumns.length ? 0 : null)}>+ 조건 추가</button>
-                ) : (
-                  <span className="filter-chip" style={{ flexWrap: 'nowrap' }}>
-                    <select value={addFilterColumnIndex} onChange={(e) => setAddFilterColumnIndex(Number(e.target.value))}>
-                      {gridColumns.map((c, i) => (
-                        <option key={i} value={i}>{getColumnDisplayName(c, gridColumns)}</option>
-                      ))}
-                    </select>
-                    <select value={addFilterOp} onChange={(e) => setAddFilterOp(e.target.value)}>
-                      {Object.entries(OPERATOR_LABELS).map(([val, label]) => (
-                        <option key={val} value={val}>{label}</option>
-                      ))}
-                    </select>
-                    {(addFilterOp !== 'IS NULL' && addFilterOp !== 'IS NOT NULL') && (
-                      <input
-                        type={isDateTimeType(gridColumns[addFilterColumnIndex]?.type) ? 'datetime-local' : isDateType(gridColumns[addFilterColumnIndex]?.type) ? 'date' : 'text'}
-                        placeholder={addFilterOp === 'IN' ? 'a,b,c' : addFilterOp === 'BETWEEN' ? 'min,max' : '값'}
-                        value={addFilterVal}
-                        onChange={(e) => setAddFilterVal(e.target.value)}
-                        style={{ width: '120px', padding: '4px' }}
-                      />
-                    )}
-                    <button type="button" className="btn-small primary" onClick={applyFilter}>적용</button>
-                    <span className="chip-remove" onClick={() => setAddFilterColumnIndex(null)} role="button">×</span>
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="order-row">
-              <span className="bar-label">정렬</span>
-              <div className="filter-chips">
-                {orderBy.map((ob, i) => {
-                  const c = gridColumns[ob.columnIndex]
-                  if (!c) return null
-                  return (
-                    <span key={i} className="filter-chip">
-                      {orderByLabel(ob)} {ob.dir === 'DESC' ? '내림차순' : '오름차순'}{' '}
-                      <span className="chip-remove" onClick={() => onRemoveOrderBy?.(i)} role="button" tabIndex={0}>×</span>
-                    </span>
-                  )
-                })}
-                {addOrderByColumnIndex == null ? (
-                  <button type="button" className="btn-small secondary" disabled={availableOrderByColumns.length === 0} onClick={() => availableOrderByColumns.length > 0 && setAddOrderByColumnIndex(availableOrderByColumns[0].i)}>+ 정렬 추가</button>
-                ) : (
-                  <span className="filter-chip" style={{ flexWrap: 'nowrap' }}>
-                    <select value={addOrderByColumnIndex} onChange={(e) => setAddOrderByColumnIndex(Number(e.target.value))}>
-                      {availableOrderByColumns.map(({ c, i }) => (
-                        <option key={i} value={i}>{orderByLabel({ columnIndex: i })}</option>
-                      ))}
-                    </select>
-                    <select value={addOrderByDir} onChange={(e) => setAddOrderByDir(e.target.value)}>
-                      <option value="ASC">오름차순</option>
-                      <option value="DESC">내림차순</option>
-                    </select>
-                    <button type="button" className="btn-small primary" onClick={applyOrderBy}>적용</button>
-                    <span className="chip-remove" onClick={() => setAddOrderByColumnIndex(null)} role="button">×</span>
-                  </span>
-                )}
-              </div>
-            </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {addHavingPopup && (
-          <div className="filter-popup" style={{ position: 'fixed', left: 20, top: 80, zIndex: 1000 }}>
+          <div className="filter-popup" style={{ position: 'fixed', left: 20, top: 80, zIndex: 1102 }}>
             <div className="filter-header">
               <span>HAVING 조건 추가</span>
               <span className="filter-close" onClick={() => setAddHavingPopup(null)} role="button">×</span>
@@ -951,6 +947,57 @@ export default function MainArea({
       </div>
       </div>
     </div>
+
+    {showQueryOptionsModal && gridColumns.length > 0 && (
+      <div
+        className="relationship-diagram-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="qs-query-options-modal-title"
+        onClick={() => setShowQueryOptionsModal(false)}
+      >
+        <div
+          className="relationship-diagram-modal qs-query-options-modal"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="relationship-diagram-header">
+            <span id="qs-query-options-modal-title">조건·정렬·피벗·HAVING</span>
+            <button type="button" className="relationship-diagram-close" onClick={() => setShowQueryOptionsModal(false)} aria-label="닫기">×</button>
+          </div>
+          <div className="relationship-diagram-body">
+            <div className="qs-query-options-modal__section">
+              <div className="bar-label qs-query-options-modal__section-label">조건 (WHERE)</div>
+              {whereClauseModalContent}
+            </div>
+            <div className="qs-query-options-modal__divider" aria-hidden />
+            {aggregateOptionsModalBody}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showJoinConditionsModal && joinPairs.length > 0 && (
+      <div
+        className="relationship-diagram-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="qs-join-conditions-modal-title"
+        onClick={() => setShowJoinConditionsModal(false)}
+      >
+        <div
+          className="relationship-diagram-modal qs-join-conditions-modal"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="relationship-diagram-header">
+            <span id="qs-join-conditions-modal-title">조인 조건</span>
+            <button type="button" className="relationship-diagram-close" onClick={() => setShowJoinConditionsModal(false)} aria-label="닫기">×</button>
+          </div>
+          <div className="relationship-diagram-body">
+            {joinConditionsModalContent}
+          </div>
+        </div>
+      </div>
+    )}
 
     {showRelationshipDiagram && (
       <div

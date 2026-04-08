@@ -419,6 +419,9 @@ export default function QueryStudioPage() {
       const msg = warnings.length === 1 ? warnings[0].message : `경고 ${warnings.length}건: ${warnings.map((w) => w.message).join('; ')}`
       showToast('warning', msg)
     }
+    const priorSql = executedSql
+    const priorResult = resultData
+    const priorTotal = totalCount
     setQueryRunning(true)
     try {
       setTotalCount(null)
@@ -431,11 +434,14 @@ export default function QueryStudioPage() {
       setResultData(res.data || [])
       showToast('success', `${res.count ?? res.data?.length ?? 0}건 조회 완료`)
     } catch (e) {
+      setExecutedSql(priorSql)
+      setResultData(Array.isArray(priorResult) ? priorResult.slice() : priorResult)
+      setTotalCount(priorTotal)
       showToast('error', e.message || '실행 실패')
     } finally {
       setQueryRunning(false)
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, joinOrderData, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast])
+  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, joinOrderData, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast, executedSql, resultData, totalCount])
 
   const runFetchTotalCount = useCallback(async () => {
     if (gridColumns.length === 0) return

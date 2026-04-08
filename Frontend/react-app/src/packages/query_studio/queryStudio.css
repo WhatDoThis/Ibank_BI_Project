@@ -77,38 +77,15 @@
   padding-right: 18px;
 }
 
-.query-studio.qs-page__workspace .qs-join-strip {
-  margin: 0 18px 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-btn-sm);
-  background: var(--background);
-}
-
-.query-studio.qs-page__workspace .qs-filters-panel {
-  margin: 0 18px;
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-btn-sm);
-  overflow: hidden;
-  margin-bottom: 12px;
-}
-
-.query-studio.qs-page__workspace .qs-filters-toggle {
-  padding-left: 14px;
-  padding-right: 14px;
-}
-
-.query-studio.qs-page__workspace .qs-filters-body {
-  padding-left: 18px;
-  padding-right: 18px;
-  border-radius: 0 0 var(--radius-btn-sm) var(--radius-btn-sm);
-}
-
 .query-studio.qs-page__workspace .grid-container {
   margin: 0 18px 12px;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-btn-sm);
   background: #fff;
+  /* qs-grid-area flex 열 안에서 높이 상한 → 결과 테이블은 이 박스 안에서만 스크롤 */
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
   overflow: auto;
 }
 
@@ -117,12 +94,19 @@
   background: var(--background);
 }
 
+/* 넓은 표는 컨테이너 안 가로 스크롤(열 너비 붕괴 완화) */
+.query-studio.qs-page__workspace .grid-container .data-grid {
+  width: max-content;
+  min-width: 100%;
+}
+
 .query-studio.qs-page__workspace .pagination-bar {
   margin: 0 18px 14px;
   padding: 12px 16px;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-btn-sm);
   background: var(--background);
+  flex-shrink: 0;
 }
 
 .query-studio.qs-page__workspace .qs-sql-panel {
@@ -419,16 +403,6 @@
   user-select: none;
 }
 
-.query-studio .qs-join-strip {
-  flex-shrink: 0;
-  overflow-x: auto;
-}
-
-.query-studio .qs-join-strip .join-row {
-  margin-bottom: 0;
-  align-items: flex-start;
-}
-
 .query-studio .qs-workspace {
   flex: 1;
   min-height: 0;
@@ -442,50 +416,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.query-studio .qs-filters-panel {
-  flex-shrink: 0;
-  background: #fff;
-}
-
-.query-studio .qs-filters-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 0;
-  margin: 0;
-  border: none;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: var(--font-size-hint);
-  font-weight: 700;
-  color: var(--color-text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.query-studio .qs-filters-toggle:hover {
-  color: var(--color-action-primary);
-}
-
-.query-studio .qs-filters-panel--open .qs-filters-toggle {
-  border-bottom-color: var(--color-border-light);
-}
-
-.query-studio .qs-filters-toggle__chev {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-btn-sm);
-  background: var(--background);
-  color: var(--color-text-muted);
-  font-size: 10px;
 }
 
 .query-studio .qs-filters-body {
@@ -1240,6 +1170,76 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.query-studio .relationship-diagram-modal.qs-join-conditions-modal {
+  width: min(92vw, 720px);
+  max-width: min(92vw, 720px);
+}
+
+.query-studio .relationship-diagram-modal.qs-query-options-modal {
+  width: min(94vw, 840px);
+  max-width: min(94vw, 840px);
+  max-height: min(90vh, 780px);
+}
+
+.query-studio .qs-query-options-modal .relationship-diagram-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.query-studio .qs-query-options-modal__section {
+  width: 100%;
+}
+
+.query-studio .qs-query-options-modal__section-label {
+  margin-bottom: 10px;
+}
+
+.query-studio .qs-query-options-modal__divider {
+  height: 1px;
+  margin: 18px 0;
+  background: var(--color-border-light);
+  border: none;
+}
+
+.query-studio .qs-aggregate-modal__body {
+  border-bottom: none;
+}
+
+.query-studio .qs-aggregate-modal__body .groupby-row,
+.query-studio .qs-aggregate-modal__body .pivot-row,
+.query-studio .qs-aggregate-modal__body .having-row {
+  position: relative;
+}
+
+.query-studio .qs-where-modal__content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.query-studio .qs-where-modal__content .filter-chips {
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.query-studio .qs-join-modal__content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.query-studio .qs-join-modal__content .join-conditions-bar__pairs {
+  width: 100%;
+  max-width: 100%;
 }
 .relationship-diagram-header {
   display: flex;
