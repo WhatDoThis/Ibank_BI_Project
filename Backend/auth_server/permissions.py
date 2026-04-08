@@ -3,8 +3,8 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 ======================================================
 1) require_etl_infrastructure: JWT + user_info — `user_dvsn=sa_dev`, 레거시 원문 `etl_manager`, 또는 `etl_yn='Y'` 이면 ETL API 허용(프로젝트 불필요).
 2) require_permission: JWT + `project_ptcpnt_info→pmssn_master.pmssn_list` 와 **project_info.feature_flags**의 교집합.
+   **project_info.active_yn≠Y** 이면 유효 권한 없음·API 403·/me permissions 빈 배열.
    조직 역할(`user_dvsn`)은 프로젝트 UI 권한을 **늘리지 않는다**(어드민·ETL은 각각 별도 가드).
-   **feature_flags에서 꺼진 기능·역할에 없는 권한은 API·/me 모두 거부·미노출**.
 3) get_effective_permission_ids_for_me: /me — `compute_effective_project_permission_ids`와 동일.
 4) get_project_enabled_feature_ids: `feature_flags` jsonb(query·dash·widget) → 권한 ID 집합(NULL·컬럼 없음이면 전체 허용).
 
@@ -13,6 +13,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 1. get_user_dvsn_lower: user_id → user_dvsn 소문자
 2. user_has_etl_infrastructure_access: sa_dev·원문 etl_manager·또는 etl_yn=Y
 3. is_project_participant: project_ptcpnt_info 존재 여부
+3a. is_project_active: project_info.active_yn == Y
 4. resolve_pmssn_list_to_names: pmssn_list 배열 → pmssn_detail_name 목록
 5. get_permission_ids_for_user_project: 유저·프로젝트별 권한ID 목록(정규화)
 6. get_project_enabled_feature_ids: project_info.feature_flags → frozenset(컬럼 없음·NULL이면 전체)
@@ -46,6 +47,9 @@ _MSG_ETL_INFRA = (
     "ETL 관리 기능은 SA_DEV이거나 ETL 관리자 자격(etl_yn=Y)이 있는 계정만 사용할 수 있습니다."
 )
 _MSG_PROJECT_FEATURE_OFF = "이 프로젝트에서 사용할 수 없는 기능입니다."
+_MSG_PROJECT_INACTIVE = (
+    "비활성화된 프로젝트입니다. 홈에서 다른 프로젝트를 선택하세요."
+)
 
 # 프로젝트 UI 기능(매트릭스 §8). ETL 관리자 판별은 별도 require_etl_infrastructure.
 PROJECT_UI_FEATURE_IDS = frozenset(
@@ -103,6 +107,23 @@ def is_project_participant(conn, user_id: int, project_info_id: int) -> bool:
             (project_info_id, user_id),
         )
         return cur.fetchone() is not None
+    finally:
+        cur.close()
+
+
+# 3a.
+def is_project_active(conn, project_info_id: int) -> bool:
+    """project_info 행이 있고 active_yn이 Y(대소문자 무시)일 때만 True."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT active_yn FROM project_info WHERE project_info_id = %s",
+            (project_info_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        return (row.get("active_yn") or "").strip().upper() == "Y"
     finally:
         cur.close()
 
@@ -217,6 +238,8 @@ def compute_effective_project_permission_ids(
     user_dvsn: str | None,  # noqa: ARG001 — 시그니처 유지(/me·require_permission); 조직등급으로 권한 확장 없음
 ) -> list[str]:
     """프로젝트 참여자의 pmssn_list(정규화) ∩ project_info.feature_flags 허용 ID."""
+    if not is_project_active(conn, project_info_id):
+        return []
     enabled = get_project_enabled_feature_ids(conn, project_info_id)
     base = set(get_permission_ids_for_user_project(conn, user_id, project_info_id))
     return sorted(base & set(enabled))
@@ -267,6 +290,11 @@ def require_permission(*required: str) -> Callable[..., dict[str, Any]]:
         eff_set = set(eff)
         for n in needed:
             if n not in eff_set:
+                if not is_project_active(conn, project_info_id):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=_MSG_PROJECT_INACTIVE,
+                    )
                 raise HTTPException(
                     status_code=403,
                     detail=_MSG_PROJECT_FEATURE_OFF

@@ -115,9 +115,26 @@
 
 .nb-item__actions {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
   padding: 8px 10px 8px 0;
   flex-shrink: 0;
+}
+
+.nb-item__reject {
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #64748b;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+}
+
+.nb-item__reject:hover {
+  background: #f1f5f9;
 }
 
 .nb-item__accept {
@@ -132,6 +149,15 @@
 
 .nb-item__accept:hover {
   background: #e8f4ef;
+}
+
+.nb-item__meta--expire {
+  color: #92400e;
+}
+
+.nb-item__meta--warn {
+  color: #b45309;
+  font-weight: 500;
 }
 
 .nb-item__title {

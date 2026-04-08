@@ -7,7 +7,7 @@ Backend.admin_server.router (/api/admin)
 ===========
 1. users, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, transfer-ownership, users/{id}/change-options|management(409), users/{id}/suspend|activate|DELETE(비활성만·409)
 2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
-3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
+3. projects CRUD·DELETE purge(비활성 물리 삭제), projects/{id}/members(items+pending_invites)·projects/{id}/invites/{nid} DELETE(초대 취소)
 4. table master 조회/수정, project table mapping 관리
 5. invite-codes, org, org/departments GET/POST/PATCH/DELETE (SA_DEV 전체·루트/하위 / SA 트리·하위만)
 
@@ -746,6 +746,22 @@ def admin_projects_delete(
     return {"message": "프로젝트가 비활성화되었습니다."}
 
 
+@router.delete("/projects/{project_info_id}/purge")
+def admin_projects_purge(
+    project_info_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    """비활성(active_yn≠Y) 프로젝트만 DB에서 제거. 참여·테이블 매핑·관련 알림·가입 대기 초대 참조를 선행 정리한다."""
+    try:
+        service_projects.purge_inactive_project(
+            conn, int(actor["dptmt_info_id"]), project_info_id
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "프로젝트가 삭제되었습니다."}
+
+
 @router.get("/tables")
 def admin_tables_list(
     db_type: str | None = Query(None, description="main|dash"),
@@ -855,12 +871,32 @@ def admin_project_members(
     conn=Depends(get_system_db),
 ):
     try:
-        items = service_projects.list_members(
+        data = service_projects.list_members(
             conn, int(actor["dptmt_info_id"]), project_info_id
         )
     except ValueError as e:
         raise _ve(e) from e
-    return {"items": items}
+    return data
+
+
+@router.delete("/projects/{project_info_id}/invites/{notification_info_id}")
+def admin_project_invite_cancel(
+    project_info_id: int,
+    notification_info_id: int,
+    actor: dict = Depends(require_project_admin_or_operator_participant),
+    conn=Depends(get_system_db),
+):
+    """미수락 project_invite 알림 삭제(타부서 초대 취소)."""
+    try:
+        service_projects.cancel_project_invite(
+            conn,
+            int(actor["dptmt_info_id"]),
+            project_info_id,
+            notification_info_id,
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "초대를 취소했습니다."}
 
 
 @router.post("/projects/{project_info_id}/members")
@@ -871,7 +907,7 @@ def admin_project_member_add(
     conn=Depends(get_system_db),
 ):
     try:
-        service_projects.add_member(
+        result = service_projects.add_member(
             conn,
             int(actor["user_id"]),
             int(actor["dptmt_info_id"]),
@@ -882,7 +918,10 @@ def admin_project_member_add(
         )
     except ValueError as e:
         raise _ve(e) from e
-    return {"message": "멤버가 추가되었습니다."}
+    outcome = (result or {}).get("outcome")
+    if outcome == "invite_sent":
+        return {"message": "초대 알림을 보냈습니다.", "outcome": "invite_sent"}
+    return {"message": "멤버가 추가되었습니다.", "outcome": "member_added"}
 
 
 @router.patch("/projects/{project_info_id}/members/{ptcpnt_user_id}")

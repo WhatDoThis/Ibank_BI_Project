@@ -2,6 +2,7 @@
  * app/auth/SignupPage.jsx (초대 코드 회원가입)
  * ====================================
  * POST /api/auth/signup — invite_code, email, password, nickname. 성공 시 로그인 안내·/login 이동.
+ * 초대 메일 링크(`/signup?code=…`, 서버 invite_user_by_email과 동일) 접속 시 쿼리의 code·invite_code를 초대 코드 입력에 반영하고 유효성 힌트를 자동 조회.
  * 비밀번호 확인·정책 검증(shared/utils/passwordPolicy) 후 가입 확인 다이얼로그.
  *
  * [Main Functions]
@@ -10,11 +11,11 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/authClient, shared/utils/crudConfirm, shared/utils/passwordPolicy
+ * - react-router-dom(useSearchParams), shared/api/authClient, shared/utils/crudConfirm, shared/utils/passwordPolicy
  */
 
-import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { getInviteValidate, postSignup } from '@/shared/api/authClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
@@ -26,6 +27,7 @@ import './login.css'
 export default function SignupPage() {
   const { me, loading } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [inviteCode, setInviteCode] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -37,20 +39,8 @@ export default function SignupPage() {
   const [pwdCheckOk, setPwdCheckOk] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  if (loading) {
-    return (
-      <div className="login-page">
-        <div className="login-page__card">로딩 중…</div>
-      </div>
-    )
-  }
-
-  if (me) {
-    return <Navigate to="/" replace />
-  }
-
-  async function handleBlurInvite() {
-    const c = inviteCode.trim()
+  const applyInviteValidation = useCallback(async (raw) => {
+    const c = String(raw || '').trim()
     if (!c) {
       setInviteHint('')
       return
@@ -80,6 +70,31 @@ export default function SignupPage() {
     } catch {
       setInviteHint('초대 코드 확인에 실패했습니다.')
     }
+  }, [])
+
+  useEffect(() => {
+    if (loading || me) return
+    const q =
+      (searchParams.get('code') || searchParams.get('invite_code') || '').trim()
+    if (!q) return
+    setInviteCode(q)
+    void applyInviteValidation(q)
+  }, [loading, me, searchParams, applyInviteValidation])
+
+  if (loading) {
+    return (
+      <div className="login-page">
+        <div className="login-page__card">로딩 중…</div>
+      </div>
+    )
+  }
+
+  if (me) {
+    return <Navigate to="/" replace />
+  }
+
+  async function handleBlurInvite() {
+    await applyInviteValidation(inviteCode)
   }
 
   function clearPwdCheckFeedback() {

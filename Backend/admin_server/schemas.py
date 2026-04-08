@@ -5,7 +5,7 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 
 [Classes]
 ===========
-- InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(dptmt_creator 포함), UserManageUpdateBody(etl_yn 선택)
+- InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(project_invite·dptmt_creator), UserManageUpdateBody(etl_yn 선택)
 - RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectFeatureFlags, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
@@ -113,6 +113,8 @@ class ProjectUpdateBody(BaseModel):
 
 
 class AcceptProjectInviteBody(BaseModel):
+    """accept-invite·reject-invite 공통 바디."""
+
     notification_info_id: int = Field(..., ge=1)
 
 
@@ -194,6 +196,7 @@ class ProjectTableAddBody(BaseModel):
 class TransferOwnershipBody(BaseModel):
     resource_type: Literal[
         "project",
+        "project_invite",
         "pmssn_master",
         "table_master",
         "dptmt_creator",
@@ -205,7 +208,7 @@ class TransferOwnershipBody(BaseModel):
         "batch_job",
     ] = Field(
         ...,
-        description="project·pmssn_master·table_master·dptmt_creator(dptmt_create_user_id) 또는 etl_db 메타",
+        description="project·project_invite(project_ptcpnt_info_id, 초대자 이관)·pmssn_master·table_master·dptmt_creator 또는 etl_db 메타",
     )
     resource_id: int = Field(..., ge=1)
     from_user_id: int = Field(..., ge=1, description="현재 생성자·등록자")

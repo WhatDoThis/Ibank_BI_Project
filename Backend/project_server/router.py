@@ -7,7 +7,8 @@ Backend.project_server.router (/api/projects)
 ===========
 1. GET /api/projects
 2. POST /api/projects/{project_info_id}/select
-3. POST /api/projects/{project_info_id}/accept-invite — 타부서 초대 알림 수락
+3. POST /api/projects/{project_info_id}/accept-invite — 타부서 초대 수락(ValueError → 400)
+4. POST /api/projects/{project_info_id}/reject-invite — 타부서 초대 거절(ValueError → 400)
 
 [Dependencies]
 =========
@@ -31,6 +32,11 @@ def _map_val(e: ValueError) -> HTTPException:
     if "참여하지 않" in msg:
         return HTTPException(status_code=403, detail=msg)
     return HTTPException(status_code=400, detail=msg)
+
+
+def _map_accept_invite(e: ValueError) -> HTTPException:
+    """수락 실패는 400으로 통일(401 리프레시·혼동 방지)."""
+    return HTTPException(status_code=400, detail=str(e))
 
 
 # 1.
@@ -74,5 +80,23 @@ def projects_accept_invite(
             conn, uid, int(project_info_id), int(body.notification_info_id)
         )
     except ValueError as e:
-        raise _map_val(e) from e
+        raise _map_accept_invite(e) from e
+    return {"ok": True}
+
+
+# 4.
+@router.post("/{project_info_id}/reject-invite")
+def projects_reject_invite(
+    project_info_id: int,
+    body: schemas.AcceptProjectInviteBody,
+    payload: dict = Depends(require_active_access),
+    conn=Depends(get_system_db),
+):
+    uid = int(payload["user_id"])
+    try:
+        service.reject_project_invite(
+            conn, uid, int(project_info_id), int(body.notification_info_id)
+        )
+    except ValueError as e:
+        raise _map_accept_invite(e) from e
     return {"ok": True}

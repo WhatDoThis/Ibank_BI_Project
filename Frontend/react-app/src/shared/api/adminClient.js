@@ -9,8 +9,8 @@
  * - getAdminOrg, patchAdminOrg, getAdminOrgDepartments, postAdminOrgDepartment, patchAdminOrgDepartment, deleteAdminOrgDepartment
  * - getAdminRoles, postAdminRole, putAdminRole, deleteAdminRole
  * - getAdminRolePermissionOptions, getAdminRoleUsages, getAdminRoleProjectParticipants, getAdminRoleUserUsages
- * - getAdminProjects, getAdminProjectTables, postAdminProject, patchAdminProject, deleteAdminProject
- * - getAdminProjectMembers, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
+ * - getAdminProjects, getAdminProjectTables, postAdminProject, patchAdminProject, deleteAdminProject(비활성화), purgeAdminProject(DB삭제)
+ * - getAdminProjectMembers({items,pending_invites}), deleteAdminProjectInvite, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
  * - getAdminUsersSearch
  * - getAdminInviteDepartments, getAdminInviteProjects, getAdminInviteRoles, postAdminInvite
  * - getAdminUserWorkAssets, getAdminOwnershipTransferTargets, postAdminTransferOwnership
@@ -131,7 +131,7 @@ export async function getAdminOwnershipTransferTargets(dptmtInfoId, excludeUserI
   return request('GET', `/api/admin/users/ownership-transfer-targets?${q}`)
 }
 
-/** @param {{ resource_type: string, resource_id: number, from_user_id: number, to_user_id: number }} body */
+/** @param {{ resource_type: string, resource_id: number, from_user_id: number, to_user_id: number }} body — resource_type에 project_invite(행 PK project_ptcpnt_info_id) 가능 */
 export async function postAdminTransferOwnership(body) {
   return request('POST', '/api/admin/users/transfer-ownership', body)
 }
@@ -221,15 +221,32 @@ export async function patchAdminProject(projectInfoId, body) {
   return request('PATCH', `/api/admin/projects/${projectInfoId}`, body)
 }
 
+/** 소프트 삭제: active_yn=N */
 export async function deleteAdminProject(projectInfoId) {
   return request('DELETE', `/api/admin/projects/${projectInfoId}`)
+}
+
+/** 비활성 프로젝트만 물리 삭제(참여·매핑·관련 알림·초대 참조 정리) */
+export async function purgeAdminProject(projectInfoId) {
+  return request('DELETE', `/api/admin/projects/${projectInfoId}/purge`)
 }
 
 export async function getAdminProjectMembers(projectInfoId) {
   return request('GET', `/api/admin/projects/${projectInfoId}/members`)
 }
 
-/** @param {{ ptcpnt_user_id: number, pmssn_master_id: number }} body */
+/** 미수락 타부서 project_invite 알림 행 삭제 */
+export async function deleteAdminProjectInvite(projectInfoId, notificationInfoId) {
+  return request(
+    'DELETE',
+    `/api/admin/projects/${projectInfoId}/invites/${notificationInfoId}`,
+  )
+}
+
+/**
+ * @param {{ ptcpnt_user_id: number, pmssn_master_id: number }} body
+ * @returns {Promise<{ message?: string, outcome?: 'member_added'|'invite_sent' }>}
+ */
 export async function postAdminProjectMember(projectInfoId, body) {
   return request('POST', `/api/admin/projects/${projectInfoId}/members`, body)
 }

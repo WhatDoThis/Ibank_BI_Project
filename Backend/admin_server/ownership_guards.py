@@ -7,7 +7,7 @@ Backend.admin_server.ownership_guards (역할·ETL·정지 목표 상태 vs 소�
 [Main Functions]
 ===========
 1. can_own_after_change: 리소스 논리 타입·목표 역할·목표 etl_yn 기준 소유 가능 여부
-2. build_ownership_violation_payload: 스캔 결과 리스트 → changeable·blocking_assets·allowed_assets
+2. build_ownership_violation_payload: 스캔 결과·project_invite_rows(for_suspend 시 blocking) → changeable·blocking_assets·allowed_assets
 
 [Dependencies]
 =========
@@ -88,9 +88,12 @@ def build_ownership_violation_payload(
     table_masters: list[dict[str, Any]],
     departments: list[dict[str, Any]],
     etl_items: list[dict[str, Any]],
+    project_invite_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     for_suspend=True 이면 비활성 상태는 어떤 소유도 불가 → 보유 건 전부 blocking.
+    project_ptcpnt_info.invite_user_id NOT NULL → 정지·삭제(user_info DELETE) 전 초대자 이관 필요.
+    for_suspend=True 일 때만 project_invite_rows 를 blocking 에 넣는다.
     """
     blocking: list[dict[str, Any]] = []
     allowed: list[dict[str, Any]] = []
@@ -237,6 +240,27 @@ def build_ownership_violation_payload(
                 "note": "ETL 등록 건을 그대로 유지합니다.",
             }
         )
+
+    pinv = project_invite_rows or []
+    if for_suspend and pinv:
+        inv_block: list[dict[str, Any]] = []
+        for r in pinv:
+            ppid = int(r["project_ptcpnt_info_id"])
+            pname = str(r.get("project_name") or "").strip() or "프로젝트"
+            pem = str(r.get("ptcpnt_user_email") or "").strip()
+            label = f"{pname} — 참여자 {pem}" if pem else pname
+            inv_block.append(
+                {
+                    "resource_type": "project_invite",
+                    "resource_id": ppid,
+                    "name": label,
+                    "reason": (
+                        "초대자 등록상태(invite_user_id)가 남아 있어 계정을 비우거나 삭제할 수 없습니다. "
+                        "「목록」의 초대자 등록상태에서 이관을 완료한 뒤 정지·삭제하세요."
+                    ),
+                }
+            )
+        blocking.append({"type": "project_invite", "items": inv_block})
 
     changeable = len(blocking) == 0
     msg = (

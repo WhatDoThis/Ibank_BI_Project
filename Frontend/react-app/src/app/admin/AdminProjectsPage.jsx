@@ -1,10 +1,11 @@
 /**
  * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성 모달·수정·비활성)
  * ==========================================================
- * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성은 canAccessOrgAdmin(sa_dev·sa·a)만.
- * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). feature_flags·PATCH 후 현재 선택 프로젝트면 refreshMe로 /me 권한 동기화.
+ * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
+ * 비활성화·purge: 현재 JWT 선택 프로젝트와 같으면 refreshMe로 /me·네비 동기화.
+ * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). feature_flags·PATCH 후 현재 선택 프로젝트면 refreshMe.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
- * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip, 작업 열 ibank-btn-table·Link 동일 톤.
+ * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
@@ -21,6 +22,7 @@ import { Link } from 'react-router-dom'
 
 import {
   deleteAdminProject,
+  purgeAdminProject,
   getAdminProjects,
   getAdminProjectTables,
   getAdminRolesProjectAssignable,
@@ -76,7 +78,6 @@ export default function AdminProjectsPage() {
   const [projectDialog, setProjectDialog] = useState(null)
   const [formBusy, setFormBusy] = useState(false)
   const [formModalLoading, setFormModalLoading] = useState(false)
-  const [formActive, setFormActive] = useState('Y')
   const [enabledPages, setEnabledPages] = useState({
     dashboard: true,
     queryStudio: true,
@@ -115,7 +116,6 @@ export default function AdminProjectsPage() {
   function resetProjectFormFields() {
     setCName('')
     setCDesc('')
-    setFormActive('Y')
     setEnabledPages({ dashboard: true, queryStudio: true, widgetboard: true })
     setSelectedTableIds(new Set())
     setCreatorPmssnId(null)
@@ -166,7 +166,6 @@ export default function AdminProjectsPage() {
     resetProjectFormFields()
     setCName(row.project_name || '')
     setCDesc(row.project_dscrtn || '')
-    setFormActive((row.active_yn || 'Y').toUpperCase() === 'Y' ? 'Y' : 'N')
     setEnabledPages(featureFlagsToUiState(row.feature_flags))
     setProjectDialog({ mode: 'edit', projectInfoId: pid })
     setFormModalLoading(true)
@@ -378,9 +377,6 @@ export default function AdminProjectsPage() {
       project_name: name,
       project_dscrtn: dsc || null,
     }
-    if (isOrgAdmin) {
-      body.active_yn = formActive
-    }
     if (!isOperator) {
       body.feature_flags = {
         query: enabledPages.queryStudio,
@@ -424,9 +420,55 @@ export default function AdminProjectsPage() {
     setError('')
     try {
       await deleteAdminProject(projectInfoId)
+      const sel = me?.project_info_id
+      if (sel != null && Number(sel) === Number(projectInfoId)) {
+        await refreshMe()
+      }
       await load()
     } catch (e) {
       setError(e?.message || '비활성화 실패')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleActivateProject(projectInfoId) {
+    if (!confirmCrud('이 프로젝트를 활성화할까요?')) return
+    setBusyId(projectInfoId)
+    setError('')
+    try {
+      await patchAdminProject(projectInfoId, { active_yn: 'Y' })
+      const sel = me?.project_info_id
+      if (sel != null && Number(sel) === Number(projectInfoId)) {
+        await refreshMe()
+      }
+      await load()
+    } catch (e) {
+      setError(e?.message || '활성화 실패')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handlePurgeProject(projectInfoId) {
+    if (
+      !confirmCrud(
+        '비활성 프로젝트를 DB에서 완전히 삭제할까요? 멤버·테이블 매핑·관련 알림이 함께 제거되며 되돌릴 수 없습니다.',
+      )
+    ) {
+      return
+    }
+    setBusyId(projectInfoId)
+    setError('')
+    try {
+      await purgeAdminProject(projectInfoId)
+      const sel = me?.project_info_id
+      if (sel != null && Number(sel) === Number(projectInfoId)) {
+        await refreshMe()
+      }
+      await load()
+    } catch (e) {
+      setError(e?.message || '삭제 실패')
     } finally {
       setBusyId(null)
     }
@@ -443,8 +485,8 @@ export default function AdminProjectsPage() {
           <h1 className="ap__title">프로젝트 관리</h1>
           <p className="ap__hint">
             {isOperator
-              ? '참여 중인 프로젝트만 표시될 수 있습니다. 이름·설명 수정은 가능하며, 활성 여부·신규 생성·비활성화는 조직 어드민만 가능합니다.'
-              : '부서 소속 프로젝트를 관리합니다. 멤버는 각 행의 링크에서 설정합니다.'}
+              ? '참여 중인 프로젝트만 표시될 수 있습니다. 이름·설명 수정은 가능하며, 신규 생성·비활성화·활성화·삭제는 조직 어드민만 가능합니다.'
+              : '부서 소속 프로젝트를 관리합니다. 멤버는 활성 프로젝트 행의 링크에서 설정합니다. 비활성화 후에는 조직 어드민만 활성·삭제만 표시됩니다.'}
           </p>
         </div>
         {isOrgAdmin ? (
@@ -500,21 +542,6 @@ export default function AdminProjectsPage() {
                     disabled={formBusy}
                   />
                 </label>
-
-                {isEdit && isOrgAdmin ? (
-                  <label className="ap__label">
-                    활성
-                    <select
-                      className="ap__select"
-                      value={formActive}
-                      onChange={(ev) => setFormActive(ev.target.value)}
-                      disabled={formBusy}
-                    >
-                      <option value="Y">Y</option>
-                      <option value="N">N</option>
-                    </select>
-                  </label>
-                ) : null}
 
                 {isCreate ? (
                   <div className="ap__create-section">
@@ -865,30 +892,53 @@ export default function AdminProjectsPage() {
                       </span>
                     </td>
                     <td>
-                      <div className="ap__cell-actions">
-                        <Link
-                          to={`/admin/projects/${pid}/members`}
-                          className="ibank-btn-table"
-                        >
-                          멤버 관리
-                        </Link>
-                        <button
-                          type="button"
-                          className="ibank-btn-table"
-                          disabled={busyId != null}
-                          onClick={() => openEditModal(row)}
-                        >
-                          수정
-                        </button>
-                        {isOrgAdmin ? (
-                          <button
-                            type="button"
-                            className="ibank-btn-table ibank-btn-table--danger"
-                            disabled={busyId != null || !active}
-                            onClick={() => handleDeactivate(pid)}
-                          >
-                            비활성화
-                          </button>
+                      <div className="admin-users__actions">
+                        {active ? (
+                          <>
+                            <Link
+                              to={`/admin/projects/${pid}/members`}
+                              className="ibank-btn-table"
+                            >
+                              멤버 관리
+                            </Link>
+                            <button
+                              type="button"
+                              className="ibank-btn-table"
+                              disabled={busyId != null}
+                              onClick={() => openEditModal(row)}
+                            >
+                              수정
+                            </button>
+                            {isOrgAdmin ? (
+                              <button
+                                type="button"
+                                className="ibank-btn-table ibank-btn-table--danger"
+                                disabled={busyId != null}
+                                onClick={() => handleDeactivate(pid)}
+                              >
+                                비활성화
+                              </button>
+                            ) : null}
+                          </>
+                        ) : isOrgAdmin ? (
+                          <>
+                            <button
+                              type="button"
+                              className="ibank-btn-table ibank-btn-table--primary"
+                              disabled={busyId != null}
+                              onClick={() => handleActivateProject(pid)}
+                            >
+                              활성
+                            </button>
+                            <button
+                              type="button"
+                              className="ibank-btn-table ibank-btn-table--danger"
+                              disabled={busyId != null}
+                              onClick={() => handlePurgeProject(pid)}
+                            >
+                              삭제
+                            </button>
+                          </>
                         ) : null}
                       </div>
                     </td>

@@ -7,7 +7,9 @@
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
  * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
  * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
+ * 「초대자 등록상태」섹션(invite_user_id)·이관(project_invite)·정지/삭제 가드(409) 연동.
  * 작업물 패널: 카테고리(섹션)별 헤더·하위 목록. 각 섹션「전체이관」은 해당 섹션만(전체 작업물 통합 아님). ETL은 대분류로 묶고 하위 6종은 중분류·동일 etl_infra 수신 규칙으로 대분류 전체이관 가능.
+ * 정지/삭제 409 모달「목록 열고 이관」: 행 펼침과 함께 `getAdminUserWorkAssets`를 반드시 호출(toggleWorkPanel만 쓰면 미로드·이관 시 dptmt_info_id=NaN 쿼리 오류 방지).
  *
  * [Main Functions]
  * ===========
@@ -16,6 +18,7 @@
  * [Dependencies]
  * =========
  * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm
+ * 이메일 초대: 발송 성공 시 모달을 닫은 뒤 `alert`로 완료 안내(기존에는 모달을 즉시 닫아 메시지가 보이지 않음).
  */
 
 import { Fragment, useCallback, useEffect, useState } from 'react'
@@ -259,9 +262,10 @@ export default function AdminUsersPage() {
         body.invite_pmssn_master_id = Number(invitePmssnId)
       }
       await postAdminInvite(body)
-      setInviteMsg('초대 메일을 발송했습니다.')
       setInviteEmail('')
       setInviteOpen(false)
+      setInviteMsg('')
+      window.alert('초대 메일을 발송했습니다.')
     } catch (e) {
       setInviteMsg(e?.message || '초대 실패')
     } finally {
@@ -688,12 +692,14 @@ export default function AdminUsersPage() {
           <ul className="admin-users__work-list">
             {rows.map((r) => {
               const rid = r[idKey]
-              const label =
-                labelKey === 'table_label'
-                  ? r.table_label || r.table_name || rid
-                  : resourceType === 'dptmt_creator' && (r.parent_dptmt_name || '').trim()
-                    ? `${r[labelKey] || rid} · 상위 ${r.parent_dptmt_name}`
-                    : r[labelKey] || rid
+                const label =
+                labelKey === 'display_label'
+                  ? r.display_label || rid
+                  : labelKey === 'table_label'
+                    ? r.table_label || r.table_name || rid
+                    : resourceType === 'dptmt_creator' && (r.parent_dptmt_name || '').trim()
+                      ? `${r[labelKey] || rid} · 상위 ${r.parent_dptmt_name}`
+                      : r[labelKey] || rid
               const dept = r.dptmt_info_id ?? ownerDeptFallback
               const canT = showTransfer && r.transferable
               return (
@@ -845,6 +851,7 @@ export default function AdminUsersPage() {
     const keys = [
       'created_projects',
       'participant_projects',
+      'invited_project_participants',
       'created_custom_roles',
       'created_departments',
       'linked_tables',
@@ -861,6 +868,7 @@ export default function AdminUsersPage() {
   function ownershipGroupTitle(t) {
     const m = {
       project: '프로젝트 (생성자)',
+      project_invite: '초대자 등록상태',
       pmssn_master: '등록한 권한',
       table_master: '테이블 마스터',
       dptmt_creator: '등록한 부서 (생성자)',
@@ -1513,6 +1521,17 @@ export default function AdminUsersPage() {
                                   false,
                                 )}
                                 {renderAssetList(
+                                  '초대자 등록상태',
+                                  work.invited_project_participants,
+                                  uid,
+                                  'project_invite',
+                                  'project_ptcpnt_info_id',
+                                  'display_label',
+                                  true,
+                                  work.target_user_dptmt_info_id,
+                                  false,
+                                )}
+                                {renderAssetList(
                                   '등록한 권한',
                                   work.created_custom_roles,
                                   uid,
@@ -1587,6 +1606,18 @@ export default function AdminUsersPage() {
                     const uid = ownershipGateModal.userId
                     setOwnershipGateModal(null)
                     setExpandedUid(uid)
+                    setWorkPanelErr('')
+                    setWorkLoadingUid(uid)
+                    getAdminUserWorkAssets(uid)
+                      .then((data) => {
+                        setWorkByUser((prev) => ({ ...prev, [uid]: data }))
+                      })
+                      .catch((e) => {
+                        setWorkPanelErr(e?.message || '작업물 목록을 불러오지 못했습니다.')
+                      })
+                      .finally(() => {
+                        setWorkLoadingUid(null)
+                      })
                   }}
                 >
                   목록 열고 이관

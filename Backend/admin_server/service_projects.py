@@ -5,31 +5,49 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 
 [Main Functions]
 ===========
-1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping·생성자·부서 내 멤버·타부서 알림(project_invite JSON)
+1. create_project_full — 단일 트랜잭션: project_info·…·타부서 알림(project_invite JSON, invite_expires_at)
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
-3. update_project / deactivate_project
-4. list_members(invite_user 이메일·닉네임·create_dtm) / add_member / update_member_role / remove_member
+3. update_project / deactivate_project / purge_inactive_project(비활성만·참여·매핑·알림·초대 참조 정리 후 DELETE)
+4. list_members(items+pending_invites: 타부서 미수락 project_invite 알림) / cancel_project_invite(DELETE 알림) / add_member / update_member_role / remove_member
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
 
 [Dependencies]
 =========
-- Backend.notification_server.service.insert_notification(add_member 경로만, create_project_full는 동일 conn 트랜잭션 내 raw INSERT)
+- create_project_full·add_member(타부서): notification_info raw INSERT(project_invite JSON, invite_expires_at)
 - json
-- psycopg2.extras.Json(feature_flags)
+- psycopg2, psycopg2.errors, psycopg2.extras.Json(feature_flags)
 """
 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import psycopg2
+from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json
 
-from Backend.notification_server import service as notif_service
-
 _DEFAULT_FEATURE_FLAGS: dict[str, bool] = {"query": True, "dash": True, "widget": True}
+
+# 타부서 project_invite 알림 JSON `invite_expires_at`(UTC ISO) — 기본 7일
+_PROJECT_INVITE_VALID_DAYS = 7
+
+
+def _invite_expired_from_payload(payload: dict[str, Any]) -> bool:
+    raw = payload.get("invite_expires_at")
+    if raw is None or raw == "":
+        return False
+    try:
+        s = str(raw).strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > dt
+    except (ValueError, TypeError, OSError):
+        return False
 
 
 def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
@@ -402,11 +420,16 @@ def create_project_full(
             )
             if cur.fetchone():
                 raise ValueError("이미 프로젝트 멤버입니다.")
+            invite_expires_at = (
+                datetime.now(timezone.utc)
+                + timedelta(days=_PROJECT_INVITE_VALID_DAYS)
+            ).isoformat()
             payload = json.dumps(
                 {
                     "project_info_id": pid,
                     "pmssn_master_id": imid,
                     "invite_user_id": actor_user_id,
+                    "invite_expires_at": invite_expires_at,
                 },
                 ensure_ascii=False,
             )
@@ -527,11 +550,219 @@ def deactivate_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
         cur.close()
 
 
+def _purge_run_optional_sql(cur, sql: str, params: tuple[Any, ...]) -> None:
+    """invite_* 확장 컬럼이 없는 DB에서는 UndefinedColumn 시 해당 UPDATE만 생략한다."""
+    try:
+        cur.execute("SAVEPOINT sp_admin_purge_project_opt")
+        cur.execute(sql, params)
+        cur.execute("RELEASE SAVEPOINT sp_admin_purge_project_opt")
+    except pg_errors.UndefinedColumn:
+        cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_project_opt")
+
+
+def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
+    """`active_yn`이 Y가 아닌 프로젝트만 물리 삭제. 단일 트랜잭션에서 선행 정리 후 `project_info` DELETE.
+
+    순서: project_invite 알림 → user_info·email_invite 초대 프로젝트 쌍 NULL → table_project_mapping →
+    project_ptcpnt_info → project_info
+    """
+    cur = conn.cursor()
+    pid = int(project_info_id)
+    did = int(dptmt_info_id)
+    try:
+        cur.execute(
+            """
+            SELECT project_info_id, dptmt_info_id,
+                   UPPER(TRIM(COALESCE(active_yn, 'Y'))) AS ay
+            FROM project_info WHERE project_info_id = %s
+            """,
+            (pid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("프로젝트를 찾을 수 없습니다.")
+        if int(row["dptmt_info_id"]) != did:
+            raise ValueError("다른 부서의 프로젝트입니다.")
+        if (row.get("ay") or "") == "Y":
+            raise ValueError("활성 프로젝트는 삭제할 수 없습니다. 먼저 비활성화하세요.")
+
+        try:
+            cur.execute("SAVEPOINT sp_admin_purge_notif")
+            cur.execute(
+                """
+                DELETE FROM notification_info
+                WHERE noti_type = 'project_invite'
+                  AND COALESCE(noti_content::text, '') <> ''
+                  AND NULLIF(TRIM(noti_content::json->>'project_info_id'), '') IS NOT NULL
+                  AND (noti_content::json->>'project_info_id')::int = %s
+                """,
+                (pid,),
+            )
+            cur.execute("RELEASE SAVEPOINT sp_admin_purge_notif")
+        except (pg_errors.InvalidTextRepresentation, pg_errors.UntranslatableCharacter):
+            cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_notif")
+
+        _purge_run_optional_sql(
+            cur,
+            """
+            UPDATE user_info
+            SET invite_project_info_id = NULL,
+                invite_pmssn_master_id = NULL,
+                update_dtm = NOW()
+            WHERE invite_project_info_id = %s
+            """,
+            (pid,),
+        )
+        _purge_run_optional_sql(
+            cur,
+            """
+            UPDATE email_invite_code_master
+            SET invite_project_info_id = NULL,
+                invite_pmssn_master_id = NULL,
+                update_dtm = NOW()
+            WHERE invite_project_info_id = %s
+            """,
+            (pid,),
+        )
+
+        cur.execute(
+            "DELETE FROM table_project_mapping WHERE project_info_id = %s",
+            (pid,),
+        )
+        cur.execute(
+            "DELETE FROM project_ptcpnt_info WHERE project_info_id = %s",
+            (pid,),
+        )
+        cur.execute(
+            "DELETE FROM project_info WHERE project_info_id = %s",
+            (pid,),
+        )
+        conn.commit()
+    except ValueError:
+        conn.rollback()
+        raise
+    except (pg_errors.ForeignKeyViolation, pg_errors.NotNullViolation) as ex:
+        conn.rollback()
+        raise ValueError(
+            "프로젝트 삭제가 다른 데이터와 충돌합니다. DB 제약·참조를 확인하세요."
+        ) from ex
+    except psycopg2.Error as ex:
+        conn.rollback()
+        raise ValueError(
+            "프로젝트 삭제 중 DB 오류가 발생했습니다. 알림 JSON 등 데이터 형식을 확인하세요."
+        ) from ex
+    finally:
+        cur.close()
+
+
 # 4.
-def list_members(conn, dptmt_info_id: int, project_info_id: int) -> list[dict[str, Any]]:
+def _list_pending_project_invites(cur, project_info_id: int) -> list[dict[str, Any]]:
+    """noti_type=project_invite 이지만 아직 project_ptcpnt_info에 없는 수신자(타부서 초대 대기)."""
+    pid = int(project_info_id)
+    cur.execute(
+        """
+        SELECT n.notification_info_id, n.user_id, n.create_dtm, n.noti_content,
+               u.user_email, u.user_nickname
+        FROM notification_info n
+        INNER JOIN user_info u ON u.user_id = n.user_id
+        WHERE n.noti_type = 'project_invite'
+          AND NOT EXISTS (
+            SELECT 1 FROM project_ptcpnt_info pp
+            WHERE pp.project_info_id = %s AND pp.ptcpnt_user_id = n.user_id
+          )
+        ORDER BY n.create_dtm
+        """,
+        (pid,),
+    )
+    rows = cur.fetchall()
+    out: list[dict[str, Any]] = []
+    pmssn_cache: dict[int, str | None] = {}
+    inviter_cache: dict[int, tuple[Any, Any]] = {}
+
+    def _role_label(mid: int) -> str | None:
+        if mid in pmssn_cache:
+            return pmssn_cache[mid]
+        cur.execute(
+            "SELECT pmssn_name FROM pmssn_master WHERE pmssn_master_id = %s",
+            (mid,),
+        )
+        r = cur.fetchone()
+        name = r.get("pmssn_name") if r else None
+        pmssn_cache[mid] = name
+        return name
+
+    def _inviter_labels(uid: int) -> tuple[Any, Any]:
+        if uid in inviter_cache:
+            return inviter_cache[uid]
+        cur.execute(
+            "SELECT user_email, user_nickname FROM user_info WHERE user_id = %s",
+            (uid,),
+        )
+        r = cur.fetchone()
+        t = (r.get("user_email"), r.get("user_nickname")) if r else (None, None)
+        inviter_cache[uid] = t
+        return t
+
+    for row in rows:
+        raw = row.get("noti_content")
+        if raw is None:
+            continue
+        if not isinstance(raw, str):
+            raw = str(raw)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        try:
+            row_pid = int(payload["project_info_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if row_pid != pid:
+            continue
+        mid_raw = payload.get("pmssn_master_id")
+        iuid_raw = payload.get("invite_user_id")
+        try:
+            mid = int(mid_raw) if mid_raw is not None else None
+        except (TypeError, ValueError):
+            mid = None
+        try:
+            iuid = int(iuid_raw) if iuid_raw is not None else None
+        except (TypeError, ValueError):
+            iuid = None
+        role_name = None
+        if mid is not None and mid > 0:
+            role_name = _role_label(mid)
+        ie, ink = (None, None)
+        if iuid is not None and iuid > 0:
+            ie, ink = _inviter_labels(iuid)
+        exp_raw = payload.get("invite_expires_at")
+        out.append(
+            {
+                "notification_info_id": int(row["notification_info_id"]),
+                "ptcpnt_user_id": int(row["user_id"]),
+                "user_email": row.get("user_email"),
+                "user_nickname": row.get("user_nickname"),
+                "pmssn_master_id": mid,
+                "role_name": role_name,
+                "create_dtm": row.get("create_dtm"),
+                "invite_user_id": iuid,
+                "invite_user_email": ie,
+                "invite_user_nickname": ink,
+                "invite_expires_at": exp_raw,
+                "invite_expired": _invite_expired_from_payload(payload),
+                "membership_status": "pending_invite",
+            }
+        )
+    return out
+
+
+def list_members(
+    conn, dptmt_info_id: int, project_info_id: int
+) -> dict[str, Any]:
     cur = conn.cursor()
     try:
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
+        pid = int(project_info_id)
         cur.execute(
             """
             SELECT p.project_ptcpnt_info_id, p.ptcpnt_user_id, u.user_email, u.user_nickname,
@@ -546,13 +777,118 @@ def list_members(conn, dptmt_info_id: int, project_info_id: int) -> list[dict[st
             WHERE p.project_info_id = %s
             ORDER BY u.user_email
             """,
-            (project_info_id,),
+            (pid,),
         )
-        return [dict(r) for r in cur.fetchall()]
+        items = [dict(r) for r in cur.fetchall()]
+        for d in items:
+            d["membership_status"] = "active"
+        pending = _list_pending_project_invites(cur, pid)
+        return {"items": items, "pending_invites": pending}
     except ValueError:
         raise
     finally:
         cur.close()
+
+
+def cancel_project_invite(
+    conn,
+    dptmt_info_id: int,
+    project_info_id: int,
+    notification_info_id: int,
+) -> None:
+    """미수락 project_invite 알림 행을 삭제한다(초대 취소)."""
+    cur = conn.cursor()
+    try:
+        _assert_project_owned(cur, dptmt_info_id, project_info_id)
+        pid = int(project_info_id)
+        nid = int(notification_info_id)
+        cur.execute(
+            """
+            SELECT noti_content, noti_type, user_id
+            FROM notification_info
+            WHERE notification_info_id = %s
+            """,
+            (nid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(
+                "초대 알림을 찾을 수 없습니다. 이미 수락했거나 취소되었을 수 있습니다."
+            )
+        if (row.get("noti_type") or "").strip() != "project_invite":
+            raise ValueError("프로젝트 초대 알림이 아닙니다.")
+        raw = row.get("noti_content")
+        if not raw:
+            raise ValueError("초대 알림 내용이 없습니다.")
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+            row_pid = int(payload["project_info_id"])
+        except (json.JSONDecodeError, TypeError, KeyError, ValueError) as e:
+            raise ValueError("초대 알림이 올바르지 않습니다.") from e
+        if row_pid != pid:
+            raise ValueError("해당 프로젝트의 초대가 아닙니다.")
+        target_uid = int(row["user_id"])
+        cur.execute(
+            """
+            SELECT 1 FROM project_ptcpnt_info
+            WHERE project_info_id = %s AND ptcpnt_user_id = %s
+            """,
+            (pid, target_uid),
+        )
+        if cur.fetchone():
+            raise ValueError("이미 멤버입니다. 멤버 제거는 별도 작업을 사용하세요.")
+        cur.execute(
+            "DELETE FROM notification_info WHERE notification_info_id = %s",
+            (nid,),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise ValueError("초대 취소에 실패했습니다.")
+        conn.commit()
+    except ValueError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def _pending_invite_for_user_project(
+    cur, project_info_id: int, target_user_id: int
+) -> bool:
+    """동일 프로젝트에 미수락 `project_invite` 알림이 있는지(noti_content JSON의 project_info_id 일치)."""
+    pid = int(project_info_id)
+    uid = int(target_user_id)
+    cur.execute(
+        """
+        SELECT noti_content FROM notification_info
+        WHERE user_id = %s AND noti_type = 'project_invite'
+          AND NOT EXISTS (
+            SELECT 1 FROM project_ptcpnt_info pp
+            WHERE pp.project_info_id = %s AND pp.ptcpnt_user_id = %s
+          )
+        """,
+        (uid, pid, uid),
+    )
+    for row in cur.fetchall():
+        raw = row.get("noti_content")
+        if raw is None:
+            continue
+        if not isinstance(raw, str):
+            raw = str(raw)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        try:
+            row_pid = int(payload["project_info_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if row_pid == pid:
+            return True
+    return False
 
 
 def add_member(
@@ -563,38 +899,118 @@ def add_member(
     project_info_id: int,
     ptcpnt_user_id: int,
     pmssn_master_id: int,
-) -> None:
+) -> dict[str, Any]:
+    """부서 트리 소속이면 즉시 `project_ptcpnt_info` INSERT, 아니면 `create_project_full` 타부서와 동일 JSON `project_invite` INSERT."""
     cur = conn.cursor()
     try:
-        _assert_project_owned(cur, dptmt_info_id, project_info_id)
-        _assert_pmssn_for_project(cur, project_info_id, pmssn_master_id)
+        pid = int(project_info_id)
+        target_uid = int(ptcpnt_user_id)
+        mid = int(pmssn_master_id)
+        aid = int(actor_user_id)
+        adpt = int(dptmt_info_id)
+
+        _assert_project_owned(cur, adpt, pid)
+        _assert_pmssn_for_project(cur, pid, mid)
+
+        if target_uid == aid:
+            raise ValueError(
+                "본인을 프로젝트 멤버로 추가하거나 초대할 수 없습니다."
+            )
+
         cur.execute(
             "SELECT user_id FROM user_info WHERE user_id = %s",
-            (ptcpnt_user_id,),
+            (target_uid,),
         )
         if not cur.fetchone():
             raise ValueError("사용자를 찾을 수 없습니다.")
         _assert_target_not_hidden_system_dev_member(
-            cur, actor_dvsn, dptmt_info_id, ptcpnt_user_id
+            cur, actor_dvsn, adpt, target_uid
         )
+
         cur.execute(
             """
             SELECT 1 FROM project_ptcpnt_info
             WHERE project_info_id = %s AND ptcpnt_user_id = %s
             """,
-            (project_info_id, ptcpnt_user_id),
+            (pid, target_uid),
         )
         if cur.fetchone():
             raise ValueError("이미 프로젝트 멤버입니다.")
+
+        if _pending_invite_for_user_project(cur, pid, target_uid):
+            raise ValueError("이미 초대 대기 중인 사용자입니다.")
+
+        if _user_in_actor_dept_scope(cur, adpt, target_uid):
+            cur.execute(
+                """
+                INSERT INTO project_ptcpnt_info (
+                    ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
+                ) VALUES (%s, %s, %s, %s, NOW())
+                """,
+                (target_uid, aid, pid, mid),
+            )
+            conn.commit()
+            return {"outcome": "member_added"}
+
         cur.execute(
             """
-            INSERT INTO project_ptcpnt_info (
-                ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
-            ) VALUES (%s, %s, %s, %s, NOW())
+            SELECT dptmt_info_id FROM user_info
+            WHERE user_id = %s AND UPPER(TRIM(COALESCE(user_active_yn,'Y'))) = 'Y'
             """,
-            (ptcpnt_user_id, actor_user_id, project_info_id, pmssn_master_id),
+            (target_uid,),
+        )
+        uinv = cur.fetchone()
+        if not uinv:
+            raise ValueError(
+                f"초대 대상 사용자를 찾을 수 없거나 비활성입니다. (user_id={target_uid})"
+            )
+        td_inv = uinv.get("dptmt_info_id")
+        if (
+            td_inv is not None
+            and int(td_inv) == 0
+            and not _actor_may_manage_system_dev_department_users(
+                actor_dvsn, adpt
+            )
+        ):
+            raise ValueError(
+                "개발(시스템) 부서 소속 사용자는 타부서 초대로 지정할 수 없습니다."
+            )
+
+        cur.execute(
+            "SELECT project_name FROM project_info WHERE project_info_id = %s",
+            (pid,),
+        )
+        pnrow = cur.fetchone()
+        pname = (pnrow or {}).get("project_name") or ""
+
+        invite_expires_at = (
+            datetime.now(timezone.utc) + timedelta(days=_PROJECT_INVITE_VALID_DAYS)
+        ).isoformat()
+        payload = json.dumps(
+            {
+                "project_info_id": pid,
+                "pmssn_master_id": mid,
+                "invite_user_id": aid,
+                "invite_expires_at": invite_expires_at,
+            },
+            ensure_ascii=False,
+        )
+        title = (f"'{pname}' 프로젝트에 초대되었습니다")[:200]
+        cur.execute(
+            """
+            INSERT INTO notification_info (
+                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
+            ) VALUES (%s, %s, %s, %s, 'N', NOW())
+            """,
+            (
+                target_uid,
+                "project_invite",
+                title,
+                payload,
+            ),
         )
         conn.commit()
+        return {"outcome": "invite_sent"}
     except ValueError:
         conn.rollback()
         raise
@@ -603,25 +1019,6 @@ def add_member(
         raise
     finally:
         cur.close()
-    cur2 = conn.cursor()
-    try:
-        cur2.execute(
-            "SELECT project_name FROM project_info WHERE project_info_id = %s",
-            (project_info_id,),
-        )
-        pn = (cur2.fetchone() or {}).get("project_name") or ""
-    finally:
-        cur2.close()
-    try:
-        notif_service.insert_notification(
-            conn,
-            ptcpnt_user_id,
-            "project_invite",
-            "프로젝트 초대",
-            f"프로젝트 '{pn}'에 추가되었습니다.",
-        )
-    except Exception:
-        pass
 
 
 def update_member_role(

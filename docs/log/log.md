@@ -1,6 +1,18 @@
 # Log
 
 ## Log Index
+254. 2026-04-03 프로젝트 멤버 추가 API·UI: 타부서 초대 알림·멤버 추가 모달
+253. 2026-04-02 프로젝트 초대: 만료(7일)·거절 API·초대자 수락/거절 알림·UI 만료 표시
+252. 2026-04-02 프로젝트 타부서 초대: 멤버 목록 pending·초대 취소 API, 알림 수락 피드백·accept 400 통일
+251. 2026-04-09 가입 페이지: 초대 메일 URL `?code=`·`invite_code=` 쿼리로 초대코드 자동 입력·유효성 힌트
+250. 2026-04-09 사용자 초대: 발송 성공 시 완료 alert(모달 즉시 닫힘으로 안내 미노출 보완)
+249. 2026-04-09 사용자관리 409 모달「목록 열고 이관」: 작업물 API 로드 누락 수정(이관 쿼리 NaN 방지)
+248. 2026-04-09 Admin 프로젝트 목록: 사용자관리와 동일 작업 패턴(비활성 시 활성·삭제만)·수정 모달에서 활성 셀렉트 제거
+247. 2026-04-09 비활성 프로젝트 가드: 권한 0·require_permission 403·선택(rotate) 차단·비활성화 후 refreshMe
+246. 2026-04-09 Admin 프로젝트: 비활성만 DB 완전 삭제(purge)·참여·매핑·알림·초대 참조 선행 정리
+245. 2026-04-09 사용자관리: 「초대자 등록상태」표기 통일(섹션·409·가드 문구)
+244. 2026-04-09 프로젝트 참여 초대자 기록: 작업물·가드·project_invite 이관·무단 SQL 치환 제거
+243. 2026-04-09 delete_inactive_user: project_ptcpnt_info.invite_user_id NOT NULL 위반 수정(이관 UPDATE)
 242. 2026-04-02 ibank-btn-table--primary 제거(솔리드): 활성 버튼도 일반 액션 아웃라인·호버와 동일
 241. 2026-04-02 ibank-btn-table: 일반 아웃라인 그린(#0a8f6e)·호버 채움 / danger 아웃라인 #fe5655·호버 채움
 240. 2026-04-02 ibank-btn-table--danger: button 기본 규칙보다 낮던 특이도 보완·호버도 #dc2626 유지
@@ -245,6 +257,99 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+254. 2026-04-03 프로젝트 멤버 추가 API·UI: 타부서 초대 알림·멤버 추가 모달
+Purpose: 타부서 사용자 POST /members 시 즉시 INSERT 대신 project_invite JSON 알림만 발송. 멤버 화면에 프로젝트 생성과 동일 포맷의 멤버 추가 모달(부서 내 / 타부서). 초대 취소 핸들러 보완.
+
+Changes:
+
+- add_member: 부서 트리 범위면 project_ptcpnt_info INSERT, 아니면 notification_info INSERT(create_project_full 타부서와 동일 payload). 미수락 중복 초대·본인 추가 차단. notif_service.post-commit 호출 제거.
+- admin_project_member_add: outcome별 메시지·응답 필드 outcome.
+- AdminProjectMembersPage: ap__header-row·멤버 추가 모달·배치 추가·초대 취소(handleCancelInvite).
+- adminClient postAdminProjectMember JSDoc(outcome).
+
+Changed files: Backend/admin_server/service_projects.py, Backend/admin_server/router.py, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, Frontend/react-app/src/shared/api/adminClient.js, docs/log/log.md
+
+253. 2026-04-02 프로젝트 초대: 만료(7일)·거절 API·초대자 수락/거절 알림·UI 만료 표시
+Purpose: 초대 JSON에 `invite_expires_at`을 넣고 수락/거절 시 검사하며, 초대자에게 `project_invite_accepted`·`project_invite_rejected` 알림을 남긴다.
+
+Changes:
+- service_projects: 생성 시 만료 시각(UTC)·pending 목록에 만료 필드
+- project_server: accept에 만료 검사·수락 후 초대자 알림, reject_project_invite·POST reject-invite, 거절 시 초대 알림 DELETE 후 초대자 알림
+- Frontend: authClient postRejectProjectInvite, NotificationBell 거절·만료 표시·만료 시 버튼 숨김, 멤버 관리 만료 열·만료 뱃지, notification-bell.css
+
+Changed files: Backend/admin_server/service_projects.py, Backend/project_server/service.py, Backend/project_server/router.py, Frontend/react-app/src/shared/api/authClient.js, Frontend/react-app/src/app/layout/NotificationBell.jsx, Frontend/react-app/src/app/layout/notification-bell.css, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+252. 2026-04-02 프로젝트 타부서 초대: 멤버 목록 pending·초대 취소 API, 알림 수락 피드백·accept 400 통일
+Purpose: 미수락 초대를 멤버 UI에 표시하고 취소할 수 있게 하며, 알림에서 수락 시 무반응·취소 후 수락 시 메시지를 명확히 한다.
+
+Changes:
+- admin_server: GET members가 list_members dict 그대로 반환, DELETE projects/{id}/invites/{nid}로 cancel_project_invite 연동, router docstring 갱신
+- project_server: accept_invite ValueError(알림 없음) 안내 문구 보강, 수락 경로 ValueError를 400으로 통일(_map_accept_invite)
+- Frontend: AdminProjectMembersPage에 pending_invites 행·초대 취소(컨펌), adminClient.deleteAdminProjectInvite, NotificationBell 수락 시 refreshMe·성공/실패 alert, admin-pages.css 뱃지·pending 행 스타일
+
+Changed files: Backend/admin_server/router.py, Backend/project_server/router.py, Backend/project_server/service.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/app/layout/NotificationBell.jsx, docs/log/log.md
+
+251. 2026-04-09 가입 페이지: 초대 메일 URL `?code=`·`invite_code=` 쿼리로 초대코드 자동 입력·유효성 힌트
+Purpose: 메일의 `/signup?code=…` 링크로 들어올 때 수동 복붙 없이 초대 코드 필드를 채우고 `/api/auth/invite/validate` 안내 표시.
+
+Changes: SignupPage `useSearchParams`, `applyInviteValidation` 공용화·마운트 시 자동 검증.
+
+Changed files: Frontend/react-app/src/app/auth/SignupPage.jsx, docs/log/log.md
+
+250. 2026-04-09 사용자 초대: 발송 성공 시 완료 alert(모달 즉시 닫힘으로 안내 미노출 보완)
+Purpose: 초대 API 성공 직후 `setInviteOpen(false)`만 하여 `inviteMsg`가 화면에 남지 않아 발송 여부를 알기 어려움.
+
+Changes: 성공 시 모달 닫은 뒤 `window.alert('초대 메일을 발송했습니다.')`.
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+249. 2026-04-09 사용자관리 409 모달「목록 열고 이관」: 작업물 API 로드 누락 수정(이관 쿼리 NaN 방지)
+Purpose: 정지 409 후 모달에서 목록만 펼쳐 `work-assets`를 호출하지 않아 이관 시 `dptmt_info_id=NaN` 등 잘못된 GET 쿼리가 나가던 문제 수정.
+
+Changes: 버튼 클릭 시 `getAdminUserWorkAssets` 호출·로딩 상태·캐시 갱신.
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+248. 2026-04-09 Admin 프로젝트 목록: 사용자관리와 동일 작업 패턴(비활성 시 활성·삭제만)·수정 모달에서 활성 셀렉트 제거
+Purpose: 프로젝트 관리 작업 열 UX를 사용자 관리와 맞추고, 활성/비활성 전환은 목록 버튼만 사용.
+
+Changes: 활성 행 — 멤버·수정·비활성화(조직 어드민) / 비활성 행 — 활성(primary)·삭제(purge)(조직 어드민만). `admin-users__actions`. 수정 PATCH에서 `active_yn` 제거.
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+247. 2026-04-09 비활성 프로젝트 가드: 권한 0·require_permission 403·선택(rotate) 차단·비활성화 후 refreshMe
+Purpose: `active_yn!=Y` 인데도 JWT에 `project_info_id`가 남아 대시보드/쿼리/위젯 API·화면이 통과하던 문제 수정.
+
+Changes: `is_project_active`, `compute_effective_project_permission_ids` 선제 반환 `[]`, `require_permission` 실패 시 비활성 전용 문구, `rotate_session_tokens_with_project`에서 비활성 선택 거절, AdminProjectsPage 비활성화 성공 시 현재 선택 프로젝트면 `refreshMe`, 05 문서 STEP 3b.
+
+Changed files: Backend/auth_server/permissions.py, service.py, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/main/05_Permission_ARCHITECTURE.md, docs/log/log.md
+
+246. 2026-04-09 Admin 프로젝트: 비활성만 DB 완전 삭제(purge)·참여·매핑·알림·초대 참조 선행 정리
+Purpose: 비활성화 후 `project_info` 행을 제거할 수 있게 하고, FK·업무 데이터 정합을 위해 단일 트랜잭션에서 선행 DELETE/UPDATE를 수행.
+
+Changes: `purge_inactive_project`(알림 project_invite·user_info/email_invite 초대 쌍 NULL·table_project_mapping·project_ptcpnt_info·project_info), `DELETE .../purge`, `purgeAdminProject`, 목록「DB에서 삭제」버튼·선택 프로젝트면 `refreshMe`.
+
+Changed files: Backend/admin_server/service_projects.py, router.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+245. 2026-04-09 사용자관리: 「초대자 등록상태」표기 통일(섹션·409·가드 문구)
+Purpose: 작업물 목록 섹션 제목·409 그룹 제목·백엔드 차단 사유 문구를 사용자 지정 용어로 맞춤.
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Backend/admin_server/ownership_guards.py, docs/log/log.md
+
+244. 2026-04-09 프로젝트 참여 초대자 기록: 작업물·가드·project_invite 이관·무단 SQL 치환 제거
+Purpose: invite_user_id NOT NULL을 COALESCE로 덮어쓰지 않고, 목록에 노출·이관 후에만 정지·삭제 허용.
+
+Changes: ownership_guards·_collect_system_owned_for_guard(for_suspend 시 project_invite blocking), get_user_work_assets(invited_project_participants), transfer_resource_ownership(project_invite), delete에서 invite UPDATE 제거, schemas·AdminUsersPage 섹션·가이드 라벨.
+
+Changed files: Backend/admin_server/ownership_guards.py, service_users.py, schemas.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/shared/api/adminClient.js, docs/log/log.md
+
+243. 2026-04-09 delete_inactive_user: project_ptcpnt_info.invite_user_id NOT NULL 위반 수정(이관 UPDATE)
+Purpose: 비활성 사용자 DELETE 시 `invite_user_id = NULL` UPDATE가 컬럼 NOT NULL 제약으로 500 발생.
+
+Changes: NULL 대신 `COALESCE(NULLIF(project_info.create_user_id, 삭제대상), ptcpnt_user_id)`로 초대자 참조를 유효한 사용자로 치환 후 `user_info` DELETE.
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
 
 242. 2026-04-02 ibank-btn-table--primary 제거(솔리드): 활성 버튼도 일반 액션 아웃라인·호버와 동일
 Purpose: 사용자관리 등「활성」이 --primary로 솔리드만 적용되어 목록·변경과 톤이 달랐음. --primary 전용 규칙 삭제로 기본 테이블 버튼 규칙만 적용.

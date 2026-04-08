@@ -9,12 +9,14 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm
+ * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm, app/auth/AuthContext
+ * - project_invite: 수락·거절·invite_expires_at 표시·만료 시 버튼 비활성
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { postAcceptProjectInvite } from '@/shared/api/authClient.js'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
+import { postAcceptProjectInvite, postRejectProjectInvite } from '@/shared/api/authClient.js'
 import {
   getNotifications,
   getUnreadCount,
@@ -42,17 +44,25 @@ function isUnread(row) {
   return r !== 'Y'
 }
 
-function parseProjectInviteContent(raw) {
+function parseProjectInvitePayload(raw) {
   try {
     const o = JSON.parse(raw || '{}')
     const pid = o.project_info_id
-    return pid != null ? Number(pid) : null
+    const projectId = pid != null ? Number(pid) : null
+    const expiresRaw = o.invite_expires_at != null ? String(o.invite_expires_at) : null
+    let inviteExpired = false
+    if (expiresRaw) {
+      const d = new Date(expiresRaw)
+      inviteExpired = !Number.isNaN(d.getTime()) && d.getTime() < Date.now()
+    }
+    return { projectId, expiresAt: expiresRaw, inviteExpired }
   } catch {
-    return null
+    return { projectId: null, expiresAt: null, inviteExpired: false }
   }
 }
 
 export function NotificationBell() {
+  const { refreshMe } = useAuth()
   const wrapRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [count, setCount] = useState(0)
@@ -132,15 +142,51 @@ export function NotificationBell() {
 
   async function handleAcceptProjectInvite(row) {
     const nid = row.notification_info_id
-    const pid = parseProjectInviteContent(row.noti_content)
-    if (nid == null || pid == null || Number.isNaN(pid)) return
+    const { projectId: pid, inviteExpired } = parseProjectInvitePayload(row.noti_content)
+    if (inviteExpired) {
+      window.alert('초대 유효 기간이 지났습니다.')
+      return
+    }
+    if (nid == null || pid == null || Number.isNaN(pid)) {
+      window.alert('초대 정보를 확인할 수 없습니다. 목록을 새로고침한 뒤 다시 시도하세요.')
+      return
+    }
     if (!confirmCrud('프로젝트 초대를 수락할까요?')) return
     try {
       await postAcceptProjectInvite(pid, { notification_info_id: Number(nid) })
+      await refreshMe()
       await refreshCount()
       await loadList()
-    } catch {
-      /* ignore */
+      window.alert('프로젝트 초대를 수락했습니다. 필요하면 홈에서 해당 프로젝트를 선택하세요.')
+    } catch (e) {
+      window.alert(e?.message || '수락에 실패했습니다.')
+    }
+  }
+
+  async function handleRejectProjectInvite(row) {
+    const nid = row.notification_info_id
+    const { projectId: pid, inviteExpired } = parseProjectInvitePayload(row.noti_content)
+    if (inviteExpired) {
+      window.alert('초대 유효 기간이 지났습니다.')
+      return
+    }
+    if (nid == null || pid == null || Number.isNaN(pid)) {
+      window.alert('초대 정보를 확인할 수 없습니다. 목록을 새로고침한 뒤 다시 시도하세요.')
+      return
+    }
+    if (
+      !confirmCrud(
+        '초대를 거절할까요? 초대자에게 거절 알림이 전송되며, 이 알림은 삭제됩니다.',
+      )
+    )
+      return
+    try {
+      await postRejectProjectInvite(pid, { notification_info_id: Number(nid) })
+      await refreshCount()
+      await loadList()
+      window.alert('초대를 거절했습니다.')
+    } catch (e) {
+      window.alert(e?.message || '거절 처리에 실패했습니다.')
     }
   }
 
@@ -173,7 +219,18 @@ export function NotificationBell() {
             ) : (
               items.map((row) => {
                 const isInvite = (row.noti_type || '').trim() === 'project_invite'
-                const invitePid = isInvite ? parseProjectInviteContent(row.noti_content) : null
+                const inv = isInvite ? parseProjectInvitePayload(row.noti_content) : null
+                const invitePid = inv?.projectId
+                const expLine =
+                  inv?.expiresAt && !Number.isNaN(new Date(inv.expiresAt).getTime())
+                    ? `만료: ${formatDtm(inv.expiresAt)}`
+                    : null
+                const inviteActions =
+                  isInvite &&
+                  invitePid != null &&
+                  !Number.isNaN(invitePid) &&
+                  !inv?.inviteExpired
+                const inviteExpiredUi = isInvite && inv?.inviteExpired
                 return (
                   <div
                     key={String(row.notification_info_id)}
@@ -188,10 +245,28 @@ export function NotificationBell() {
                       {!isInvite && row.noti_content ? (
                         <div className="nb-item__meta">{row.noti_content}</div>
                       ) : null}
+                      {isInvite && expLine ? (
+                        <div className="nb-item__meta nb-item__meta--expire">{expLine}</div>
+                      ) : null}
+                      {inviteExpiredUi ? (
+                        <div className="nb-item__meta nb-item__meta--warn">
+                          유효 기간이 지난 초대입니다. 새 초대가 필요하면 관리자에게 요청하세요.
+                        </div>
+                      ) : null}
                       <div className="nb-item__meta">{formatDtm(row.create_dtm)}</div>
                     </button>
-                    {isInvite && invitePid != null && !Number.isNaN(invitePid) ? (
+                    {inviteActions ? (
                       <div className="nb-item__actions">
+                        <button
+                          type="button"
+                          className="nb-item__reject"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRejectProjectInvite(row)
+                          }}
+                        >
+                          거절
+                        </button>
                         <button
                           type="button"
                           className="nb-item__accept"

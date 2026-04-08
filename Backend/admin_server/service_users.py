@@ -19,11 +19,11 @@ Backend.admin_server.service_users (유저·초대·부서)
 8. get_department / update_department_name
 9. list_departments_for_org_settings(id≠0·미사용 포함·member_count·display_label·dptmt_create_user_id→creator_email) / create_department / update_department_in_org_settings(이름·코드·use_yn·migrate_users_to_dptmt_info_id) / delete_department_in_org_settings(행 DELETE·sa는 본인 부서 행 금지)
 10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 역할) 검사
-11. get_user_work_assets — 생성·참여 프로젝트, 커스텀 역할, 등록 부서(dptmt_create_user_id), table_master·etl_db 메타, table_master 연쇄 안내
+11. get_user_work_assets — 생성·참여·초대자(invite_user_id) 프로젝트 참여, 커스텀 역할, 등록 부서, table_master·etl_db·연쇄 안내
 12. list_ownership_transfer_targets / list_department_creator_transfer_targets — 이관 수신(일반: sa_dev·sa·a / 부서생성자: sa·sa만, 동일 부서 수직 트리·SA→sa_dev 제외)
 12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
-13. transfer_resource_ownership — project·pmssn_master·table_master·dptmt_creator(dptmt_create_user_id)·ETL 메타 이관
-14. ownership_guards 연동 — update_user_management·suspend_user·delete_inactive_user 목표 역할·ETL·정지·삭제 시 소유 매트릭스 스캔(409·blocking_assets)
+13. transfer_resource_ownership — project·project_invite(project_ptcpnt_info)·pmssn_master·table_master·dptmt_creator·ETL 메타 이관
+14. ownership_guards 연동 — 정지·삭제 시 project_invite_rows 포함(초대자 이관 전 NOT NULL)·그 외 목표 역할·ETL 매트릭스(409)
 15. get_user_change_options / update_user_management — 부서·역할·ETL·프로젝트 참여 변경(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·역할 u 시 etl_yn N)
 
 [Dependencies]
@@ -371,8 +371,9 @@ def _collect_system_owned_for_guard(cur, uid: int) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
-    """스마트 소유 검사용 프로젝트·커스텀 pmssn·table_master·등록 부서(dptmt_create_user_id) 목록."""
+    """스마트 소유 검사용 프로젝트·pmssn·table_master·등록 부서·초대자(invite_user_id) 참여 행 목록."""
     u = int(uid)
     cur.execute(
         """
@@ -424,7 +425,22 @@ def _collect_system_owned_for_guard(cur, uid: int) -> tuple[
         (u,),
     )
     departments = [dict(r) for r in cur.fetchall()]
-    return projects, pmssn, table_masters, departments
+    cur.execute(
+        """
+        SELECT pp.project_ptcpnt_info_id,
+               COALESCE(NULLIF(TRIM(pi.project_name), ''), '프로젝트') AS project_name,
+               COALESCE(NULLIF(TRIM(pu.user_email), ''), '') AS ptcpnt_user_email
+        FROM project_ptcpnt_info pp
+        JOIN project_info pi ON pi.project_info_id = pp.project_info_id
+        JOIN user_info pu ON pu.user_id = pp.ptcpnt_user_id
+        WHERE pp.invite_user_id = %s
+          AND pp.ptcpnt_user_id <> %s
+        ORDER BY pi.project_name NULLS LAST, pp.project_ptcpnt_info_id
+        """,
+        (u, u),
+    )
+    project_invites = [dict(r) for r in cur.fetchall()]
+    return projects, pmssn, table_masters, departments, project_invites
 
 
 def _collect_etl_flat_for_guard(uid: int) -> list[dict[str, Any]]:
@@ -455,7 +471,9 @@ def _evaluate_ownership_target_or_raise(
     """목표 역할·ETL(또는 정지) 기준 소유 불가 시 ManagementBlockedError."""
     cur = conn.cursor()
     try:
-        projects, pmssn, tms, departments = _collect_system_owned_for_guard(cur, int(uid))
+        projects, pmssn, tms, departments, project_invites = _collect_system_owned_for_guard(
+            cur, int(uid)
+        )
     finally:
         cur.close()
     etl_items = _collect_etl_flat_for_guard(int(uid))
@@ -468,6 +486,7 @@ def _evaluate_ownership_target_or_raise(
         table_masters=tms,
         departments=departments,
         etl_items=etl_items,
+        project_invite_rows=project_invites,
     )
     if not payload["changeable"]:
         raise ManagementBlockedError(payload)
@@ -1351,13 +1370,6 @@ def delete_inactive_user(
             (tid,),
         )
         cur.execute(
-            """
-            UPDATE project_ptcpnt_info SET invite_user_id = NULL
-            WHERE invite_user_id = %s
-            """,
-            (tid,),
-        )
-        cur.execute(
             "DELETE FROM email_invite_code_master WHERE code_create_user_id = %s",
             (tid,),
         )
@@ -2032,7 +2044,7 @@ def get_user_work_assets(
     actor_dvsn: str,
     target_user_id: int,
 ) -> dict[str, Any]:
-    """대상 사용자 작업물: 프로젝트·권한·등록 부서(dptmt_create_user_id)·table_master·etl_db(create_user_id)."""
+    """대상 사용자 작업물: 프로젝트(생성·참여·초대자 기록)·권한·등록 부서·table_master·etl_db(create_user_id)."""
     tid = int(target_user_id)
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
     cur = conn.cursor()
@@ -2079,6 +2091,34 @@ def get_user_work_assets(
             {**dict(r), "transferable": False, "kind": "participant_project"}
             for r in cur.fetchall()
         ]
+        cur.execute(
+            """
+            SELECT pp.project_ptcpnt_info_id,
+                   pi.project_info_id,
+                   pi.dptmt_info_id,
+                   pi.project_name,
+                   COALESCE(pm.pmssn_name, '') AS pmssn_name,
+                   pi.active_yn,
+                   COALESCE(NULLIF(TRIM(pu.user_email), ''), '') AS ptcpnt_user_email
+            FROM project_ptcpnt_info pp
+            JOIN project_info pi ON pi.project_info_id = pp.project_info_id
+            LEFT JOIN pmssn_master pm ON pm.pmssn_master_id = pp.pmssn_master_id
+            JOIN user_info pu ON pu.user_id = pp.ptcpnt_user_id
+            WHERE pp.invite_user_id = %s
+              AND pp.ptcpnt_user_id <> %s
+            ORDER BY pi.project_name NULLS LAST, pp.project_ptcpnt_info_id
+            """,
+            (tid, tid),
+        )
+        invited_project_participants: list[dict[str, Any]] = []
+        for r in cur.fetchall():
+            d = dict(r)
+            pem = (d.get("ptcpnt_user_email") or "").strip()
+            pname = (d.get("project_name") or "").strip() or "프로젝트"
+            d["transferable"] = True
+            d["kind"] = "project_invite"
+            d["display_label"] = f"{pname} — 참여자 {pem}" if pem else f"{pname} — 참여자"
+            invited_project_participants.append(d)
         cur.execute(
             """
             SELECT pmssn_master_id, dptmt_info_id, pmssn_name, create_dtm
@@ -2193,6 +2233,7 @@ def get_user_work_assets(
         "target_user_dptmt_info_id": target_user_dptmt_info_id,
         "created_projects": created_projects,
         "participant_projects": participant_projects,
+        "invited_project_participants": invited_project_participants,
         "created_custom_roles": created_custom_roles,
         "created_departments": created_departments,
         "linked_tables": linked_tables,
@@ -2799,6 +2840,43 @@ def transfer_resource_ownership(
                 "이관 가능한 역할은 sa_dev·Super Admin(sa)·Admin(a) 만입니다."
             )
         to_dpt = int(to_row["dptmt_info_id"])
+        if rt == "project_invite":
+            cur.execute(
+                """
+                SELECT pp.project_ptcpnt_info_id, pp.invite_user_id, pp.ptcpnt_user_id,
+                       pi.dptmt_info_id
+                FROM project_ptcpnt_info pp
+                JOIN project_info pi ON pi.project_info_id = pp.project_info_id
+                WHERE pp.project_ptcpnt_info_id = %s
+                """,
+                (rid,),
+            )
+            irow = cur.fetchone()
+            if not irow:
+                raise ValueError("프로젝트 참여 행을 찾을 수 없습니다.")
+            if int(irow["invite_user_id"]) != fid:
+                raise ValueError("해당 사용자가 초대자로 등록된 참여 행이 아닙니다.")
+            if int(irow["ptcpnt_user_id"]) == tid:
+                raise ValueError("참여자 본인에게는 초대자 기록을 이관할 수 없습니다.")
+            pd = int(irow["dptmt_info_id"])
+            if to_dpt != pd:
+                raise ValueError(
+                    "이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다."
+                )
+            assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
+            cur.execute(
+                """
+                UPDATE project_ptcpnt_info
+                SET invite_user_id = %s, update_dtm = NOW()
+                WHERE project_ptcpnt_info_id = %s AND invite_user_id = %s
+                """,
+                (tid, rid, fid),
+            )
+            if cur.rowcount == 0:
+                conn.rollback()
+                raise ValueError("초대자 이관에 실패했습니다.")
+            conn.commit()
+            return
         if rt == "project":
             cur.execute(
                 """

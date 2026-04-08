@@ -11,7 +11,7 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 4. login_send_code: 1단계 비번 검증·OTP 저장·pre_auth 발급
 5. verify_login_complete: 2단계·OTP 후 활성·잠금 재확인·세션·토큰
 6. refresh_session_tokens: 슬라이딩 리프레시·비활성·잠금 시 거절
-7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급
+7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급(active_yn=Y·참여자 검증)
 8. logout_one_session: 세션 1건 만료
 9. invalidate_all_sessions: 유저 전체 세션 만료(do_commit=False 시 호출부에서 commit)
 10. get_user_profile: 마이페이지용
@@ -34,7 +34,7 @@ from typing import Any
 import jwt
 
 from Backend.admin_server import service_projects as admin_projects
-from Backend.auth_server import email_service, security
+from Backend.auth_server import email_service, permissions as auth_permissions, security
 from Backend.core import auth_config
 
 _log = logging.getLogger(__name__)
@@ -507,6 +507,8 @@ def rotate_session_tokens_with_project(
         )
         if not cur.fetchone():
             raise ValueError("해당 프로젝트에 참여하지 않은 사용자입니다.")
+        if not auth_permissions.is_project_active(conn, project_info_id):
+            raise ValueError("비활성화된 프로젝트는 선택할 수 없습니다.")
         dptmt_id = _fetch_dptmt_id_or_raise_inactive_locked(conn, user_id)
         access_t, access_exp = security.create_access_token(
             user_id, dptmt_id, session_log_id, project_info_id

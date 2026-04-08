@@ -1,7 +1,7 @@
 /**
  * shared/api/authClient.js (인증·프로젝트 API)
  * ===========================================
- * /api/auth·/api/projects 호출. 로그인 계열은 Bearer 없이 fetch, 그 외는 request·토큰 갱신은 http.js. postAcceptProjectInvite — 타부서 프로젝트 초대 수락.
+ * /api/auth·/api/projects 호출. 로그인 계열은 Bearer 없이 fetch, 그 외는 request·토큰 갱신은 http.js. postAcceptProjectInvite·postRejectProjectInvite — 타부서 프로젝트 초대.
  *
  * [Main Functions]
  * ===========
@@ -121,4 +121,9 @@ export async function postSelectProject(projectInfoId) {
 /** 타부서 프로젝트 초대 알림 수락 */
 export async function postAcceptProjectInvite(projectInfoId, body) {
   return request('POST', `/api/projects/${projectInfoId}/accept-invite`, body)
+}
+
+/** 타부서 프로젝트 초대 알림 거절(notification_info_id) */
+export async function postRejectProjectInvite(projectInfoId, body) {
+  return request('POST', `/api/projects/${projectInfoId}/reject-invite`, body)
 }
