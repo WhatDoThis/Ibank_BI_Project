@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination
+ * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination. 실행 성공 시 lastSuccessWorkspaceRef 스냅샷, 실패 시 빌더·결과 원상복구
  * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출
  * 3. QueryStudioPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
  *
@@ -31,6 +31,40 @@ const DEFAULT_PAGE_SIZE = 100
 // 1.
 function isGroupByColumn(groupBy, table, column) {
   return groupBy.some((g) => g.table === table && g.column === column)
+}
+
+/** 마지막 성공 실행 직후 UI 복원용 (실행 실패 시 그리드·조인·결과까지 되돌림) */
+function cloneWorkspaceSnapshot(o) {
+  const cloneRows = (rows) => {
+    if (!Array.isArray(rows)) return []
+    try {
+      return typeof structuredClone === 'function' ? structuredClone(rows) : JSON.parse(JSON.stringify(rows))
+    } catch {
+      return rows.map((row) => (row && typeof row === 'object' ? { ...row } : row))
+    }
+  }
+  return {
+    gridColumns: o.gridColumns.map((c) => ({ ...c })),
+    addedTables: [...o.addedTables],
+    groupBy: o.groupBy.map((g) => ({ ...g })),
+    pivot: o.pivot ? { ...o.pivot, values: [...(o.pivot.values || [])] } : null,
+    pivotRowAggs: o.pivotRowAggs.map((x) => ({ ...x })),
+    dateGranularity: { ...o.dateGranularity },
+    havings: o.havings.map((h) => ({ ...h })),
+    filters: o.filters.map((f) => ({ ...f })),
+    orderBy: o.orderBy.map((x) => ({ ...x })),
+    joinConditions: Object.fromEntries(
+      Object.entries(o.joinConditions).map(([k, arr]) => [k, (arr || []).map((c) => ({ ...c }))])
+    ),
+    joinTypes: { ...o.joinTypes },
+    joinLogicalOperators: { ...o.joinLogicalOperators },
+    joinOrderData: o.joinOrderData ? JSON.parse(JSON.stringify(o.joinOrderData)) : null,
+    currentPage: o.currentPage,
+    pageSize: o.pageSize,
+    executedSql: o.executedSql,
+    resultData: cloneRows(o.resultData),
+    totalCount: o.totalCount,
+  }
 }
 
 // 2.
@@ -71,6 +105,8 @@ export default function QueryStudioPage() {
   const [joinTypes, setJoinTypes] = useState({}) // { key: 'LEFT'|'INNER'|'RIGHT' }
   const [joinLogicalOperators, setJoinLogicalOperators] = useState({}) // { key: 'AND'|'OR' } 조건 간 연결
   const [joinOrderData, setJoinOrderData] = useState(null) // { join_order: [{ table, from_table, from_column, to_table, to_column }] } — A→B, A→C 브랜치
+
+  const lastSuccessWorkspaceRef = useRef(null)
 
   const tableRelationships = useMemo(() => {
     const resolved = {}
@@ -431,17 +467,86 @@ export default function QueryStudioPage() {
       setExecutedSql(sql)
 
       const res = await apiExecuteQuery(sql)
-      setResultData(res.data || [])
-      showToast('success', `${res.count ?? res.data?.length ?? 0}건 조회 완료`)
+      const nextRows = res.data || []
+      setResultData(nextRows)
+      lastSuccessWorkspaceRef.current = cloneWorkspaceSnapshot({
+        gridColumns,
+        addedTables,
+        groupBy,
+        pivot,
+        pivotRowAggs,
+        dateGranularity,
+        havings,
+        filters,
+        orderBy,
+        joinConditions,
+        joinTypes,
+        joinLogicalOperators,
+        joinOrderData,
+        currentPage,
+        pageSize,
+        executedSql: sql,
+        resultData: nextRows,
+        totalCount: null,
+      })
+      showToast('success', `${res.count ?? nextRows.length ?? 0}건 조회 완료`)
     } catch (e) {
-      setExecutedSql(priorSql)
-      setResultData(Array.isArray(priorResult) ? priorResult.slice() : priorResult)
-      setTotalCount(priorTotal)
+      const snap = lastSuccessWorkspaceRef.current
+      if (snap) {
+        setGridColumns(snap.gridColumns.map((c) => ({ ...c })))
+        setAddedTables([...snap.addedTables])
+        setGroupBy(snap.groupBy.map((g) => ({ ...g })))
+        setPivot(snap.pivot ? { ...snap.pivot, values: [...(snap.pivot.values || [])] } : null)
+        setPivotRowAggs(snap.pivotRowAggs.map((x) => ({ ...x })))
+        setDateGranularity({ ...snap.dateGranularity })
+        setHavings(snap.havings.map((h) => ({ ...h })))
+        setFilters(snap.filters.map((f) => ({ ...f })))
+        setOrderBy(snap.orderBy.map((x) => ({ ...x })))
+        setJoinConditions(
+          Object.fromEntries(Object.entries(snap.joinConditions).map(([k, arr]) => [k, arr.map((c) => ({ ...c }))]))
+        )
+        setJoinTypes({ ...snap.joinTypes })
+        setJoinLogicalOperators({ ...snap.joinLogicalOperators })
+        setJoinOrderData(snap.joinOrderData ? JSON.parse(JSON.stringify(snap.joinOrderData)) : null)
+        setCurrentPage(snap.currentPage)
+        setPageSize(snap.pageSize)
+        setExecutedSql(snap.executedSql)
+        setResultData(typeof structuredClone === 'function' ? structuredClone(snap.resultData) : JSON.parse(JSON.stringify(snap.resultData || [])))
+        setTotalCount(snap.totalCount)
+        setExplanation(null)
+      } else {
+        setExecutedSql(priorSql)
+        setResultData(Array.isArray(priorResult) ? priorResult.slice() : priorResult)
+        setTotalCount(priorTotal)
+      }
       showToast('error', e.message || '실행 실패')
     } finally {
       setQueryRunning(false)
     }
-  }, [gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, joinConfigs, joinOrderData, groupBy, dateGranularity, havings, pivot, pivotRowAggs, relationshipOptions, showToast, executedSql, resultData, totalCount])
+  }, [
+    gridColumns,
+    addedTables,
+    filters,
+    orderBy,
+    currentPage,
+    pageSize,
+    tableRelationships,
+    joinConfigs,
+    joinOrderData,
+    groupBy,
+    dateGranularity,
+    havings,
+    pivot,
+    pivotRowAggs,
+    joinConditions,
+    joinTypes,
+    joinLogicalOperators,
+    relationshipOptions,
+    showToast,
+    executedSql,
+    resultData,
+    totalCount,
+  ])
 
   const runFetchTotalCount = useCallback(async () => {
     if (gridColumns.length === 0) return
@@ -812,6 +917,7 @@ export default function QueryStudioPage() {
   }, [saveAsTableName, executedSql, showToast])
 
   const clearAll = useCallback(() => {
+    lastSuccessWorkspaceRef.current = null
     setGridColumns([])
     setAddedTables([])
     setGroupBy([])
@@ -821,6 +927,10 @@ export default function QueryStudioPage() {
     setHavings([])
     setFilters([])
     setOrderBy([])
+    setJoinConditions({})
+    setJoinTypes({})
+    setJoinLogicalOperators({})
+    setJoinOrderData(null)
     setResultData([])
     setCurrentPage(1)
     setTotalCount(null)
