@@ -2,6 +2,7 @@
  * app/admin/AdminProjectMembersPage.jsx (프로젝트 멤버)
  * =============================================
  * GET/POST/PATCH/DELETE /api/admin/projects/{id}/members — 사용자 검색으로 추가.
+ * 멤버 목록: 초대자·참여일시 컬럼, 권한 셀렉트 변경 시 컨펌. 멤버 추가: 안내 라벨 아래 인풋+검색 한 줄(ap__member-add-inline).
  *
  * [Main Functions]
  * ===========
@@ -26,6 +27,24 @@ import {
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 
 import './admin-pages.css'
+
+function formatDtm(v) {
+  if (!v) return '—'
+  try {
+    const d = new Date(v)
+    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString('ko-KR')
+  } catch {
+    return String(v)
+  }
+}
+
+function inviteLabel(m) {
+  const em = (m.invite_user_email || '').trim()
+  const nick = (m.invite_user_nickname || '').trim()
+  if (em) return em
+  if (nick) return nick
+  return '—'
+}
 
 export default function AdminProjectMembersPage() {
   const { projectId } = useParams()
@@ -138,14 +157,27 @@ export default function AdminProjectMembersPage() {
       await patchAdminProjectMember(pid, ptcpntUserId, {
         pmssn_master_id: pmssnMasterId,
       })
-      setOk('역할이 변경되었습니다.')
+      setOk('프로젝트 권한이 변경되었습니다.')
       await loadMembers()
     } catch (e) {
-      setError(e?.message || '역할 변경 실패')
+      setError(e?.message || '권한 변경 실패')
     } finally {
       setBusy(false)
     }
   }
+
+  const handlePmssnSelectIntent = useCallback((uid, savedId, nextVal) => {
+    if (String(savedId) === nextVal) {
+      setRoleEdits((prev) => {
+        const copy = { ...prev }
+        delete copy[uid]
+        return copy
+      })
+      return
+    }
+    if (!confirmCrud('프로젝트 권한을 변경하시겠습니까?')) return
+    setRoleEdits((prev) => ({ ...prev, [uid]: nextVal }))
+  }, [])
 
   async function handleRemove(ptcpntUserId) {
     if (pid == null) return
@@ -181,26 +213,35 @@ export default function AdminProjectMembersPage() {
       </Link>
       <h1 className="ap__title">프로젝트 멤버</h1>
       <p className="ap__hint">
-        프로젝트 ID <strong>{pid}</strong>. 같은 부서 사용자를 검색해 초대하고, 프로젝트 역할(pmssn)을 부여합니다.
+        프로젝트 ID <strong>{pid}</strong>. 같은 부서 사용자를 검색해 초대하고, 프로젝트 권한(pmssn)을 부여합니다.
       </p>
       {error ? <p className="ap__error">{error}</p> : null}
       {ok ? <p className="ap__ok">{ok}</p> : null}
 
       <div className="ap__form-block">
         <h3>멤버 추가</h3>
-        <div className="ap__row">
-          <label className="ap__label" style={{ flex: 1, minWidth: 200 }}>
+        <div className="ap__member-add-block">
+          <label className="ap__member-add-hint" htmlFor="proj-member-email-search">
             이메일 검색 (2자 이상)
+          </label>
+          <div className="ap__member-add-inline">
             <input
-              className="ap__input"
+              id="proj-member-email-search"
+              className="ap__input ap__member-add-input"
               value={searchQ}
               onChange={(ev) => setSearchQ(ev.target.value)}
               placeholder="user@example.com"
+              autoComplete="off"
             />
-          </label>
-          <button type="button" className="ibank-btn-table" onClick={runSearch} disabled={busy}>
-            검색
-          </button>
+            <button
+              type="button"
+              className="ibank-btn-table ap__member-add-search"
+              onClick={runSearch}
+              disabled={busy}
+            >
+              검색
+            </button>
+          </div>
         </div>
         {searchHits.length > 0 ? (
           <div className="ap__search-hits">
@@ -222,7 +263,7 @@ export default function AdminProjectMembersPage() {
               선택: <strong>{pickUser.user_email}</strong> (user_id {pickUser.user_id})
             </p>
             <label className="ap__label">
-              프로젝트 역할
+              프로젝트 권한
               <select
                 className="ap__select"
                 value={addRoleId}
@@ -255,24 +296,34 @@ export default function AdminProjectMembersPage() {
               <tr>
                 <th>이메일</th>
                 <th>닉네임</th>
-                <th>역할</th>
+                <th>초대자</th>
+                <th>참여일시</th>
+                <th>프로젝트 권한</th>
                 <th className="ap__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
               {members.map((m) => {
                 const uid = m.ptcpnt_user_id
-                const cur = roleEdits[uid] != null ? roleEdits[uid] : String(m.pmssn_master_id)
+                const savedId = m.pmssn_master_id
+                const cur = roleEdits[uid] != null ? roleEdits[uid] : String(savedId)
+                const inviter = inviteLabel(m)
                 return (
                   <tr key={String(m.project_ptcpnt_info_id || `${uid}-${m.pmssn_master_id}`)}>
                     <td>{m.user_email}</td>
                     <td>{m.user_nickname || '—'}</td>
+                    <td className="ap__td-clip-inviter">
+                      <span className="ap__cell-clip" title={inviter !== '—' ? inviter : undefined}>
+                        {inviter}
+                      </span>
+                    </td>
+                    <td>{formatDtm(m.create_dtm)}</td>
                     <td>
                       <select
-                        className="ap__select"
+                        className="ap__select ap__select--table-in-cell"
                         value={cur}
                         onChange={(ev) =>
-                          setRoleEdits((prev) => ({ ...prev, [uid]: ev.target.value }))
+                          handlePmssnSelectIntent(uid, savedId, ev.target.value)
                         }
                       >
                         {roles.map((r) => (
@@ -287,12 +338,12 @@ export default function AdminProjectMembersPage() {
                         <button
                           type="button"
                           className="ibank-btn-table ibank-btn-table--primary"
-                          disabled={busy || String(m.pmssn_master_id) === cur}
+                          disabled={busy || String(savedId) === cur}
                           onClick={() =>
                             handleRoleChange(uid, parseInt(cur, 10))
                           }
                         >
-                          역할 저장
+                          권한 저장
                         </button>
                         <button
                           type="button"

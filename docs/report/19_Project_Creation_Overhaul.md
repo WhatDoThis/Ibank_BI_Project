@@ -1,6 +1,6 @@
 # 프로젝트 생성 전면 개편 (구현 명세·단계)
 
-**요약**: 시스템 기본 `pmssn_master` 자동 배정(`default_manager_pmssn_master_id`) 제거. 생성 시 **생성자가 선택한 `creator_pmssn_master_id`** 로 `project_ptcpnt_info` 등록. 단일 트랜잭션으로 `project_info` + `table_project_mapping` + 부서 내 멤버 + 타부서 알림 초대 처리. 수락은 `/api/projects/{project_info_id}/accept-invite`.
+**요약**: 시스템 기본 `pmssn_master` 자동 배정(`default_manager_pmssn_master_id`) 제거. 생성 시 **생성자가 선택한 `creator_pmssn_master_id`** 로 `project_ptcpnt_info` 등록. 단일 트랜잭션으로 `project_info` + `table_project_mapping` + 부서 내 멤버 + 타부서 알림 초대 처리. 수락은 `/api/projects/{project_info_id}/accept-invite`. 고객 여정 **Phase 6**은 `docs/main/06_CUSTOMER_JOURNEY.md`에 동기화됨.
 
 **근거 문서**: 사용자가 전달한 구현 명세서, `docs/main/04_DB_ARCHITECTURE.md`(table_project_mapping·notification_info), `docs/main/05_Permission_ARCHITECTURE.md`(pmssn·기능 ID), `docs/main/03_AI_DEVELOP_GUIDE.md`(허용 테이블 = 매핑).
 
@@ -17,7 +17,7 @@
 | `admin_server/router` | `POST /api/admin/projects` → `create_project_full`. |
 | `service_tables` | 테이블 마스터 목록 정렬 모드 `sort=project_create` (dash→main, update_dtm DESC NULLS LAST, table_name ASC). |
 | `admin_server/router` | `GET /api/admin/tables?sort=project_create`. |
-| `service_users` | `list_users_for_project_create_modal` + `GET /api/admin/users?scope=dept_tree` (생성자 제외·활성만). |
+| `service_users` | `list_users_dept_tree_for_project_create` + `GET /api/admin/users?scope=dept_tree` (생성자 제외·활성만). |
 | `project_server` | `POST /api/projects/{project_info_id}/accept-invite` + `accept_project_invite` 서비스. |
 | 회귀 | 기존 `add_member`·목록 API 동작 유지. |
 
@@ -31,6 +31,7 @@
 | `adminClient.js` | `postAdminProject` 바디 확장, 모달용 `getAdminUsersDeptTree` 등. |
 | `authClient.js` | `postAcceptProjectInvite` — `/api/projects/{id}/accept-invite`. |
 | `NotificationBell` / 알림 UI | `project_invite` JSON 수락 버튼 → accept API. |
+| `admin-pages.css` (`ap__modal--create-wide`) | 생성 모달 가로 폭(약 1040~1200px 상한). 배경 클릭으로 닫지 않음. |
 
 ---
 
@@ -38,7 +39,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| `docs/main/06_CUSTOMER_JOURNEY.md` | Phase 6 흐름을 단일 POST + 수락 API 기준으로 갱신. |
+| `docs/main/06_CUSTOMER_JOURNEY.md` | Phase 6: `create_project_full` 단일 POST + `accept-invite` 기준으로 갱신됨. |
 | `docs/log/log.md` | 구현 완료 로그. |
 
 ---
@@ -49,7 +50,7 @@
 - `POST /api/projects/{project_info_id}/accept-invite` — 바디: `{ "notification_info_id": N }` (로그인 사용자 = 초대 수신자).
 - `GET /api/admin/tables?sort=project_create`
 - `GET /api/admin/users?scope=dept_tree`
-- `GET /api/admin/roles` — 기존 유지(프로젝트 배정 가능 역할 = 시스템+부서 커스텀).
+- `GET /api/admin/roles?scope=project_assignable` — 생성 모달·멤버 배정용(시스템+부서 커스텀).
 
 ---
 

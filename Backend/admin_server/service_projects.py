@@ -8,7 +8,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping·생성자·부서 내 멤버·타부서 알림(project_invite JSON)
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project
-4. list_members / add_member / update_member_role / remove_member
+4. list_members(invite_user 이메일·닉네임·create_dtm) / add_member / update_member_role / remove_member
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 
@@ -398,10 +398,14 @@ def list_members(conn, dptmt_info_id: int, project_info_id: int) -> list[dict[st
         cur.execute(
             """
             SELECT p.project_ptcpnt_info_id, p.ptcpnt_user_id, u.user_email, u.user_nickname,
-                   p.pmssn_master_id, m.pmssn_name AS role_name, p.create_dtm
+                   p.pmssn_master_id, m.pmssn_name AS role_name, p.create_dtm,
+                   p.invite_user_id,
+                   iu.user_email AS invite_user_email,
+                   iu.user_nickname AS invite_user_nickname
             FROM project_ptcpnt_info p
             JOIN user_info u ON u.user_id = p.ptcpnt_user_id
             JOIN pmssn_master m ON m.pmssn_master_id = p.pmssn_master_id
+            LEFT JOIN user_info iu ON iu.user_id = p.invite_user_id
             WHERE p.project_info_id = %s
             ORDER BY u.user_email
             """,

@@ -35,10 +35,10 @@ Phase 3  A·O·U 초대                             │
    └──── 사람 + 테이블 ────────────────────────┘
                    │
                    ▼
-            Phase 6  프로젝트 생성 + 테이블 매핑
+            Phase 6  프로젝트 생성 + 매핑 + 초기 멤버(단일 POST)
                    │
                    ▼
-            Phase 7  멤버 구성
+            Phase 7  추가 멤버·역할 변경
                    │
                    ▼
             Phase 8  프로젝트 진입 · 업무
@@ -328,54 +328,77 @@ ETL 자격 계정 (sa_dev 또는 etl_yn='Y') 로그인 상태
 └──────────────────────────────────────────────────┘
 
 [ 산출물 ]  table_master에 적재된 테이블 목록
-[ 다음   ]  Phase 6에서 프로젝트에 테이블 매핑
+[ 다음   ]  Phase 6에서 프로젝트 생성 시 테이블 매핑(및 초기 멤버) 포함
 ```
 
 ---
 
-## Phase 6: 프로젝트 생성 · 테이블 매핑
+## Phase 6: 프로젝트 생성 · 테이블 매핑 · 초기 멤버(단일 트랜잭션)
+
+관리 화면 생성 모달과 동일한 기준. 시스템이 생성자에게 **기본 pmssn을 자동 부여하지 않음** — **`creator_pmssn_master_id`는 생성자가 반드시 선택**(부서에서 프로젝트에 쓸 수 있는 역할만). 상세는 **`docs/report/19_Project_Creation_Overhaul.md`**.
 
 ```
 SA_DEV / SA / A 로그인 상태
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  프로젝트 생성                                     │
-│  POST /api/admin/projects                         │
-│  body: { project_name, project_dscrtn }           │
-│                                                    │
-│  [create_project_with_creator_member]              │
-│  ├─ project_info INSERT                             │
-│  │   (dptmt_info_id, project_create_user_id)        │
-│  ├─ default_manager_pmssn_master_id 조회             │
-│  │   → pmssn_master에서 시스템 기본 '관리자' 찾기    │
-│  └─ project_ptcpnt_info INSERT                       │
-│     (생성자가 관리자 역할로 자동 참여)                │
+│  생성 모달용 데이터 (관리 UI가 병렬 호출)            │
+│  GET /api/admin/users?scope=dept_tree             │
+│    → 부서 트리 내 활성 사용자(생성자 본인 제외)      │
+│       [list_users_dept_tree_for_project_create]   │
+│  GET /api/admin/roles?scope=project_assignable    │
+│    → 시스템·부서 커스텀 중 프로젝트 배정 가능 역할    │
+│  GET /api/admin/tables?sort=project_create        │
+│    → dash 우선·update_dtm·table_name 정렬 목록      │
 └──────────────┬──────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  테이블 매핑                                       │
+│  한 번의 요청으로 생성·매핑·멤버·타부서 초대          │
+│  POST /api/admin/projects                         │
+│  body 예:                                         │
+│    project_name, project_dscrtn                   │
+│    creator_pmssn_master_id (필수)                 │
+│    table_master_ids[]                             │
+│    members[] { user_id, pmssn_master_id }         │
+│      → 같은 부서 트리 소속만 (생성자 제외)           │
+│    external_invites[] { user_id, pmssn_master_id } │
+│      → 부서 트리 밖만 (같은 트리는 members로)       │
+│    enabled_pages[] → 예약 필드, 백엔드 무시          │
 │                                                    │
-│  1. GET /api/admin/tables                          │
-│     → table_master 전체 조회 (db_type, 검색어 필터) │
+│  [create_project_full] (단일 트랜잭션)             │
+│  ├─ project_info INSERT (active_yn='Y')           │
+│  ├─ _assert_pmssn_for_project(creator 역할)         │
+│  ├─ project_ptcpnt_info INSERT (생성자·선택 역할)    │
+│  ├─ table_project_mapping (table_master_ids)     │
+│  ├─ members 각각 INSERT project_ptcpnt_info       │
+│  └─ external_invites 각각                         │
+│        notification_info INSERT                    │
+│        noti_type=project_invite, JSON payload      │
+│        (동일 conn, insert_notification 미사용)      │
+└──────────────┬──────────────────────────────────┘
+               ▼
+┌──────────────────────────────────────────────────┐
+│  타부서 초대 수락 (초대받은 사용자 로그인 후)         │
+│  알림 벨 → project_invite 행 → 수락 클릭            │
+│  POST /api/projects/{project_info_id}/accept-invite│
+│  body: { notification_info_id }                   │
 │                                                    │
-│  2. POST /api/admin/projects/{id}/tables           │
-│     body: { table_master_id }                      │
-│                                                    │
-│     [add_project_table_mapping]                    │
-│     ├─ _assert_project_owned (부서 소유 확인)       │
-│     ├─ table_master 존재 확인                       │
-│     ├─ 중복 매핑 확인                               │
-│     └─ table_project_mapping INSERT                 │
+│  [accept_project_invite]                          │
+│  └─ 검증 후 project_ptcpnt_info INSERT             │
 └──────────────────────────────────────────────────┘
 
-[ 산출물 ]  프로젝트 + 테이블 매핑 완료
-[ 다음   ]  Phase 7 (멤버 배정)
+[ 산출물 ]  프로젝트 + 테이블 매핑 + 부서 내 멤버 즉시 반영;
+            타부서는 알림 수락 후 멤버로 편입
+[ 다음   ]  Phase 7 (추가 멤버·역할 변경)
 ```
+
+**생성 이후 추가 매핑·멤버:** 기존과 같이 `POST /api/admin/projects/{id}/tables`, `POST /api/admin/projects/{id}/members` (`add_project_table_mapping`, `add_member`)로 확장 가능.
 
 ---
 
 ## Phase 7: 프로젝트 멤버 구성
+
+생성 모달에서 이미 넣은 부서 내 멤버는 **Phase 6 직후** `project_ptcpnt_info`에 존재한다. 아래는 **그 이후** 추가 초대·역할 변경 흐름이다.
 
 ```
 SA / A 로그인 상태 (O는 위임 시)
@@ -813,10 +836,10 @@ Phase 3  (A·O·U)         │
   └─── 사람 필요 ────────┴─── 테이블 필요 ───┐
                                               │
                                               ▼
-                                        Phase 6  (프로젝트 + 매핑)
+                                        Phase 6  (프로젝트 + 매핑 + 초기 멤버)
                                               │
                                               ▼
-                                        Phase 7  (멤버 구성)
+                                        Phase 7  (추가 멤버·역할)
                                               │
                                               ▼
                                         Phase 8  (업무)

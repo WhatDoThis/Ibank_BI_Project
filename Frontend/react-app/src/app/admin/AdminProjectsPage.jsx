@@ -3,6 +3,8 @@
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성은 canAccessOrgAdmin(sa_dev·sa·a)만.
  * 생성 모달: creator_pmssn_master_id·페이지 체크·테이블 매핑·부서 내 멤버·타부서 검색 초대·POST 바디 확장.
+ * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
+ * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip, 작업 열 ibank-btn-table·Link 동일 톤.
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
@@ -373,17 +375,12 @@ export default function AdminProjectsPage() {
       {error ? <p className="ap__error">{error}</p> : null}
 
       {createOpen ? (
-        <div
-          className="ap__modal-overlay"
-          role="presentation"
-          onClick={() => closeCreateModal()}
-        >
+        <div className="ap__modal-overlay" role="presentation">
           <div
             className="ap__modal ap__modal--create ap__modal--create-wide"
             role="dialog"
             aria-modal="true"
             aria-labelledby="proj-create-title"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="ap__create-head">
               <h3 id="proj-create-title">프로젝트 생성</h3>
@@ -713,10 +710,11 @@ export default function AdminProjectsPage() {
         <p className="ap__hint">불러오는 중…</p>
       ) : (
         <div className="ap__table-wrap">
-          <table className="ap__table">
+          <table className="ap__table ap__table--projects">
             <thead>
               <tr>
-                <th>이름</th>
+                <th>프로젝트명</th>
+                <th>프로젝트설명</th>
                 <th>상태</th>
                 <th>생성일</th>
                 <th>생성자</th>
@@ -727,15 +725,22 @@ export default function AdminProjectsPage() {
               {items.map((row) => {
                 const pid = row.project_info_id
                 const active = (row.active_yn || '').toUpperCase() === 'Y'
+                const pname = row.project_name || '—'
+                const pdesc = row.project_dscrtn || ''
                 return (
                   <tr key={String(pid)}>
-                    <td>
-                      <strong>{row.project_name || '—'}</strong>
-                      {row.project_dscrtn ? (
-                        <div className="ap__mono" style={{ marginTop: 6 }}>
-                          {row.project_dscrtn}
-                        </div>
-                      ) : null}
+                    <td className="ap__td-clip-name">
+                      <span
+                        className="ap__cell-clip ap__cell-clip--project-name"
+                        title={pname !== '—' ? pname : undefined}
+                      >
+                        {pname}
+                      </span>
+                    </td>
+                    <td className="ap__td-clip-desc">
+                      <span className="ap__cell-clip" title={pdesc || undefined}>
+                        {pdesc || '—'}
+                      </span>
                     </td>
                     <td>{active ? '활성' : '비활성'}</td>
                     <td>{formatDtm(row.create_dtm)}</td>
@@ -755,7 +760,7 @@ export default function AdminProjectsPage() {
                       <div className="ap__cell-actions">
                         <Link
                           to={`/admin/projects/${pid}/members`}
-                          className="ap__btn--link ap__cell-actions__link"
+                          className="ibank-btn-table"
                         >
                           멤버 관리
                         </Link>

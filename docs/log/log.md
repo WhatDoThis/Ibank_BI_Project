@@ -1,6 +1,11 @@
 # Log
 
 ## Log Index
+229. 2026-04-08 Admin 프로젝트 멤버: 검색 인풋·버튼 동일 라인(ap__member-add-inline)
+228. 2026-04-08 Admin 프로젝트 멤버: 초대자·참여일시 열·권한 셀렉트·검색 행 정렬
+227. 2026-04-08 Admin 프로젝트 목록 테이블: 프로젝트명·설명 열 분리·말줄임·작업 버튼 통일
+226. 2026-04-03 프로젝트 생성 모달: 가로 폭 확대·바깥 클릭으로 닫힘 제거
+225. 2026-04-03 고객여정 Phase 6: 프로젝트 생성 흐름을 create_project_full·accept-invite 기준으로 갱신
 224. 2026-04-03 프로젝트 생성 전면 개편: creator_pmssn·테이블·멤버·타부서 초대·수락 API
 223. 2026-04-03 ETL batch_target_registry: create_user_id SELECT 누락 보완·폴더 등록자 COALESCE로 생성자 이메일 보강
 222. 2026-04-03 사용자관리: 등록 부서 목록·생성자 이관(dptmt_creator)·역할 변경 스마트 가드(409)
@@ -227,6 +232,45 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+229. 2026-04-08 Admin 프로젝트 멤버: 검색 인풋·버튼 동일 라인(ap__member-add-inline)
+Purpose: 라벨+인풋을 한 flex 아이템에 두면 검색 버튼이 인풋과 수직으로 맞지 않음. 안내 문구는 별도 행, 인풋·검색만 `ap__member-add-inline` 한 줄·`align-items: center`로 정렬.
+Changed files: Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, admin-pages.css, docs/log/log.md
+
+228. 2026-04-08 Admin 프로젝트 멤버: 초대자·참여일시 열·권한 셀렉트·검색 행 정렬
+Purpose: 멤버 목록 테이블 컬럼·용어 정합, 권한 변경 전 컨펌, 검색 입력·버튼 한 줄 및 입력 폭 50px 축소. API에 초대자 표시용 필드 추가.
+Changes:
+
+- `list_members`: `invite_user_id`·`invite_user_email`·`invite_user_nickname` LEFT JOIN
+- AdminProjectMembersPage: 초대자·참여일시, 프로젝트 권한 라벨·셀렉트 폰트·변경 컨펌, 멤버 추가 행 `ap__member-add-row`
+- admin-pages: `ap__member-add-*`, `ap__select--table-in-cell`, `ap__td-clip-inviter`
+
+Changed files: Backend/admin_server/service_projects.py, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, admin-pages.css, docs/log/log.md
+
+227. 2026-04-08 Admin 프로젝트 목록 테이블: 프로젝트명·설명 열 분리·말줄임·작업 버튼 통일
+Purpose: 프로젝트 관리 목록을 사용자·권한 등 관리 테이블과 동일한 nowrap·말줄임·소형 액션 버튼 패턴으로 정리.
+Changes:
+
+- AdminProjectsPage: 헤더 프로젝트명·프로젝트설명, 설명 전용 열·`ap__cell-clip`, 멤버 관리 `Link`를 `ibank-btn-table`로 통일
+- admin-pages: `ap__table--projects` 열 폭·모바일 보정
+- shared-ui: `a.ibank-btn-table` 기본·hover(primary/danger 포함)
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, admin-pages.css, styles/shared-ui.css, docs/log/log.md
+
+226. 2026-04-03 프로젝트 생성 모달: 가로 폭 확대·바깥 클릭으로 닫힘 제거
+Purpose: 실수로 오버레이 클릭 시 폼이 초기화·닫히는 불편 완화. 닫기는「닫기」「취소」만 사용.
+Changes: `ap__modal--create-wide` min/max 폭 조정(약 1040~1200px 상한). 생성 모달 오버레이 `onClick` 제거.
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, admin-pages.css, docs/log/log.md
+
+225. 2026-04-03 고객여정 Phase 6: 프로젝트 생성 흐름을 create_project_full·accept-invite 기준으로 갱신
+Purpose: 점검에서 지적한 `docs/main/06_CUSTOMER_JOURNEY.md` Phase 6 레거시(`default_manager_pmssn_master_id`, 생성 후 별도 테이블 매핑만 서술)를 제거하고, 현행 API·서비스명과 일치시킴. Phase 5 산출물의 다음 단계 문구·Phase 7 서두(생성 시 이미 반영된 멤버) 보강. 명세 19의 사용자 목록 함수명·roles 쿼리·Phase 3 체크 문구 정합.
+Changes:
+
+- 06_CUSTOMER_JOURNEY: Phase 6 다이어그램·본문 전면, 생성 후 추가 매핑/멤버 안내, Phase 7 연결 문구
+- 19_Project_Creation_Overhaul: `list_users_dept_tree_for_project_create`, `roles?scope=project_assignable`, Phase 3·요약
+
+Changed files: docs/main/06_CUSTOMER_JOURNEY.md, docs/report/19_Project_Creation_Overhaul.md, docs/log/log.md
 
 224. 2026-04-03 프로젝트 생성 전면 개편: creator_pmssn·테이블·멤버·타부서 초대·수락 API
 Purpose: 시스템 기본 pmssn 자동 배정 제거. 생성 API 확장·알림 수락·관리 화면 모달·문서 인덱스 갱신.
