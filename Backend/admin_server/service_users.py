@@ -12,7 +12,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 2. search_users_by_email (operator 시 동일 부서만; 전역 검색 시 exclude_dptmt_zero 로 개발부서 0번 제외)
 3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, UndefinedColumn 시 DDL 안내)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
-4. suspend_user / activate_user (_assert_target_exists_or_same_dept·SA_DEV 우회)
+4. suspend_user(세션 무효) / activate_user / delete_inactive_user(비활성만·소유 가드·연관 행 정리 후 user_info DELETE)
 5. set_user_dvsn_admin_user (a/sa/sa_dev·a·o·u 부여)
 6. set_user_etl_flag (sa·sa_dev·etl_yn, N 시 ETL 등록 건 검사)
 7. list_invite_codes_for_dept
@@ -23,7 +23,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 12. list_ownership_transfer_targets / list_department_creator_transfer_targets — 이관 수신(일반: sa_dev·sa·a / 부서생성자: sa·sa만, 동일 부서 수직 트리·SA→sa_dev 제외)
 12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
 13. transfer_resource_ownership — project·pmssn_master·table_master·dptmt_creator(dptmt_create_user_id)·ETL 메타 이관
-14. ownership_guards 연동 — update_user_management·suspend_user 목표 역할·ETL·정지 시 소유 매트릭스 스캔(409·blocking_assets)
+14. ownership_guards 연동 — update_user_management·suspend_user·delete_inactive_user 목표 역할·ETL·정지·삭제 시 소유 매트릭스 스캔(409·blocking_assets)
 15. get_user_change_options / update_user_management — 부서·역할·ETL·프로젝트 참여 변경(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·역할 u 시 etl_yn N)
 
 [Dependencies]
@@ -1262,6 +1262,10 @@ def suspend_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -
             "UPDATE user_info SET user_active_yn = 'N', update_dtm = NOW() WHERE user_id = %s",
             (target_user_id,),
         )
+        # 순환 import 방지: auth_server.service ↔ admin_server 로딩 체인 상 모듈 최상단에서 import 금지
+        from Backend.auth_server.service import invalidate_all_sessions
+
+        invalidate_all_sessions(conn, int(target_user_id), do_commit=False)
         conn.commit()
     except ValueError:
         conn.rollback()
@@ -1289,6 +1293,78 @@ def activate_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) 
             "UPDATE user_info SET user_active_yn = 'Y', update_dtm = NOW() WHERE user_id = %s",
             (target_user_id,),
         )
+        conn.commit()
+    except ValueError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def delete_inactive_user(
+    conn,
+    actor_user_id: int,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    target_user_id: int,
+) -> None:
+    """
+    비활성(user_active_yn≠Y) 사용자만 user_info 행 DELETE.
+    정지·활성과 동일한 액터·대상 역할 규칙, 정지와 동일 소유 매트릭스(409) 통과 필요. 본인 삭제 불가.
+    """
+    tid = int(target_user_id)
+    aid = int(actor_user_id)
+    if tid == aid:
+        raise ValueError("본인 계정은 삭제할 수 없습니다.")
+    _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, tid)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT user_dvsn,
+                   UPPER(TRIM(COALESCE(user_active_yn, 'Y'))) AS ua
+            FROM user_info WHERE user_id = %s
+            """,
+            (tid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("사용자를 찾을 수 없습니다.")
+        _assert_suspend_activate_target(actor_dvsn, row.get("user_dvsn") or "")
+        if (row.get("ua") or "") == "Y":
+            raise ValueError("활성 사용자는 삭제할 수 없습니다. 먼저 정지한 뒤 삭제하세요.")
+        _evaluate_ownership_target_or_raise(conn, tid, "u", "N", for_suspend=True)
+        from Backend.auth_server.service import invalidate_all_sessions
+
+        invalidate_all_sessions(conn, tid, do_commit=False)
+        cur.execute(
+            "DELETE FROM session_log WHERE session_create_user_id = %s",
+            (tid,),
+        )
+        cur.execute("DELETE FROM user_login_log WHERE user_id = %s", (tid,))
+        cur.execute("DELETE FROM notification_info WHERE user_id = %s", (tid,))
+        cur.execute(
+            "DELETE FROM project_ptcpnt_info WHERE ptcpnt_user_id = %s",
+            (tid,),
+        )
+        cur.execute(
+            """
+            UPDATE project_ptcpnt_info SET invite_user_id = NULL
+            WHERE invite_user_id = %s
+            """,
+            (tid,),
+        )
+        cur.execute(
+            "DELETE FROM email_invite_code_master WHERE code_create_user_id = %s",
+            (tid,),
+        )
+        cur.execute("DELETE FROM user_info WHERE user_id = %s", (tid,))
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise ValueError("사용자를 삭제하지 못했습니다.")
         conn.commit()
     except ValueError:
         conn.rollback()

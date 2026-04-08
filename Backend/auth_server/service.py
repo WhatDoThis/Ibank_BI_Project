@@ -9,11 +9,11 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 2. signup_with_invite: 초대 가입(user_dvsn·etl_yn·U 시 프로젝트 멤버)
 3. create_org_and_user: 부서+슈퍼어드민 트랜잭션(validate_password_strength)
 4. login_send_code: 1단계 비번 검증·OTP 저장·pre_auth 발급
-5. verify_login_complete: 2단계·세션·토큰(세션 INSERT 후 토큰 1회 생성)
-6. refresh_session_tokens: 슬라이딩 리프레시(project claim 유지)
+5. verify_login_complete: 2단계·OTP 후 활성·잠금 재확인·세션·토큰
+6. refresh_session_tokens: 슬라이딩 리프레시·비활성·잠금 시 거절
 7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급
 8. logout_one_session: 세션 1건 만료
-9. invalidate_all_sessions: 유저 전체 세션 만료
+9. invalidate_all_sessions: 유저 전체 세션 만료(do_commit=False 시 호출부에서 commit)
 10. get_user_profile: 마이페이지용
 11. update_user_nickname / change_password(신규 비밀번호 validate_password_strength)
 12. insert_login_log
@@ -281,6 +281,32 @@ def insert_login_log(conn, user_id: int, ip: str, success: str, browser: str) ->
         cur.close()
 
 
+def _fetch_dptmt_id_or_raise_inactive_locked(conn, user_id: int) -> int:
+    """refresh·rotate 등에서 user_info 조회 후 비활성·잠금이면 ValueError."""
+    uid = int(user_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT dptmt_info_id,
+                   UPPER(TRIM(COALESCE(user_active_yn, 'N'))) AS ua,
+                   UPPER(TRIM(COALESCE(user_lock_yn, 'N'))) AS ul
+            FROM user_info WHERE user_id = %s
+            """,
+            (uid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("사용자를 찾을 수 없습니다.")
+        if (row.get("ua") or "") != "Y":
+            raise ValueError("비활성화된 계정입니다.")
+        if (row.get("ul") or "") == "Y":
+            raise ValueError("잠긴 계정입니다. 관리자에게 문의하세요.")
+        return int(row["dptmt_info_id"])
+    finally:
+        cur.close()
+
+
 # 5.
 def verify_login_complete(
     conn,
@@ -298,7 +324,9 @@ def verify_login_complete(
     try:
         cur.execute(
             """
-            SELECT user_id, dptmt_info_id, scnd_auth_token, scnd_auth_expire_dtm
+            SELECT user_id, dptmt_info_id, scnd_auth_token, scnd_auth_expire_dtm,
+                   UPPER(TRIM(COALESCE(user_active_yn, 'N'))) AS ua,
+                   UPPER(TRIM(COALESCE(user_lock_yn, 'N'))) AS ul
             FROM user_info WHERE user_id = %s
             """,
             (user_id,),
@@ -313,6 +341,14 @@ def verify_login_complete(
             insert_login_log(conn, user_id, client_ip, "N", user_agent or "")
             conn.commit()
             raise ValueError("인증 코드가 올바르지 않습니다.")
+        if (row.get("ua") or "") != "Y":
+            insert_login_log(conn, user_id, client_ip, "N", user_agent or "")
+            conn.commit()
+            raise ValueError("비활성화된 계정입니다.")
+        if (row.get("ul") or "") == "Y":
+            insert_login_log(conn, user_id, client_ip, "N", user_agent or "")
+            conn.commit()
+            raise ValueError("잠긴 계정입니다. 관리자에게 문의하세요.")
         cur.execute(
             "UPDATE user_info SET scnd_auth_token = NULL, scnd_auth_expire_dtm = NULL, last_login_dtm = NOW(), last_login_ip = %s, update_dtm = NOW() WHERE user_id = %s",
             ((client_ip or "")[:45], user_id),
@@ -397,14 +433,7 @@ def refresh_session_tokens(conn, refresh_token_str: str) -> dict[str, Any]:
             raise ValueError("세션이 만료되었습니다. 다시 로그인하세요.")
         if security.hash_token(refresh_token_str) != (srow.get("refresh_token_encrypt") or ""):
             raise ValueError("세션이 무효화되었습니다.")
-        cur.execute(
-            "SELECT dptmt_info_id FROM user_info WHERE user_id = %s",
-            (user_id,),
-        )
-        urow = cur.fetchone()
-        if not urow:
-            raise ValueError("사용자를 찾을 수 없습니다.")
-        dptmt_id = urow["dptmt_info_id"]
+        dptmt_id = _fetch_dptmt_id_or_raise_inactive_locked(conn, user_id)
         access_t, access_exp = security.create_access_token(
             user_id, dptmt_id, session_log_id, proj_claim
         )
@@ -478,14 +507,7 @@ def rotate_session_tokens_with_project(
         )
         if not cur.fetchone():
             raise ValueError("해당 프로젝트에 참여하지 않은 사용자입니다.")
-        cur.execute(
-            "SELECT dptmt_info_id FROM user_info WHERE user_id = %s",
-            (user_id,),
-        )
-        urow = cur.fetchone()
-        if not urow:
-            raise ValueError("사용자를 찾을 수 없습니다.")
-        dptmt_id = urow["dptmt_info_id"]
+        dptmt_id = _fetch_dptmt_id_or_raise_inactive_locked(conn, user_id)
         access_t, access_exp = security.create_access_token(
             user_id, dptmt_id, session_log_id, project_info_id
         )
@@ -548,7 +570,7 @@ def logout_one_session(conn, session_log_id: int, user_id: int) -> None:
 
 
 # 9.
-def invalidate_all_sessions(conn, user_id: int) -> None:
+def invalidate_all_sessions(conn, user_id: int, *, do_commit: bool = True) -> None:
     cur = conn.cursor()
     try:
         cur.execute(
@@ -556,9 +578,10 @@ def invalidate_all_sessions(conn, user_id: int) -> None:
             UPDATE session_log SET refresh_exprtn_dtm = NOW(), update_dtm = NOW()
             WHERE session_create_user_id = %s
             """,
-            (user_id,),
+            (int(user_id),),
         )
-        conn.commit()
+        if do_commit:
+            conn.commit()
     except Exception:
         conn.rollback()
         raise

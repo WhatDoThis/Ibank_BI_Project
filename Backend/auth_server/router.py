@@ -21,7 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from Backend.auth_server import permissions, schemas, service
-from Backend.auth_server.deps import get_access_payload
+from Backend.auth_server.deps import get_access_payload, require_active_access
 from Backend.core.dependencies import get_system_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -126,7 +126,7 @@ def auth_logout(payload: dict = Depends(get_access_payload), conn=Depends(get_sy
 
 @router.get("/me")
 def auth_me(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -162,7 +162,7 @@ def auth_me(
 @router.patch("/me")
 def auth_patch_me(
     body: schemas.MeUpdateBody,
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -176,7 +176,7 @@ def auth_patch_me(
 @router.patch("/me/password")
 def auth_password(
     body: schemas.PasswordChangeBody,
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -189,7 +189,7 @@ def auth_password(
 
 @router.get("/me/login-history")
 def auth_login_history(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])

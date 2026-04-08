@@ -24,7 +24,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 [Dependencies]
 =========
 - fastapi Depends HTTPException
-- Backend.auth_server.deps.get_access_payload, Backend.core.dependencies.get_system_db
+- Backend.auth_server.deps.require_active_access, Backend.core.dependencies.get_system_db
 - Backend.core.user_dvsn_codes.canon_user_dvsn
 """
 
@@ -36,7 +36,7 @@ from typing import Any
 from fastapi import Depends, HTTPException
 from psycopg2 import errors as pg_errors
 
-from Backend.auth_server.deps import get_access_payload
+from Backend.auth_server.deps import require_active_access
 from Backend.core.dependencies import get_system_db
 from Backend.core.user_dvsn_codes import canon_user_dvsn
 
@@ -236,7 +236,7 @@ def get_effective_permission_ids_for_me(
 
 # 9.
 def require_etl_infrastructure(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ) -> dict[str, Any]:
     user_id = int(payload["user_id"])
@@ -250,7 +250,7 @@ def require_permission(*required: str) -> Callable[..., dict[str, Any]]:
     needed = tuple(required)
 
     def dependency(
-        payload: dict = Depends(get_access_payload),
+        payload: dict = Depends(require_active_access),
         conn=Depends(get_system_db),
     ) -> dict[str, Any]:
         user_id = int(payload["user_id"])

@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+242. 2026-04-02 ibank-btn-table--primary 제거(솔리드): 활성 버튼도 일반 액션 아웃라인·호버와 동일
+241. 2026-04-02 ibank-btn-table: 일반 아웃라인 그린(#0a8f6e)·호버 채움 / danger 아웃라인 #fe5655·호버 채움
+240. 2026-04-02 ibank-btn-table--danger: button 기본 규칙보다 낮던 특이도 보완·호버도 #dc2626 유지
+239. 2026-04-02 어드민 테이블 파괴 액션 버튼: ibank-btn-table--danger 솔리드 레드(#dc2626) 통일
+238. 2026-04-02 Admin 사용자관리: 비활성 행 작업 열 축소·비활성 사용자 DELETE·소유 가드 모달 분기
+237. 2026-04-03 비활성(정지) 계정: 세션 무효·API·리프레시에서 user_active_yn 검사
 236. 2026-04-03 프로젝트 유효 권한: sa_dev/sa/a 자동 UI 권한 확장 제거(pmssn∩feature_flags만)
 235. 2026-04-02 ETL: 접이식 카드·목록 thead 테두리를 설명 열 헤더 톤(--etl-table-list-th-description-border)으로 통일
 234. 2026-04-02 ETL 페이지: 설명을 소스 탭 아래 접이식 카드로 이동·탭 전환 떨림 완화
@@ -239,6 +245,51 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+242. 2026-04-02 ibank-btn-table--primary 제거(솔리드): 활성 버튼도 일반 액션 아웃라인·호버와 동일
+Purpose: 사용자관리 등「활성」이 --primary로 솔리드만 적용되어 목록·변경과 톤이 달랐음. --primary 전용 규칙 삭제로 기본 테이블 버튼 규칙만 적용.
+
+Changed files: Frontend/react-app/src/styles/shared-ui.css, docs/log/log.md
+
+241. 2026-04-02 ibank-btn-table: 일반 아웃라인 그린(#0a8f6e)·호버 채움 / danger 아웃라인 #fe5655·호버 채움
+Purpose: 솔리드 빨강으로 호버 변화가 없어 UX가 단조로워져, 일반·파괴 모두 흰 배경+테두리 기본·호버 시 해당 색으로 채움. 활성 등은 `--primary`로 솔리드 그린 유지.
+
+Changes: shared-ui 테이블 버튼 기본·호버·focus-visible, --primary·--danger 특이도 체인 정리.
+
+Changed files: Frontend/react-app/src/styles/shared-ui.css, docs/log/log.md
+
+240. 2026-04-02 ibank-btn-table--danger: button 기본 규칙보다 낮던 특이도 보완·호버도 #dc2626 유지
+Purpose: `button.ibank-btn-table`가 배경 #fff를 주어 `.ibank-btn-table--danger`만으로는 적용이 안 보이던 문제 수정. 일반·호버 모두 요청 색 #dc2626·흰 글자 유지.
+
+Changes: `.ibank-btn-table.ibank-btn-table--danger` 및 `button`/`a` 조합으로 특이도 상승.
+
+Changed files: Frontend/react-app/src/styles/shared-ui.css, docs/log/log.md
+
+239. 2026-04-02 어드민 테이블 파괴 액션 버튼: ibank-btn-table--danger 솔리드 레드(#dc2626) 통일
+Purpose: 정지·삭제·권한 삭제·프로젝트 비활성화·멤버 제거·부서 삭제 등 동일 성격 버튼을 흰 글자·레드 배경으로 통일.
+
+Changes: `shared-ui.css` `.ibank-btn-table--danger` 기본·호버(#b91c1c)·focus-visible. 사용처는 사용자·권한·프로젝트·멤버·부서 관리 페이지의 기존 `--danger` 클래스만(추가 JSX 변경 없음).
+
+Changed files: Frontend/react-app/src/styles/shared-ui.css, docs/log/log.md
+
+238. 2026-04-02 Admin 사용자관리: 비활성 행 작업 열 축소·비활성 사용자 DELETE·소유 가드 모달 분기
+Purpose: 비활성 사용자 행에서는 목록·변경·정지를 숨기고 활성·삭제만 표시해 작업 열 폭을 줄이고, 비활성 계정을 DB에서 제거할 수 있게 함. 삭제도 정지와 동일 소유 검사(409)를 적용하되 비활성 행에는 목록이 없으므로 409 모달은 안내·닫기만(목록 열기 버튼 없음).
+
+Changes:
+- delete_inactive_user: 활성 거절·소유 가드·연관 로그·참여·초대코드 정리 후 user_info DELETE; DELETE /api/admin/users/{id}
+- adminClient.deleteAdminUser; AdminUsersPage: 활성=목록·변경·정지, 비활성=활성·삭제(본인 제외), 작업물 패널은 활성+펼침일 때만; ownershipGateModal로 정지/삭제 409 분기
+- renderOwnershipBlock 힌트 variant(delete 시 활성화 후 목록 이관 안내)
+Changed files: Backend/admin_server/service_users.py, router.py, Frontend/react-app/src/shared/api/adminClient.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, docs/log/log.md
+
+237. 2026-04-03 비활성(정지) 계정: 세션 무효·API·리프레시에서 user_active_yn 검사
+Purpose: 정지 후에도 기존 access JWT만으로 이용되던 문제 수정 — 정지 시 해당 사용자 session_log 만료, 보호 API는 DB에서 활성·미잠금 확인, refresh·프로젝트 토큰 회전·OTP 완료 시에도 동일 검사.
+
+Changes:
+- suspend_user: invalidate_all_sessions(do_commit=False) 후 단일 commit
+- require_active_access + admin get_authenticated_user_row에서 user_active_yn·user_lock_yn
+- /api/auth/me 등·require_permission·프로젝트·알림 라우트 연동; POST /logout은 기존처럼 JWT만(정지자도 세션 정리 가능)
+- refresh_session_tokens, rotate_session_tokens_with_project, verify_login_complete 보강
+Changed files: Backend/auth_server/deps.py, service.py, router.py, permissions.py, Backend/admin_server/service_users.py, deps.py, Backend/project_server/router.py, Backend/notification_server/router.py
 
 235. 2026-04-02 ETL: 접이식 카드·목록 thead 테두리를 설명 열 헤더 톤(--etl-table-list-th-description-border)으로 통일
 Purpose: etl-db-form 접이식 카드가 페이지 배경과 구분이 어려워, ETL 목록 thead(설명 열 포함)와 동일한 그린 테두리 톤을 적용.

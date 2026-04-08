@@ -1,8 +1,9 @@
 /**
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
- * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·목록에서 부서 생성자 이관(dptmt_creator).
- * 본인 행: 이메일 옆「본인」배지. 목록(작업물·이관)만 허용·변경·정지·활성 비활성 시 호버로 안내. 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글.
+ * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator).
+ * 본인 행: 이메일 옆「본인」배지. 활성: 목록·변경·정지. 비활성: 활성·삭제만(본인은 활성만·비활성화 시 호버 안내). 작업물 패널은 활성이면서 목록을 연 경우만 표시. 삭제 409 시 모달은 안내만(목록 열기 없음).
+ * 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글.
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
  * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
  * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
@@ -26,6 +27,7 @@ import {
   getAdminOwnershipTransferTargets,
   getAdminUserChangeOptions,
   getAdminUserWorkAssets,
+  deleteAdminUser,
   getAdminUsers,
   patchAdminUserActivate,
   patchAdminUserSuspend,
@@ -116,8 +118,8 @@ export default function AdminUsersPage() {
   const [changeErr, setChangeErr] = useState('')
   /** PUT management 409 — 소유 매트릭스 불가 시 서버 detail(changeable·blocking_assets) */
   const [changeOwnershipBlock, setChangeOwnershipBlock] = useState(null)
-  /** PATCH suspend 409 — 동일 payload를 전역 모달로 표시 */
-  const [suspendOwnershipBlock, setSuspendOwnershipBlock] = useState(null)
+  /** PATCH suspend / DELETE user 409 — detail·제목·목록 열기 여부(삭제 시 false) */
+  const [ownershipGateModal, setOwnershipGateModal] = useState(null)
   const [changeForm, setChangeForm] = useState({
     dptmt_info_id: '',
     user_dvsn: '',
@@ -556,11 +558,16 @@ export default function AdminUsersPage() {
     try {
       await patchAdminUserSuspend(userId)
       await load()
-      setSuspendOwnershipBlock(null)
+      setOwnershipGateModal(null)
     } catch (e) {
       const d = e?.data?.detail
       if (e?.status === 409 && d && typeof d === 'object' && d.changeable === false) {
-        setSuspendOwnershipBlock({ userId, detail: d })
+        setOwnershipGateModal({
+          userId,
+          detail: d,
+          title: '정지 전 이관 필요',
+          showOpenList: true,
+        })
         return
       }
       const msg = e?.message || '정지 처리 실패'
@@ -578,8 +585,43 @@ export default function AdminUsersPage() {
     try {
       await patchAdminUserActivate(userId)
       await load()
+      setOwnershipGateModal(null)
     } catch (e) {
       setError(e?.message || '활성화 실패')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleDeleteUser(userId, emailLabel) {
+    const label = emailLabel || String(userId)
+    if (!confirmCrud(`사용자 「${label}」을(를) DB에서 완전히 삭제할까요? 되돌릴 수 없습니다.`)) return
+    setBusyId(userId)
+    setError('')
+    try {
+      await deleteAdminUser(userId)
+      setOwnershipGateModal(null)
+      setExpandedUid((prev) => (prev === userId ? null : prev))
+      setWorkByUser((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+      await load()
+    } catch (e) {
+      const d = e?.data?.detail
+      if (e?.status === 409 && d && typeof d === 'object' && d.changeable === false) {
+        setOwnershipGateModal({
+          userId,
+          detail: d,
+          title: '삭제할 수 없습니다',
+          showOpenList: false,
+        })
+        return
+      }
+      const msg = e?.message || '삭제 실패'
+      window.alert(msg)
+      setError(msg)
     } finally {
       setBusyId(null)
     }
@@ -827,7 +869,8 @@ export default function AdminUsersPage() {
     return m[t] || t
   }
 
-  function renderOwnershipBlock(detail) {
+  /** @param {string} [hintVariant] 'delete' — 비활성 행에 목록이 없을 때 안내 문구 */
+  function renderOwnershipBlock(detail, hintVariant) {
     if (!detail?.blocking_assets?.length) return null
     return (
       <div className="admin-users__ownership-block" role="region" aria-label="이관 필요 소유">
@@ -857,7 +900,11 @@ export default function AdminUsersPage() {
             </ul>
           </div>
         ) : null}
-        <p className="admin-users__hint">「목록」에서 해당 항목을 이관한 뒤 다시 저장하세요.</p>
+        <p className="admin-users__hint">
+          {hintVariant === 'delete'
+            ? '비활성 행에서는 「목록」을 쓸 수 없습니다. 먼저 이 사용자를 활성화한 뒤 목록에서 작업물을 이관한 다음, 필요하면 다시 비활성화한 후 삭제를 시도하세요.'
+            : '「목록」에서 해당 항목을 이관한 뒤 다시 저장하세요.'}
+        </p>
       </div>
     )
   }
@@ -1309,7 +1356,7 @@ export default function AdminUsersPage() {
                     : isSelf
                       ? '본인 계정입니다. 목록에서 작업물 확인·소유 이관만 가능합니다.'
                       : isAdminLockedSa
-                        ? 'Admin(A)은 SA 사용자의 변경·정지·활성을 할 수 없습니다.'
+                        ? 'Admin(A)은 SA 사용자의 변경·정지·활성·삭제를 할 수 없습니다.'
                         : ''
                 const expanded = expandedUid === uid
                 const work = workByUser[uid]
@@ -1338,73 +1385,104 @@ export default function AdminUsersPage() {
                       <td>{formatDtm(row.create_dtm)}</td>
                       <td>
                         <div className="admin-users__actions">
-                          <button
-                            type="button"
-                            className="ibank-btn-table"
-                            disabled={listDisabled}
-                            onClick={() => toggleWorkPanel(uid)}
-                          >
-                            {expanded ? '목록 닫기' : '목록'}
-                          </button>
-                          {actionDisabled ? (
-                            <span
-                              className="admin-users__action-disabled-wrap"
-                              title={actionDisabledTitle}
-                            >
-                              <button type="button" className="ibank-btn-table" disabled>
-                                변경
-                              </button>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="ibank-btn-table"
-                              onClick={() => openChangeModal(uid)}
-                            >
-                              변경
-                            </button>
-                          )}
                           {active ? (
-                            actionDisabled ? (
-                              <span
-                                className="admin-users__action-disabled-wrap"
-                                title={actionDisabledTitle}
-                              >
-                                <button type="button" className="ibank-btn-table ibank-btn-table--danger" disabled>
-                                  정지
-                                </button>
-                              </span>
-                            ) : (
+                            <>
                               <button
                                 type="button"
-                                className="ibank-btn-table ibank-btn-table--danger"
-                                onClick={() => handleSuspend(uid)}
+                                className="ibank-btn-table"
+                                disabled={listDisabled}
+                                onClick={() => toggleWorkPanel(uid)}
                               >
-                                정지
+                                {expanded ? '목록 닫기' : '목록'}
                               </button>
-                            )
-                          ) : actionDisabled ? (
-                            <span
-                              className="admin-users__action-disabled-wrap"
-                              title={actionDisabledTitle}
-                            >
-                              <button type="button" className="ibank-btn-table ibank-btn-table--primary" disabled>
-                                활성
-                              </button>
-                            </span>
+                              {actionDisabled ? (
+                                <span
+                                  className="admin-users__action-disabled-wrap"
+                                  title={actionDisabledTitle}
+                                >
+                                  <button type="button" className="ibank-btn-table" disabled>
+                                    변경
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="ibank-btn-table"
+                                  onClick={() => openChangeModal(uid)}
+                                >
+                                  변경
+                                </button>
+                              )}
+                              {actionDisabled ? (
+                                <span
+                                  className="admin-users__action-disabled-wrap"
+                                  title={actionDisabledTitle}
+                                >
+                                  <button type="button" className="ibank-btn-table ibank-btn-table--danger" disabled>
+                                    정지
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="ibank-btn-table ibank-btn-table--danger"
+                                  onClick={() => handleSuspend(uid)}
+                                >
+                                  정지
+                                </button>
+                              )}
+                            </>
                           ) : (
-                            <button
-                              type="button"
-                              className="ibank-btn-table ibank-btn-table--primary"
-                              onClick={() => handleActivate(uid)}
-                            >
-                              활성
-                            </button>
+                            <>
+                              {actionDisabled ? (
+                                <span
+                                  className="admin-users__action-disabled-wrap"
+                                  title={actionDisabledTitle}
+                                >
+                                  <button type="button" className="ibank-btn-table ibank-btn-table--primary" disabled>
+                                    활성
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="ibank-btn-table ibank-btn-table--primary"
+                                  onClick={() => handleActivate(uid)}
+                                >
+                                  활성
+                                </button>
+                              )}
+                              {!isSelf ? (
+                                actionDisabled ? (
+                                  <span
+                                    className="admin-users__action-disabled-wrap"
+                                    title={actionDisabledTitle}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="ibank-btn-table ibank-btn-table--danger"
+                                      disabled
+                                    >
+                                      삭제
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="ibank-btn-table ibank-btn-table--danger"
+                                    disabled={listDisabled}
+                                    onClick={() => handleDeleteUser(uid, row.user_email)}
+                                  >
+                                    삭제
+                                  </button>
+                                )
+                              ) : null}
+                            </>
                           )}
                         </div>
                       </td>
                     </tr>
-                    {expanded ? (
+                    {expanded && active ? (
                       <tr className="admin-users__detail-row">
                         <td colSpan={9}>
                           <div className="admin-users__detail-panel">
@@ -1488,31 +1566,36 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {suspendOwnershipBlock ? (
+      {ownershipGateModal ? (
         <div
           className="admin-users__modal-backdrop"
           role="presentation"
-          onClick={() => setSuspendOwnershipBlock(null)}
+          onClick={() => setOwnershipGateModal(null)}
         >
           <div className="admin-users__modal admin-users__modal--change" onClick={(e) => e.stopPropagation()}>
-            <h3 className="admin-users__modal-title">정지 전 이관 필요</h3>
-            {renderOwnershipBlock(suspendOwnershipBlock.detail)}
+            <h3 className="admin-users__modal-title">{ownershipGateModal.title || '처리할 수 없습니다'}</h3>
+            {renderOwnershipBlock(
+              ownershipGateModal.detail,
+              ownershipGateModal.showOpenList ? undefined : 'delete',
+            )}
             <div className="admin-users__modal-actions">
-              <button
-                type="button"
-                className="ibank-btn-toolbar"
-                onClick={() => {
-                  const uid = suspendOwnershipBlock.userId
-                  setSuspendOwnershipBlock(null)
-                  setExpandedUid(uid)
-                }}
-              >
-                목록 열고 이관
-              </button>
+              {ownershipGateModal.showOpenList ? (
+                <button
+                  type="button"
+                  className="ibank-btn-toolbar"
+                  onClick={() => {
+                    const uid = ownershipGateModal.userId
+                    setOwnershipGateModal(null)
+                    setExpandedUid(uid)
+                  }}
+                >
+                  목록 열고 이관
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-                onClick={() => setSuspendOwnershipBlock(null)}
+                onClick={() => setOwnershipGateModal(null)}
               >
                 닫기
               </button>

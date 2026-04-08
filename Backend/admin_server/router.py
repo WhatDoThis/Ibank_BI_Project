@@ -5,7 +5,7 @@ Backend.admin_server.router (/api/admin)
 
 [Endpoints]
 ===========
-1. users, users/invite, users/ownership-transfer-targets(table_master|dptmt_creator), users/{id}/work-assets, users/transfer-ownership, users/{id}/change-options|management(409), invite/departments|projects|roles, users/{id}/suspend|activate(409)
+1. users, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, transfer-ownership, users/{id}/change-options|management(409), users/{id}/suspend|activate|DELETE(비활성만·409)
 2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
 3. projects CRUD, projects/{id}/members (operator: 목록·멤버·명/설명 PATCH, 활성/테이블 매핑 제외)
 4. table master 조회/수정, project table mapping 관리
@@ -346,6 +346,27 @@ def admin_user_activate(
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "활성화되었습니다."}
+
+
+@router.delete("/users/{user_id}")
+def admin_user_delete(
+    user_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.delete_inactive_user(
+            conn,
+            int(actor["user_id"]),
+            int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
+            user_id,
+        )
+    except ManagementBlockedError as e:
+        raise HTTPException(status_code=409, detail=e.payload) from e
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "삭제되었습니다."}
 
 
 @router.patch("/users/{user_id}/role")

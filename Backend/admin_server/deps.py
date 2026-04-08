@@ -1,7 +1,7 @@
 """
 Backend.admin_server.deps (어드민·슈퍼어드민 검증)
 ===============================================
-access JWT 후 user_info에서 user_dvsn 조회.
+access JWT 후 user_info에서 user_dvsn 조회·비활성·잠금 거절(403).
 
 [Main Functions]
 ===========
@@ -45,7 +45,9 @@ def get_authenticated_user_row(
     try:
         cur.execute(
             """
-            SELECT user_id, user_dvsn, dptmt_info_id
+            SELECT user_id, user_dvsn, dptmt_info_id,
+                   UPPER(TRIM(COALESCE(user_active_yn, 'N'))) AS _ua,
+                   UPPER(TRIM(COALESCE(user_lock_yn, 'N'))) AS _ul
             FROM user_info WHERE user_id = %s
             """,
             (uid,),
@@ -53,7 +55,15 @@ def get_authenticated_user_row(
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다.")
-        return dict(row)
+        r = dict(row)
+        if (r.pop("_ua", "") or "") != "Y":
+            raise HTTPException(status_code=403, detail="비활성화된 계정입니다.")
+        if (r.pop("_ul", "") or "") == "Y":
+            raise HTTPException(
+                status_code=403,
+                detail="잠긴 계정입니다. 관리자에게 문의하세요.",
+            )
+        return r
     finally:
         cur.close()
 

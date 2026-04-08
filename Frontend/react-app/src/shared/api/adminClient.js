@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * - getAdminUsers, patchAdminUserSuspend, patchAdminUserActivate
+ * - getAdminUsers, patchAdminUserSuspend, patchAdminUserActivate, deleteAdminUser
  * - getAdminOrg, patchAdminOrg, getAdminOrgDepartments, postAdminOrgDepartment, patchAdminOrgDepartment, deleteAdminOrgDepartment
  * - getAdminRoles, postAdminRole, putAdminRole, deleteAdminRole
  * - getAdminRolePermissionOptions, getAdminRoleUsages, getAdminRoleProjectParticipants, getAdminRoleUserUsages
@@ -48,6 +48,11 @@ export async function patchAdminUserSuspend(userId) {
 
 export async function patchAdminUserActivate(userId) {
   return request('PATCH', `/api/admin/users/${userId}/activate`, {})
+}
+
+/** 비활성 사용자만 DB에서 삭제(백엔드 검증). */
+export async function deleteAdminUser(userId) {
+  return request('DELETE', `/api/admin/users/${userId}`)
 }
 
 export async function getAdminOrg() {

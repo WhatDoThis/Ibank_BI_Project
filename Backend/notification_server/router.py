@@ -17,7 +17,7 @@ Backend.notification_server.router (/api/notifications)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from Backend.auth_server.deps import get_access_payload
+from Backend.auth_server.deps import require_active_access
 from Backend.core.dependencies import get_system_db
 from Backend.notification_server import service
 
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 @router.get("")
 def notifications_list(
     limit: int = Query(50, ge=1, le=200),
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -38,7 +38,7 @@ def notifications_list(
 # 2.
 @router.get("/unread-count")
 def notifications_unread_count(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -48,7 +48,7 @@ def notifications_unread_count(
 # 3.
 @router.patch("/read-all")
 def notifications_read_all(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -59,7 +59,7 @@ def notifications_read_all(
 @router.patch("/{notification_info_id}/read")
 def notifications_read_one(
     notification_info_id: int,
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])

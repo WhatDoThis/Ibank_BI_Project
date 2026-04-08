@@ -8,7 +8,9 @@
  * [Main Functions]
  * ===========
  * - .ibank-btn-toolbar / --secondary: 툴바·주요 액션·모달 주요 버튼
- * - .ibank-btn-table / --primary / --danger: 테이블·패널 소형 액션 버튼(button·a 공통)
+ * - .ibank-btn-table: 일반 액션 — 테두리·글자 #0a8f6e·배경 흰색, 호버 시 #0a8f6e 채움·글자 흰색
+ * - .ibank-btn-table--danger: 파괴 액션 — 테두리·글자 #fe5655·배경 흰색, 호버 시 #fe5655 채움
+ * - .ibank-btn-table--primary: 긍정 액션 마크업용(예: 활성) — 시각은 일반과 동일(아웃라인 그린→호버 채움)
  * - .ibank-table-wrap, table.ibank-data-table, .ibank-data-table__clip: 반응형 데이터 테이블
  *
  * [Endpoints/Classes/Functions]
@@ -61,19 +63,19 @@ a.ibank-btn-toolbar {
   border-color: var(--color-action-primary);
 }
 
-/* C) Table row actions */
+/* C) Table row actions — 일반: 아웃라인 그린 → 호버 채움 / 파괴: 아웃라인 코랄 → 호버 채움 */
 .ibank-btn-table,
 button.ibank-btn-table,
 a.ibank-btn-table {
   padding: 6px 10px;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-light);
+  border: 1px solid #0a8f6e;
   background: #fff;
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 500;
   font-family: var(--font-sans);
-  color: var(--color-text);
+  color: #0a8f6e;
   box-sizing: border-box;
   text-decoration: none;
   display: inline-flex;
@@ -83,15 +85,15 @@ a.ibank-btn-table {
 }
 
 .ibank-btn-table:hover:not(:disabled) {
-  background: var(--primary-light);
-  border-color: rgba(0, 112, 74, 0.28);
-  color: var(--color-action-primary-hover);
+  background: #0a8f6e;
+  border-color: #0a8f6e;
+  color: #fff;
 }
 
 a.ibank-btn-table:hover {
-  background: var(--primary-light);
-  border-color: rgba(0, 112, 74, 0.28);
-  color: var(--color-action-primary-hover);
+  background: #0a8f6e;
+  border-color: #0a8f6e;
+  color: #fff;
 }
 
 .ibank-btn-table:disabled {
@@ -99,29 +101,36 @@ a.ibank-btn-table:hover {
   cursor: not-allowed;
 }
 
-.ibank-btn-table--primary {
-  background: var(--color-action-primary);
+/* --primary: 별도 솔리드 없음 — 위 .ibank-btn-table과 동일(활성=목록·변경과 같은 일반 액션 톤) */
+
+.ibank-btn-table:focus-visible:not(:disabled),
+button.ibank-btn-table:focus-visible:not(:disabled),
+a.ibank-btn-table:focus-visible {
+  outline: 2px solid #0a8f6e;
+  outline-offset: 2px;
+}
+
+.ibank-btn-table.ibank-btn-table--danger,
+button.ibank-btn-table.ibank-btn-table--danger,
+a.ibank-btn-table.ibank-btn-table--danger {
+  background: #fff;
+  color: #fe5655;
+  border-color: #fe5655;
+}
+
+.ibank-btn-table.ibank-btn-table--danger:hover:not(:disabled),
+button.ibank-btn-table.ibank-btn-table--danger:hover:not(:disabled),
+a.ibank-btn-table.ibank-btn-table--danger:hover {
+  background: #fe5655;
+  border-color: #fe5655;
   color: #fff;
-  border-color: var(--color-action-primary);
 }
 
-.ibank-btn-table--primary:hover:not(:disabled),
-a.ibank-btn-table--primary:hover {
-  background: var(--color-action-primary-hover);
-  border-color: var(--color-action-primary-hover);
-  color: #fff;
-}
-
-.ibank-btn-table--danger {
-  color: var(--color-danger);
-  border-color: rgba(254, 86, 85, 0.35);
-}
-
-.ibank-btn-table--danger:hover:not(:disabled),
-a.ibank-btn-table--danger:hover {
-  background: rgba(254, 86, 85, 0.08);
-  border-color: rgba(254, 86, 85, 0.45);
-  color: var(--color-danger);
+.ibank-btn-table.ibank-btn-table--danger:focus-visible,
+button.ibank-btn-table.ibank-btn-table--danger:focus-visible,
+a.ibank-btn-table.ibank-btn-table--danger:focus-visible {
+  outline: 2px solid #fe5655;
+  outline-offset: 2px;
 }
 
 /* D) Responsive data tables */

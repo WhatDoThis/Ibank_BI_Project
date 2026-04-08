@@ -11,13 +11,13 @@ Backend.project_server.router (/api/projects)
 
 [Dependencies]
 =========
-- Backend.project_server.service, Backend.auth_server.deps, Backend.core.dependencies, Backend.admin_server.schemas
+- Backend.project_server.service, Backend.auth_server.deps.require_active_access, get_system_db, admin_server.schemas
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from Backend.admin_server import schemas
-from Backend.auth_server.deps import get_access_payload
+from Backend.auth_server.deps import require_active_access
 from Backend.core.dependencies import get_system_db
 from Backend.project_server import service
 
@@ -36,7 +36,7 @@ def _map_val(e: ValueError) -> HTTPException:
 # 1.
 @router.get("")
 def projects_list(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -47,7 +47,7 @@ def projects_list(
 @router.post("/{project_info_id}/select")
 def projects_select(
     project_info_id: int,
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
@@ -65,7 +65,7 @@ def projects_select(
 def projects_accept_invite(
     project_info_id: int,
     body: schemas.AcceptProjectInviteBody,
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ):
     uid = int(payload["user_id"])
