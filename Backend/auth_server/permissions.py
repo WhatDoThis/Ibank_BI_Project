@@ -2,9 +2,9 @@
 Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 ======================================================
 1) require_etl_infrastructure: JWT + user_info — `user_dvsn=sa_dev`, 레거시 원문 `etl_manager`, 또는 `etl_yn='Y'` 이면 ETL API 허용(프로젝트 불필요).
-2) require_permission: JWT + project_ptcpnt_info·pmssn_master + **project_info.feature_flags** 교집합.
-   `pmssn_list`는 `pmssn_detail_name` 문자열 표준. `sa_dev`·`sa`·`a`는 참여 시 §8 기능 ID를 **후보**로 합치되,
-   **프로젝트 feature_flags에서 꺼진 기능은 API·/me 모두 거부·미노출**.
+2) require_permission: JWT + `project_ptcpnt_info→pmssn_master.pmssn_list` 와 **project_info.feature_flags**의 교집합.
+   조직 역할(`user_dvsn`)은 프로젝트 UI 권한을 **늘리지 않는다**(어드민·ETL은 각각 별도 가드).
+   **feature_flags에서 꺼진 기능·역할에 없는 권한은 API·/me 모두 거부·미노출**.
 3) get_effective_permission_ids_for_me: /me — `compute_effective_project_permission_ids`와 동일.
 4) get_project_enabled_feature_ids: `feature_flags` jsonb(query·dash·widget) → 권한 ID 집합(NULL·컬럼 없음이면 전체 허용).
 
@@ -16,7 +16,7 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 4. resolve_pmssn_list_to_names: pmssn_list 배열 → pmssn_detail_name 목록
 5. get_permission_ids_for_user_project: 유저·프로젝트별 권한ID 목록(정규화)
 6. get_project_enabled_feature_ids: project_info.feature_flags → frozenset(컬럼 없음·NULL이면 전체)
-7. compute_effective_project_permission_ids: (pmssn∪자동)∩enabled
+7. compute_effective_project_permission_ids: pmssn_list 정규화 ∩ feature_flags 허용 기능
 8. get_effective_permission_ids_for_me: /me — compute 호출
 9. require_etl_infrastructure: ETL 라우터용 Depends
 10. require_permission: FastAPI Depends 팩토리 (*필요 권한 AND)
@@ -52,9 +52,6 @@ PROJECT_UI_FEATURE_IDS = frozenset(
     {"query.read", "query.execute", "dashboard", "widgetboard"}
 )
 _PROJECT_FEATURE_IDS = PROJECT_UI_FEATURE_IDS
-_AUTO_PROJECT_ROLES = frozenset({"sa_dev", "sa", "a"})
-
-
 # 1.
 def get_user_dvsn_lower(conn, user_id: int) -> str:
     cur = conn.cursor()
@@ -217,15 +214,11 @@ def compute_effective_project_permission_ids(
     conn,
     user_id: int,
     project_info_id: int,
-    user_dvsn: str | None,
+    user_dvsn: str | None,  # noqa: ARG001 — 시그니처 유지(/me·require_permission); 조직등급으로 권한 확장 없음
 ) -> list[str]:
-    dvsn = canon_user_dvsn(user_dvsn)
+    """프로젝트 참여자의 pmssn_list(정규화) ∩ project_info.feature_flags 허용 ID."""
     enabled = get_project_enabled_feature_ids(conn, project_info_id)
     base = set(get_permission_ids_for_user_project(conn, user_id, project_info_id))
-    if dvsn in _AUTO_PROJECT_ROLES and is_project_participant(
-        conn, user_id, project_info_id
-    ):
-        base |= set(_PROJECT_FEATURE_IDS)
     return sorted(base & set(enabled))
 
 

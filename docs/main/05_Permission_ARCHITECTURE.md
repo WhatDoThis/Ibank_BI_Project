@@ -38,28 +38,24 @@ HTTP 요청 도착
 └──────────────┬──────────────────────────┘
                ▼
 ┌─────────────────────────────────────────┐
-│  STEP 4: Fast Path 시도                  │
-│  ① dvsn ∈ {sa_dev, sa, a} ?             │
-│  ② project_ptcpnt_info 참여자?          │
-│  ③ needed ≠ () 이고, needed 전부가      │
-│     기본 기능 집합에 속하는가?           │
-│     기본 기능: query.read,              │
-│     query.execute, dashboard, widgetboard │
-├─────────────────────────────────────────┤
-│  ①②③ 모두 만족 → payload 반환 (DB 권한 조회 생략) │
-│  그 외 → STEP 5로                        │
+│  STEP 4: 프로젝트에서 허용된 UI 기능     │
+│  project_info.feature_flags →            │
+│  query→{query.read,query.execute},       │
+│  dash→dashboard, widget→widgetboard     │
+│  (NULL/컬럼 없음이면 네 가지 전부 허용)   │
 └──────────────┬──────────────────────────┘
                ▼
 ┌─────────────────────────────────────────┐
-│  STEP 5: Slow Path                      │
-│  project_ptcpnt_info JOIN pmssn_master  │
+│  STEP 5: 참여자 역할 권한                │
+│  project_ptcpnt_info JOIN pmssn_master   │
 │  → pmssn_list → 상세명 정규화            │
-│  → 보유 권한 ID 문자열 목록               │
+│  → 보유 권한 ID 문자열 집합               │
 └──────────────┬──────────────────────────┘
                ▼
 ┌─────────────────────────────────────────┐
-│  STEP 6: 권한 대조                       │
-│  needed 각각이 보유 목록에 있는지        │
+│  STEP 6: 유효 권한 = STEP5 ∩ STEP4       │
+│  require_permission: needed 각각이       │
+│  유효 권한 집합에 있는지                 │
 ├─────────────────────────────────────────┤
 │  하나라도 없으면: 403 Forbidden          │
 │  전부 있으면(또는 needed가 비어 있음): payload 반환 │
@@ -75,11 +71,11 @@ HTTP 요청 도착
 
 | 상황 | 결과 |
 |------|------|
-| `require_permission()` — 권한 인자 없이 호출 (`needed == ()`) | Fast Path 안쪽 조건이 `needed`가 있을 때만 조기 반환하므로, **빈 튜플이면 Fast Path 조기 반환은 타지 않음** → Slow Path로 내려가고 `for n in needed`는 **0번** → **항상 통과** (STEP 1·3만 충족하면 됨. 즉 유효 access JWT + `project_info_id` 있음). |
-| ETL 전담 계정(구 `etl_manager` 등) / `canon_user_dvsn → ""` | `_AUTO_PROJECT_ROLES`에 없어 Fast Path 실패. Slow Path에서 멤버십·`pmssn`이 없으면 보유 권한 0개 → `needed`가 하나라도 있으면 **403**. |
-| DB에 없는 `user_id`(행 없음) | `get_user_dvsn_lower` → `""` → canon `""` → Fast Path 실패. Slow Path에서도 일반적으로 권한 0개 → `needed` 있으면 **403**. |
-| 프로젝트 참여자인데 **기본 기능 외** 권한 요청 | Fast Path ③ 실패(또는 비자동 역할로 ① 실패) → Slow Path → DB에 실제 `pmssn_list`에 그 권한이 있어야 **통과**. |
-| `sa_dev` + 참여자 + `needed`가 전부 기본 기능만 | Fast Path ①②③ 충족 → **DB 권한 조회 없이** 성공. |
+| `require_permission()` — 권한 인자 없이 호출 (`needed == ()`) | `for n in needed`가 **0번** → **항상 통과** (유효 access JWT + `project_info_id` 있음). |
+| ETL 전담 계정(구 `etl_manager` 등) / `canon_user_dvsn → ""` | 조직등급과 무관하게 STEP5·6만 적용. 멤버십·`pmssn`이 없으면 유효 권한 0개 → `needed`가 하나라도 있으면 **403**. |
+| DB에 없는 `user_id`(행 없음) | `get_user_dvsn_lower` 등에서 빈 값 처리. 멤버십 없으면 유효 권한 0개 → `needed` 있으면 **403**. |
+| 프로젝트 참여자인데 역할에 없는 권한 요청 | STEP5에 없으면 STEP6에서 **403**. `feature_flags`로 꺼진 기능도 STEP4에서 제외되어 **403**. |
+| `sa_dev`·`sa`·`a` 조직 역할 | 프로젝트 작업 API에서 **자동으로 대시보드·위젯 권한이 붙지 않음**. 해당 기능은 `pmssn_list`에 있고 `feature_flags`가 켜져 있어야 함. |
 
 ---
 

@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+236. 2026-04-03 프로젝트 유효 권한: sa_dev/sa/a 자동 UI 권한 확장 제거(pmssn∩feature_flags만)
 235. 2026-04-02 ETL: 접이식 카드·목록 thead 테두리를 설명 열 헤더 톤(--etl-table-list-th-description-border)으로 통일
 234. 2026-04-02 ETL 페이지: 설명을 소스 탭 아래 접이식 카드로 이동·탭 전환 떨림 완화
 233. 2026-04-03 프로젝트 PATCH 후 현재 선택 프로젝트면 refreshMe — 네비·ProjectFeatureRoute와 /me 동기화
@@ -245,6 +246,13 @@ Purpose: etl-db-form 접이식 카드가 페이지 배경과 구분이 어려워
 Changes: `.etl-page`에 `--etl-table-list-th-description-border: rgba(0, 112, 74, 0.38)` 정의. `etl-db-form__section--card.etl-db-form__section--collapsible` 외곽선·카드 본문 상단 구분선, `etl-table-list__table thead th`에 동일 변수(폴백 동일값) 적용.
 
 Changed files: Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+236. 2026-04-03 프로젝트 유효 권한: sa_dev/sa/a 자동 UI 권한 확장 제거(pmssn∩feature_flags만)
+Purpose: 조직 역할이 sa_dev/sa/a인 계정이 프로젝트에서 쿼리 역할만 받아도 대시보드·위젯이 열리던 문제 수정.
+
+Changes: `compute_effective_project_permission_ids`에서 `_AUTO_PROJECT_ROLES` 합집합 제거. 유효 권한은 항상 `pmssn_list(정규화) ∩ feature_flags`. docs/main/05_Permission_ARCHITECTURE.md STEP 4~6·엣지 표 갱신.
+
+Changed files: Backend/auth_server/permissions.py, docs/main/05_Permission_ARCHITECTURE.md, docs/log/log.md
 
 234. 2026-04-02 ETL 페이지: 설명을 소스 탭 아래 접이식 카드로 이동·탭 전환 떨림 완화
 Purpose: 탭별로 길이·높이가 다른 리드·안내 블록이 헤더 아래에 있어 전환 시 레이아웃이 위아래로 밀리는 현상 완화.
