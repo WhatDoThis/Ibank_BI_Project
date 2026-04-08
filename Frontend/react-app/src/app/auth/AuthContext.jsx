@@ -1,7 +1,9 @@
 /**
  * app/auth/AuthContext.jsx (인증 컨텍스트)
  * ================================
- * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. S5/S6·마이페이지(S7) 공용.
+ * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. project_info_id가 바뀌면 projectContextNonce 증가.
+ * notifyParticipatingProjectsChanged: GET /api/projects(헤더 드롭다운 등) 목록 재로드용 nonce.
+ * S5/S6·마이페이지(S7) 공용.
  *
  * [Main Functions]
  * ===========
@@ -18,6 +20,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 
@@ -29,6 +32,14 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [me, setMe] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [projectContextNonce, setProjectContextNonce] = useState(0)
+  const [participatingProjectsNonce, setParticipatingProjectsNonce] = useState(0)
+  const meRef = useRef(null)
+  meRef.current = me
+
+  const notifyParticipatingProjectsChanged = useCallback(() => {
+    setParticipatingProjectsNonce((n) => n + 1)
+  }, [])
 
   const refreshMe = useCallback(async () => {
     const at = getAccessToken()
@@ -36,9 +47,18 @@ export function AuthProvider({ children }) {
       setMe(null)
       return null
     }
+    const prevPid = meRef.current?.project_info_id
     try {
       const data = await getMe()
       setMe(data)
+      if (
+        data &&
+        prevPid != null &&
+        prevPid !== '' &&
+        String(prevPid) !== String(data.project_info_id ?? '')
+      ) {
+        setProjectContextNonce((n) => n + 1)
+      }
       return data
     } catch (e) {
       setMe(null)
@@ -78,8 +98,19 @@ export function AuthProvider({ children }) {
       refreshMe,
       logout,
       setMe,
+      projectContextNonce,
+      participatingProjectsNonce,
+      notifyParticipatingProjectsChanged,
     }),
-    [me, loading, refreshMe, logout],
+    [
+      me,
+      loading,
+      refreshMe,
+      logout,
+      projectContextNonce,
+      participatingProjectsNonce,
+      notifyParticipatingProjectsChanged,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

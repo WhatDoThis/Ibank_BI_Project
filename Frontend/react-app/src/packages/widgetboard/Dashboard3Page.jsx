@@ -13,8 +13,10 @@
  * [Dependencies]
  * =========
  * - React, react-grid-layout, recharts, echarts, @/packages/query_studio/api/queryStudioClient.js, ./utils/dataUtils, @/shared/utils/crudConfirm.js
+ * - app/auth/AuthContext projectContextNonce: 작업 프로젝트 변경 시 테이블 목록·위젯 데이터 재로드
  */
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
 import GridLayout from 'react-grid-layout/legacy'
 import { WidthProvider } from 'react-grid-layout/legacy'
 import 'react-grid-layout/css/styles.css'
@@ -378,6 +380,9 @@ function WidgetBlock({
 
 // 8.
 export default function Dashboard3Page() {
+  const { projectContextNonce } = useAuth()
+  const projectNonceMountSkipRef = useRef(true)
+  const configsRef = useRef({})
   const [layout, setLayout] = useState(loadLayout)
   const [configs, setConfigs] = useState(loadConfigs)
   const [tables, setTables] = useState([])
@@ -387,6 +392,8 @@ export default function Dashboard3Page() {
   const [settingsWidgetId, setSettingsWidgetId] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
+
+  configsRef.current = configs
 
   useEffect(() => {
     saveLayout(layout)
@@ -446,6 +453,30 @@ export default function Dashboard3Page() {
       }))
     }
   }, [dateRange])
+
+  useEffect(() => {
+    if (projectNonceMountSkipRef.current) {
+      projectNonceMountSkipRef.current = false
+      return
+    }
+    let cancelled = false
+    setTableDataCache({})
+    ;(async () => {
+      await loadTables()
+      if (cancelled) return
+      const tableNames = [
+        ...new Set(
+          Object.values(configsRef.current)
+            .map((c) => c?.tableName)
+            .filter(Boolean),
+        ),
+      ]
+      tableNames.forEach((name) => loadTableData(name))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectContextNonce, loadTables, loadTableData])
 
   useEffect(() => {
     const tableNames = new Set()

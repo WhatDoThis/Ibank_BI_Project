@@ -1,7 +1,7 @@
 /**
  * app/layout/ProjectHeaderSelect.jsx (헤더 작업 프로젝트 선택)
  * ==============================================
- * GET /api/projects 목록으로 `<select>` 구성. POST select 후 refreshMe. 참여 프로젝트 없으면 고정 문구.
+ * GET /api/projects 목록: participatingProjectsNonce·projectContextNonce·pathname 변경 시 재조회. POST select 후 refreshMe.
  *
  * [Main Functions]
  * ===========
@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import { getProjects, postSelectProject } from '@/shared/api/authClient.js'
@@ -30,7 +31,8 @@ function currentTokenProjectId() {
 }
 
 export function ProjectHeaderSelect() {
-  const { refreshMe } = useAuth()
+  const { refreshMe, participatingProjectsNonce, projectContextNonce } = useAuth()
+  const location = useLocation()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -49,7 +51,7 @@ export function ProjectHeaderSelect() {
 
   useEffect(() => {
     load()
-  }, [load])
+  }, [load, participatingProjectsNonce, projectContextNonce, location.pathname])
 
   const tokenPid = currentTokenProjectId()
   const pidInList = items.some((row) => String(row.project_info_id) === tokenPid)

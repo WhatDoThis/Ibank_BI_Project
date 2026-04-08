@@ -13,6 +13,7 @@
  * =========
  * - React, etl/components, @/packages/etl/api/etlClient.js (etl2ListJobs, etl2RunTable, etl2GetJob, etl2CancelJob)
  * - folder 탭: FolderConnectionFormFile, FolderConnectionListFile, BatchJobFormFile, BatchJobListFile, 실행 이력 모달(BatchHistoryPanelFile, BatchHistoryDetailFile)
+ * - projectContextNonce 변경 시 refreshKey 증가(목록·폼 재조회)
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -35,6 +36,7 @@ import AddFileModal from './components/AddFileModal';
 import JobHistoryPanel from './components/JobHistoryPanel';
 import PreviewModal from './components/PreviewModal';
 import { PageHeader } from '@/app/layout/PageHeader.jsx';
+import { useAuth } from '@/app/auth/AuthContext.jsx';
 import '@/app/admin/admin-users.css';
 import './etl.css';
 
@@ -42,12 +44,22 @@ const VALID_TABS = ['file', 'db', 'folder', 'storage', 'history'];
 
 // 1.
 function ETLPage() {
+  const { projectContextNonce } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') || 'file';
   const [sourceType, setSourceType] = useState(
     () => (VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'file')
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const projectNonceMountSkipRef = useRef(true);
+
+  useEffect(() => {
+    if (projectNonceMountSkipRef.current) {
+      projectNonceMountSkipRef.current = false;
+      return;
+    }
+    setRefreshKey((k) => k + 1);
+  }, [projectContextNonce]);
 
   useEffect(() => {
     const t = searchParams.get('tab') || 'file';

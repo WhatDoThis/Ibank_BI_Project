@@ -9,7 +9,7 @@ access JWT 후 user_info에서 user_dvsn 조회·비활성·잠금 거절(403).
 2. require_org_admin: a · sa · sa_dev (ORG_ADMIN_DVSN)
 3. require_super_admin: sa · sa_dev (SUPER_ORG_DVSN)
 4. require_org_admin_or_operator: 위 + o (ORG_OR_OPERATOR_DVSN)
-5. require_project_admin_or_operator_participant: Request.path_params 의 project_info_id 검증
+5. require_project_admin_or_operator_participant: org 관리자(a/sa/sa_dev)는 소속 부서 소유 프로젝트만; o는 소속 부서 소유이거나 타부서라면 참여자일 때만
 
 [Dependencies]
 =========
@@ -137,8 +137,6 @@ def require_project_admin_or_operator_participant(
                 raise HTTPException(status_code=403, detail="다른 부서의 프로젝트입니다.")
             return actor
         if dvsn == "o":
-            if pd != did:
-                raise HTTPException(status_code=403, detail="다른 부서의 프로젝트입니다.")
             cur.execute(
                 """
                 SELECT 1 FROM project_ptcpnt_info
@@ -146,12 +144,14 @@ def require_project_admin_or_operator_participant(
                 """,
                 (project_info_id, uid),
             )
-            if not cur.fetchone():
-                raise HTTPException(
-                    status_code=403,
-                    detail="프로젝트 참여자만 가능합니다.",
-                )
-            return actor
+            if cur.fetchone():
+                return actor
+            if pd != did:
+                raise HTTPException(status_code=403, detail="다른 부서의 프로젝트입니다.")
+            raise HTTPException(
+                status_code=403,
+                detail="프로젝트 참여자만 가능합니다.",
+            )
     finally:
         cur.close()
     raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")

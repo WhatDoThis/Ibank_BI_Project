@@ -6,8 +6,10 @@
  * [Main Functions]
  * 1. todayStr
  * 2. loadData: 주간 시 weeklySnapshotTargetDate 보정 후 getCampaignDashboard* 호출
+ * 3. projectContextNonce: 헤더·홈에서 작업 프로젝트 변경 시 테이블 목록·집계 재조회
  */
 import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
 import {
   getCampaignDashboardTables,
   getCampaignDashboardSummary,
@@ -39,6 +41,7 @@ function todayStr() {
 
 // 2.
 export default function CampaignDashboardPage() {
+  const { projectContextNonce } = useAuth()
   const [tables, setTables] = useState([])
   const [tableId, setTableId] = useState('')
   const [targetDate, setTargetDate] = useState(todayStr())
@@ -54,20 +57,29 @@ export default function CampaignDashboardPage() {
 
   useEffect(() => {
     let cancelled = false
+    setError(null)
+    setSummaryData(null)
+    setTrendMultiData(null)
+    setMemberData(null)
+    setHourlySuccess(null)
+    setHourlyOpen(null)
+    setHourlyClick(null)
     getCampaignDashboardTables()
       .then((res) => {
         if (cancelled) return
         const list = res.tables || []
         setTables(list)
-        if (list.length > 0 && !tableId) setTableId(list[0].id)
+        setTableId(list.length > 0 ? list[0].id : '')
       })
       .catch((e) => {
         if (!cancelled) setError(e.message)
+        setTables([])
+        setTableId('')
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [projectContextNonce])
 
   const loadData = useCallback(async () => {
     if (!tableId) return

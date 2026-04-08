@@ -135,7 +135,7 @@ function parseProjectInvitePayload(raw) {
 }
 
 export function NotificationBell() {
-  const { refreshMe } = useAuth()
+  const { refreshMe, notifyParticipatingProjectsChanged } = useAuth()
   const wrapRef = useRef(null)
   const toastTimerRef = useRef(null)
   const [open, setOpen] = useState(false)
@@ -282,6 +282,7 @@ export function NotificationBell() {
         return next
       })
       await refreshMe()
+      notifyParticipatingProjectsChanged()
       await refreshCount()
       await loadList()
       showPanelToast(

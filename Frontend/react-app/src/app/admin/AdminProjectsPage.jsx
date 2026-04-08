@@ -2,7 +2,7 @@
  * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성 모달·수정·비활성)
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
- * 비활성화·purge: 현재 JWT 선택 프로젝트와 같으면 refreshMe로 /me·네비 동기화.
+ * 생성 성공 시 notifyParticipatingProjectsChanged(헤더 작업 프로젝트 드롭다운 목록). 비활성화·purge: JWT 동일 프로젝트면 refreshMe.
  * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). feature_flags·PATCH 후 현재 선택 프로젝트면 refreshMe.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
@@ -63,7 +63,7 @@ function featureFlagsToUiState(flags) {
 }
 
 export default function AdminProjectsPage() {
-  const { me, refreshMe } = useAuth()
+  const { me, refreshMe, notifyParticipatingProjectsChanged } = useAuth()
   const isOrgAdmin = canAccessOrgAdmin(me)
   const isOperator = (me?.user_dvsn || '').trim().toLowerCase() === 'o'
 
@@ -344,6 +344,7 @@ export default function AdminProjectsPage() {
         external_invites: extPayload,
       })
       closeProjectDialog()
+      notifyParticipatingProjectsChanged()
       await load()
     } catch (err) {
       setError(err?.message || '생성 실패')

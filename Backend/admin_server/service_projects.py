@@ -8,7 +8,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 1. create_project_full — 단일 트랜잭션: project_info·…·타부서 알림(project_invite JSON, invite_expires_at)
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / purge_inactive_project(비활성만·참여·매핑·알림·초대 참조 정리 후 DELETE)
-4. list_members · cancel_project_invite / add_member(즉시 추가 시 대상+실행자 알림) / remove_member(강퇴 대상+실행자 알림) / update_member_role
+4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member / update_member_role
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
@@ -176,6 +176,39 @@ def _assert_project_owned(cur, dptmt_info_id: int, project_info_id: int) -> None
         raise ValueError("다른 부서의 프로젝트입니다.")
     if (row.get("active_yn") or "").upper() != "Y":
         raise ValueError("비활성 프로젝트에는 작업할 수 없습니다.")
+
+
+def _assert_member_list_allowed(
+    cur,
+    actor_dptmt_id: int,
+    project_info_id: int,
+    actor_user_id: int,
+    actor_dvsn: str,
+) -> None:
+    """소속 부서 소유 프로젝트이거나 타부서라면 참여자면 멤버 목록 조회(o가 타부서 경로로 호출할 때). org 관리자는 deps상 타부서 project_info_id 라우트 불가."""
+    _ = actor_dvsn
+    cur.execute(
+        "SELECT dptmt_info_id, UPPER(TRIM(COALESCE(active_yn, 'Y'))) AS ay FROM project_info WHERE project_info_id = %s",
+        (int(project_info_id),),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise ValueError("프로젝트를 찾을 수 없습니다.")
+    if (row.get("ay") or "") != "Y":
+        raise ValueError("비활성 프로젝트에는 작업할 수 없습니다.")
+    pd = int(row["dptmt_info_id"])
+    if int(actor_dptmt_id) == pd:
+        return
+    cur.execute(
+        """
+        SELECT 1 FROM project_ptcpnt_info
+        WHERE project_info_id = %s AND ptcpnt_user_id = %s
+        """,
+        (int(project_info_id), int(actor_user_id)),
+    )
+    if cur.fetchone():
+        return
+    raise ValueError("다른 부서의 프로젝트입니다.")
 
 
 def _assert_project_owned_allow_inactive(cur, dptmt_info_id: int, project_info_id: int) -> None:
@@ -760,11 +793,18 @@ def _list_pending_project_invites(cur, project_info_id: int) -> list[dict[str, A
 
 
 def list_members(
-    conn, dptmt_info_id: int, project_info_id: int
+    conn,
+    dptmt_info_id: int,
+    project_info_id: int,
+    *,
+    actor_user_id: int,
+    actor_dvsn: str,
 ) -> dict[str, Any]:
     cur = conn.cursor()
     try:
-        _assert_project_owned(cur, dptmt_info_id, project_info_id)
+        _assert_member_list_allowed(
+            cur, dptmt_info_id, project_info_id, actor_user_id, actor_dvsn
+        )
         pid = int(project_info_id)
         cur.execute(
             """

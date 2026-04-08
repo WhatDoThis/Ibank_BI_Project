@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+266. 2026-04-08 org 관리자 타부서 프로젝트 API 차단 복귀·작업프로젝트 드롭다운 목록 갱신
+265. 2026-04-08 타부서 프로젝트 초대: sa/a 관리자도 참여자면 경로·멤버목록 허용
+264. 2026-04-08 프로젝트 전환 자동 재조회·타부서(o) 멤버 API 허용
 263. 2026-04-08 쿼리 스튜디오: 헤더 프로젝트 전환 시 빌더 초기화·테이블 재로드
 262. 2026-04-08 헤더 작업 프로젝트 드롭다운(이메일·알림 사이)
 261. 2026-04-08 알림: project_invite 수락 전·후 안내 문구 표시
@@ -266,6 +269,41 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+266. 2026-04-08 org 관리자 타부서 프로젝트 API 차단 복귀·작업프로젝트 드롭다운 목록 갱신
+Purpose: 프로젝트 관리 주체는 소속 부서 관리자 — require_project_admin_or_operator_participant 에서 ORG_ADMIN은 pd=did만 허용(참여자 예외 제거). 헤더 드롭다운은 생성·초대수락·라우트 전환 시 GET /api/projects 재조회.
+
+Changes:
+
+- admin_server deps: ORG_ADMIN_DVSN 타부서 참여자 통과 제거
+- AuthContext: participatingProjectsNonce, notifyParticipatingProjectsChanged
+- ProjectHeaderSelect: pathname·nonce 의존 load
+- AdminProjectsPage 생성 후 notify, NotificationBell 수락 후 notify
+
+Changed files: Backend/admin_server/deps.py, Backend/admin_server/service_projects.py(doc), Frontend/react-app/src/app/auth/AuthContext.jsx, Frontend/react-app/src/app/layout/ProjectHeaderSelect.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, Frontend/react-app/src/app/layout/NotificationBell.jsx, docs/log/log.md
+
+265. 2026-04-08 타부서 프로젝트 초대: sa/a 관리자도 참여자면 경로·멤버목록 허용
+Purpose: ORG_ADMIN_DVSN(a/sa/sa_dev)는 기존에 프로젝트 소속 부서≠사용자 부서이면 참여 여부 없이 403. 초대·수락으로 project_ptcpnt_info에 있어도 막힘. 소속 부서 프로젝트는 예전과 동일, 타부서는 참여자면 허용. list_members도 o 전용이 아니라 참여자 공통으로 허용.
+
+Changes:
+
+- deps require_project_admin_or_operator_participant: org 관리자 타부서는 ptcpnt 행 있을 때만 통과
+- service_projects _assert_member_list_allowed: 타부서 시 o 구분 제거·참여자면 허용, canon_user_dvsn import 제거
+
+Changed files: Backend/admin_server/deps.py, Backend/admin_server/service_projects.py, docs/log/log.md
+
+264. 2026-04-08 프로젝트 전환 자동 재조회·타부서(o) 멤버 API 허용
+Purpose: refreshMe 시 project_info_id 변경이면 projectContextNonce 증가 — 대시보드·ETL·위젯보드가 새로고침 없이 재조회. 타부서 초대 멤버(o)가 본부 프로젝트에서 타부서 프로젝트로 돌아올 때 deps·list_members가 소속 부서만 검사하던 경로 수정.
+
+Changes:
+
+- AuthContext: projectContextNonce, refreshMe에서 PID 변경 시 증가
+- CampaignDashboardPage, ETLPage(refreshKey), Dashboard3Page: nonce 구독
+- admin_server deps: o는 project_ptcpnt_info 먼저 확인 후 타부서 허용
+- service_projects: _assert_member_list_allowed, list_members에 actor_user_id·actor_dvsn
+- admin router: list_members 호출 인자
+
+Changed files: Frontend/react-app/src/app/auth/AuthContext.jsx, Frontend/react-app/src/packages/campaign_dashboard/CampaignDashboardPage.jsx, Frontend/react-app/src/packages/etl/ETLPage.jsx, Frontend/react-app/src/packages/widgetboard/Dashboard3Page.jsx, Backend/admin_server/deps.py, Backend/admin_server/service_projects.py, Backend/admin_server/router.py, docs/log/log.md
 
 263. 2026-04-08 쿼리 스튜디오: 헤더 프로젝트 전환 시 빌더 초기화·테이블 재로드
 Purpose: /me project_info_id 변경 시 이전 프로젝트 테이블·조인·결과가 남아 실행 오류가 나지 않도록 resetBuilderState·loadHealth/loadTables·안내 토스트.
