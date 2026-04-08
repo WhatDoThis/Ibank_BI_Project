@@ -2,6 +2,7 @@
  * app/layout/ProtectedLayout.jsx (로그인 후 공통 레이아웃)
  * Analytica 셸: 좌측 주 메뉴(풀 라벨) + 고정 헤더·브레드크럼 + 스크롤 본문
  * requiresProject 항목은 JWT에 프로젝트 클레임 없으면 비활성 표시(클릭 시 홈으로 튕김 방지)
+ * 헤더: 이메일 · ProjectHeaderSelect(GET /api/projects) · NotificationBell
  * 사이드바 브랜드: 접힘 시 시린 마크, 펼침 시 워드마크. 네비 접힘 시 항목은 아이콘만 표시.
  * docs/ui/UI_UX_재사용_가이드.md §2·§5
  */
@@ -26,6 +27,7 @@ import {
   canAccessWidgetboard,
 } from '@/app/home/homeAccess.js'
 import { NotificationBell } from './NotificationBell.jsx'
+import { ProjectHeaderSelect } from './ProjectHeaderSelect.jsx'
 import { SidebarNavIcon } from './SidebarNavIcon.jsx'
 
 import '@/styles/app-shell.css'
@@ -137,8 +139,9 @@ export function ProtectedLayout() {
         <header className="ibank-shell-header">
           <h1 className="ibank-shell-header-title">{headerTitle}</h1>
           <div className="ibank-shell-header-actions">
-            <NotificationBell />
             <span className="ibank-shell-user">{me?.email}</span>
+            <ProjectHeaderSelect />
+            <NotificationBell />
             <NavLink
               to="/mypage"
               className={({ isActive }) =>

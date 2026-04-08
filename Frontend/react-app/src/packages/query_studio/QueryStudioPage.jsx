@@ -8,10 +8,11 @@
  * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination. 실행 성공 시 lastSuccessWorkspaceRef 스냅샷, 실패 시 빌더·결과 원상복구
  * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출
  * 3. QueryStudioPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
+ * 4. /me project_info_id 변경(헤더 프로젝트 전환): resetBuilderState·테이블 재로드·안내 토스트
  *
  * [Dependencies]
  * =========
- * - React, @/packages/query_studio/api/queryStudioClient.js, @/shared/config/api, query_studio/utils (sqlBuilder, joinRules, safetyCheck, constants), query_studio/components (Sidebar, MainArea)
+ * - React, app/auth/AuthContext(useAuth), @/packages/query_studio/api/queryStudioClient.js, @/shared/config/api, query_studio/utils·components (Sidebar, MainArea)
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
@@ -25,6 +26,7 @@ import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
 import { PageHeader } from '@/app/layout/PageHeader.jsx'
+import { useAuth } from '@/app/auth/AuthContext.jsx'
 
 const DEFAULT_PAGE_SIZE = 100
 
@@ -105,6 +107,8 @@ export default function QueryStudioPage() {
   const [joinTypes, setJoinTypes] = useState({}) // { key: 'LEFT'|'INNER'|'RIGHT' }
   const [joinLogicalOperators, setJoinLogicalOperators] = useState({}) // { key: 'AND'|'OR' } 조건 간 연결
   const [joinOrderData, setJoinOrderData] = useState(null) // { join_order: [{ table, from_table, from_column, to_table, to_column }] } — A→B, A→C 브랜치
+  const [queryRunning, setQueryRunning] = useState(false)
+  const [countLoading, setCountLoading] = useState(false)
 
   const lastSuccessWorkspaceRef = useRef(null)
 
@@ -271,6 +275,75 @@ export default function QueryStudioPage() {
     return () => clearTimeout(t)
   }, [])
 
+  /** toastMessage 없으면 토스트 없음 — 헤더 프로젝트 전환 시 초기 단계용 */
+  const resetBuilderState = useCallback((toastType, toastMessage) => {
+    lastSuccessWorkspaceRef.current = null
+    setGridColumns([])
+    setAddedTables([])
+    setGroupBy([])
+    setPivot(null)
+    setPivotRowAggs([])
+    setDateGranularity({})
+    setHavings([])
+    setFilters([])
+    setOrderBy([])
+    setJoinConditions({})
+    setJoinTypes({})
+    setJoinLogicalOperators({})
+    setJoinOrderData(null)
+    setRelationshipOptions({})
+    setResultData([])
+    setCurrentPage(1)
+    setTotalCount(null)
+    setExecutedSql('')
+    setExplanation(null)
+    setShowSaveAsTableModal(false)
+    setSaveAsTableName('')
+    setShowJoinImpossibleModal(false)
+    setShowColumnLabelsModal(false)
+    setTableLabelsDraft({})
+    setColumnLabelsByTableDraft({})
+    setQueryRunning(false)
+    setCountLoading(false)
+    if (toastMessage) showToast(toastType, toastMessage)
+  }, [showToast])
+
+  const { me } = useAuth()
+  const prevProjectIdRef = useRef(undefined)
+
+  useEffect(() => {
+    if (me == null) return
+    const raw = me.project_info_id
+    const pid = raw != null && raw !== '' ? String(raw) : ''
+
+    if (prevProjectIdRef.current === undefined) {
+      prevProjectIdRef.current = pid
+      return
+    }
+    if (prevProjectIdRef.current === pid) return
+
+    prevProjectIdRef.current = pid
+
+    let cancelled = false
+    resetBuilderState(null, null)
+
+    ;(async () => {
+      await loadHealth()
+      const res = await loadTables((msg) => {
+        if (!cancelled) setToast({ type: 'error', msg })
+      })
+      if (cancelled) return
+      if (res.ok === false && res.error) {
+        setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
+      }
+      showToast('info', '작업 프로젝트가 변경되어 쿼리 빌더를 초기화했습니다.')
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [me, me?.project_info_id, resetBuilderState, loadHealth, loadTables, showToast, setDbStatus])
+
   const syncAggFuncs = useCallback((cols, gb) => {
     if (!gb || gb.length === 0) {
       return cols.map((c) => ({ ...c, aggFunc: null }))
@@ -434,9 +507,6 @@ export default function QueryStudioPage() {
     },
     [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables]
   )
-
-  const [queryRunning, setQueryRunning] = useState(false)
-  const [countLoading, setCountLoading] = useState(false)
 
   const runExecuteQuery = useCallback(async () => {
     if (gridColumns.length === 0) {
@@ -917,27 +987,8 @@ export default function QueryStudioPage() {
   }, [saveAsTableName, executedSql, showToast])
 
   const clearAll = useCallback(() => {
-    lastSuccessWorkspaceRef.current = null
-    setGridColumns([])
-    setAddedTables([])
-    setGroupBy([])
-    setPivot(null)
-    setPivotRowAggs([])
-    setDateGranularity({})
-    setHavings([])
-    setFilters([])
-    setOrderBy([])
-    setJoinConditions({})
-    setJoinTypes({})
-    setJoinLogicalOperators({})
-    setJoinOrderData(null)
-    setResultData([])
-    setCurrentPage(1)
-    setTotalCount(null)
-    setExecutedSql('')
-    setExplanation(null)
-    showToast('success', '초기화되었습니다')
-  }, [showToast])
+    resetBuilderState('success', '초기화되었습니다')
+  }, [resetBuilderState])
 
   const openColumnLabelsModal = useCallback(() => {
     if (gridColumns.length === 0) {

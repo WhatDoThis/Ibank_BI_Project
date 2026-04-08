@@ -11,12 +11,19 @@
  * =========
  * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm, app/auth/AuthContext
  * - project_invite: 수락·거절·invite_expires_at 표시·만료 시 버튼 비활성
+ * - 수락/거절·초대 JSON 등 내부용 noti_content는 제목·보조줄만 표시(원문 JSON 비노출)
+ * - project_invite: 수락 전 안내·수락 완료(needs_select 시 홈 선택 안내)·토스트와 행 문구 정렬
+ * - 거절: 패널 상단 토스트
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
-import { postAcceptProjectInvite, postRejectProjectInvite } from '@/shared/api/authClient.js'
+import {
+  postAcceptProjectInvite,
+  postRejectProjectInvite,
+  postSelectProject,
+} from '@/shared/api/authClient.js'
 import {
   getNotifications,
   getUnreadCount,
@@ -28,6 +35,43 @@ import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 import './notification-bell.css'
 
 const POLL_MS = 60_000
+const INVITE_RESOLVED_STORAGE_KEY = 'ibank_bi_invite_resolved'
+const PANEL_TOAST_MS = 5200
+
+/** 수락 가능한 초대 행에 표시 — JWT·/me 권한과 동기화되는 이유 안내 */
+const PROJECT_INVITE_HINT_PENDING =
+  '수락하면 이 프로젝트가 현재 작업 프로젝트로 바뀌며, 부여된 권한으로 쿼리 스튜디오·대시보드·위젯보드를 이용할 수 있습니다.'
+
+const PROJECT_INVITE_HINT_DONE =
+  '수락 완료 · 이 프로젝트가 선택된 상태입니다. 사이드바에서 작업 메뉴를 여세요.'
+
+const PROJECT_INVITE_HINT_DONE_NEEDS_HOME =
+  '수락은 완료되었습니다. 홈에서 해당 프로젝트를 선택해야 쿼리·대시보드·위젯보드 권한이 적용됩니다.'
+
+/** sessionStorage 값: accepted | needs_select(postSelectProject 실패 시 수동 선택 필요) */
+function readStoredInviteAccepted() {
+  try {
+    const raw = sessionStorage.getItem(INVITE_RESOLVED_STORAGE_KEY)
+    if (!raw) return {}
+    const o = JSON.parse(raw)
+    if (!o || typeof o !== 'object') return {}
+    const out = {}
+    for (const [k, v] of Object.entries(o)) {
+      if (v === 'accepted' || v === 'needs_select') out[String(k)] = v
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeStoredInviteAccepted(map) {
+  try {
+    sessionStorage.setItem(INVITE_RESOLVED_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    /* private mode 등 */
+  }
+}
 
 function formatDtm(iso) {
   if (!iso) return ''
@@ -42,6 +86,35 @@ function formatDtm(iso) {
 function isUnread(row) {
   const r = (row.read_yn || '').toUpperCase()
   return r !== 'Y'
+}
+
+/** 알림 본문으로 JSON(프로젝트 ID 등)만 담긴 행은 사용자에게 숨긴다. */
+function shouldShowNotiContentBody(notiType, raw) {
+  const t = (notiType || '').trim()
+  if (t === 'project_invite') return false
+  if (!raw || !String(raw).trim()) return false
+  const s = String(raw).trim()
+  if (!s.startsWith('{')) return true
+  try {
+    const o = JSON.parse(s)
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return true
+    const keys = Object.keys(o)
+    if (keys.length === 0) return false
+    const internalKeys = new Set([
+      'project_info_id',
+      'invitee_user_id',
+      'resolved_notification_info_id',
+      'pmssn_master_id',
+      'invite_user_id',
+      'invite_expires_at',
+      'actor_user_id',
+      'target_user_id',
+    ])
+    const onlyInternalMeta = keys.every((k) => internalKeys.has(k))
+    return !onlyInternalMeta
+  } catch {
+    return true
+  }
 }
 
 function parseProjectInvitePayload(raw) {
@@ -64,10 +137,14 @@ function parseProjectInvitePayload(raw) {
 export function NotificationBell() {
   const { refreshMe } = useAuth()
   const wrapRef = useRef(null)
+  const toastTimerRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [count, setCount] = useState(0)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
+  /** notification_info_id → 수락 완료(동일 브라우저 탭에서 목록·버튼 숨김 유지) */
+  const [inviteAcceptedMap, setInviteAcceptedMap] = useState(readStoredInviteAccepted)
+  const [panelToast, setPanelToast] = useState(null)
 
   const refreshCount = useCallback(async () => {
     try {
@@ -95,6 +172,40 @@ export function NotificationBell() {
     const t = setInterval(refreshCount, POLL_MS)
     return () => clearInterval(t)
   }, [refreshCount])
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    },
+    [],
+  )
+
+  function showPanelToast(message) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    setPanelToast(message)
+    toastTimerRef.current = setTimeout(() => {
+      setPanelToast(null)
+      toastTimerRef.current = null
+    }, PANEL_TOAST_MS)
+  }
+
+  /** 목록에 없는(삭제된) 알림 id는 로컬 수락 기록에서 제거 */
+  useEffect(() => {
+    if (!Array.isArray(items) || items.length === 0) return
+    const ids = new Set(items.map((i) => String(i.notification_info_id)))
+    setInviteAcceptedMap((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const k of Object.keys(next)) {
+        if (!ids.has(k)) {
+          delete next[k]
+          changed = true
+        }
+      }
+      if (changed) writeStoredInviteAccepted(next)
+      return changed ? next : prev
+    })
+  }, [items])
 
   useEffect(() => {
     if (!open) return undefined
@@ -154,10 +265,30 @@ export function NotificationBell() {
     if (!confirmCrud('프로젝트 초대를 수락할까요?')) return
     try {
       await postAcceptProjectInvite(pid, { notification_info_id: Number(nid) })
+      let inviteUiState = 'accepted'
+      try {
+        await postSelectProject(pid)
+      } catch (e2) {
+        inviteUiState = 'needs_select'
+        window.alert(
+          e2?.message ||
+            '수락은 완료되었습니다. 홈에서 해당 프로젝트 카드를 눌러 선택한 뒤 다시 시도해 주세요.',
+        )
+      }
+      const idStr = String(nid)
+      setInviteAcceptedMap((prev) => {
+        const next = { ...prev, [idStr]: inviteUiState }
+        writeStoredInviteAccepted(next)
+        return next
+      })
       await refreshMe()
       await refreshCount()
       await loadList()
-      window.alert('프로젝트 초대를 수락했습니다. 필요하면 홈에서 해당 프로젝트를 선택하세요.')
+      showPanelToast(
+        inviteUiState === 'needs_select'
+          ? PROJECT_INVITE_HINT_DONE_NEEDS_HOME
+          : PROJECT_INVITE_HINT_DONE,
+      )
     } catch (e) {
       window.alert(e?.message || '수락에 실패했습니다.')
     }
@@ -184,7 +315,7 @@ export function NotificationBell() {
       await postRejectProjectInvite(pid, { notification_info_id: Number(nid) })
       await refreshCount()
       await loadList()
-      window.alert('초대를 거절했습니다.')
+      showPanelToast('초대를 거절했습니다. 초대자에게 알림이 전송되었습니다.')
     } catch (e) {
       window.alert(e?.message || '거절 처리에 실패했습니다.')
     }
@@ -211,6 +342,11 @@ export function NotificationBell() {
               모두 읽음
             </button>
           </div>
+          {panelToast ? (
+            <div className="nb-panel__toast" role="status" aria-live="polite">
+              {panelToast}
+            </div>
+          ) : null}
           <div className="nb-panel__list">
             {loading ? (
               <div className="nb-empty">불러오는 중…</div>
@@ -221,6 +357,13 @@ export function NotificationBell() {
                 const isInvite = (row.noti_type || '').trim() === 'project_invite'
                 const inv = isInvite ? parseProjectInvitePayload(row.noti_content) : null
                 const invitePid = inv?.projectId
+                const nidKey =
+                  row.notification_info_id != null ? String(row.notification_info_id) : ''
+                const inviteResolved =
+                  nidKey &&
+                  (inviteAcceptedMap[nidKey] === 'accepted' ||
+                    inviteAcceptedMap[nidKey] === 'needs_select')
+                const inviteAcceptedHere = Boolean(inviteResolved)
                 const expLine =
                   inv?.expiresAt && !Number.isNaN(new Date(inv.expiresAt).getTime())
                     ? `만료: ${formatDtm(inv.expiresAt)}`
@@ -229,12 +372,15 @@ export function NotificationBell() {
                   isInvite &&
                   invitePid != null &&
                   !Number.isNaN(invitePid) &&
-                  !inv?.inviteExpired
+                  !inv?.inviteExpired &&
+                  !inviteAcceptedHere
                 const inviteExpiredUi = isInvite && inv?.inviteExpired
                 return (
                   <div
                     key={String(row.notification_info_id)}
-                    className={`nb-item ${isUnread(row) ? 'nb-item--unread' : ''}`}
+                    className={`nb-item ${isUnread(row) ? 'nb-item--unread' : ''}${
+                      inviteAcceptedHere ? ' nb-item--invite-done' : ''
+                    }`}
                   >
                     <button
                       type="button"
@@ -242,7 +388,7 @@ export function NotificationBell() {
                       onClick={() => handleReadOne(row)}
                     >
                       <div className="nb-item__title">{row.noti_title || '(제목 없음)'}</div>
-                      {!isInvite && row.noti_content ? (
+                      {shouldShowNotiContentBody(row.noti_type, row.noti_content) ? (
                         <div className="nb-item__meta">{row.noti_content}</div>
                       ) : null}
                       {isInvite && expLine ? (
@@ -251,6 +397,18 @@ export function NotificationBell() {
                       {inviteExpiredUi ? (
                         <div className="nb-item__meta nb-item__meta--warn">
                           유효 기간이 지난 초대입니다. 새 초대가 필요하면 관리자에게 요청하세요.
+                        </div>
+                      ) : null}
+                      {isInvite && inviteActions ? (
+                        <div className="nb-item__meta nb-item__meta--invite-hint" role="note">
+                          {PROJECT_INVITE_HINT_PENDING}
+                        </div>
+                      ) : null}
+                      {isInvite && inviteAcceptedHere ? (
+                        <div className="nb-item__meta nb-item__meta--done" role="status">
+                          {inviteAcceptedMap[nidKey] === 'needs_select'
+                            ? PROJECT_INVITE_HINT_DONE_NEEDS_HOME
+                            : PROJECT_INVITE_HINT_DONE}
                         </div>
                       ) : null}
                       <div className="nb-item__meta">{formatDtm(row.create_dtm)}</div>

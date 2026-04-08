@@ -8,14 +8,14 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 1. create_project_full — 단일 트랜잭션: project_info·…·타부서 알림(project_invite JSON, invite_expires_at)
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / purge_inactive_project(비활성만·참여·매핑·알림·초대 참조 정리 후 DELETE)
-4. list_members(items+pending_invites: 타부서 미수락 project_invite 알림) / cancel_project_invite(DELETE 알림) / add_member / update_member_role / remove_member
+4. list_members · cancel_project_invite / add_member(즉시 추가 시 대상+실행자 알림) / remove_member(강퇴 대상+실행자 알림) / update_member_role
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
 
 [Dependencies]
 =========
-- create_project_full·add_member(타부서): notification_info raw INSERT(project_invite JSON, invite_expires_at)
+- create_project_full·add_member: notification_info(project_invite | 즉시멤버 대상/실행자 쌍), remove_member 쌍 알림
 - json
 - psycopg2, psycopg2.errors, psycopg2.extras.Json(feature_flags)
 """
@@ -371,6 +371,9 @@ def create_project_full(
                 ) VALUES (%s, %s, %s, %s, NOW())
                 """,
                 (uid, actor_user_id, pid, mid),
+            )
+            _notify_project_member_added_pair(
+                cur, pid, pname, int(actor_user_id), uid
             )
             members_added += 1
             seen_u.add(uid)
@@ -891,6 +894,105 @@ def _pending_invite_for_user_project(
     return False
 
 
+def _noti_user_label(cur, user_id: int) -> str:
+    cur.execute(
+        """
+        SELECT COALESCE(
+            NULLIF(TRIM(user_nickname), ''),
+            NULLIF(TRIM(user_email), '')
+        ) AS lab
+        FROM user_info WHERE user_id = %s
+        """,
+        (int(user_id),),
+    )
+    row = cur.fetchone()
+    lab = row.get("lab") if row else None
+    if lab:
+        return str(lab).strip()[:100]
+    return f"user_id {int(user_id)}"
+
+
+def _notify_project_member_added_pair(
+    cur,
+    project_info_id: int,
+    project_name: str,
+    actor_user_id: int,
+    target_user_id: int,
+) -> None:
+    """즉시 멤버 등록 시 피추가자·실행자 각각 알림(noti_content는 연동용 JSON)."""
+    pid = int(project_info_id)
+    aid = int(actor_user_id)
+    tid = int(target_user_id)
+    pname = (project_name or "").strip() or "프로젝트"
+    al = _noti_user_label(cur, aid)
+    tl = _noti_user_label(cur, tid)
+    meta = json.dumps(
+        {"project_info_id": pid, "actor_user_id": aid, "target_user_id": tid},
+        ensure_ascii=False,
+    )
+    title_t = (f"{al} 님이 '{pname}' 프로젝트에 멤버로 추가했습니다")[:200]
+    title_a = (f"{tl} 님을 '{pname}' 프로젝트에 멤버로 추가했습니다")[:200]
+    for uid, typ, title in (
+        (tid, "project_member_added", title_t),
+        (aid, "project_member_add_done", title_a),
+    ):
+        cur.execute(
+            """
+            INSERT INTO notification_info (
+                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
+            ) VALUES (%s, %s, %s, %s, 'N', NOW())
+            """,
+            (uid, typ[:30], title, meta),
+        )
+
+
+def _notify_project_member_removed_pair(
+    cur,
+    project_info_id: int,
+    project_name: str,
+    actor_user_id: int,
+    target_user_id: int,
+) -> None:
+    """멤버 제외 시 피제외자·실행자 각각 알림."""
+    pid = int(project_info_id)
+    aid = int(actor_user_id)
+    tid = int(target_user_id)
+    pname = (project_name or "").strip() or "프로젝트"
+    meta = json.dumps(
+        {"project_info_id": pid, "actor_user_id": aid, "target_user_id": tid},
+        ensure_ascii=False,
+    )
+    if aid == tid:
+        title = (f"본인을 '{pname}' 프로젝트에서 멤버에서 제외했습니다")[:200]
+        cur.execute(
+            """
+            INSERT INTO notification_info (
+                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
+            ) VALUES (%s, %s, %s, %s, 'N', NOW())
+            """,
+            (aid, "project_member_remove_done", title, meta),
+        )
+        return
+    al = _noti_user_label(cur, aid)
+    tl = _noti_user_label(cur, tid)
+    title_t = (
+        f"{al} 님이 '{pname}' 프로젝트에서 멤버에서 제외했습니다"
+    )[:200]
+    title_a = (f"{tl} 님을 '{pname}' 프로젝트에서 제외했습니다")[:200]
+    for uid, typ, title in (
+        (tid, "project_member_removed", title_t),
+        (aid, "project_member_remove_done", title_a),
+    ):
+        cur.execute(
+            """
+            INSERT INTO notification_info (
+                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
+            ) VALUES (%s, %s, %s, %s, 'N', NOW())
+            """,
+            (uid, typ[:30], title, meta),
+        )
+
+
 def add_member(
     conn,
     actor_user_id: int,
@@ -942,12 +1044,20 @@ def add_member(
 
         if _user_in_actor_dept_scope(cur, adpt, target_uid):
             cur.execute(
+                "SELECT project_name FROM project_info WHERE project_info_id = %s",
+                (pid,),
+            )
+            pname_immediate = (cur.fetchone() or {}).get("project_name") or ""
+            cur.execute(
                 """
                 INSERT INTO project_ptcpnt_info (
                     ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
                 ) VALUES (%s, %s, %s, %s, NOW())
                 """,
                 (target_uid, aid, pid, mid),
+            )
+            _notify_project_member_added_pair(
+                cur, pid, str(pname_immediate), aid, target_uid
             )
             conn.commit()
             return {"outcome": "member_added"}
@@ -1071,6 +1181,7 @@ def remove_member(
     dptmt_info_id: int,
     project_info_id: int,
     ptcpnt_user_id: int,
+    actor_user_id: int,
     actor_dvsn: str | None = None,
 ) -> None:
     cur = conn.cursor()
@@ -1089,6 +1200,11 @@ def remove_member(
                     "운영자는 일반 사용자(u)만 프로젝트에서 제외할 수 있습니다."
                 )
         cur.execute(
+            "SELECT project_name FROM project_info WHERE project_info_id = %s",
+            (int(project_info_id),),
+        )
+        pname_rm = (cur.fetchone() or {}).get("project_name") or ""
+        cur.execute(
             """
             DELETE FROM project_ptcpnt_info
             WHERE project_info_id = %s AND ptcpnt_user_id = %s
@@ -1098,6 +1214,13 @@ def remove_member(
         if cur.rowcount == 0:
             conn.rollback()
             raise ValueError("멤버를 찾을 수 없습니다.")
+        _notify_project_member_removed_pair(
+            cur,
+            int(project_info_id),
+            str(pname_rm),
+            int(actor_user_id),
+            int(ptcpnt_user_id),
+        )
         conn.commit()
     except ValueError:
         conn.rollback()

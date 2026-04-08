@@ -959,6 +959,7 @@ def admin_project_member_remove(
             int(actor["dptmt_info_id"]),
             project_info_id,
             ptcpnt_user_id,
+            int(actor["user_id"]),
             actor_dvsn=str(actor.get("user_dvsn") or ""),
         )
     except ValueError as e:

@@ -1,6 +1,15 @@
 # Log
 
 ## Log Index
+263. 2026-04-08 쿼리 스튜디오: 헤더 프로젝트 전환 시 빌더 초기화·테이블 재로드
+262. 2026-04-08 헤더 작업 프로젝트 드롭다운(이메일·알림 사이)
+261. 2026-04-08 알림: project_invite 수락 전·후 안내 문구 표시
+260. 2026-04-08 타부서 초대 수락 후 JWT 프로젝트 미동기화로 기능 라우트 차단 수정
+259. 2026-04-08 프로젝트 멤버 추가·강퇴·수락: 양측 알림
+258. 2026-04-08 알림: 초대 수락·거절 완료 표시(행·토스트)
+257. 2026-04-08 알림 패널: 내부용 JSON noti_content 비노출
+256. 2026-04-08 notification_info update_dtm: 읽음·수락 갱신·목록 조회 정합
+255. 2026-04-08 accept-invite: notification_info에 update_dtm 미존재 DB 호환
 254. 2026-04-03 프로젝트 멤버 추가 API·UI: 타부서 초대 알림·멤버 추가 모달
 253. 2026-04-02 프로젝트 초대: 만료(7일)·거절 API·초대자 수락/거절 알림·UI 만료 표시
 252. 2026-04-02 프로젝트 타부서 초대: 멤버 목록 pending·초대 취소 API, 알림 수락 피드백·accept 400 통일
@@ -257,6 +266,95 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+263. 2026-04-08 쿼리 스튜디오: 헤더 프로젝트 전환 시 빌더 초기화·테이블 재로드
+Purpose: /me project_info_id 변경 시 이전 프로젝트 테이블·조인·결과가 남아 실행 오류가 나지 않도록 resetBuilderState·loadHealth/loadTables·안내 토스트.
+
+Changes:
+
+- QueryStudioPage: resetBuilderState(clearAll 공용), queryRunning/countLoading 상단 이동·전환 시 false, useAuth+prevProjectIdRef 이펙트
+
+Changed files: Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx, docs/log/log.md
+
+262. 2026-04-08 헤더 작업 프로젝트 드롭다운(이메일·알림 사이)
+Purpose: 홈 없이 헤더에서 참여 프로젝트 전환(postSelectProject·refreshMe). 목록 없을 때「참여중인 프로젝트 없음」표시.
+
+Changes:
+
+- ProjectHeaderSelect.jsx, project-header-select.css 추가
+- ProtectedLayout: ibank-shell-header-actions 순서(이메일 → 드롭다운 → 알림)
+
+Changed files: Frontend/react-app/src/app/layout/ProjectHeaderSelect.jsx, Frontend/react-app/src/app/layout/project-header-select.css, Frontend/react-app/src/app/layout/ProtectedLayout.jsx, docs/log/log.md
+
+261. 2026-04-08 알림: project_invite 수락 전·후 안내 문구 표시
+Purpose: 초대 알림 행에서 수락 시 프로젝트 전환·권한 적용을 미리 안내하고, 수락 완료 행·토스트를 맞춤. postSelectProject 실패 시 sessionStorage needs_select로 홈 선택 안내 표시.
+
+Changes:
+
+- NotificationBell: PROJECT_INVITE_HINT_PENDING/DONE/NEEDS_HOME, nb-item__meta--invite-hint, needs_select 분기
+- notification-bell.css: nb-item__meta--invite-hint
+
+Changed files: Frontend/react-app/src/app/layout/NotificationBell.jsx, Frontend/react-app/src/app/layout/notification-bell.css, docs/log/log.md
+
+260. 2026-04-08 타부서 초대 수락 후 JWT 프로젝트 미동기화로 기능 라우트 차단 수정
+Purpose: 수락 API만 호출하고 JWT의 project_info_id가 예전 값(또는 null)인 채로 두면 /me permissions가 다른 프로젝트 기준이 되어 ProjectFeatureRoute가 쿼리·대시보드 등을 홈으로 돌림. 수락 직후 postSelectProject(pid)로 토큰 갱신.
+
+Changes:
+
+- NotificationBell handleAcceptProjectInvite: postSelectProject(실패 시 홈 수동 선택 안내)
+
+Changed files: Frontend/react-app/src/app/layout/NotificationBell.jsx, docs/log/log.md
+
+259. 2026-04-08 프로젝트 멤버 추가·강퇴·수락: 양측 알림
+Purpose: 부서 내 즉시 멤버 추가·프로젝트 생성 시 부서 멤버 추가·멤버 제외 시 실행자·대상자 모두 notification_info 수신. 타부서 초대 수락 시 초대자(기존)·수락자 본인에 참여 완료 알림 추가.
+
+Changes:
+
+- service_projects: _noti_user_label·_notify_project_member_added_pair·_notify_project_member_removed_pair, create_project_full/add_member/remove_member 연동, remove_member(actor_user_id)
+- admin router: 멤버 제거 시 actor user_id 전달
+- project_server accept_project_invite: project_join_done(수락자)
+- NotificationBell: 내부 JSON 숨김 키 actor_user_id·target_user_id
+
+Changed files: Backend/admin_server/service_projects.py, Backend/admin_server/router.py, Backend/project_server/service.py, Frontend/react-app/src/app/layout/NotificationBell.jsx, docs/log/log.md
+
+258. 2026-04-08 알림: 초대 수락·거절 완료 표시(행·토스트)
+Purpose: 초대 수신 알림에서 수락 시 같은 행에 완료 문구·버튼 제거(sessionStorage로 id 보관), 거절 시 행이 사라지므로 패널 상단 토스트로 안내. 성공 시 window.alert 의존 완화.
+
+Changes:
+
+- NotificationBell: inviteAcceptedMap·패널 토스트·nb-item--invite-done 스타일
+- notification-bell.css: nb-panel__toast·nb-item__meta--done
+
+Changed files: Frontend/react-app/src/app/layout/NotificationBell.jsx, Frontend/react-app/src/app/layout/notification-bell.css, docs/log/log.md
+
+257. 2026-04-08 알림 패널: 내부용 JSON noti_content 비노출
+Purpose: 초대 수락/거절 알림 등 `noti_content`가 DB 연동용 JSON만 담은 경우 목록에 그대로 노출되지 않게 한다. 제목·시각(·초대 만료 안내)만 표시.
+
+Changes:
+
+- NotificationBell: `shouldShowNotiContentBody`(project_invite 제외·알려진 메타 키만 있는 JSON 숨김)
+
+Changed files: Frontend/react-app/src/app/layout/NotificationBell.jsx, docs/log/log.md
+
+256. 2026-04-08 notification_info update_dtm: 읽음·수락 갱신·목록 조회 정합
+Purpose: DB에 반영된 `notification_info.update_dtm`과 코드 정합 — 읽음/초대수락 UPDATE 시 `update_dtm = NOW()`, 알림 목록 API에 컬럼 포함·ISO 직렬화.
+
+Changes:
+
+- notification_server: list_notifications SELECT·응답에 update_dtm; mark_read_one·mark_read_all에 update_dtm 갱신
+- project_server: accept_project_invite 읽음 UPDATE에 update_dtm 추가
+- docs/main/04_DB_ARCHITECTURE: notification_info `create_dtm`/`update_dtm`을 실제 DDL에 맞게 정리
+
+Changed files: Backend/notification_server/service.py, Backend/project_server/service.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+255. 2026-04-08 accept-invite: notification_info에 update_dtm 미존재 DB 호환
+Purpose: 프로젝트 초대 수락 시 `UPDATE notification_info ... update_dtm`으로 UndefinedColumn(500)이 나던 문제를 제거한다. 읽음 처리는 `read_yn`만 갱신(notification_server.mark_read_one과 동일)·수신자 user_id 조건 추가.
+
+Changes:
+
+- accept_project_invite: UPDATE에서 update_dtm 제거, WHERE에 user_id 추가
+
+Changed files: Backend/project_server/service.py, docs/log/log.md
 
 254. 2026-04-03 프로젝트 멤버 추가 API·UI: 타부서 초대 알림·멤버 추가 모달
 Purpose: 타부서 사용자 POST /members 시 즉시 INSERT 대신 project_invite JSON 알림만 발송. 멤버 화면에 프로젝트 생성과 동일 포맷의 멤버 추가 모달(부서 내 / 타부서). 초대 취소 핸들러 보완.

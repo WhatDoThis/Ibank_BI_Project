@@ -1,5 +1,6 @@
 /**
  * app/layout/notification-bell.css — NotificationBell 전용
+ * nb-panel__toast, nb-item--invite-done·nb-item__meta--done·nb-item__meta--invite-hint(project_invite 안내)
  */
 
 .nb-wrap {
@@ -77,6 +78,16 @@
   color: #00754a;
   cursor: pointer;
   font-size: 0.8rem;
+}
+
+.nb-panel__toast {
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #0f4c3a;
+  background: #e8f5e9;
+  border-bottom: 1px solid #c8e6c9;
+  flex-shrink: 0;
 }
 
 .nb-panel__list {
@@ -158,6 +169,21 @@
 .nb-item__meta--warn {
   color: #b45309;
   font-weight: 500;
+}
+
+.nb-item__meta--done {
+  color: #1b5e20;
+  font-weight: 600;
+}
+
+.nb-item__meta--invite-hint {
+  color: #4a5f56;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.nb-item--invite-done {
+  background: #f1f8f4;
 }
 
 .nb-item__title {

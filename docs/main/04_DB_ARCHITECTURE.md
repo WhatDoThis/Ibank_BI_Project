@@ -342,8 +342,8 @@ noti_type                varchar(50)     NOT NULL      알림 유형
 noti_title               varchar(200)    NOT NULL      알림 제목
 noti_content             text                          알림 내용
 read_yn                  varchar(1)      DEFAULT 'N'   읽음 여부
-create_dtm               timestamp       NOT NULL      발생일시
-update_dtm               timestamp       NOT NULL      수정일시
+create_dtm               timestamp       DEFAULT now()   발생일시
+update_dtm               timestamp                     읽음·수락 등 갱신 시각(NULL 허용)
 
 인덱스: (user_id, read_yn)
 

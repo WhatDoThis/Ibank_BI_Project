@@ -7,7 +7,7 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
 ===========
 1. list_projects_for_user: 참여 프로젝트 목록
 2. select_project_tokens: 세션 유지하며 JWT에 project_info_id 반영
-3. accept_project_invite: 타부서 project_invite 수락(만료 검사·초대자 알림)
+3. accept_project_invite: 타부서 project_invite 수락(만료 검사·알림 read_yn/update_dtm·초대자 알림·수락자 본인 참여 완료 알림)
 4. reject_project_invite: 타부서 project_invite 거절(알림 삭제·초대자 알림)
 
 [Dependencies]
@@ -167,7 +167,7 @@ def accept_project_invite(
             )
 
         cur.execute(
-            "SELECT active_yn FROM project_info WHERE project_info_id = %s",
+            "SELECT active_yn, project_name FROM project_info WHERE project_info_id = %s",
             (pid,),
         )
         prow = cur.fetchone()
@@ -200,9 +200,9 @@ def accept_project_invite(
             """
             UPDATE notification_info
             SET read_yn = 'Y', update_dtm = NOW()
-            WHERE notification_info_id = %s
+            WHERE notification_info_id = %s AND user_id = %s
             """,
-            (int(notification_info_id),),
+            (int(notification_info_id), int(user_id)),
         )
         _notify_inviter_invite_resolved(
             cur,
@@ -211,6 +211,18 @@ def accept_project_invite(
             user_id,
             int(notification_info_id),
             True,
+        )
+        pname_join = (prow.get("project_name") if prow else None) or ""
+        pn_display = (str(pname_join).strip() or "프로젝트")[:80]
+        title_self = (f"'{pn_display}' 프로젝트 참여가 완료되었습니다")[:200]
+        meta_self = json.dumps({"project_info_id": int(pid)}, ensure_ascii=False)
+        cur.execute(
+            """
+            INSERT INTO notification_info (
+                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
+            ) VALUES (%s, %s, %s, %s, 'N', NOW())
+            """,
+            (int(user_id), "project_join_done", title_self, meta_self),
         )
         conn.commit()
     except ValueError:
