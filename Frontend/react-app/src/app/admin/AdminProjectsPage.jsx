@@ -2,7 +2,7 @@
  * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성 모달·수정·비활성)
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성은 canAccessOrgAdmin(sa_dev·sa·a)만.
- * 생성 모달: creator_pmssn_master_id·페이지 체크·테이블 매핑·부서 내 멤버·타부서 검색 초대·POST 바디 확장.
+ * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). feature_flags·PATCH 후 현재 선택 프로젝트면 refreshMe로 /me 권한 동기화.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip, 작업 열 ibank-btn-table·Link 동일 톤.
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
@@ -22,6 +22,7 @@ import { Link } from 'react-router-dom'
 import {
   deleteAdminProject,
   getAdminProjects,
+  getAdminProjectTables,
   getAdminRolesProjectAssignable,
   getAdminTablesForProjectCreate,
   getAdminUsersDeptTree,
@@ -47,8 +48,20 @@ function formatDtm(v) {
   }
 }
 
+/** @param {{ query?: boolean, dash?: boolean, widget?: boolean }|null|undefined} flags */
+function featureFlagsToUiState(flags) {
+  if (flags == null || typeof flags !== 'object') {
+    return { dashboard: true, queryStudio: true, widgetboard: true }
+  }
+  return {
+    queryStudio: flags.query !== false,
+    dashboard: flags.dash !== false,
+    widgetboard: flags.widget !== false,
+  }
+}
+
 export default function AdminProjectsPage() {
-  const { me } = useAuth()
+  const { me, refreshMe } = useAuth()
   const isOrgAdmin = canAccessOrgAdmin(me)
   const isOperator = (me?.user_dvsn || '').trim().toLowerCase() === 'o'
 
@@ -59,9 +72,11 @@ export default function AdminProjectsPage() {
 
   const [cName, setCName] = useState('')
   const [cDesc, setCDesc] = useState('')
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createBusy, setCreateBusy] = useState(false)
-  const [createModalLoading, setCreateModalLoading] = useState(false)
+  /** null | { mode:'create' } | { mode:'edit', projectInfoId:number } */
+  const [projectDialog, setProjectDialog] = useState(null)
+  const [formBusy, setFormBusy] = useState(false)
+  const [formModalLoading, setFormModalLoading] = useState(false)
+  const [formActive, setFormActive] = useState('Y')
   const [enabledPages, setEnabledPages] = useState({
     dashboard: true,
     queryStudio: true,
@@ -78,11 +93,6 @@ export default function AdminProjectsPage() {
   const [extSearchBusy, setExtSearchBusy] = useState(false)
   const [highlightDeptUserIds, setHighlightDeptUserIds] = useState(() => new Set())
   const [highlightExtKeys, setHighlightExtKeys] = useState(() => new Set())
-
-  const [edit, setEdit] = useState(null)
-  const [eName, setEName] = useState('')
-  const [eDesc, setEDesc] = useState('')
-  const [eActive, setEActive] = useState('Y')
 
   const load = useCallback(async () => {
     setError('')
@@ -102,9 +112,10 @@ export default function AdminProjectsPage() {
     load()
   }, [load])
 
-  function resetCreateForm() {
+  function resetProjectFormFields() {
     setCName('')
     setCDesc('')
+    setFormActive('Y')
     setEnabledPages({ dashboard: true, queryStudio: true, widgetboard: true })
     setSelectedTableIds(new Set())
     setCreatorPmssnId(null)
@@ -120,9 +131,9 @@ export default function AdminProjectsPage() {
 
   async function openCreateModal() {
     setError('')
-    resetCreateForm()
-    setCreateOpen(true)
-    setCreateModalLoading(true)
+    resetProjectFormFields()
+    setProjectDialog({ mode: 'create' })
+    setFormModalLoading(true)
     try {
       const [tu, tr, tt] = await Promise.all([
         getAdminUsersDeptTree(),
@@ -144,14 +155,48 @@ export default function AdminProjectsPage() {
     } catch (err) {
       setError(err?.message || '모달 데이터를 불러오지 못했습니다.')
     } finally {
-      setCreateModalLoading(false)
+      setFormModalLoading(false)
     }
   }
 
-  function closeCreateModal() {
-    if (createBusy) return
-    resetCreateForm()
-    setCreateOpen(false)
+  async function openEditModal(row) {
+    const pid = row.project_info_id
+    if (pid == null) return
+    setError('')
+    resetProjectFormFields()
+    setCName(row.project_name || '')
+    setCDesc(row.project_dscrtn || '')
+    setFormActive((row.active_yn || 'Y').toUpperCase() === 'Y' ? 'Y' : 'N')
+    setEnabledPages(featureFlagsToUiState(row.feature_flags))
+    setProjectDialog({ mode: 'edit', projectInfoId: pid })
+    setFormModalLoading(true)
+    try {
+      if (isOperator) {
+        const pt = await getAdminProjectTables(pid)
+        const mapped = Array.isArray(pt?.items) ? pt.items : []
+        setTableMasterList(mapped)
+        setSelectedTableIds(new Set(mapped.map((t) => t.table_master_id).filter(Boolean)))
+      } else {
+        const [tt, pt] = await Promise.all([
+          getAdminTablesForProjectCreate(),
+          getAdminProjectTables(pid),
+        ])
+        const titems = Array.isArray(tt?.items) ? tt.items : []
+        const mapped = Array.isArray(pt?.items) ? pt.items : []
+        setTableMasterList(titems)
+        setSelectedTableIds(new Set(mapped.map((t) => t.table_master_id).filter(Boolean)))
+      }
+    } catch (err) {
+      setError(err?.message || '모달 데이터를 불러오지 못했습니다.')
+    } finally {
+      setFormModalLoading(false)
+    }
+  }
+
+  function closeProjectDialog() {
+    if (formBusy) return
+    resetProjectFormFields()
+    setProjectDialog(null)
   }
 
   function toggleTableId(id) {
@@ -283,61 +328,93 @@ export default function AdminProjectsPage() {
     } else if (!confirmCrud('새 프로젝트를 생성할까요?')) {
       return
     }
-    const enabled_pages = []
-    if (enabledPages.dashboard) enabled_pages.push('dashboard')
-    if (enabledPages.queryStudio) {
-      enabled_pages.push('query.read', 'query.execute')
-    }
-    if (enabledPages.widgetboard) enabled_pages.push('widgetboard')
     setError('')
-    setCreateBusy(true)
+    setFormBusy(true)
     try {
       await postAdminProject({
         project_name: name,
         project_dscrtn: dsc || null,
-        enabled_pages,
+        feature_flags: {
+          query: enabledPages.queryStudio,
+          dash: enabledPages.dashboard,
+          widget: enabledPages.widgetboard,
+        },
         table_master_ids: [...selectedTableIds],
         creator_pmssn_master_id: Number(creatorPmssnId),
         members,
         external_invites: extPayload,
       })
-      closeCreateModal()
+      closeProjectDialog()
       await load()
     } catch (err) {
       setError(err?.message || '생성 실패')
     } finally {
-      setCreateBusy(false)
+      setFormBusy(false)
     }
   }
 
-  function openEdit(row) {
-    setEdit(row.project_info_id)
-    setEName(row.project_name || '')
-    setEDesc(row.project_dscrtn || '')
-    setEActive((row.active_yn || 'Y').toUpperCase() === 'Y' ? 'Y' : 'N')
-  }
-
-  async function handleSaveEdit(e) {
+  async function handleEditSubmit(e) {
     e.preventDefault()
-    if (edit == null) return
-    if (!confirmCrud('프로젝트 정보를 저장할까요?')) return
-    setBusyId(edit)
+    if (projectDialog?.mode !== 'edit') return
+    const projectInfoId = projectDialog.projectInfoId
+    const name = cName.trim()
+    if (name.length < 1 || name.length > 20) {
+      setError('프로젝트명은 1~20자로 입력하세요.')
+      return
+    }
+    const dsc = (cDesc || '').trim()
+    if (dsc.length > 100) {
+      setError('설명은 100자 이내입니다.')
+      return
+    }
+    if (enabledPages.queryStudio && selectedTableIds.size === 0) {
+      if (!confirmCrud('쿼리 스튜디오를 켠 상태인데 매핑된 테이블이 없습니다. 그대로 저장할까요?')) {
+        return
+      }
+    } else if (!confirmCrud('프로젝트 정보를 수정할까요?')) {
+      return
+    }
+    const body = {
+      project_name: name,
+      project_dscrtn: dsc || null,
+    }
+    if (isOrgAdmin) {
+      body.active_yn = formActive
+    }
+    if (!isOperator) {
+      body.feature_flags = {
+        query: enabledPages.queryStudio,
+        dash: enabledPages.dashboard,
+        widget: enabledPages.widgetboard,
+      }
+      body.table_master_ids = [...selectedTableIds]
+    }
     setError('')
+    setFormBusy(true)
+    setBusyId(projectInfoId)
     try {
-      const body = {
-        project_name: eName.trim(),
-        project_dscrtn: eDesc.trim() || null,
+      await patchAdminProject(projectInfoId, body)
+      const sel = me?.project_info_id
+      if (sel != null && Number(sel) === Number(projectInfoId)) {
+        await refreshMe()
       }
-      if (isOrgAdmin) {
-        body.active_yn = eActive
-      }
-      await patchAdminProject(edit, body)
-      setEdit(null)
+      closeProjectDialog()
       await load()
     } catch (err) {
       setError(err?.message || '수정 실패')
     } finally {
+      setFormBusy(false)
       setBusyId(null)
+    }
+  }
+
+  function handleProjectFormSubmit(e) {
+    if (projectDialog?.mode === 'create') {
+      handleCreate(e)
+      return
+    }
+    if (projectDialog?.mode === 'edit') {
+      handleEditSubmit(e)
     }
   }
 
@@ -354,6 +431,10 @@ export default function AdminProjectsPage() {
       setBusyId(null)
     }
   }
+
+  const isCreate = projectDialog?.mode === 'create'
+  const isEdit = projectDialog?.mode === 'edit'
+  const lockPagesTables = Boolean(isEdit && isOperator)
 
   return (
     <div className="ap">
@@ -374,29 +455,29 @@ export default function AdminProjectsPage() {
       </div>
       {error ? <p className="ap__error">{error}</p> : null}
 
-      {createOpen ? (
+      {projectDialog ? (
         <div className="ap__modal-overlay" role="presentation">
           <div
             className="ap__modal ap__modal--create ap__modal--create-wide"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="proj-create-title"
+            aria-labelledby="proj-form-title"
           >
             <div className="ap__create-head">
-              <h3 id="proj-create-title">프로젝트 생성</h3>
+              <h3 id="proj-form-title">{isCreate ? '프로젝트 생성' : '프로젝트 수정'}</h3>
               <button
                 type="button"
                 className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-                disabled={createBusy}
-                onClick={() => closeCreateModal()}
+                disabled={formBusy}
+                onClick={() => closeProjectDialog()}
               >
                 닫기
               </button>
             </div>
-            {createModalLoading ? (
+            {formModalLoading ? (
               <p className="ap__hint">불러오는 중…</p>
             ) : (
-              <form className="ap__modal-form ap__modal-form--create" onSubmit={handleCreate}>
+              <form className="ap__modal-form ap__modal-form--create" onSubmit={handleProjectFormSubmit}>
                 <label className="ap__label">
                   프로젝트명 <span className="ap__muted">({cName.length}/20)</span>
                   <input
@@ -406,7 +487,7 @@ export default function AdminProjectsPage() {
                     required
                     minLength={1}
                     maxLength={20}
-                    disabled={createBusy}
+                    disabled={formBusy}
                   />
                 </label>
                 <label className="ap__label">
@@ -416,32 +497,49 @@ export default function AdminProjectsPage() {
                     value={cDesc}
                     onChange={(ev) => setCDesc(ev.target.value)}
                     maxLength={100}
-                    disabled={createBusy}
+                    disabled={formBusy}
                   />
                 </label>
 
-                <div className="ap__create-section">
-                  <div className="ap__create-section-title">내 프로젝트 역할</div>
+                {isEdit && isOrgAdmin ? (
                   <label className="ap__label">
-                    생성 시 본인에게 부여할 권한 <span className="ap__req">*</span>
+                    활성
                     <select
                       className="ap__select"
-                      value={creatorPmssnId ?? ''}
-                      onChange={(ev) =>
-                        setCreatorPmssnId(ev.target.value ? Number(ev.target.value) : null)
-                      }
-                      required
-                      disabled={createBusy}
+                      value={formActive}
+                      onChange={(ev) => setFormActive(ev.target.value)}
+                      disabled={formBusy}
                     >
-                      <option value="">선택</option>
-                      {roles.map((r) => (
-                        <option key={String(r.pmssn_master_id)} value={r.pmssn_master_id}>
-                          {r.pmssn_name || r.pmssn_master_id}
-                        </option>
-                      ))}
+                      <option value="Y">Y</option>
+                      <option value="N">N</option>
                     </select>
                   </label>
-                </div>
+                ) : null}
+
+                {isCreate ? (
+                  <div className="ap__create-section">
+                    <div className="ap__create-section-title">내 프로젝트 역할</div>
+                    <label className="ap__label">
+                      생성 시 본인에게 부여할 권한 <span className="ap__req">*</span>
+                      <select
+                        className="ap__select"
+                        value={creatorPmssnId ?? ''}
+                        onChange={(ev) =>
+                          setCreatorPmssnId(ev.target.value ? Number(ev.target.value) : null)
+                        }
+                        required
+                        disabled={formBusy}
+                      >
+                        <option value="">선택</option>
+                        {roles.map((r) => (
+                          <option key={String(r.pmssn_master_id)} value={r.pmssn_master_id}>
+                            {r.pmssn_name || r.pmssn_master_id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
 
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">프로젝트 페이지 선택</div>
@@ -453,7 +551,7 @@ export default function AdminProjectsPage() {
                         onChange={(ev) =>
                           setEnabledPages((p) => ({ ...p, dashboard: ev.target.checked }))
                         }
-                        disabled={createBusy}
+                        disabled={formBusy || lockPagesTables}
                       />
                       캠페인 대시보드
                     </label>
@@ -464,7 +562,7 @@ export default function AdminProjectsPage() {
                         onChange={(ev) =>
                           setEnabledPages((p) => ({ ...p, queryStudio: ev.target.checked }))
                         }
-                        disabled={createBusy}
+                        disabled={formBusy || lockPagesTables}
                       />
                       쿼리 스튜디오
                     </label>
@@ -475,7 +573,7 @@ export default function AdminProjectsPage() {
                         onChange={(ev) =>
                           setEnabledPages((p) => ({ ...p, widgetboard: ev.target.checked }))
                         }
-                        disabled={createBusy}
+                        disabled={formBusy || lockPagesTables}
                       />
                       위젯보드
                     </label>
@@ -490,7 +588,7 @@ export default function AdminProjectsPage() {
                         <input
                           type="checkbox"
                           onChange={(ev) => selectAllTables(ev.target.checked)}
-                          disabled={createBusy || tableMasterList.length === 0}
+                          disabled={formBusy || lockPagesTables || tableMasterList.length === 0}
                         />
                         전체 선택
                       </label>
@@ -519,7 +617,7 @@ export default function AdminProjectsPage() {
                                     type="checkbox"
                                     checked={on}
                                     onChange={() => toggleTableId(id)}
-                                    disabled={createBusy}
+                                    disabled={formBusy || lockPagesTables}
                                   />
                                 </td>
                               </tr>
@@ -531,6 +629,7 @@ export default function AdminProjectsPage() {
                   </div>
                 ) : null}
 
+                {isCreate ? (
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">부서 내 참여자</div>
                   <div className="ap__member-pick-body">
@@ -565,7 +664,7 @@ export default function AdminProjectsPage() {
                                     ev.target.value ? Number(ev.target.value) : null,
                                   )
                                 }
-                                disabled={createBusy || !r.checked}
+                                disabled={formBusy || !r.checked}
                               >
                                 <option value="">선택</option>
                                 {roles.map((x) => (
@@ -580,7 +679,7 @@ export default function AdminProjectsPage() {
                                 type="checkbox"
                                 checked={!!r.checked}
                                 onChange={(ev) => setDeptRowChecked(r.user_id, ev.target.checked)}
-                                disabled={createBusy}
+                                disabled={formBusy}
                               />
                             </td>
                           </tr>
@@ -589,7 +688,9 @@ export default function AdminProjectsPage() {
                     </table>
                   </div>
                 </div>
+                ) : null}
 
+                {isCreate ? (
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">타부서 참여자 초대</div>
                   <div className="ap__ext-search">
@@ -598,12 +699,12 @@ export default function AdminProjectsPage() {
                       placeholder="이메일 검색 (2자 이상)"
                       value={extSearchQ}
                       onChange={(ev) => setExtSearchQ(ev.target.value)}
-                      disabled={createBusy}
+                      disabled={formBusy}
                     />
                     <button
                       type="button"
                       className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-                      disabled={createBusy || extSearchBusy}
+                      disabled={formBusy || extSearchBusy}
                       onClick={() => runExtSearch()}
                     >
                       {extSearchBusy ? '검색…' : '검색'}
@@ -619,7 +720,7 @@ export default function AdminProjectsPage() {
                             type="button"
                             className="ibank-btn-table"
                             disabled={
-                              createBusy ||
+                              formBusy ||
                               externalInvites.some((x) => x.user_id === u.user_id)
                             }
                             onClick={() => addExternalInvite(u)}
@@ -660,7 +761,7 @@ export default function AdminProjectsPage() {
                                     ev.target.value ? Number(ev.target.value) : null,
                                   )
                                 }
-                                disabled={createBusy}
+                                disabled={formBusy}
                               >
                                 <option value="">선택</option>
                                 {roles.map((ro) => (
@@ -674,7 +775,7 @@ export default function AdminProjectsPage() {
                               <button
                                 type="button"
                                 className="ibank-btn-table ibank-btn-table--danger"
-                                disabled={createBusy}
+                                disabled={formBusy}
                                 onClick={() => removeExternalInvite(x.user_id)}
                               >
                                 제거
@@ -686,18 +787,25 @@ export default function AdminProjectsPage() {
                     </table>
                   </div>
                 </div>
+                ) : null}
 
                 <div className="ap__row ap__modal-actions">
                   <button
                     type="button"
                     className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-                    disabled={createBusy}
-                    onClick={() => closeCreateModal()}
+                    disabled={formBusy}
+                    onClick={() => closeProjectDialog()}
                   >
                     취소
                   </button>
-                  <button type="submit" className="ibank-btn-toolbar" disabled={createBusy}>
-                    {createBusy ? '생성 중…' : '생성'}
+                  <button type="submit" className="ibank-btn-toolbar" disabled={formBusy}>
+                    {formBusy
+                      ? isCreate
+                        ? '생성 중…'
+                        : '수정 중…'
+                      : isCreate
+                        ? '생성'
+                        : '수정'}
                   </button>
                 </div>
               </form>
@@ -768,7 +876,7 @@ export default function AdminProjectsPage() {
                           type="button"
                           className="ibank-btn-table"
                           disabled={busyId != null}
-                          onClick={() => openEdit(row)}
+                          onClick={() => openEditModal(row)}
                         >
                           수정
                         </button>
@@ -791,62 +899,6 @@ export default function AdminProjectsPage() {
           </table>
         </div>
       )}
-
-      {edit != null ? (
-        <div className="ap__modal-overlay" role="presentation">
-          <div className="ap__modal ap__modal--edit" role="dialog" aria-modal="true" aria-labelledby="proj-edit-title">
-            <h3 id="proj-edit-title">프로젝트 수정</h3>
-            <form onSubmit={handleSaveEdit}>
-              <label className="ap__label">
-                이름
-                <input
-                  className="ap__input"
-                  value={eName}
-                  onChange={(ev) => setEName(ev.target.value)}
-                  required
-                  maxLength={100}
-                />
-              </label>
-              <label className="ap__label">
-                설명
-                <textarea
-                  className="ap__textarea"
-                  style={{ minHeight: 60 }}
-                  value={eDesc}
-                  onChange={(ev) => setEDesc(ev.target.value)}
-                  maxLength={500}
-                />
-              </label>
-              {isOrgAdmin ? (
-                <label className="ap__label">
-                  활성
-                  <select
-                    className="ap__select"
-                    value={eActive}
-                    onChange={(ev) => setEActive(ev.target.value)}
-                  >
-                    <option value="Y">Y</option>
-                    <option value="N">N</option>
-                  </select>
-                </label>
-              ) : null}
-              <div className="ap__row ap__modal-actions">
-                <button
-                  type="button"
-                  className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-                  onClick={() => setEdit(null)}
-                  disabled={busyId != null}
-                >
-                  취소
-                </button>
-                <button type="submit" className="ibank-btn-toolbar" disabled={busyId != null}>
-                  저장
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }

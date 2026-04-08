@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+235. 2026-04-02 ETL: 접이식 카드·목록 thead 테두리를 설명 열 헤더 톤(--etl-table-list-th-description-border)으로 통일
+234. 2026-04-02 ETL 페이지: 설명을 소스 탭 아래 접이식 카드로 이동·탭 전환 떨림 완화
+233. 2026-04-03 프로젝트 PATCH 후 현재 선택 프로젝트면 refreshMe — 네비·ProjectFeatureRoute와 /me 동기화
+232. 2026-04-03 project_info.feature_flags: query·dash·widget DB 컬럼 기준으로 권한·어드민 API 통일(enabled_pages 제거)
+231. 2026-04-03 enabled_pages: 홈 진입 경로·사이드바·ProjectFeatureRoute·프로젝트 수정 모달 통합
+230. 2026-04-08 프로젝트 초대·멤버 검색: 일반 부서에서 개발부서(dptmt 0) 계정 비노출·API 차단
 229. 2026-04-08 Admin 프로젝트 멤버: 검색 인풋·버튼 동일 라인(ap__member-add-inline)
 228. 2026-04-08 Admin 프로젝트 멤버: 초대자·참여일시 열·권한 셀렉트·검색 행 정렬
 227. 2026-04-08 Admin 프로젝트 목록 테이블: 프로젝트명·설명 열 분리·말줄임·작업 버튼 통일
@@ -232,6 +238,82 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+235. 2026-04-02 ETL: 접이식 카드·목록 thead 테두리를 설명 열 헤더 톤(--etl-table-list-th-description-border)으로 통일
+Purpose: etl-db-form 접이식 카드가 페이지 배경과 구분이 어려워, ETL 목록 thead(설명 열 포함)와 동일한 그린 테두리 톤을 적용.
+
+Changes: `.etl-page`에 `--etl-table-list-th-description-border: rgba(0, 112, 74, 0.38)` 정의. `etl-db-form__section--card.etl-db-form__section--collapsible` 외곽선·카드 본문 상단 구분선, `etl-table-list__table thead th`에 동일 변수(폴백 동일값) 적용.
+
+Changed files: Frontend/react-app/src/packages/etl/etl.css, docs/log/log.md
+
+234. 2026-04-02 ETL 페이지: 설명을 소스 탭 아래 접이식 카드로 이동·탭 전환 떨림 완화
+Purpose: 탭별로 길이·높이가 다른 리드·안내 블록이 헤더 아래에 있어 전환 시 레이아웃이 위아래로 밀리는 현상 완화.
+
+Changes:
+- PageHeader에서 `description`(etlLead) 제거.
+- `SourceTypeSelector` 직후 `CollapsibleCardSection`(기본 닫힘)에 etlLead + 기존 `etl-page__tip` 내용 배치. 탭 전환 시 `key={sourceType}`로 카드 상태 초기화.
+- etl.css: `etl-page__guide-wrap`, `etl-page__guide-lead`, `etl-page__tip--in-card`.
+
+Changed files: Frontend/react-app/src/packages/etl/ETLPage.jsx, etl.css, docs/log/log.md
+
+233. 2026-04-03 프로젝트 PATCH 후 현재 선택 프로젝트면 refreshMe — 네비·ProjectFeatureRoute와 /me 동기화
+Purpose: 어드민에서 feature_flags 수정 후 세션 유지 시 /me.permissions가 옛값이라 네비·가드가 꺼진 페이지로 통과하던 문제 수정.
+
+Changes: AdminProjectsPage handleEditSubmit 성공 시 `me.project_info_id`와 수정 대상 id가 같으면 `refreshMe()` 호출. ProjectFeatureRoute 주석에 스냅샷·refreshMe 안내.
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, app/guards/ProjectFeatureRoute.jsx, docs/log/log.md
+
+232. 2026-04-03 project_info.feature_flags: query·dash·widget DB 컬럼 기준으로 권한·어드민 API 통일(enabled_pages 제거)
+Purpose: `enabled_pages` 문자열 배열 저장 방식을 제거하고, 사용자 DDL과 동일한 `feature_flags` jsonb로 생성·수정·effective 권한을 맞춤.
+
+Changes:
+- permissions: `get_project_enabled_feature_ids`가 `feature_flags`만 조회·query→query.read/execute, dash→dashboard, widget→widgetboard 매핑.
+- admin schemas: `ProjectFeatureFlags`, Create/Update 바디의 `feature_flags`.
+- service_projects: INSERT/SELECT/UPDATE `feature_flags`, `normalize_feature_flags_for_db`.
+- router: create/patch에 `model_dump()` 전달.
+- AdminProjectsPage·adminClient: 요청·목록 필드 `feature_flags`.
+- docs: 04_DB_ARCHITECTURE §8, 19_Project_Creation_Overhaul, 06_CUSTOMER_JOURNEY Phase 6 반영.
+
+Changed files:
+- Backend/auth_server/permissions.py
+- Backend/admin_server/schemas.py, service_projects.py, router.py
+- Frontend/react-app/src/app/admin/AdminProjectsPage.jsx
+- Frontend/react-app/src/shared/api/adminClient.js
+- Frontend/react-app/src/app/guards/ProjectFeatureRoute.jsx (주석)
+- docs/main/04_DB_ARCHITECTURE.md, docs/report/19_Project_Creation_Overhaul.md, docs/main/06_CUSTOMER_JOURNEY.md
+- docs/log/log.md
+
+231. 2026-04-03 enabled_pages: 홈 진입 경로·사이드바·ProjectFeatureRoute·프로젝트 수정 모달 통합
+Purpose: 대시보드만 켠 프로젝트에서 쿼리 스튜디오로 고정 이동되던 문제를 막고, 미허용 기능은 API(기존 require_permission)·UI에서 접근 불가에 가깝게 정리.
+
+Changes:
+- homeAccess: pickDefaultProjectPath(대시보드→쿼리→위젯 순). HomePage: postSelectProject 후 refreshMe 반환값으로 이동·「계속」버튼 동일.
+- AuthContext: refreshMe가 갱신된 프로필을 반환.
+- routes: NeedProjectRoute 내부에 ProjectFeatureRoute(query-studio|dashboard|widgetboard).
+- ProtectedLayout: NAV_ITEMS에서 /me 권한 없는 프로젝트 작업 메뉴 제외.
+- adminClient: getAdminProjectTables, patchAdminProject 바디에 enabled_pages·table_master_ids.
+- AdminProjectsPage: 생성·수정 단일 모달(수정 시 멤버·타부서 섹션 제외), enabled_pages·테이블 매핑 로드·PATCH, 운영자(o)는 페이지·테이블 필드 잠금.
+- admin PATCH: update_project에 enabled_pages·table_master_ids 전달, service update 분기에서 불필요한 cur.close 제거, schemas 보강.
+
+Changed files:
+- Frontend/react-app/src/app/home/homeAccess.js
+- Frontend/react-app/src/app/home/HomePage.jsx
+- Frontend/react-app/src/app/auth/AuthContext.jsx
+- Frontend/react-app/src/app/routes.jsx
+- Frontend/react-app/src/app/guards/ProjectFeatureRoute.jsx
+- Frontend/react-app/src/app/layout/ProtectedLayout.jsx
+- Frontend/react-app/src/shared/api/adminClient.js
+- Frontend/react-app/src/app/admin/AdminProjectsPage.jsx
+- Backend/admin_server/router.py
+- Backend/admin_server/schemas.py
+- Backend/admin_server/service_projects.py
+- docs/log/log.md
+
+230. 2026-04-08 프로젝트 초대·멤버 검색: 일반 부서에서 개발부서(dptmt 0) 계정 비노출·API 차단
+Purpose: 타부서 초대 이메일 검색·멤버 추가에 개발(시스템) 부서 소속이 나오지 않도록 함. sa_dev 또는 소속 부서 PK=0 인 경우만 예외.
+Changes: `search_users_by_email(exclude_dptmt_zero)`, 라우터 조건; `create_project_full`·`add_member`에 `actor_dvsn` 및 대상 `dptmt_info_id=0` 검증.
+
+Changed files: Backend/admin_server/service_projects.py, service_users.py, router.py, docs/report/19_Project_Creation_Overhaul.md, docs/log/log.md
 
 229. 2026-04-08 Admin 프로젝트 멤버: 검색 인풋·버튼 동일 라인(ap__member-add-inline)
 Purpose: 라벨+인풋을 한 flex 아이템에 두면 검색 버튼이 인풋과 수직으로 맞지 않음. 안내 문구는 별도 행, 인풋·검색만 `ap__member-add-inline` 한 줄·`align-items: center`로 정렬.

@@ -7,18 +7,19 @@
  * ===========
  * 1. jobResults: job_id별 실행 결과 맵. 마운트 시 GET /api/etl/jobs로 최근 목록 로드, 실행 시 추가, 2초 폴링으로 running/pending 갱신.
  * 2. 실행 결과: job별 패널을 아래로 나열해 각각 표시. 패널별 취소·닫기.
+ * 3. 탭 요약·사용 안내: SourceTypeSelector 아래 CollapsibleCardSection(기본 닫힘, 탭 전환 시 key로 리마운트). PageHeader description 제거로 상단 높이 고정.
  *
  * [Dependencies]
  * =========
  * - React, etl/components, @/packages/etl/api/etlClient.js (etl2ListJobs, etl2RunTable, etl2GetJob, etl2CancelJob)
  * - folder 탭: FolderConnectionFormFile, FolderConnectionListFile, BatchJobFormFile, BatchJobListFile, 실행 이력 모달(BatchHistoryPanelFile, BatchHistoryDetailFile)
- * - 처음 사용하시나요: 탭별 사용 순서 + 폴더 탭 시 "폴더에 파일 올릴 때 확인할 점"(용량·행수·파일명·인코딩 등) 안내
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { etl2RunTable, etl2GetJob, etl2CancelJob, etl2ListJobs, etl2PreviewTable, etl2TargetExists, etl2DeleteJob } from '@/packages/etl/api/etlClient.js';
 import SourceTypeSelector from './components/SourceTypeSelector';
+import CollapsibleCardSection from './components/CollapsibleCardSection';
 import FileUploadForm from './components/FileUploadForm';
 import DbConnectionForm from './components/DbConnectionForm';
 import StorageConnectionForm from './components/StorageConnectionForm';
@@ -352,23 +353,33 @@ function ETLPage() {
 
   return (
     <div className="etl-page">
-      <PageHeader description={etlLead} />
-      <div className="etl-page__tip" role="region" aria-label="사용 방법">
-        <p className="etl-page__tip-title">처음 사용하시나요?</p>
-        {sourceType === 'file' && howToFile}
-        {sourceType === 'db' && howToDb}
-        {sourceType === 'folder' && (
-          <>
-            {howToFolder}
-            {folderConsiderations}
-          </>
-        )}
-        {sourceType === 'storage' && howToStorage}
-        {sourceType === 'history' && howToHistory}
-      </div>
+      <PageHeader />
 
       <section className="etl-page__body">
         <SourceTypeSelector sourceType={sourceType} onChange={setSourceTypeAndUrl} />
+
+        <div className="etl-page__guide-wrap">
+          <CollapsibleCardSection
+            key={sourceType}
+            title="탭 요약 · 사용 안내"
+            defaultOpen={false}
+          >
+            <p className="etl-page__guide-lead">{etlLead}</p>
+            <div className="etl-page__tip etl-page__tip--in-card" role="region" aria-label="사용 방법">
+              <p className="etl-page__tip-title">처음 사용하시나요?</p>
+              {sourceType === 'file' && howToFile}
+              {sourceType === 'db' && howToDb}
+              {sourceType === 'folder' && (
+                <>
+                  {howToFolder}
+                  {folderConsiderations}
+                </>
+              )}
+              {sourceType === 'storage' && howToStorage}
+              {sourceType === 'history' && howToHistory}
+            </div>
+          </CollapsibleCardSection>
+        </div>
 
         <div className="etl-page__panel">
           {sourceType === 'file' && <FileUploadForm onSuccess={handleRefresh} />}

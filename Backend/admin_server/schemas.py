@@ -6,7 +6,7 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 [Classes]
 ===========
 - InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(dptmt_creator 포함), UserManageUpdateBody(etl_yn 선택)
-- RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
+- RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectFeatureFlags, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 
@@ -17,7 +17,7 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InviteBody(BaseModel):
@@ -75,12 +75,22 @@ class ProjectMemberAssignBody(BaseModel):
     pmssn_master_id: int = Field(..., ge=1)
 
 
+class ProjectFeatureFlags(BaseModel):
+    """DB project_info.feature_flags 와 동일 키(query·dash·widget)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    query: bool = Field(True, description="쿼리 스튜디오")
+    dash: bool = Field(True, description="캠페인 대시보드")
+    widget: bool = Field(True, description="위젯보드")
+
+
 class ProjectCreateBody(BaseModel):
     project_name: str = Field(..., min_length=1, max_length=20)
     project_dscrtn: str | None = Field(None, max_length=100)
-    enabled_pages: list[str] | None = Field(
+    feature_flags: ProjectFeatureFlags | None = Field(
         default=None,
-        description="예약 필드 — 백엔드에서 저장하지 않음(무시)",
+        description="생략 시 DB 기본(세 기능 모두 true)",
     )
     table_master_ids: list[int] = Field(default_factory=list)
     creator_pmssn_master_id: int = Field(..., ge=1)
@@ -92,6 +102,14 @@ class ProjectUpdateBody(BaseModel):
     project_name: str | None = Field(None, max_length=100)
     project_dscrtn: str | None = Field(None, max_length=500)
     active_yn: str | None = Field(None, max_length=1)
+    feature_flags: ProjectFeatureFlags | None = Field(
+        default=None,
+        description="전달 시 저장. 운영자(o)는 변경 불가",
+    )
+    table_master_ids: list[int] | None = Field(
+        default=None,
+        description="전달 시 해당 집합으로 table_project_mapping 동기화(운영자 o는 변경 불가)",
+    )
 
 
 class AcceptProjectInviteBody(BaseModel):

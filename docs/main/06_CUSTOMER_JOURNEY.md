@@ -363,10 +363,10 @@ SA_DEV / SA / A 로그인 상태
 │      → 같은 부서 트리 소속만 (생성자 제외)           │
 │    external_invites[] { user_id, pmssn_master_id } │
 │      → 부서 트리 밖만 (같은 트리는 members로)       │
-│    enabled_pages[] → 예약 필드, 백엔드 무시          │
+│    feature_flags { query, dash, widget } (생략 시 전부 true) │
 │                                                    │
 │  [create_project_full] (단일 트랜잭션)             │
-│  ├─ project_info INSERT (active_yn='Y')           │
+│  ├─ project_info INSERT (active_yn='Y', feature_flags) │
 │  ├─ _assert_pmssn_for_project(creator 역할)         │
 │  ├─ project_ptcpnt_info INSERT (생성자·선택 역할)    │
 │  ├─ table_project_mapping (table_master_ids)     │

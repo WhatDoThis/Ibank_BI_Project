@@ -9,7 +9,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 1. list_users_same_dept(단순 동일 부서)
 1b. list_users_for_admin_ui(sa_dev 전역·부서명/정렬·ETL 목록용)
 1c. list_users_dept_tree_for_project_create(프로젝트 생성 모달·본인 제외·부서 트리·정렬)
-2. search_users_by_email (operator 시 동일 부서만)
+2. search_users_by_email (operator 시 동일 부서만; 전역 검색 시 exclude_dptmt_zero 로 개발부서 0번 제외)
 3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, UndefinedColumn 시 DDL 안내)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
 4. suspend_user / activate_user (_assert_target_exists_or_same_dept·SA_DEV 우회)
@@ -994,6 +994,7 @@ def search_users_by_email(
     q: str,
     limit: int = 30,
     scope_dptmt_id: int | None = None,
+    exclude_dptmt_zero: bool = False,
 ) -> list[dict[str, Any]]:
     term = (q or "").strip()
     if len(term) < 2:
@@ -1017,13 +1018,17 @@ def search_users_by_email(
                 (scope_dptmt_id, pat, lim),
             )
         else:
+            zero_filter = (
+                " AND u.dptmt_info_id IS DISTINCT FROM 0" if exclude_dptmt_zero else ""
+            )
             cur.execute(
-                """
+                f"""
                 SELECT u.user_id, u.user_email, u.user_nickname, u.user_dvsn, u.dptmt_info_id, d.dptmt_name
                 FROM user_info u
                 LEFT JOIN dptmt_info d ON d.dptmt_info_id = u.dptmt_info_id
                 WHERE UPPER(TRIM(COALESCE(u.user_active_yn,''))) = 'Y'
                   AND LOWER(u.user_email) LIKE LOWER(%s)
+                  {zero_filter}
                 ORDER BY u.user_email
                 LIMIT %s
                 """,

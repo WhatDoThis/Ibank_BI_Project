@@ -2,11 +2,11 @@
 Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 ======================================================
 1) require_etl_infrastructure: JWT + user_info — `user_dvsn=sa_dev`, 레거시 원문 `etl_manager`, 또는 `etl_yn='Y'` 이면 ETL API 허용(프로젝트 불필요).
-2) require_permission: JWT access + system_db에서 project_ptcpnt_info·pmssn_master.pmssn_list 조회.
-   `pmssn_list` 원소는 `pmssn_detail_name` 문자열이 표준; 레거시 PK 숫자 문자열은
-   `pmssn_master_detail`로 치환한다. **구 `etl_manager` 역할 폐지** — 프로젝트 기능은 `user_dvsn·pmssn`만으로 판별.
-   `sa_dev`·`sa`·`a` 는 참여 프로젝트에서 권한 ID `query.read` 등 자동 허용(docs/main/05 v3). 해당 API는 `Backend.query_studio_server` 라우터.
-3) get_effective_permission_ids_for_me: /api/auth/me용 — 자동 역할이면 §8 기능 ID를 permissions에 합침.
+2) require_permission: JWT + project_ptcpnt_info·pmssn_master + **project_info.feature_flags** 교집합.
+   `pmssn_list`는 `pmssn_detail_name` 문자열 표준. `sa_dev`·`sa`·`a`는 참여 시 §8 기능 ID를 **후보**로 합치되,
+   **프로젝트 feature_flags에서 꺼진 기능은 API·/me 모두 거부·미노출**.
+3) get_effective_permission_ids_for_me: /me — `compute_effective_project_permission_ids`와 동일.
+4) get_project_enabled_feature_ids: `feature_flags` jsonb(query·dash·widget) → 권한 ID 집합(NULL·컬럼 없음이면 전체 허용).
 
 [Main Functions]
 ===========
@@ -15,9 +15,11 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 3. is_project_participant: project_ptcpnt_info 존재 여부
 4. resolve_pmssn_list_to_names: pmssn_list 배열 → pmssn_detail_name 목록
 5. get_permission_ids_for_user_project: 유저·프로젝트별 권한ID 목록(정규화)
-6. get_effective_permission_ids_for_me: /me permissions (자동 역할 병합)
-7. require_etl_infrastructure: ETL 라우터용 Depends
-8. require_permission: FastAPI Depends 팩토리 (*필요 권한 AND)
+6. get_project_enabled_feature_ids: project_info.feature_flags → frozenset(컬럼 없음·NULL이면 전체)
+7. compute_effective_project_permission_ids: (pmssn∪자동)∩enabled
+8. get_effective_permission_ids_for_me: /me — compute 호출
+9. require_etl_infrastructure: ETL 라우터용 Depends
+10. require_permission: FastAPI Depends 팩토리 (*필요 권한 AND)
 
 [Dependencies]
 =========
@@ -32,6 +34,7 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import Depends, HTTPException
+from psycopg2 import errors as pg_errors
 
 from Backend.auth_server.deps import get_access_payload
 from Backend.core.dependencies import get_system_db
@@ -42,11 +45,13 @@ _MSG_FORBIDDEN = "이 작업을 수행할 권한이 없습니다."
 _MSG_ETL_INFRA = (
     "ETL 관리 기능은 SA_DEV이거나 ETL 관리자 자격(etl_yn=Y)이 있는 계정만 사용할 수 있습니다."
 )
+_MSG_PROJECT_FEATURE_OFF = "이 프로젝트에서 사용할 수 없는 기능입니다."
 
 # 프로젝트 UI 기능(매트릭스 §8). ETL 관리자 판별은 별도 require_etl_infrastructure.
-_PROJECT_FEATURE_IDS = frozenset(
+PROJECT_UI_FEATURE_IDS = frozenset(
     {"query.read", "query.execute", "dashboard", "widgetboard"}
 )
+_PROJECT_FEATURE_IDS = PROJECT_UI_FEATURE_IDS
 _AUTO_PROJECT_ROLES = frozenset({"sa_dev", "sa", "a"})
 
 
@@ -162,22 +167,81 @@ def get_permission_ids_for_user_project(
 
 
 # 6.
-def get_effective_permission_ids_for_me(
+def _feature_flags_dict_to_ids(flags: dict[str, Any]) -> frozenset[str]:
+    """query→query.read+query.execute, dash→dashboard, widget→widgetboard."""
+    out: set[str] = set()
+    if flags.get("query"):
+        out.update({"query.read", "query.execute"})
+    if flags.get("dash"):
+        out.add("dashboard")
+    if flags.get("widget"):
+        out.add("widgetboard")
+    return frozenset(out)
+
+
+def get_project_enabled_feature_ids(conn, project_info_id: int) -> frozenset[str]:
+    """project_info.feature_flags(JSONB). NULL·미설정·컬럼 없음=레거시 전체 허용."""
+    cur = conn.cursor()
+    try:
+        try:
+            cur.execute(
+                """
+                SELECT feature_flags FROM project_info WHERE project_info_id = %s
+                """,
+                (project_info_id,),
+            )
+        except pg_errors.UndefinedColumn:
+            return frozenset(_PROJECT_FEATURE_IDS)
+        row = cur.fetchone()
+        if not row:
+            return frozenset(_PROJECT_FEATURE_IDS)
+        raw = row.get("feature_flags")
+        if raw is None:
+            return frozenset(_PROJECT_FEATURE_IDS)
+        if isinstance(raw, str):
+            import json
+
+            raw = json.loads(raw)
+        if not isinstance(raw, dict):
+            return frozenset(_PROJECT_FEATURE_IDS)
+        q = bool(raw.get("query", True))
+        d = bool(raw.get("dash", True))
+        w = bool(raw.get("widget", True))
+        return _feature_flags_dict_to_ids({"query": q, "dash": d, "widget": w})
+    finally:
+        cur.close()
+
+
+# 7.
+def compute_effective_project_permission_ids(
     conn,
     user_id: int,
     project_info_id: int,
     user_dvsn: str | None,
 ) -> list[str]:
     dvsn = canon_user_dvsn(user_dvsn)
-    base = get_permission_ids_for_user_project(conn, user_id, project_info_id)
+    enabled = get_project_enabled_feature_ids(conn, project_info_id)
+    base = set(get_permission_ids_for_user_project(conn, user_id, project_info_id))
     if dvsn in _AUTO_PROJECT_ROLES and is_project_participant(
         conn, user_id, project_info_id
     ):
-        return sorted(set(base) | set(_PROJECT_FEATURE_IDS))
-    return base
+        base |= set(_PROJECT_FEATURE_IDS)
+    return sorted(base & set(enabled))
 
 
-# 7.
+# 8.
+def get_effective_permission_ids_for_me(
+    conn,
+    user_id: int,
+    project_info_id: int,
+    user_dvsn: str | None,
+) -> list[str]:
+    return compute_effective_project_permission_ids(
+        conn, user_id, project_info_id, user_dvsn
+    )
+
+
+# 9.
 def require_etl_infrastructure(
     payload: dict = Depends(get_access_payload),
     conn=Depends(get_system_db),
@@ -188,7 +252,7 @@ def require_etl_infrastructure(
     return payload
 
 
-# 8.
+# 10.
 def require_permission(*required: str) -> Callable[..., dict[str, Any]]:
     needed = tuple(required)
 
@@ -197,23 +261,25 @@ def require_permission(*required: str) -> Callable[..., dict[str, Any]]:
         conn=Depends(get_system_db),
     ) -> dict[str, Any]:
         user_id = int(payload["user_id"])
-        dvsn = canon_user_dvsn(get_user_dvsn_lower(conn, user_id))
+        raw_dvsn = get_user_dvsn_lower(conn, user_id)
 
         raw_pid = payload.get("project_info_id")
         if raw_pid is None:
             raise HTTPException(status_code=403, detail=_MSG_NO_PROJECT)
         project_info_id = int(raw_pid)
 
-        if dvsn in _AUTO_PROJECT_ROLES and is_project_participant(
-            conn, user_id, project_info_id
-        ):
-            if needed and all(n in _PROJECT_FEATURE_IDS for n in needed):
-                return payload
-
-        perms = get_permission_ids_for_user_project(conn, user_id, project_info_id)
+        eff = compute_effective_project_permission_ids(
+            conn, user_id, project_info_id, raw_dvsn
+        )
+        eff_set = set(eff)
         for n in needed:
-            if n not in perms:
-                raise HTTPException(status_code=403, detail=_MSG_FORBIDDEN)
+            if n not in eff_set:
+                raise HTTPException(
+                    status_code=403,
+                    detail=_MSG_PROJECT_FEATURE_OFF
+                    if n in _PROJECT_FEATURE_IDS
+                    else _MSG_FORBIDDEN,
+                )
         return payload
 
     return dependency

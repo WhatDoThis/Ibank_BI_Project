@@ -20,6 +20,11 @@ import {
   canAccessProjectAdminPages,
 } from '@/app/admin/adminAccess.js'
 import { canAccessEtl } from '@/app/guards/etlAccess.js'
+import {
+  canAccessDashboard,
+  canAccessQueryStudio,
+  canAccessWidgetboard,
+} from '@/app/home/homeAccess.js'
 import { NotificationBell } from './NotificationBell.jsx'
 import { SidebarNavIcon } from './SidebarNavIcon.jsx'
 
@@ -43,6 +48,9 @@ export function ProtectedLayout() {
       if (item.requiresOrgAdmin && !canAccessOrgAdmin(me)) return false
       if (item.requiresDeptAdmin && !canAccessDeptSettings(me)) return false
       if (item.requiresProjectAdmin && !canAccessProjectAdminPages(me)) return false
+      if (item.to === '/query-studio' && !canAccessQueryStudio(me)) return false
+      if (item.to === '/dashboard' && !canAccessDashboard(me)) return false
+      if (item.to === '/widgetboard' && !canAccessWidgetboard(me)) return false
       return true
     })
   }, [me])

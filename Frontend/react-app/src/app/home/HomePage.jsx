@@ -30,6 +30,7 @@ import {
   canAccessDashboard,
   canAccessQueryStudio,
   canAccessWidgetboard,
+  pickDefaultProjectPath,
 } from '@/app/home/homeAccess.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
@@ -61,8 +62,8 @@ export default function HomePage() {
     setError('')
     try {
       await postSelectProject(projectInfoId)
-      await refreshMe()
-      navigate('/query-studio', { replace: true })
+      const prof = await refreshMe()
+      navigate(pickDefaultProjectPath(prof || me), { replace: true })
     } catch (e) {
       setError(e?.message || '프로젝트 선택 실패')
     } finally {
@@ -70,8 +71,9 @@ export default function HomePage() {
     }
   }
 
-  function handleContinueApp() {
-    navigate('/query-studio')
+  async function handleContinueApp() {
+    const prof = await refreshMe()
+    navigate(pickDefaultProjectPath(prof || me), { replace: true })
   }
 
   const hasProject = hasProjectClaim(getAccessToken())
@@ -91,8 +93,8 @@ export default function HomePage() {
 
       {hasProject ? (
         <div className="home__continue">
-          <button type="button" onClick={handleContinueApp}>
-            이전에 선택한 프로젝트로 계속 (쿼리 스튜디오)
+          <button type="button" onClick={() => handleContinueApp()}>
+            이전에 선택한 프로젝트로 계속
           </button>
         </div>
       ) : null}

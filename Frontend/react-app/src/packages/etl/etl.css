@@ -2,9 +2,11 @@
  * packages/etl/etl.css
  * ETL 페이지 스타일. Phase 5: 소스 선택·폼·목록·Job 로그.
  * Phase 6: etl-db-form__message--warning(PK 미설정 경고), etl-db-form__status-badge(ETL 목록·배치 Job 공통 상태 뱃지). 넓은 테이블 가로 스크롤: etl-db-form__table-wrap(등록 ETL·배치 Job 목록 공통), 툴바는 래퍼 밖.
+ * ETLPage: etl-page__guide-wrap(탭 아래 접이식 안내 카드), etl-page__guide-lead, etl-page__tip--in-card.
  * TargetTableSelectModal: etl-target-select-modal__transform-guidance(변환 타입·적재 안내).
  * 파일 폼: 드래그 오버(--over)·파일 선택됨(--has) 시 가시적 드롭존 스타일.
  * 색상: styles/design-tokens.css 브랜드(Starbucks 그린) — --color-action-primary, --primary-light, --color-text, --color-border-light 등.
+ * 접이식 카드·ETL 목록 thead: --etl-table-list-th-description-border(설명 열 헤더 톤과 동일 그린 테두리).
  */
 .etl-page {
   width: 100%;
@@ -13,6 +15,8 @@
   padding: 0;
   box-sizing: border-box;
   font-family: var(--font-sans);
+  /* 목록 테이블 thead(설명 열 etl-table-list__th-description 포함)·접이식 카드 섹션 공통 테두리 */
+  --etl-table-list-th-description-border: rgba(0, 112, 74, 0.38);
 }
 .etl-page__header {
   margin-bottom: 20px;
@@ -67,6 +71,18 @@
   margin: 0 0 8px 0;
   font-weight: 600;
   font-size: 0.95rem;
+}
+.etl-page__guide-wrap {
+  margin-bottom: 16px;
+}
+.etl-page__guide-lead {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.etl-page__tip--in-card {
+  margin-top: 0;
 }
 .etl-page__how-list {
   margin: 0;
@@ -468,6 +484,9 @@
 .etl-db-form__section--card:last-child {
   margin-bottom: 0;
 }
+.etl-db-form__section--card.etl-db-form__section--collapsible {
+  border-color: var(--etl-table-list-th-description-border, rgba(0, 112, 74, 0.38));
+}
 /* 접기/펼치기 카드 섹션 */
 .etl-db-form__section--collapsible .etl-db-form__card-toggle {
   display: flex;
@@ -497,7 +516,7 @@
 }
 .etl-db-form__section--collapsible .etl-db-form__card-body {
   padding-top: 4px;
-  border-top: 1px solid var(--color-border-light);
+  border-top: 1px solid var(--etl-table-list-th-description-border, rgba(0, 112, 74, 0.38));
   margin-top: 8px;
 }
 .etl-db-form__section--collapsible .etl-db-form__card-body .etl-db-form__subtitle {
@@ -1057,6 +1076,9 @@
 .etl-table-list__table th {
   background: var(--primary-light);
   font-weight: 600;
+}
+.etl-table-list__table thead th {
+  border-color: var(--etl-table-list-th-description-border, rgba(0, 112, 74, 0.38));
 }
 .etl-table-list__pk-cell {
   text-align: center;

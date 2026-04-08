@@ -284,11 +284,26 @@ dptmt_info_id            int4            FK→dptmt_info 소속 부서
 project_create_user_id   int4            FK→user_info  생성자
 project_name             varchar(100)    NOT NULL      프로젝트명
 project_dscrtn           varchar(500)                  프로젝트 설명
-project_active_yn        varchar(1)      DEFAULT 'Y'   활성 여부
-create_dtm               timestamp       NOT NULL      생성일시
-update_dtm               timestamp       NOT NULL      수정일시
+active_yn                varchar(1)      DEFAULT 'Y'   활성 여부
+create_dtm               timestamp       DEFAULT now() 생성일시
+update_dtm               timestamp                     최종 수정일시
+feature_flags            jsonb           DEFAULT       프로젝트 단위 UI 기능 on/off
+                                         '{"query":true,
+                                          "dash":true,
+                                          "widget":true}'
 
-※ 생성 시 생성자가 project_ptcpnt_info에 관리자 역할로 자동 등록
+**feature_flags** (JSONB): 앱·백엔드에서 프로젝트에 켤 페이지만 노출·API 허용하는 단일 기준이다.
+
+| 키     | 의미            | effective 권한 ID (역할과 교집합)        |
+|--------|-----------------|------------------------------------------|
+| query  | 쿼리 스튜디오   | query.read, query.execute                |
+| dash   | 캠페인 대시보드 | dashboard                                |
+| widget | 위젯보드       | widgetboard                              |
+
+- 행의 값이 `NULL`이거나 컬럼이 없으면(구 DB) **세 기능 모두 허용**으로 해석한다.
+- 어드민 생성·수정 API는 `feature_flags` 객체로 저장한다. 기본값은 위 DEFAULT와 동일.
+
+※ 생성 시 생성자가 `project_ptcpnt_info`에 선택한 역할로 자동 등록된다.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

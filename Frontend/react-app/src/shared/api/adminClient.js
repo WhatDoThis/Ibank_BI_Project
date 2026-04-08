@@ -9,7 +9,7 @@
  * - getAdminOrg, patchAdminOrg, getAdminOrgDepartments, postAdminOrgDepartment, patchAdminOrgDepartment, deleteAdminOrgDepartment
  * - getAdminRoles, postAdminRole, putAdminRole, deleteAdminRole
  * - getAdminRolePermissionOptions, getAdminRoleUsages, getAdminRoleProjectParticipants, getAdminRoleUserUsages
- * - getAdminProjects, postAdminProject, patchAdminProject, deleteAdminProject
+ * - getAdminProjects, getAdminProjectTables, postAdminProject, patchAdminProject, deleteAdminProject
  * - getAdminProjectMembers, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
  * - getAdminUsersSearch
  * - getAdminInviteDepartments, getAdminInviteProjects, getAdminInviteRoles, postAdminInvite
@@ -183,11 +183,16 @@ export async function getAdminProjects() {
   return request('GET', '/api/admin/projects')
 }
 
+/** @returns {Promise<{ items?: Array<{ table_master_id: number, db_type?: string, table_name?: string, table_label?: string }> }>} */
+export async function getAdminProjectTables(projectInfoId) {
+  return request('GET', `/api/admin/projects/${projectInfoId}/tables`)
+}
+
 /**
  * @param {{
  *   project_name: string,
  *   project_dscrtn?: string|null,
- *   enabled_pages?: string[]|null,
+ *   feature_flags?: { query?: boolean, dash?: boolean, widget?: boolean }|null,
  *   table_master_ids?: number[],
  *   creator_pmssn_master_id: number,
  *   members?: { user_id: number, pmssn_master_id: number }[],
@@ -198,7 +203,15 @@ export async function postAdminProject(body) {
   return request('POST', '/api/admin/projects', body)
 }
 
-/** @param {{ project_name?: string|null, project_dscrtn?: string|null, active_yn?: string|null }} body */
+/**
+ * @param {{
+ *   project_name?: string|null,
+ *   project_dscrtn?: string|null,
+ *   active_yn?: string|null,
+ *   feature_flags?: { query?: boolean, dash?: boolean, widget?: boolean }|null,
+ *   table_master_ids?: number[]|null,
+ * }} body
+ */
 export async function patchAdminProject(projectInfoId, body) {
   return request('PATCH', `/api/admin/projects/${projectInfoId}`, body)
 }

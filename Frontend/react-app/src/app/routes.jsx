@@ -1,7 +1,7 @@
 /**
  * app/routes.jsx (앱 라우트 집합 — 페이지는 auth/home/mypage/admin/layout/guards)
  * ===============================
- * app/layout/ProtectedLayout. /admin: … ETL은 app/guards/EtlAccessRoute.
+ * app/layout/ProtectedLayout. /admin: … ETL은 EtlAccessRoute. 프로젝트 작업은 NeedProjectRoute + ProjectFeatureRoute.
  *
  * [Main]
  * 1. AppRoutes — 전체 Route 트리
@@ -26,6 +26,7 @@ import AdminProjectsPage from '@/app/admin/AdminProjectsPage.jsx'
 import AdminProjectMembersPage from '@/app/admin/AdminProjectMembersPage.jsx'
 import { ProtectedLayout } from '@/app/layout/ProtectedLayout.jsx'
 import { NeedProjectRoute } from '@/app/guards/NeedProjectRoute.jsx'
+import { ProjectFeatureRoute } from '@/app/guards/ProjectFeatureRoute.jsx'
 import { EtlAccessRoute } from '@/app/guards/EtlAccessRoute.jsx'
 import { OrgAdminRoute } from '@/app/guards/OrgAdminRoute.jsx'
 import { SuperAdminRoute } from '@/app/guards/SuperAdminRoute.jsx'
@@ -85,7 +86,9 @@ export function AppRoutes() {
           path="/query-studio"
           element={
             <NeedProjectRoute>
-              <QueryStudioPage />
+              <ProjectFeatureRoute feature="query-studio">
+                <QueryStudioPage />
+              </ProjectFeatureRoute>
             </NeedProjectRoute>
           }
         />
@@ -93,7 +96,9 @@ export function AppRoutes() {
           path="/dashboard"
           element={
             <NeedProjectRoute>
-              <CampaignDashboardPage />
+              <ProjectFeatureRoute feature="dashboard">
+                <CampaignDashboardPage />
+              </ProjectFeatureRoute>
             </NeedProjectRoute>
           }
         />
@@ -102,7 +107,9 @@ export function AppRoutes() {
           path="/widgetboard"
           element={
             <NeedProjectRoute>
-              <WidgetboardPage />
+              <ProjectFeatureRoute feature="widgetboard">
+                <WidgetboardPage />
+              </ProjectFeatureRoute>
             </NeedProjectRoute>
           }
         />

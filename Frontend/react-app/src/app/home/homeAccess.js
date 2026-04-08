@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * - hasPermission, canAccessQueryStudio, canAccessDashboard, canAccessWidgetboard
+ * - hasPermission, canAccessQueryStudio, canAccessDashboard, canAccessWidgetboard, pickDefaultProjectPath
  *
  * [Dependencies]
  * =========
@@ -30,4 +30,17 @@ export function canAccessDashboard(me) {
 
 export function canAccessWidgetboard(me) {
   return hasPermission(me, 'widgetboard')
+}
+
+/**
+ * JWT /me 기준 허용된 첫 프로젝트 작업 경로(대시보드 → 쿼리 스튜디오 → 위젯보드).
+ * 권한이 없으면 홈 `/`.
+ */
+export function pickDefaultProjectPath(me) {
+  const p = me?.permissions
+  if (!Array.isArray(p) || p.length === 0) return '/'
+  if (p.includes('dashboard')) return '/dashboard'
+  if (p.includes('query.read') || p.includes('query.execute')) return '/query-studio'
+  if (p.includes('widgetboard')) return '/widgetboard'
+  return '/'
 }

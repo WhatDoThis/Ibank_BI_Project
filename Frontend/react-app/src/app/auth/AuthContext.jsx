@@ -1,7 +1,7 @@
 /**
  * app/auth/AuthContext.jsx (인증 컨텍스트)
  * ================================
- * /api/auth/me 로 프로필 로드·refreshMe·logout. S5/S6·마이페이지(S7) 공용.
+ * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. S5/S6·마이페이지(S7) 공용.
  *
  * [Main Functions]
  * ===========
@@ -34,14 +34,16 @@ export function AuthProvider({ children }) {
     const at = getAccessToken()
     if (!at) {
       setMe(null)
-      return
+      return null
     }
     try {
       const data = await getMe()
       setMe(data)
+      return data
     } catch (e) {
       setMe(null)
       if (e?.status === 401) clearTokens()
+      return null
     }
   }, [])
 

@@ -83,7 +83,13 @@ def admin_users_search(
     if c not in ORG_OR_OPERATOR_DVSN:
         return {"items": []}
     scope = int(actor["dptmt_info_id"]) if c == "o" else None
-    return {"items": service_users.search_users_by_email(conn, q, scope_dptmt_id=scope)}
+    exclude_zero = c != "sa_dev" and int(actor["dptmt_info_id"]) != 0
+    use_exclude = exclude_zero and scope is None
+    return {
+        "items": service_users.search_users_by_email(
+            conn, q, scope_dptmt_id=scope, exclude_dptmt_zero=use_exclude
+        )
+    }
 
 
 @router.post("/users/invite")
@@ -665,12 +671,14 @@ def admin_projects_create(
             conn,
             int(actor["user_id"]),
             int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
             body.project_name,
             body.project_dscrtn,
             int(body.creator_pmssn_master_id),
             list(body.table_master_ids),
             [m.model_dump() for m in body.members],
             [x.model_dump() for x in body.external_invites],
+            body.feature_flags.model_dump() if body.feature_flags is not None else None,
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -693,6 +701,10 @@ def admin_projects_patch(
             body.project_dscrtn,
             body.active_yn,
             actor_dvsn=str(actor.get("user_dvsn") or ""),
+            feature_flags=body.feature_flags.model_dump()
+            if body.feature_flags is not None
+            else None,
+            table_master_ids=body.table_master_ids,
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -842,6 +854,7 @@ def admin_project_member_add(
             conn,
             int(actor["user_id"]),
             int(actor["dptmt_info_id"]),
+            str(actor.get("user_dvsn") or ""),
             project_info_id,
             body.ptcpnt_user_id,
             body.pmssn_master_id,

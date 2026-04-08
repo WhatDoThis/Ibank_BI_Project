@@ -4,7 +4,7 @@
 
 **근거 문서**: 사용자가 전달한 구현 명세서, `docs/main/04_DB_ARCHITECTURE.md`(table_project_mapping·notification_info), `docs/main/05_Permission_ARCHITECTURE.md`(pmssn·기능 ID), `docs/main/03_AI_DEVELOP_GUIDE.md`(허용 테이블 = 매핑).
 
-**주의**: `project_info` 실컬럼은 코드 기준 **`active_yn`** (문서 04의 `project_active_yn` 표기와 불일치 시 DB 실측 우선). `table_master.del_yn` 컬럼은 현재 코드베이스에 없음 — 목록 API는 전체 행 기준, 필요 시 DDL 추가 후 필터.
+**주의**: `project_info`에 **`feature_flags` jsonb**(`query`,`dash`,`widget`)로 프로젝트 단위 페이지 on/off를 저장한다. `table_master.del_yn` 컬럼은 현재 코드베이스에 없음 — 목록 API는 전체 행 기준, 필요 시 DDL 추가 후 필터.
 
 ---
 
@@ -13,7 +13,7 @@
 | 항목 | 내용 |
 |------|------|
 | `service_projects` | `default_manager_pmssn_master_id` 삭제. `create_project_full` 추가(단일 트랜잭션). |
-| `schemas` | `ProjectCreateBody` 확장: `creator_pmssn_master_id`, `enabled_pages`(무시), `table_master_ids`, `members`, `external_invites`. |
+| `schemas` | `ProjectCreateBody` 확장: `creator_pmssn_master_id`, `feature_flags`(query·dash·widget), `table_master_ids`, `members`, `external_invites`. |
 | `admin_server/router` | `POST /api/admin/projects` → `create_project_full`. |
 | `service_tables` | 테이블 마스터 목록 정렬 모드 `sort=project_create` (dash→main, update_dtm DESC NULLS LAST, table_name ASC). |
 | `admin_server/router` | `GET /api/admin/tables?sort=project_create`. |
@@ -46,11 +46,12 @@
 
 ## API 요약 (명세 반영)
 
-- `POST /api/admin/projects` — 바디: `project_name`, `project_dscrtn`, `creator_pmssn_master_id`(필수), `enabled_pages`(무시), `table_master_ids`, `members[]`, `external_invites[]`.
+- `POST /api/admin/projects` — 바디: `project_name`, `project_dscrtn`, `creator_pmssn_master_id`(필수), `feature_flags`(`query`,`dash`,`widget`, 생략 시 전부 true), `table_master_ids`, `members[]`, `external_invites[]`.
 - `POST /api/projects/{project_info_id}/accept-invite` — 바디: `{ "notification_info_id": N }` (로그인 사용자 = 초대 수신자).
 - `GET /api/admin/tables?sort=project_create`
 - `GET /api/admin/users?scope=dept_tree`
 - `GET /api/admin/roles?scope=project_assignable` — 생성 모달·멤버 배정용(시스템+부서 커스텀).
+- `GET /api/admin/users/search` — 전역 검색 시 **액터가 sa_dev가 아니고 소속 부서가 0이 아니면** `dptmt_info_id=0`(개발·시스템 부서) 소속 계정은 결과에서 제외. `POST /projects`·멤버 추가도 동일 정책으로 서버 검증.
 
 ---
 

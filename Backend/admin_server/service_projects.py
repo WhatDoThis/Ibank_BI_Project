@@ -11,11 +11,13 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 4. list_members(invite_user 이메일·닉네임·create_dtm) / add_member / update_member_role / remove_member
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
+7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
 
 [Dependencies]
 =========
 - Backend.notification_server.service.insert_notification(add_member 경로만, create_project_full는 동일 conn 트랜잭션 내 raw INSERT)
 - json
+- psycopg2.extras.Json(feature_flags)
 """
 
 from __future__ import annotations
@@ -23,7 +25,65 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from psycopg2.extras import Json
+
 from Backend.notification_server import service as notif_service
+
+_DEFAULT_FEATURE_FLAGS: dict[str, bool] = {"query": True, "dash": True, "widget": True}
+
+
+def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
+    """API 바디·부분 dict → DB 저장용 {query,dash,widget}. 생략 시 전부 true."""
+    if raw is None:
+        return dict(_DEFAULT_FEATURE_FLAGS)
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    if not isinstance(raw, dict):
+        return dict(_DEFAULT_FEATURE_FLAGS)
+    out = dict(_DEFAULT_FEATURE_FLAGS)
+    for k in ("query", "dash", "widget"):
+        if k in raw:
+            out[k] = bool(raw[k])
+    return out
+
+
+def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: list[int]) -> None:
+    """매핑 집합을 요청 목록과 일치시킨다(없는 table_master는 검증 후 추가, 목록 밖은 삭제)."""
+    ids = list(dict.fromkeys(int(x) for x in table_master_ids if x is not None))
+    for tmid in ids:
+        cur.execute(
+            "SELECT 1 FROM table_master WHERE table_master_id = %s",
+            (tmid,),
+        )
+        if not cur.fetchone():
+            raise ValueError(f"테이블 마스터를 찾을 수 없습니다. (table_master_id={tmid})")
+    if not ids:
+        cur.execute(
+            "DELETE FROM table_project_mapping WHERE project_info_id = %s",
+            (int(project_info_id),),
+        )
+        return
+    ph = ", ".join(["%s"] * len(ids))
+    cur.execute(
+        f"""
+        DELETE FROM table_project_mapping
+        WHERE project_info_id = %s
+          AND table_master_id NOT IN ({ph})
+        """,
+        (int(project_info_id), *ids),
+    )
+    for tmid in ids:
+        cur.execute(
+            """
+            INSERT INTO table_project_mapping (project_info_id, table_master_id, create_dtm)
+            SELECT %s, %s, NOW()
+            WHERE NOT EXISTS (
+                SELECT 1 FROM table_project_mapping
+                WHERE project_info_id = %s AND table_master_id = %s
+            )
+            """,
+            (int(project_info_id), tmid, int(project_info_id), tmid),
+        )
 
 
 def _user_in_actor_dept_scope(cur, actor_dptmt_id: int, target_user_id: int) -> bool:
@@ -48,6 +108,42 @@ def _user_in_actor_dept_scope(cur, actor_dptmt_id: int, target_user_id: int) -> 
         (int(actor_dptmt_id), int(target_user_id)),
     )
     return cur.fetchone() is not None
+
+
+def _actor_may_manage_system_dev_department_users(
+    actor_dvsn: str | None, actor_dptmt_id: int
+) -> bool:
+    """dptmt_info_id=0 소속 사용자를 검색·프로젝트 멤버로 지정할 수 있는지: sa_dev 또는 액터 소속이 0번 부서."""
+    ad = (actor_dvsn or "").strip().lower()
+    if ad == "sa_dev":
+        return True
+    try:
+        return int(actor_dptmt_id) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _assert_target_not_hidden_system_dev_member(
+    cur,
+    actor_dvsn: str | None,
+    actor_dptmt_id: int,
+    target_user_id: int,
+) -> None:
+    """일반 부서 관리자가 개발(0) 부서 소속 계정을 멤버로 넣지 못하게 한다."""
+    if _actor_may_manage_system_dev_department_users(actor_dvsn, actor_dptmt_id):
+        return
+    cur.execute(
+        "SELECT dptmt_info_id FROM user_info WHERE user_id = %s",
+        (int(target_user_id),),
+    )
+    row = cur.fetchone()
+    if not row:
+        return
+    td = row.get("dptmt_info_id")
+    if td is not None and int(td) == 0:
+        raise ValueError(
+            "개발(시스템) 부서 소속 사용자는 일반 부서 관리 화면에서 지정할 수 없습니다."
+        )
 
 
 def _assert_project_owned(cur, dptmt_info_id: int, project_info_id: int) -> None:
@@ -112,7 +208,7 @@ def list_projects_in_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
         cur.execute(
             """
             SELECT pi.project_info_id, pi.dptmt_info_id, pi.project_name, pi.project_dscrtn, pi.active_yn,
-                   pi.create_dtm, pi.project_create_user_id,
+                   pi.create_dtm, pi.project_create_user_id, pi.feature_flags,
                    NULLIF(TRIM(u.user_email), '') AS creator_email
             FROM project_info pi
             LEFT JOIN user_info u ON u.user_id = pi.project_create_user_id
@@ -134,7 +230,7 @@ def list_projects_for_participant(
         cur.execute(
             """
             SELECT pi.project_info_id, pi.dptmt_info_id, pi.project_name, pi.project_dscrtn,
-                   pi.active_yn, pi.create_dtm, pi.project_create_user_id,
+                   pi.active_yn, pi.create_dtm, pi.project_create_user_id, pi.feature_flags,
                    NULLIF(TRIM(uc.user_email), '') AS creator_email,
                    m.pmssn_name AS role_name
             FROM project_info pi
@@ -156,12 +252,14 @@ def create_project_full(
     conn,
     actor_user_id: int,
     actor_dptmt_id: int,
+    actor_dvsn: str | None,
     project_name: str,
     project_dscrtn: str | None,
     creator_pmssn_master_id: int,
     table_master_ids: list[int] | None,
     members: list[dict[str, Any]] | None,
     external_invites: list[dict[str, Any]] | None,
+    feature_flags: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     프로젝트 생성 + 테이블 매핑 + 부서 내 멤버 + 타부서 알림 초대를 단일 트랜잭션으로 처리한다.
@@ -173,16 +271,24 @@ def create_project_full(
     tid_list = list(dict.fromkeys(int(x) for x in (table_master_ids or []) if x is not None))
     mem_list = members or []
     ext_list = external_invites or []
+    flags_store = normalize_feature_flags_for_db(feature_flags)
     cur = conn.cursor()
     try:
         cur.execute(
             """
             INSERT INTO project_info (
-                dptmt_info_id, project_create_user_id, project_name, project_dscrtn, active_yn, create_dtm
-            ) VALUES (%s, %s, %s, %s, 'Y', NOW())
+                dptmt_info_id, project_create_user_id, project_name, project_dscrtn,
+                active_yn, create_dtm, feature_flags
+            ) VALUES (%s, %s, %s, %s, 'Y', NOW(), %s)
             RETURNING project_info_id
             """,
-            (actor_dptmt_id, actor_user_id, pname, project_dscrtn),
+            (
+                actor_dptmt_id,
+                actor_user_id,
+                pname,
+                project_dscrtn,
+                Json(flags_store),
+            ),
         )
         pid = int(cur.fetchone()["project_info_id"])
 
@@ -227,6 +333,7 @@ def create_project_full(
                 continue
             if uid == actor_user_id:
                 continue
+            _assert_target_not_hidden_system_dev_member(cur, actor_dvsn, actor_dptmt_id, uid)
             if not _user_in_actor_dept_scope(cur, actor_dptmt_id, uid):
                 raise ValueError(f"부서 트리에 속하지 않는 사용자입니다. (user_id={uid})")
             _assert_pmssn_for_project(cur, pid, mid)
@@ -266,11 +373,26 @@ def create_project_full(
                     % iuid
                 )
             cur.execute(
-                "SELECT 1 FROM user_info WHERE user_id = %s AND UPPER(TRIM(COALESCE(user_active_yn,'Y'))) = 'Y'",
+                """
+                SELECT dptmt_info_id FROM user_info
+                WHERE user_id = %s AND UPPER(TRIM(COALESCE(user_active_yn,'Y'))) = 'Y'
+                """,
                 (iuid,),
             )
-            if not cur.fetchone():
+            uinv = cur.fetchone()
+            if not uinv:
                 raise ValueError(f"초대 대상 사용자를 찾을 수 없거나 비활성입니다. (user_id={iuid})")
+            td_inv = uinv.get("dptmt_info_id")
+            if (
+                td_inv is not None
+                and int(td_inv) == 0
+                and not _actor_may_manage_system_dev_department_users(
+                    actor_dvsn, actor_dptmt_id
+                )
+            ):
+                raise ValueError(
+                    "개발(시스템) 부서 소속 사용자는 타부서 초대로 지정할 수 없습니다."
+                )
             _assert_pmssn_for_project(cur, pid, imid)
             cur.execute(
                 """
@@ -329,6 +451,8 @@ def update_project(
     project_dscrtn: str | None,
     active_yn: str | None,
     actor_dvsn: str | None = None,
+    feature_flags: dict[str, Any] | None = None,
+    table_master_ids: list[int] | None = None,
 ) -> None:
     cur = conn.cursor()
     try:
@@ -337,8 +461,13 @@ def update_project(
         else:
             _assert_project_owned(cur, dptmt_info_id, project_info_id)
 
-        if (actor_dvsn or "").strip().lower() == "o" and active_yn is not None:
+        ad = (actor_dvsn or "").strip().lower()
+        if ad == "o" and active_yn is not None:
             raise ValueError("프로젝트 운영자는 활성 여부를 변경할 수 없습니다.")
+        if ad == "o" and (feature_flags is not None or table_master_ids is not None):
+            raise ValueError(
+                "프로젝트 운영자는 기능 플래그·테이블 매핑을 변경할 수 없습니다."
+            )
 
         sets: list[str] = []
         params: list[Any] = []
@@ -351,15 +480,23 @@ def update_project(
         if active_yn is not None:
             sets.append("active_yn = %s")
             params.append((active_yn or "")[:1])
-        if not sets:
+        if feature_flags is not None:
+            sets.append("feature_flags = %s")
+            params.append(Json(normalize_feature_flags_for_db(feature_flags)))
+        if sets:
+            sets.append("update_dtm = NOW()")
+            params.append(project_info_id)
+            cur.execute(
+                f"UPDATE project_info SET {', '.join(sets)} WHERE project_info_id = %s",
+                params,
+            )
+        elif feature_flags is None and table_master_ids is None:
             conn.commit()
             return
-        sets.append("update_dtm = NOW()")
-        params.append(project_info_id)
-        cur.execute(
-            f"UPDATE project_info SET {', '.join(sets)} WHERE project_info_id = %s",
-            params,
-        )
+
+        if table_master_ids is not None:
+            _sync_project_table_mappings(cur, project_info_id, list(table_master_ids))
+
         conn.commit()
     except ValueError:
         conn.rollback()
@@ -422,6 +559,7 @@ def add_member(
     conn,
     actor_user_id: int,
     dptmt_info_id: int,
+    actor_dvsn: str | None,
     project_info_id: int,
     ptcpnt_user_id: int,
     pmssn_master_id: int,
@@ -436,6 +574,9 @@ def add_member(
         )
         if not cur.fetchone():
             raise ValueError("사용자를 찾을 수 없습니다.")
+        _assert_target_not_hidden_system_dev_member(
+            cur, actor_dvsn, dptmt_info_id, ptcpnt_user_id
+        )
         cur.execute(
             """
             SELECT 1 FROM project_ptcpnt_info
