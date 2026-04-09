@@ -5,6 +5,7 @@
  * 헤더: 이메일 · ProjectHeaderSelect(GET /api/projects) · NotificationBell
  * 사이드바 브랜드: 접힘 시 시린 마크, 펼침 시 워드마크. 네비 접힘 시 항목은 아이콘만 표시.
  * docs/ui/UI_UX_재사용_가이드.md §2·§5
+ * ShellChromeProvider: 하위 페이지가 셸 헤더·브레드크럼 현재 칸 제목을 덮어쓸 수 있음(위젯보드 캔버스 보드명).
  */
 
 import { useMemo } from 'react'
@@ -12,6 +13,7 @@ import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-route
 
 import { NAV_ITEMS } from './navConfig.js'
 import { pageTitleFromPath } from './pageTitles.js'
+import { ShellChromeProvider, useShellChrome } from './ShellChromeOverrideContext.jsx'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import { hasProjectClaim } from '@/shared/auth/jwtUtils.js'
 import { getAccessToken } from '@/shared/auth/tokenStorage.js'
@@ -38,10 +40,10 @@ const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || '
 const navLinkClass = ({ isActive }) =>
   isActive ? 'ibank-sidebar-link active' : 'ibank-sidebar-link'
 
-export function ProtectedLayout() {
-  const { loading, me, logout } = useAuth()
+function ProtectedLayoutContent({ me, logout }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { override } = useShellChrome()
 
   const navItems = useMemo(() => {
     if (!me) return []
@@ -57,15 +59,9 @@ export function ProtectedLayout() {
     })
   }, [me])
 
-  const headerTitle = pageTitleFromPath(location.pathname)
-
-  if (!loading && !me) {
-    return <Navigate to="/login" replace />
-  }
-
-  if (loading) {
-    return <div className="app-loading--shell">로딩 중…</div>
-  }
+  const defaultPageTitle = pageTitleFromPath(location.pathname)
+  const shellHeaderTitle = override?.shellTitle ?? defaultPageTitle
+  const breadcrumbCurrent = override?.breadcrumbCurrent ?? defaultPageTitle
 
   async function handleLogout() {
     await logout()
@@ -137,7 +133,7 @@ export function ProtectedLayout() {
 
       <div className="ibank-shell-main-col">
         <header className="ibank-shell-header">
-          <h1 className="ibank-shell-header-title">{headerTitle}</h1>
+          <h1 className="ibank-shell-header-title">{shellHeaderTitle}</h1>
           <div className="ibank-shell-header-actions">
             <span className="ibank-shell-user">{me?.email}</span>
             <ProjectHeaderSelect />
@@ -159,7 +155,7 @@ export function ProtectedLayout() {
         <div className="ibank-shell-breadcrumb" aria-label="breadcrumb">
           <span>IBank BI</span>
           <span className="ibank-bc-sep">/</span>
-          <span className="ibank-bc-current">{headerTitle}</span>
+          <span className="ibank-bc-current">{breadcrumbCurrent}</span>
         </div>
 
         <main className="ibank-shell-body">
@@ -171,5 +167,23 @@ export function ProtectedLayout() {
         </main>
       </div>
     </div>
+  )
+}
+
+export function ProtectedLayout() {
+  const { loading, me, logout } = useAuth()
+
+  if (!loading && !me) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (loading) {
+    return <div className="app-loading--shell">로딩 중…</div>
+  }
+
+  return (
+    <ShellChromeProvider>
+      <ProtectedLayoutContent me={me} logout={logout} />
+    </ShellChromeProvider>
   )
 }

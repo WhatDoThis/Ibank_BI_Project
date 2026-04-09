@@ -6,10 +6,10 @@ system_db: widget_board, widget_item, widget_board_share.
 
 [Main Functions]
 ===========
-1. list_boards — 접근 가능 보드 목록
+1. list_boards — 접근 가능 보드 목록(widget_item_count·share_row_count 포함)
 2. create_board
 3. get_board_detail — 보드 + 위젯 + can_edit(소유자·초대(widget_board_share) 편집)
-4. patch_board / delete_board (논리 삭제)
+4. patch_board / delete_board (비활성 보드만 물리 삭제: 위젯·공유·관련 알림 후 widget_board)
 5. add_widget(create_user_id 저장) / patch_widget / delete_widget
 6. patch_layout
 7. upsert_share / delete_share(제외 시 create_user_id 소유자 이관)
@@ -337,7 +337,17 @@ def list_boards(conn, user_id: int, project_id: int) -> list[dict]:
                         ),
                         0
                     )
-                ) AS participant_count
+                ) AS participant_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM widget_item wi
+                    WHERE wi.widget_board_id = wb.widget_board_id
+                ) AS widget_item_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM widget_board_share sh2
+                    WHERE sh2.widget_board_id = wb.widget_board_id
+                ) AS share_row_count
             FROM widget_board wb
             LEFT JOIN user_info o ON o.user_id = wb.owner_user_id
             WHERE wb.project_info_id = %s
@@ -533,16 +543,42 @@ def patch_board(
 
 
 def delete_board(conn, user_id: int, project_id: int, board_id: int) -> None:
-    assert_board_owner(conn, user_id, project_id, board_id)
+    # 1. [DELETE board] 비활성 보드만 완전 삭제. 활성 보드는 목록에서「비활성」으로 먼저 끄도록 안내.
+    b = assert_board_owner(conn, user_id, project_id, board_id)
+    if _board_is_active(b):
+        raise ValueError("비활성화한 뒤에만 삭제할 수 있습니다.")
     cur = conn.cursor()
     try:
         cur.execute(
-            """
-            UPDATE widget_board SET active_yn = 'N', update_dtm = NOW()
-            WHERE widget_board_id = %s
-            """,
+            "DELETE FROM widget_item WHERE widget_board_id = %s",
             (board_id,),
         )
+        cur.execute(
+            "DELETE FROM widget_board_share WHERE widget_board_id = %s",
+            (board_id,),
+        )
+        # 초대/수락·거절 알림: noti_content JSON에 widget_board_id 포함(직렬화 공백과 무관하게 숫자만 매칭)
+        like_pat = f'%"widget_board_id": {int(board_id)}%'
+        cur.execute(
+            """
+            DELETE FROM notification_info
+            WHERE noti_type IN (
+                'widget_board_invite',
+                'widget_board_invite_accepted',
+                'widget_board_invite_rejected'
+            )
+              AND noti_content IS NOT NULL
+              AND noti_content LIKE %s
+            """,
+            (like_pat,),
+        )
+        cur.execute(
+            "DELETE FROM widget_board WHERE widget_board_id = %s",
+            (board_id,),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise ValueError("보드를 찾을 수 없습니다.")
         conn.commit()
     except Exception:
         conn.rollback()

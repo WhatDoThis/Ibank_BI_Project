@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+302. 2026-04-09 위젯보드 목록 초대 모달: admin-org 스타일·레이아웃 정리
+301. 2026-04-09 위젯보드 캔버스: 보드명 셸/브레드크럼·목록 링크 상단·카드 헤더 정리
+300. 2026-04-09 위젯보드 삭제 확인 UI·목록 API: 알림 건수 제거·요약 2항목만
+299. 2026-04-09 위젯보드 list_boards: psycopg2 LIKE 패턴 `%` 이스케이프(500 IndexError)
+298. 2026-04-09 위젯보드 완전 삭제 확인 모달·목록 API 건수 필드
+297. 2026-04-09 위젯보드 DELETE: 비활성 보드 물리 삭제(기존은 active_yn만 갱신되어 목록 불변)
 296. 2026-04-09 위젯보드 목록 생성·수정 모달: 부서관리(admin-org) 모달 스타일 정합
 295. 2026-04-09 위젯보드 목록 참여자 열: 인원 수 글씨 축소·버튼 수직 정렬
 294. 2026-04-09 위젯보드 목록 모달: 오버레이 클릭 닫기·참여자/초대 이메일 열 말줄임
@@ -299,6 +305,66 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+302. 2026-04-09 위젯보드 목록 초대 모달: admin-org 스타일·레이아웃 정리
+Purpose: 초대 알림 보내기 모달을 ap__modal 혼용에서 admin-org__modal·메타·툴바·테이블 랩·modal-actions로 통일.
+
+Changes:
+
+- `WidgetboardListPage.jsx`, `widgetboard.css`
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, widgetboard.css, docs/log/log.md
+
+301. 2026-04-09 위젯보드 캔버스: 보드명 셸/브레드크럼·목록 링크 상단·카드 헤더 정리
+Purpose: 캔버스에서 상단 제목을 보드명으로, 목록 링크를 프로젝트 멤버처럼 제목 위(ap__back). 위젯 카드에서 테이블명 제거, 설정·복제·삭제를 제목과 한 줄 오른쪽.
+
+Changes:
+
+- `ShellChromeOverrideContext.jsx`, `ProtectedLayout.jsx`, `PageHeader.jsx`(backLink), `pageTitles.js`(/widgetboard/:id)
+- `WidgetboardPage.jsx`, `widgetboard.css`
+
+Changed files: Frontend/react-app/src/app/layout/ShellChromeOverrideContext.jsx, ProtectedLayout.jsx, PageHeader.jsx, pageTitles.js, packages/widgetboard/WidgetboardPage.jsx, widgetboard.css, docs/log/log.md
+
+300. 2026-04-09 위젯보드 삭제 확인 UI·목록 API: 알림 건수 제거·요약 2항목만
+Purpose: 삭제 컨펌은 위젯·공유 건수만 확정 표시, 테이블명 제거. 알림은 FK 없음·로그성 안내로 건수 미표시. `list_boards`에서 `purge_notification_count` 서브쿼리 제거.
+
+Changes:
+
+- `widget_board_server/service.py`, `WidgetboardListPage.jsx`, `docs/main/03_API_GUIDE.md`
+
+Changed files: Backend/widget_board_server/service.py, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+299. 2026-04-09 위젯보드 list_boards: psycopg2 LIKE 패턴 `%` 이스케이프(500 IndexError)
+Purpose: `purge_notification_count` 서브쿼리의 `'%' || ... || '%'` 가 psycopg2에서 추가 `%s` 자리로 파싱되어 파라미터 개수 불일치(`IndexError`). SQL 리터럴은 `%%` 로 이스케이프.
+
+Changes:
+
+- `widget_board_server/service.py`: LIKE 결합 문자열을 `%%` 로 수정
+
+Changed files: Backend/widget_board_server/service.py, docs/log/log.md
+
+298. 2026-04-09 위젯보드 완전 삭제 확인 모달·목록 API 건수 필드
+Purpose: 삭제 컨펌에 연관 테이블·건수 안내, 목록이 길면 스크롤. `GET /api/widget-boards` 항목에 `widget_item_count`, `share_row_count`, `purge_notification_count` 추가.
+
+Changes:
+
+- `widget_board_server/service.py`: `list_boards` SELECT 보강
+- `WidgetboardListPage.jsx`: `deleteConfirmRow` 모달, `runDeleteBoardConfirmed`
+- `widgetboard.css`: `.wb-delete-confirm__*`
+- `docs/main/03_API_GUIDE.md`: GET 목록 행 설명
+
+Changed files: Backend/widget_board_server/service.py, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, widgetboard.css, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+297. 2026-04-09 위젯보드 DELETE: 비활성 보드 물리 삭제(기존은 active_yn만 갱신되어 목록 불변)
+Purpose: `delete_board`가 이미 `active_yn=N`인 보드에 대해 동일 UPDATE만 수행해 UI에서 삭제가 되지 않은 것처럼 보임. 비활성일 때만 `widget_item`·`widget_board_share`·관련 `notification_info` 제거 후 `widget_board` 행 삭제. 활성 보드 DELETE는 400.
+
+Changes:
+
+- `widget_board_server/service.py`: `delete_board` 물리 삭제·활성 시 거부
+- `widget_board_server/router.py`: 엔드포인트 주석
+- `docs/main/03_API_GUIDE.md`: DELETE 행 설명
+
+Changed files: Backend/widget_board_server/service.py, router.py, docs/main/03_API_GUIDE.md, docs/log/log.md
 
 296. 2026-04-09 위젯보드 목록 생성·수정 모달: 부서관리(admin-org) 모달 스타일 정합
 Purpose: `ap__modal` 계열 대신 `admin-org__modal-overlay`·`admin-org__modal`·`admin-org__label`·`admin-org__input`·`admin-org__modal-actions` 및 `ibank-btn-toolbar--secondary`로 부서 추가 모달과 동일 UI.

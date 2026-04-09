@@ -2,7 +2,7 @@
  * packages/widgetboard/widgetboard.css (위젯보드 스타일)
  * ======================================================
  * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, 헤더 보드 툴바, react-grid-layout 오버라이드,
- * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 목록 테이블 참여자 열 인원 수, 생성/수정 모달 textarea.
+ * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 초대 알림 모달(wb-invite-modal), 생성/수정 모달 textarea, 완전 삭제 확인 스크롤 영역.
  */
 .widgetboard {
   width: 100%;
@@ -13,6 +13,11 @@
   background: transparent;
   font-family: var(--font-sans);
   box-sizing: border-box;
+}
+
+.widgetboard > .ap__back {
+  display: inline-block;
+  margin-bottom: 10px;
 }
 
 .widgetboard > .ibank-page-header {
@@ -137,18 +142,31 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
 }
-.widget-header-primary {
+/* 제목과 설정·복제·삭제 한 줄(테이블명은 카드에 비표시, 설정 모달에서 확인) */
+.widget-header-title-line {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
+  min-width: 0;
 }
 .widget-title-text {
   font-weight: 600;
   line-height: 1.25;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.widget-header-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
 }
 .widget-date-range {
   display: block;
@@ -157,23 +175,6 @@
   font-weight: 400;
   color: var(--color-text-muted);
   line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.widget-header-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  width: 100%;
-}
-.widget-datasource {
-  max-width: min(100%, 11rem);
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -684,4 +685,99 @@
   min-height: 72px;
   resize: vertical;
   line-height: 1.45;
+}
+
+/* 위젯보드 목록: 완전 삭제 확인 — 연관 삭제 목록(길면 스크롤) */
+.wb-delete-confirm-modal.admin-org__modal {
+  max-width: 520px;
+}
+.wb-delete-confirm__scroll {
+  max-height: min(42vh, 340px);
+  overflow-y: auto;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  background: rgba(0, 0, 0, 0.02);
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+.wb-delete-confirm__intro {
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.wb-delete-confirm__list {
+  margin: 0;
+  padding-left: 1.15rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.wb-delete-confirm__list li {
+  margin-bottom: 8px;
+}
+.wb-delete-confirm__list li:last-child {
+  margin-bottom: 0;
+}
+.wb-delete-confirm__code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.wb-delete-confirm__note {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border-light);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+/* 위젯보드 목록: 초대 알림 모달 — admin-org 패널과 동일 톤 */
+.wb-invite-modal.admin-org__modal {
+  max-width: min(96vw, 640px);
+}
+.wb-invite-modal__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.wb-invite-modal__table-wrap {
+  max-height: min(42vh, 320px);
+  overflow: auto;
+  margin: 0 0 16px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  -webkit-overflow-scrolling: touch;
+}
+.wb-invite-modal__th-check,
+.wb-invite-modal__td-check {
+  width: 52px;
+  text-align: center;
+  vertical-align: middle;
+}
+.wb-invite-modal__td-check input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+.wb-invite-modal__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+}
+.wb-invite-modal__check input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  cursor: pointer;
 }

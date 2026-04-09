@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. listWidgetBoards 로 테이블 렌더, 생성/수정/참여자/초대 모달
+ * 1. listWidgetBoards 로 테이블 렌더, 생성/수정/참여자(admin-org)/초대(admin-org)/완전 삭제 확인 모달
  *
  * [Dependencies]
  * =========
@@ -85,6 +85,9 @@ export default function WidgetboardListPage() {
   const [inviteItems, setInviteItems] = useState([])
   const [inviteChecked, setInviteChecked] = useState({})
   const [inviteCanEdit, setInviteCanEdit] = useState(false)
+
+  /** 비활성 보드 완전 삭제 확인(연관 건수·스크롤 목록) */
+  const [deleteConfirmRow, setDeleteConfirmRow] = useState(null)
 
   const load = useCallback(async () => {
     if (!me?.project_info_id) {
@@ -212,11 +215,13 @@ export default function WidgetboardListPage() {
     }
   }
 
-  const handleDeleteBoard = async (row) => {
-    if (!confirmCrud(`「${row.board_name || '보드'}」을(를) 삭제(비공개 처리)할까요?`)) return
-    setBusyId(row.widget_board_id)
+  const runDeleteBoardConfirmed = async () => {
+    if (!deleteConfirmRow) return
+    const id = deleteConfirmRow.widget_board_id
+    setBusyId(id)
     try {
-      await deleteWidgetBoard(row.widget_board_id)
+      await deleteWidgetBoard(id)
+      setDeleteConfirmRow(null)
       await load()
     } catch (e) {
       setError(e?.message || '삭제에 실패했습니다.')
@@ -298,7 +303,7 @@ export default function WidgetboardListPage() {
         <div>
           <h1 className="ap__title">위젯 보드</h1>
           <p className="ap__hint">
-            소유·초대(수락 후)·프로젝트 범위(project) 보드가 표시됩니다. project 는 동일 프로젝트 위젯보드 권한이 있으면 캔버스만 읽기 전용으로 열 수 있습니다.
+            소유·초대(수락 후)·프로젝트 범위(project) 보드가 표시됩니다.
           </p>
         </div>
         <button
@@ -443,7 +448,7 @@ export default function WidgetboardListPage() {
                                 type="button"
                                 className="ibank-btn-table ibank-btn-table--danger"
                                 disabled={busyId === id}
-                                onClick={() => handleDeleteBoard(row)}
+                                onClick={() => setDeleteConfirmRow(row)}
                               >
                                 삭제
                               </button>
@@ -699,33 +704,51 @@ export default function WidgetboardListPage() {
 
       {inviteBoardId != null ? (
         <div
-          className="ap__modal-overlay"
+          className="admin-org__modal-overlay"
           role="presentation"
-          onClick={() => setInviteBoardId(null)}
+          onClick={(ev) => {
+            if (ev.target === ev.currentTarget) setInviteBoardId(null)
+          }}
         >
-          <div className="ap__modal ap__modal--create-wide" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ap__modal-title">초대 알림 보내기</h2>
-            <p className="ap__hint">
+          <div
+            className="admin-org__modal wb-invite-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wb-invite-modal-title"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <h3 id="wb-invite-modal-title">초대 알림 보내기</h3>
+            <p className="admin-org__meta">
               위젯보드 권한이 있는 프로젝트 참여자만 표시됩니다. 수락하면 참여자로 등록됩니다.
             </p>
-            <div className="admin-users__actions" style={{ marginBottom: 8 }}>
-              <button type="button" className="ibank-btn-table" onClick={() => toggleInviteAll(true)}>
-                모두 초대(전체 선택)
+            <div className="wb-invite-modal__toolbar">
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                onClick={() => toggleInviteAll(true)}
+                disabled={inviteLoading || inviteItems.length === 0}
+              >
+                모두 선택
               </button>
-              <button type="button" className="ibank-btn-table" onClick={() => toggleInviteAll(false)}>
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                onClick={() => toggleInviteAll(false)}
+                disabled={inviteLoading || inviteItems.length === 0}
+              >
                 전체 해제
               </button>
             </div>
             {inviteLoading ? (
-              <p className="ap__hint">불러오는 중…</p>
+              <p className="admin-org__meta">불러오는 중…</p>
             ) : inviteItems.length === 0 ? (
-              <p className="ap__hint">초대 가능한 사용자가 없습니다.</p>
+              <p className="admin-org__meta">초대 가능한 사용자가 없습니다.</p>
             ) : (
-              <div className="ap__table-wrap" style={{ maxHeight: 280, overflow: 'auto' }}>
+              <div className="wb-invite-modal__table-wrap ap__table-wrap">
                 <table className="ap__table wb-list-modal-table">
                   <thead>
                     <tr>
-                      <th style={{ width: 48 }}>선택</th>
+                      <th className="wb-invite-modal__th-check">선택</th>
                       <th>사용자</th>
                     </tr>
                   </thead>
@@ -735,7 +758,7 @@ export default function WidgetboardListPage() {
                       const display = (u.user_email || u.user_nickname || u.user_id).trim()
                       return (
                         <tr key={id}>
-                          <td>
+                          <td className="wb-invite-modal__td-check">
                             <input
                               type="checkbox"
                               checked={!!inviteChecked[id]}
@@ -756,16 +779,21 @@ export default function WidgetboardListPage() {
                 </table>
               </div>
             )}
-            <label className="ap__check" style={{ marginTop: 8 }}>
+            <label className="wb-invite-modal__check">
               <input
                 type="checkbox"
                 checked={inviteCanEdit}
                 onChange={(e) => setInviteCanEdit(e.target.checked)}
               />
-              수락 시 편집 허용
+              <span>수락 시 편집 허용</span>
             </label>
-            <div className="ap__modal-actions">
-              <button type="button" className="ibank-btn-secondary" onClick={() => setInviteBoardId(null)}>
+            <div className="admin-org__modal-actions">
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                onClick={() => setInviteBoardId(null)}
+                disabled={busyId === inviteBoardId}
+              >
                 취소
               </button>
               <button
@@ -774,7 +802,65 @@ export default function WidgetboardListPage() {
                 onClick={submitInvite}
                 disabled={inviteLoading || busyId === inviteBoardId}
               >
-                선택한 사용자에게 알림 보내기
+                {busyId === inviteBoardId ? '발송 중…' : '선택한 사용자에게 알림 보내기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirmRow ? (
+        <div
+          className="admin-org__modal-overlay"
+          role="presentation"
+          onClick={(ev) => {
+            if (ev.target === ev.currentTarget) setDeleteConfirmRow(null)
+          }}
+        >
+          <div
+            className="admin-org__modal wb-delete-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wb-delete-confirm-title"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <h3 id="wb-delete-confirm-title">보드 완전 삭제</h3>
+            <p className="admin-org__meta">
+              「<strong>{deleteConfirmRow.board_name || '보드'}</strong>」을(를) DB에서 완전히 삭제합니다. 되돌릴 수 없습니다. 아래는
+              확인에 필요한 건수입니다.
+            </p>
+            <div className="wb-delete-confirm__scroll">
+              <p className="wb-delete-confirm__intro">삭제 대상 요약</p>
+              <ul className="wb-delete-confirm__list">
+                <li>
+                  위젯 카드·레이아웃 — <strong>{Number(deleteConfirmRow.widget_item_count) || 0}</strong>건
+                </li>
+                <li>
+                  공유·초대 수락 사용자 연결 — <strong>{Number(deleteConfirmRow.share_row_count) || 0}</strong>건
+                </li>
+              </ul>
+              <p className="wb-delete-confirm__note">
+                초대·수락·거절 알림은 보드와 FK로 직접 묶이지 않고 알림 본문(JSON)에 보드 ID만 담기는 형태입니다. 삭제 시 서버에서
+                해당 유형 알림을 가능한 범위로 함께 정리하며, 화면에서는 건수를 확정하지 않습니다. 보드 정의 행은 마지막에
+                제거됩니다.
+              </p>
+            </div>
+            <div className="admin-org__modal-actions">
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                onClick={() => setDeleteConfirmRow(null)}
+                disabled={busyId === deleteConfirmRow.widget_board_id}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="ibank-btn-table ibank-btn-table--danger"
+                onClick={() => runDeleteBoardConfirmed()}
+                disabled={busyId === deleteConfirmRow.widget_board_id}
+              >
+                {busyId === deleteConfirmRow.widget_board_id ? '삭제 중…' : '완전 삭제'}
               </button>
             </div>
           </div>

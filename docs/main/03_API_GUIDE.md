@@ -1523,11 +1523,11 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 | 메서드 | 경로 | 핵심 |
 |--------|------|------|
-| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 `{ items }` |
+| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 `{ items }` (항목에 `widget_item_count`, `share_row_count` 등) |
 | `POST` | `/api/widget-boards` | 보드 생성 |
 | `GET` | `/api/widget-boards/{board_id}` | 보드 상세 + 위젯 + **`can_edit`** |
 | `PATCH` | `/api/widget-boards/{board_id}` | 보드 메타 |
-| `DELETE` | `/api/widget-boards/{board_id}` | 논리 삭제(`active_yn`) |
+| `DELETE` | `/api/widget-boards/{board_id}` | 비활성 보드만 물리 삭제(위젯·공유·관련 알림 후 행 삭제). 활성 시 400 |
 | `POST` | `/api/widget-boards/{board_id}/widgets` | 위젯 추가 |
 | `PATCH` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 패치 |
 | `DELETE` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 비활성 |

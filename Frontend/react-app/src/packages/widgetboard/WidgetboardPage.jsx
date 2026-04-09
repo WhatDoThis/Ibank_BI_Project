@@ -14,6 +14,7 @@
  * =========
  * - React, react-grid-layout, recharts, echarts, @/shared/api/queryStudioTableApi.js, ./api/widgetBoardClient.js, ./utils/dataUtils, ./utils/dateRangePolicy.js(formatWidgetPeriodSubtitle·formatWidgetPeriodSubtitleCompact), ./components/WidgetDataWizardModal.jsx, @/shared/utils/crudConfirm.js
  * - app/auth/AuthContext projectContextNonce·me: 프로젝트 변경 시 보드·위젯 API 재로드
+ * - app/layout/ShellChromeOverrideContext: 셸·브레드크럼에 보드명 반영
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -68,6 +69,7 @@ import {
 import './widgetboard.css'
 import '@/app/admin/admin-pages.css'
 import { PageHeader } from '@/app/layout/PageHeader.jsx'
+import { useShellChrome } from '@/app/layout/ShellChromeOverrideContext.jsx'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 import { WidgetDataWizardModal } from '@/packages/widgetboard/components/WidgetDataWizardModal.jsx'
 
@@ -336,31 +338,30 @@ function WidgetBlock({
   return (
     <div className={`widget-inner widget-${type}`}>
       <div className="widget-header">
-        <div className="widget-header-primary">
+        <div className="widget-header-title-line">
           <span className="widget-title-text">{title || `${typeLabel} 위젯`}</span>
-          {periodSubtitleDisplay ? (
-            <span
-              className="widget-date-range"
-              title={periodSubtitleFull ? `조회 적용 기간 — ${periodSubtitleFull}` : undefined}
-            >
-              {periodSubtitleDisplay}
-            </span>
+          {canEdit ? (
+            <div className="widget-header-inline-actions">
+              <button type="button" className="btn-widget-settings" onClick={() => onOpenSettings?.(id)} title="설정">
+                ⚙
+              </button>
+              <button type="button" className="btn-widget-duplicate" onClick={() => onDuplicate?.(id)} title="복제">
+                ⎘
+              </button>
+              <button type="button" className="btn-widget-delete" onClick={() => onDelete?.(id)} title="삭제">
+                ×
+              </button>
+            </div>
           ) : null}
         </div>
-        <div className="widget-header-toolbar">
-          {tableName && needsTable && (
-            <span className="widget-datasource" title={tableName}>
-              {tableName}
-            </span>
-          )}
-          {canEdit && (
-            <>
-              <button type="button" className="btn-widget-settings" onClick={() => onOpenSettings?.(id)} title="설정">⚙</button>
-              <button type="button" className="btn-widget-duplicate" onClick={() => onDuplicate?.(id)} title="복제">⎘</button>
-              <button type="button" className="btn-widget-delete" onClick={() => onDelete?.(id)} title="삭제">×</button>
-            </>
-          )}
-        </div>
+        {periodSubtitleDisplay ? (
+          <span
+            className="widget-date-range"
+            title={periodSubtitleFull ? `조회 적용 기간 — ${periodSubtitleFull}` : undefined}
+          >
+            {periodSubtitleDisplay}
+          </span>
+        ) : null}
       </div>
       <div className="widget-body">
         {needsTable && !tableName && canEdit && (
@@ -507,6 +508,9 @@ export default function WidgetboardPage() {
   const [dataWizard, setDataWizard] = useState(null)
   const [settingsWidgetId, setSettingsWidgetId] = useState(null)
   const [dragOver, setDragOver] = useState(false)
+  /** 셸 헤더·브레드크럼·PageHeader 제목 — GET 보드 상세의 board_name */
+  const [boardDisplayName, setBoardDisplayName] = useState('')
+  const { setOverride: setShellChromeOverride } = useShellChrome()
 
   configsRef.current = configs
   selectedBoardIdRef.current = selectedBoardId
@@ -527,6 +531,8 @@ export default function WidgetboardPage() {
 
   const hydrateFromServer = useCallback(async (boardId) => {
     const detail = await getWidgetBoard(boardId)
+    const label = (detail?.board_name || '').trim() || `보드 ${boardId}`
+    setBoardDisplayName(label)
     const mapped = mapServerDetailToState(detail)
     setLayout(mapped.layout)
     setConfigs(mapped.configs)
@@ -619,6 +625,7 @@ export default function WidgetboardPage() {
     setBoardInitError(null)
     if (!me?.project_info_id) {
       setBoardsLoading(false)
+      setBoardDisplayName('')
       setSelectedBoardId(null)
       setLayout([])
       setConfigs({})
@@ -627,12 +634,14 @@ export default function WidgetboardPage() {
     if (numericBoardId == null) {
       setBoardsLoading(false)
       setBoardInitError('보드 ID가 올바르지 않습니다.')
+      setBoardDisplayName('')
       setSelectedBoardId(null)
       setLayout([])
       setConfigs({})
       return undefined
     }
     setBoardsLoading(true)
+    setBoardDisplayName('')
     setSelectedBoardId(numericBoardId)
     ;(async () => {
       try {
@@ -640,6 +649,7 @@ export default function WidgetboardPage() {
         if (cancelled) return
       } catch (e) {
         if (!cancelled) {
+          setBoardDisplayName('')
           setBoardInitError(e?.message || '위젯 보드를 불러오지 못했습니다.')
           setLayout([])
           setConfigs({})
@@ -652,6 +662,16 @@ export default function WidgetboardPage() {
       cancelled = true
     }
   }, [projectContextNonce, me?.project_info_id, numericBoardId, hydrateFromServer])
+
+  useEffect(() => {
+    const n = (boardDisplayName || '').trim()
+    if (!numericBoardId || !n) {
+      setShellChromeOverride(null)
+      return
+    }
+    setShellChromeOverride({ shellTitle: n, breadcrumbCurrent: n })
+    return () => setShellChromeOverride(null)
+  }, [numericBoardId, boardDisplayName, setShellChromeOverride])
 
   useEffect(() => {
     if (prevProjectNonceRef.current === undefined) {
@@ -1045,16 +1065,21 @@ export default function WidgetboardPage() {
 
   return (
     <div className="widgetboard">
-      <PageHeader description="데이터 위젯은 좌측의 템플릿을 드래그 앤 드롭 후 생성 마법사에서 설정합니다. 기간은 위젯별 일 14일·주 12주·월 12개월까지 허용됩니다.">
-        <div className="widgetboard-header-actions">
-          <Link to="/widgetboard" className="ap__back" style={{ marginRight: 12 }}>
-            ← 목록으로
+      <PageHeader
+        title={(boardDisplayName || '').trim() || undefined}
+        description="데이터 위젯은 좌측의 템플릿을 드래그 앤 드롭 후 생성 마법사에서 설정합니다. 기간은 위젯별 일 14일·주 12주·월 12개월까지 허용됩니다."
+        backLink={
+          <Link to="/widgetboard" className="ap__back">
+            ← 위젯보드 목록
           </Link>
-          {!canEditBoard && !boardsLoading && (
-            <span className="widgetboard-readonly-hint">읽기 전용</span>
-          )}
+        }
+      >
+        <div className="widgetboard-header-actions">
+          {!canEditBoard && !boardsLoading && <span className="widgetboard-readonly-hint">읽기 전용</span>}
           {boardInitError && <div className="widgetboard-board-error" role="alert">{boardInitError}</div>}
-          <button type="button" className="btn-refresh" onClick={handleRefresh} title="전체 새로고침">⟳ 새로고침</button>
+          <button type="button" className="btn-refresh" onClick={handleRefresh} title="전체 새로고침">
+            ⟳ 새로고침
+          </button>
         </div>
       </PageHeader>
 

@@ -7,6 +7,9 @@ export function pageTitleFromPath(pathname) {
   if (/^\/admin\/projects\/[^/]+\/members$/.test(pathname)) {
     return '프로젝트 멤버'
   }
+  if (/^\/widgetboard\/\d+$/.test(pathname)) {
+    return '위젯보드'
+  }
   const item = NAV_ITEMS.find((i) => i.to === pathname)
   if (item) return item.label
   return 'IBank BI'

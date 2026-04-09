@@ -9,7 +9,7 @@ widget_board_server.router (/api/widget-boards)
 2. POST /api/widget-boards
 3. GET /api/widget-boards/{board_id}
 4. PATCH /api/widget-boards/{board_id}
-5. DELETE /api/widget-boards/{board_id}
+5. DELETE /api/widget-boards/{board_id} (비활성 보드만 물리 삭제)
 6. POST /api/widget-boards/{board_id}/widgets
 7. PATCH /api/widget-boards/{board_id}/widgets/{widget_id}
 8. DELETE /api/widget-boards/{board_id}/widgets/{widget_id}
