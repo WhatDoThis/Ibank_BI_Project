@@ -1,7 +1,7 @@
 # 백엔드 개발 가이드
 
 본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/query_studio_server`, `Backend/api_server`(호스트 앱), `Backend/etl_server`, `Backend/campaign_dash_server`. (`legacy_dashboard_server`, `new_dash_server`, `new_dash_server2` 는 저장소 보존·`main.py` 미등록.)  
-**목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. 레이어·의존 방향·작업 유형별 탐색은 **03_AI_DEVELOP_GUIDE.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
+**목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. 레이어·의존 방향·작업 유형별 탐색은 **docs/report/03_AI_DEVELOP_GUIDE.md** 참고. 백엔드 **코드·흐름 통합** 레퍼런스 **03_API_GUIDE.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
 
 ---
 
@@ -14,7 +14,7 @@
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. **lifespan**에서 ETL **폴더/DB 배치 스케줄러**(APScheduler) 기동. ETL **Job 큐 워커**(`queue_worker`)는 `/api/etl` 등에서 pending Job이 등록될 때 **최초 1회** 백그라운드 기동(pending → running, **동시 최대 3건**, `MAX_CONCURRENT`).
 - **인증·인가**: **`/api/auth/*`** 로그인·토큰·세션. 보호 API는 **`Authorization: Bearer`** access JWT. 쿼리 스튜디오·대시보드 등은 **`Backend.auth_server.permissions.require_permission`**(JWT `project_info_id`·멤버·`pmssn_list`). 상세는 **05_Permission_ARCHITECTURE.md**.
-- **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **03_AI_DEVELOP_GUIDE.md §10**.
+- **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **docs/report/03_AI_DEVELOP_GUIDE.md §10**.
 
 ### 1.2 기술 스택
 
@@ -172,6 +172,14 @@ Backend/
 ---
 
 ## 4. API 엔드포인트
+
+### 4.0 auth·project·notification·admin (prefix `/api`)
+
+- **`/api/auth`**: 로그인·2FA·refresh·`/me`·초대 기반 가입·비밀번호 등 — `Backend/auth_server`.
+- **`/api/projects`**: 프로젝트 목록·선택(JWT rotate)·생성·멤버·초대·수락/거절 등 — `Backend/project_server`.
+- **`/api/notifications`**: 알림 목록·읽음·프로젝트 초대 수락/거절과 연동 등 — `Backend/notification_server`.
+- **`/api/admin`**: 부서·사용자·역할·프로젝트(어드민) CRUD·초대 메일 등 — `Backend/admin_server`(프론트 `shared/api/adminClient.js`).
+- 세부 경로·모듈 함수 표는 **docs/main/03_API_GUIDE.md** 참고. 비즈니스 흐름은 **06_CUSTOMER_JOURNEY.md**, 권한·엣지는 **05_Permission_ARCHITECTURE.md** 참고.
 
 ### 4.1 health
 
@@ -459,9 +467,10 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 |
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 (본 문서) |
-| 03_AI_DEVELOP_GUIDE.md | 레이어·의존 방향·DB 연결 매트릭스·확장 체크리스트 (AI·온보딩) |
+| 03_API_GUIDE.md | 모듈별 기능 표·시스템 흐름 도식·core/auth/admin 등 |
+| docs/report/03_AI_DEVELOP_GUIDE.md | 레이어·의존 방향·DB 연결 매트릭스·확장 체크리스트 (AI·온보딩) |
 
-- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE·03_AI_DEVELOP_GUIDE.**
+- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE·docs/report/03_AI_DEVELOP_GUIDE.md.**
 
 **문서 이력**: 날짜별 수정 타임라인은 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다.
 

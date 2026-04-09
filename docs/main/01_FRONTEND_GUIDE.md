@@ -1,6 +1,6 @@
 # 프론트엔드 개발 가이드
 
-본 문서는 **docs/main** 내 프론트엔드 전용 명세이며, **현재 코드 기준** 경로·패키지·API만 기술한다. 구현 위치: `Frontend/react-app`. 작업 이력은 **docs/log/log.md** 참고. 백엔드 패키지와의 대응·전체 지도는 **03_AI_DEVELOP_GUIDE.md** 참고.
+본 문서는 **docs/main** 내 프론트엔드 전용 명세이며, **현재 코드 기준** 경로·패키지·API만 기술한다. 구현 위치: `Frontend/react-app`. 작업 이력은 **docs/log/log.md** 참고. 백엔드 패키지와의 대응·전체 지도는 **docs/report/03_AI_DEVELOP_GUIDE.md** 참고.
 
 ---
 
@@ -9,6 +9,7 @@
 ### 1.1 역할
 
 - **인증(S5/S6/S7)**: `/login` — 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login`. `/signup`(초대 코드)·`/create-org`(부서 생성)는 공개 라우트. `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET login-history`). **S8**: `NotificationBell`·`notificationsClient`·`/admin/users`(`OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`). **`adminClient.js`** 에 roles·projects·members·invite·search. **`/` 홈**: `homeAccess.js`·`adminAccess.js`(프로젝트 관리 카드는 operator 포함). 토큰은 `localStorage`, API는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 `refresh` 후 1회 재시도. `/` — `GET /api/projects`·`POST /api/projects/{id}/select`. 쿼리 스튜디오·대시보드·위젯 경로는 JWT에 `project_info_id` 없으면 `/` 로 유도(`NeedProjectRoute`). ETL은 `me.etl_yn=Y` 또는 `user_dvsn=sa_dev` 일 때만 네비·`/etl` (`EtlAccessRoute`).
+- **헤더·작업 프로젝트**: 로그인 후 상단 **작업 프로젝트** 드롭다운(이메일·알림 벨 사이). `POST /api/projects/{id}/select`로 전환 시 JWT가 갱신되고, 쿼리 스튜디오·캠페인 대시보드·위젯보드는 해당 프로젝트 기준으로 데이터 재조회·빌더 초기화 등이 맞춰진다.
 - **React(Vite)** 단일 앱이며, **base 경로 `/ibank-bi/`** (vite.config.js) 로 서빙됩니다.
 - **패키지**: **query_studio**, **campaign_dashboard**(대시보드 UI 단일), **widgetboard**, **etl**. **공용 최소**: `shared/config/api.js`(베이스 URL), `shared/api/http.js`(JSON `request`·`fetchOkJson`). **패키지별 API**는 각 `packages/<이름>/api/*Client.js` 에 둔다.
 - 정적 서버(`Frontend/static_server/main.py`)가 React 빌드 결과(`dist/`)를 서빙하며, `/ibank-bi` 요청 시 dist 기준 경로로 변환하고 SPA fallback, `/api-config.js` 주입으로 `window.APP_CONFIG.apiBaseUrl` 을 제공합니다.
@@ -80,7 +81,7 @@ Frontend/react-app/
 │   │   │   └── components/     # SummaryHeader, TrendLineChart, … (new-dashboard 복사 기반)
 │   │   │
 │   │   ├── widgetboard/       # 위젯보드 (드래그 앤 드롭 그리드)
-│   │   │   ├── Dashboard3Page.jsx
+│   │   │   ├── WidgetboardPage.jsx
 │   │   │   ├── index.jsx
 │   │   │   ├── widgetboard.css
 │   │   │   └── utils/
@@ -160,8 +161,8 @@ Frontend/react-app/
 
 ### 4.3 widgetboard (위젯보드)
 
-- **Dashboard3Page.jsx**: 드래그 앤 드롭 위젯 그리드 대시보드. `/widgetboard`. 위젯 데이터는 **쿼리 스튜디오** API(`packages/query_studio/api/queryStudioClient.js` — listTables, describeTable, executeQuery) 사용.
-- **index.jsx**: WidgetboardPage export. App.jsx에서 `/widgetboard` → WidgetboardPage.
+- **WidgetboardPage.jsx**: 드래그 앤 드롭 위젯 그리드. `/widgetboard`. 위젯 데이터는 **쿼리 스튜디오** API(`packages/query_studio/api/queryStudioClient.js` — listTables, describeTable, executeQuery) 사용.
+- **index.jsx**: WidgetboardPage export. `routes.jsx`에서 `/widgetboard` → WidgetboardPage.
 - **utils/dataUtils.js**: 위젯보드용 데이터 처리 유틸.
 - **widgetboard.css**: 위젯보드 전용 스타일(헤더·사이드바·캔버스·드래그 오버 등).
 
@@ -227,7 +228,8 @@ Frontend/react-app/
 | 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 |
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 (본 문서) |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·API·설정·etl_server |
-| 03_AI_DEVELOP_GUIDE.md | 시스템 아키텍처·프론트↔백 매핑·확장 시 탐색 경로 (AI·온보딩) |
+| 03_API_GUIDE.md | 통합 API 레퍼런스(예정, 본문 미작성) |
+| docs/report/03_AI_DEVELOP_GUIDE.md | 시스템 아키텍처·프론트↔백 매핑·확장 시 탐색 경로 (AI·온보딩) |
 
 - **docs/report**: 배포·보조 설계·체크리스트. **동작 정의의 기준은 docs/main** 이다.
 - **문서 이력**: 본 파일에 날짜별 수정 타임라인을 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다. **현재 구조**: 패키지별 `packages/<도메인>/api/*Client.js`, `shared/api/http.js`, `app/layout/navConfig.js`·`app/routes.jsx`, SPA 화면은 `app/auth|home|mypage|admin|layout|guards/`, **campaign_dashboard** (`/dashboard`).

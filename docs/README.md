@@ -9,7 +9,8 @@
 | [00_PRD.md](main/00_PRD.md) | 제품 범위·아키텍처 요약·설정·기능 개요 |
 | [01_FRONTEND_GUIDE.md](main/01_FRONTEND_GUIDE.md) | React 앱 구조·`app/*`·`packages/*`·패키지별 API 클라이언트·라우트 |
 | [02_BACKEND_GUIDE.md](main/02_BACKEND_GUIDE.md) | FastAPI·auth/admin/project/notification·`query_studio_server`·`etl_server`·캠페인 대시보드·설정 |
-| [03_AI_DEVELOP_GUIDE.md](main/03_AI_DEVELOP_GUIDE.md) | AI·온보딩용 아키텍처 지도, 레이어·DB 매트릭스, 작업 유형별 탐색 경로 |
+| [03_API_GUIDE.md](main/03_API_GUIDE.md) | 통합 API 레퍼런스 **(예정, 본문 미작성)** — 당분간 **02_BACKEND_GUIDE §4**·라우터 소스 참고 |
+| [03_AI_DEVELOP_GUIDE.md](report/03_AI_DEVELOP_GUIDE.md) | AI·온보딩용 아키텍처 지도, 레이어·DB 매트릭스, 작업 유형별 탐색 경로 (**docs/report** 보관) |
 | [04_DB_ARCHITECTURE.md](main/04_DB_ARCHITECTURE.md) | system_db 테이블·FK 트리 |
 | [05_Permission_ARCHITECTURE.md](main/05_Permission_ARCHITECTURE.md) | 역할·권한·ETL 인프라·`require_permission` |
 | [06_CUSTOMER_JOURNEY.md](main/06_CUSTOMER_JOURNEY.md) | 고객 여정·Phase별 흐름 |

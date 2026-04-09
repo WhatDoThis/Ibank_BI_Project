@@ -2,7 +2,7 @@
 
 **요약**: 시스템 기본 `pmssn_master` 자동 배정(`default_manager_pmssn_master_id`) 제거. 생성 시 **생성자가 선택한 `creator_pmssn_master_id`** 로 `project_ptcpnt_info` 등록. 단일 트랜잭션으로 `project_info` + `table_project_mapping` + 부서 내 멤버 + 타부서 알림 초대 처리. 수락은 `/api/projects/{project_info_id}/accept-invite`. 고객 여정 **Phase 6**은 `docs/main/06_CUSTOMER_JOURNEY.md`에 동기화됨.
 
-**근거 문서**: 사용자가 전달한 구현 명세서, `docs/main/04_DB_ARCHITECTURE.md`(table_project_mapping·notification_info), `docs/main/05_Permission_ARCHITECTURE.md`(pmssn·기능 ID), `docs/main/03_AI_DEVELOP_GUIDE.md`(허용 테이블 = 매핑).
+**근거 문서**: 사용자가 전달한 구현 명세서, `docs/main/04_DB_ARCHITECTURE.md`(table_project_mapping·notification_info), `docs/main/05_Permission_ARCHITECTURE.md`(pmssn·기능 ID), `docs/report/03_AI_DEVELOP_GUIDE.md`(허용 테이블 = 매핑).
 
 **주의**: `project_info`에 **`feature_flags` jsonb**(`query`,`dash`,`widget`)로 프로젝트 단위 페이지 on/off를 저장한다. `table_master.del_yn` 컬럼은 현재 코드베이스에 없음 — 목록 API는 전체 행 기준, 필요 시 DDL 추가 후 필터.
 

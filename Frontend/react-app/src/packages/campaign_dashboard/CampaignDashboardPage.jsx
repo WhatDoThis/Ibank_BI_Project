@@ -6,7 +6,7 @@
  * [Main Functions]
  * 1. todayStr
  * 2. loadData: 주간 시 weeklySnapshotTargetDate 보정 후 getCampaignDashboard* 호출
- * 3. projectContextNonce: 헤더·홈에서 작업 프로젝트 변경 시 테이블 목록·집계 재조회
+ * 3. projectContextNonce: 테이블 목록 재조회 후 tableListRevision 증가 — 동일 tableId라도 JWT 프로젝트별 집계 재실행
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
@@ -54,6 +54,8 @@ export default function CampaignDashboardPage() {
   const [hourlyClick, setHourlyClick] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  /** 프로젝트 전환 후 목록 반영 직후 강제로 loadData 한 번 더 돌리기(여러 프로젝트가 동일 table id를 쓸 때 대비) */
+  const [tableListRevision, setTableListRevision] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -70,11 +72,13 @@ export default function CampaignDashboardPage() {
         const list = res.tables || []
         setTables(list)
         setTableId(list.length > 0 ? list[0].id : '')
+        setTableListRevision((r) => r + 1)
       })
       .catch((e) => {
         if (!cancelled) setError(e.message)
         setTables([])
         setTableId('')
+        setTableListRevision((r) => r + 1)
       })
     return () => {
       cancelled = true
@@ -128,7 +132,7 @@ export default function CampaignDashboardPage() {
       setHourlyClick(null)
     }
     setLoading(false)
-  }, [tableId, targetDate, period])
+  }, [tableId, targetDate, period, tableListRevision])
 
   useEffect(() => {
     loadData()

@@ -130,7 +130,7 @@
 1. **report**: 상단 [Main Functions]/[Components] 번호 목록화, 함수/컴포넌트 위 // 1.~N. 추가. (QueryStudioPage, Sidebar, MainArea, utils/*, hooks/useQueryStudioData 등 11개 파일)
 2. **dashboard**: 상단 번호 목록화, periodCompare·DashboardPage·컴포넌트별 순번 주석. AggregatedDataTable.jsx에 isFilterConditionEmpty 위 // 7. 추가(유니코드 이슈로 서브에이전트에서 누락된 부분 메인에서 보완). (12개 파일)
 3. **dashboard2**: 상단 번호 목록화, 11개 파일 전체 함수/컴포넌트 순번 주석.
-4. **widgetboard**: index.jsx, Dashboard3Page.jsx, utils/dataUtils.js 상단·순번 주석. (3개 파일)
+4. **widgetboard**: index.jsx, WidgetboardPage.jsx, utils/dataUtils.js 상단·순번 주석. (3개 파일)
 5. **etl**: ETLPage, index, utils/storageDb, components 28개 파일 상단·순번 주석.
 6. **new-dashboard**: index, NewDashboardPage, KPISummaryCards, SummaryHeader, TrendLineChart, CampaignRankTable, dateUtils, FunnelSection 등 8개 파일.
 7. **new-dashboard2**: index, NewDashboard2Page, hooks/useNewDash2Data, utils, components 19개 파일.

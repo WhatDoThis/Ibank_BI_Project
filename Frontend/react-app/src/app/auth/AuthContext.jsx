@@ -1,7 +1,7 @@
 /**
  * app/auth/AuthContext.jsx (인증 컨텍스트)
  * ================================
- * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. project_info_id가 바뀌면 projectContextNonce 증가.
+ * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. project_info_id 변경(null↔값 포함) 시 projectContextNonce 증가.
  * notifyParticipatingProjectsChanged: GET /api/projects(헤더 드롭다운 등) 목록 재로드용 nonce.
  * S5/S6·마이페이지(S7) 공용.
  *
@@ -51,11 +51,10 @@ export function AuthProvider({ children }) {
     try {
       const data = await getMe()
       setMe(data)
+      const nextPid = data?.project_info_id
       if (
         data &&
-        prevPid != null &&
-        prevPid !== '' &&
-        String(prevPid) !== String(data.project_info_id ?? '')
+        String(prevPid ?? '') !== String(nextPid ?? '')
       ) {
         setProjectContextNonce((n) => n + 1)
       }

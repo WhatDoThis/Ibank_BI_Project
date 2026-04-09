@@ -173,7 +173,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, 03_AI_DEVELOP, 04_DB_ARCHITECTURE, 05_Permission, 06_CUSTOMER_JOURNEY |
+| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, 03_API_GUIDE(예정·비움), 04_DB_ARCHITECTURE, 05_Permission, 06_CUSTOMER_JOURNEY. AI·온보딩 지도는 **docs/report/03_AI_DEVELOP_GUIDE.md** |
 | **docs/README.md** | docs 폴더 구성( main / log / report ) |
 | **docs/log/log.md** | 작업 이력(목적·변경 파일) |
 | **docs/report/** | 배포·보조 설계·체크리스트(동작 정의는 docs/main 우선) |

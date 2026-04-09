@@ -1,5 +1,5 @@
 /**
- * packages/widgetboard/Dashboard3Page.jsx (위젯보드 페이지)
+ * packages/widgetboard/WidgetboardPage.jsx (위젯보드 페이지)
  * ==========================================================
  * 왼쪽: 위젯 팔레트(드래그). 오른쪽: 캔버스(드롭). 테이블은 test_report_ 접두사만 선택 가능(allowed_tables와 별개).
  * 연결한 테이블 기준 listTables/describeTable/executeQuery → dataUtils로 KPI·차트·테이블 자동 렌더링.
@@ -379,9 +379,9 @@ function WidgetBlock({
 }
 
 // 8.
-export default function Dashboard3Page() {
+export default function WidgetboardPage() {
   const { projectContextNonce } = useAuth()
-  const projectNonceMountSkipRef = useRef(true)
+  const prevProjectNonceRef = useRef(undefined)
   const configsRef = useRef({})
   const [layout, setLayout] = useState(loadLayout)
   const [configs, setConfigs] = useState(loadConfigs)
@@ -455,10 +455,13 @@ export default function Dashboard3Page() {
   }, [dateRange])
 
   useEffect(() => {
-    if (projectNonceMountSkipRef.current) {
-      projectNonceMountSkipRef.current = false
+    if (prevProjectNonceRef.current === undefined) {
+      prevProjectNonceRef.current = projectContextNonce
       return
     }
+    if (prevProjectNonceRef.current === projectContextNonce) return
+    prevProjectNonceRef.current = projectContextNonce
+
     let cancelled = false
     setTableDataCache({})
     ;(async () => {

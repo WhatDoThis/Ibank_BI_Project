@@ -1,6 +1,17 @@
 # Log
 
 ## Log Index
+277. 2026-04-09 홈 위젯보드 카드 부가 설명을 widgetboard로 복구
+276. 2026-04-09 위젯보드 패키지: Dashboard3Page → WidgetboardPage 명칭·문서 정합
+275. 2026-04-09 docs/main/03_API_GUIDE.md §5.3 campaign_dash_server 라우터·흐름·보안 요약
+274. 2026-04-09 docs/main/03_API_GUIDE.md §6.1 notification_server 요약·흐름·생성 경로
+273. 2026-04-09 docs/main/03_API_GUIDE.md §6.1 query_studio 롤백(사용자 요청)
+272. 2026-04-09 docs/main/03_API_GUIDE.md 서버 단위 재구성·project_server·중복 §8–10 제거
+271. 2026-04-09 docs/main/03_API_GUIDE.md auth 비활성·권한·흐름 갱신·§9 명칭·표현 정리
+270. 2026-04-09 docs/main/03_API_GUIDE.md 역할 문구·어드민 표·흐름 A–J·02 정합
+269. 2026-04-09 docs/main/03_API_GUIDE.md 본문 작성·02_BACKEND_GUIDE 상호참조 갱신
+268. 2026-04-02 docs/main 정합: AI 가이드 report 경로·03_API 예정·백엔드 §4.0·헤더 프로젝트 전환
+267. 2026-04-08 대시보드·위젯보드 프로젝트 전환 시 데이터 재조회 보강
 266. 2026-04-08 org 관리자 타부서 프로젝트 API 차단 복귀·작업프로젝트 드롭다운 목록 갱신
 265. 2026-04-08 타부서 프로젝트 초대: sa/a 관리자도 참여자면 경로·멤버목록 허용
 264. 2026-04-08 프로젝트 전환 자동 재조회·타부서(o) 멤버 API 허용
@@ -269,6 +280,126 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+277. 2026-04-09 홈 위젯보드 카드 부가 설명을 widgetboard로 복구
+Purpose: 홈 카드 부가 문구가 어색해 `widgetboard` 표기로 되돌린다.
+
+Changes:
+
+- `HomePage.jsx`: `home__card-desc`를 `widgetboard`로 복구
+
+Changed files: Frontend/react-app/src/app/home/HomePage.jsx, docs/log/log.md
+
+276. 2026-04-09 위젯보드 패키지: Dashboard3Page → WidgetboardPage 명칭·문서 정합
+Purpose: `packages/widgetboard`를 대시보드3 등 혼용 명칭 없이 위젯보드 용어·파일명으로 통일하고, 진입점·문서를 맞춘다.
+
+Changes:
+
+- `Dashboard3Page.jsx` 제거, `WidgetboardPage.jsx`로 이전·컴포넌트명 `WidgetboardPage`
+- `index.jsx`: `./WidgetboardPage.jsx` 재export, 주석에서 「대시보드」 표현 제거
+- `docs/main/00_PRD.md` §6.2.1, `01_FRONTEND_GUIDE.md` 트리·§4.3, `docs/report/log.md` 파일명 갱신
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/index.jsx, docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/report/log.md, docs/log/log.md  
+Removed: Frontend/react-app/src/packages/widgetboard/Dashboard3Page.jsx
+
+275. 2026-04-09 docs/main/03_API_GUIDE.md §5.3 campaign_dash_server 라우터·흐름·보안 요약
+Purpose: `campaign_dash_server/router.py` 엔드포인트 표, 내부 헬퍼, star_1/star_2 전제, 권한·매핑·식별자 검증 흐름, `dashboard_service` 위임 관계를 문서화한다.
+
+Changes:
+
+- `03_API_GUIDE.md`: 읽는 순서 §5, §5.3 본문, §6·맺음말 보강
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+274. 2026-04-09 docs/main/03_API_GUIDE.md §6.1 notification_server 요약·흐름·생성 경로
+Purpose: `notification_server` 라우터·서비스 표, `require_active_access` 이후 분기, 응답 형식, `insert_notification` 의 admin·project 호출 관계를 문서에 반영한다.
+
+Changes:
+
+- `03_API_GUIDE.md`: 읽는 순서·§6 bullet·§6.1 본문(엔드포인트·함수·ASCII 흐름·생성 경로·설계 요약)·맺음말
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+273. 2026-04-09 docs/main/03_API_GUIDE.md §6.1 query_studio 롤백(사용자 요청)
+Purpose: 직전에 추가한 §6.1 `query_studio_server` 상세(엔드포인트 표·흐름·보안 요약)를 제거하고, 읽는 순서·§6 bullet·맺음말을 §6.1 이전 형태로 되돌린다.
+
+Changes:
+
+- `03_API_GUIDE.md`: §6.1 전체 삭제, §6 `query_studio_server` 한 줄 안내·TOC·맺음말 복구
+- `log.md`: 항목 273(§6.1 추가) 제거 후 본 롤백을 273으로 기록
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+272. 2026-04-09 docs/main/03_API_GUIDE.md 서버 단위 재구성·project_server·중복 §8–10 제거
+Purpose: §1~§6으로 동작 흐름을 나누고 흐름 직후 모듈 표를 두며, `project_server` 목록·select·초대 수락/거절을 반영한다. 말미 중복 블록(구 §8·9·10)을 삭제한다.
+
+Changes:
+
+- §1 코어: 앱·로깅·DB·auth_config·역할 코드·실행 참고 + 각 표
+- §2 auth: 2.1 흐름(프로젝트 선택은 §3 안내), 2.2~2.4 모듈 표, 2.3 권한 소절
+- §3 project_server: select·accept/reject 도식, router·service 표
+- §4 admin: 4.0~4.1, B는 §3.2 참조, 4.2 정지·이관, 4.3 모듈 표 일원화
+- §5 대시보드: 5.1 흐름 + 5.2 `dashboard_service`
+- §6 기타 패키지 안내; 구 §10 전량 삭제
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+271. 2026-04-09 docs/main/03_API_GUIDE.md auth 비활성·권한·흐름 갱신·§9 명칭·표현 정리
+Purpose: `require_active_access`·`feature_flags` 교집합·refresh/rotate/suspend 흐름을 반영하고, 문서 전반의 변경 이력형 표현(신규·기존 대비 등)을 제거한다.
+
+Changes:
+
+- §4~§5·§5.1~5.4: 인증·권한 ASCII 흐름 재작성, 프로젝트 선택 경로 `/api/projects/{id}/select`
+- §6·§8: 한눈에·정지 흐름 문구 정합
+- §9: 제목·표를 현재 동작 설명 중심으로 정리
+- §10.11~10.16: auth deps·permissions·service·router 표 갱신, 보조 모듈 한 줄 안내
+- §2·§6.1 G·기타: 신규/업데이트 대비 문구 제거
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+270. 2026-04-09 docs/main/03_API_GUIDE.md 역할 문구·어드민 표·흐름 A–J·02 정합
+Purpose: 문서 역할을「전 모듈 기능 요약 + 흐름 도식」에 맞게 바로잡고, admin_server 최신 스펙(ownership_guards·create_project_full·라우트)을 반영한다.
+
+Changes:
+
+- 03_API_GUIDE: 제목·서두·읽는 순서, §6 요약+§6.1 A–J, §8 ownership_guards 보강, §10.17–10.24 admin 전면 갱신
+- 02_BACKEND_GUIDE: 03 문서 한 줄 설명 정합
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+269. 2026-04-09 docs/main/03_API_GUIDE.md 본문 작성·02_BACKEND_GUIDE 상호참조 갱신
+Purpose: 제공된 모듈·흐름 자료를 바탕으로 통합 API 가이드를 작성하고, 백엔드 가이드의 03 문서 상태 문구를 맞춘다.
+
+Changes:
+
+- docs/main/03_API_GUIDE.md: 읽는 순서, 앱 기동·DB·인증·권한·어드민·대시보드·정지/이관 ASCII 흐름, logging_setup·main `__main__` 변경 요약, api/core/auth/admin 함수·엔드포인트 표(§10)
+- docs/main/02_BACKEND_GUIDE.md: 03_API_GUIDE 예정 문구를 본문 참조로 수정(목적·§7·문서 표)
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+268. 2026-04-02 docs/main 정합: AI 가이드 report 경로·03_API 예정·백엔드 §4.0·헤더 프로젝트 전환
+Purpose: log·코드 기준으로 개발 문서 링크와 최근 UX/API 요약을 맞춘다. `03_AI_DEVELOP_GUIDE`는 **docs/report**로 이전된 경로를 전역 참조. **03_API_GUIDE.md**는 예정(본문 비움 유지). **02_BACKEND_GUIDE §4.0**에 auth·project·notification·admin 요약 추가.
+
+Changes:
+
+- docs/README.md, README.md: 표에 03_API(예정)·AI 가이드 report 링크
+- docs/main 00/01/02: AI 가이드 경로·문서 표에 03_API·report 03_AI
+- docs/main 01: 헤더 작업 프로젝트 드롭다운·전환 시 재조회 요약
+- docs/main 02: §4.0 요약, 목적/§7 문서 표 갱신
+- docs/report 03_AI, 19: 위치·근거 문서 경로 수정
+
+Changed files: docs/README.md, README.md, docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/report/19_Project_Creation_Overhaul.md, docs/log/log.md
+
+267. 2026-04-08 대시보드·위젯보드 프로젝트 전환 시 데이터 재조회 보강
+Purpose: refreshMe에서 project_info_id가 null↔값 포함해 바뀔 때마다 projectContextNonce 증가. 대시보드는 목록 반영 후 tableListRevision으로 동일 tableId여도 집계 재실행. 위젯보드는 mount skip ref 제거·prevProjectNonceRef로 전환 시 캐시 비우고 재조회.
+
+Changes:
+
+- AuthContext refreshMe: prev/next project_info_id 문자열 비교만으로 nonce
+- CampaignDashboardPage: tableListRevision, loadData 의존
+- Dashboard3Page: prevProjectNonceRef
+
+Changed files: Frontend/react-app/src/app/auth/AuthContext.jsx, Frontend/react-app/src/packages/campaign_dashboard/CampaignDashboardPage.jsx, Frontend/react-app/src/packages/widgetboard/Dashboard3Page.jsx, docs/log/log.md
 
 266. 2026-04-08 org 관리자 타부서 프로젝트 API 차단 복귀·작업프로젝트 드롭다운 목록 갱신
 Purpose: 프로젝트 관리 주체는 소속 부서 관리자 — require_project_admin_or_operator_participant 에서 ORG_ADMIN은 pd=did만 허용(참여자 예외 제거). 헤더 드롭다운은 생성·초대수락·라우트 전환 시 GET /api/projects 재조회.
