@@ -372,8 +372,9 @@ def _collect_system_owned_for_guard(cur, uid: int) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
-    """스마트 소유 검사용 프로젝트·pmssn·table_master·등록 부서·초대자(invite_user_id) 참여 행 목록."""
+    """스마트 소유 검사용 프로젝트·pmssn·table_master·등록 부서·초대자·위젯보드 소유 목록."""
     u = int(uid)
     cur.execute(
         """
@@ -440,7 +441,22 @@ def _collect_system_owned_for_guard(cur, uid: int) -> tuple[
         (u, u),
     )
     project_invites = [dict(r) for r in cur.fetchall()]
-    return projects, pmssn, table_masters, departments, project_invites
+    widget_boards: list[dict[str, Any]] = []
+    try:
+        cur.execute(
+            """
+            SELECT wb.widget_board_id,
+                   COALESCE(NULLIF(TRIM(COALESCE(wb.board_name, '')), ''), '위젯 보드') AS display_name
+            FROM widget_board wb
+            WHERE wb.owner_user_id = %s
+            ORDER BY wb.board_name NULLS LAST
+            """,
+            (u,),
+        )
+        widget_boards = [dict(r) for r in cur.fetchall()]
+    except Exception as ex:
+        _log.warning("admin_user ownership_guard widget_board_scan uid=%s: %s", u, ex)
+    return projects, pmssn, table_masters, departments, project_invites, widget_boards
 
 
 def _collect_etl_flat_for_guard(uid: int) -> list[dict[str, Any]]:
@@ -471,8 +487,8 @@ def _evaluate_ownership_target_or_raise(
     """목표 역할·ETL(또는 정지) 기준 소유 불가 시 ManagementBlockedError."""
     cur = conn.cursor()
     try:
-        projects, pmssn, tms, departments, project_invites = _collect_system_owned_for_guard(
-            cur, int(uid)
+        projects, pmssn, tms, departments, project_invites, widget_boards = (
+            _collect_system_owned_for_guard(cur, int(uid))
         )
     finally:
         cur.close()
@@ -487,6 +503,7 @@ def _evaluate_ownership_target_or_raise(
         departments=departments,
         etl_items=etl_items,
         project_invite_rows=project_invites,
+        widget_boards=widget_boards,
     )
     if not payload["changeable"]:
         raise ManagementBlockedError(payload)
@@ -2181,6 +2198,33 @@ def get_user_work_assets(
             linked_tables = []
     finally:
         cur.close()
+    owned_widget_boards: list[dict[str, Any]] = []
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT wb.widget_board_id,
+                   COALESCE(NULLIF(TRIM(COALESCE(wb.board_name, '')), ''), '위젯 보드') AS board_name,
+                   wb.project_info_id,
+                   pi.dptmt_info_id,
+                   COALESCE(NULLIF(TRIM(COALESCE(pi.project_name, '')), ''), '프로젝트') AS project_name
+            FROM widget_board wb
+            JOIN project_info pi ON pi.project_info_id = wb.project_info_id
+            WHERE wb.owner_user_id = %s
+            ORDER BY wb.board_name NULLS LAST
+            """,
+            (tid,),
+        )
+        for r in cur.fetchall():
+            d = dict(r)
+            d["transferable"] = True
+            d["kind"] = "widget_board"
+            d["display_label"] = f"{d.get('board_name') or '위젯 보드'} · {d.get('project_name') or ''}"
+            owned_widget_boards.append(d)
+    except Exception as ex:
+        _log.warning("admin_user work_assets widget_board uid=%s: %s", tid, ex)
+    finally:
+        cur.close()
     etl_blocks: dict[str, list[dict[str, Any]]] = {
         "etl_connections": [],
         "etl_tables": [],
@@ -2244,6 +2288,7 @@ def get_user_work_assets(
         "batch_folder_connections": etl_blocks["batch_folder_connections"],
         "batch_jobs": etl_blocks["batch_jobs"],
         "etl_assets_note": etl_assets_note,
+        "owned_widget_boards": owned_widget_boards,
     }
 
 
@@ -2840,6 +2885,48 @@ def transfer_resource_ownership(
                 "이관 가능한 역할은 sa_dev·Super Admin(sa)·Admin(a) 만입니다."
             )
         to_dpt = int(to_row["dptmt_info_id"])
+        if rt == "widget_board":
+            cur.execute(
+                """
+                SELECT wb.widget_board_id, wb.owner_user_id, pi.dptmt_info_id
+                FROM widget_board wb
+                JOIN project_info pi ON pi.project_info_id = wb.project_info_id
+                WHERE wb.widget_board_id = %s
+                """,
+                (rid,),
+            )
+            wbrow = cur.fetchone()
+            if not wbrow:
+                raise ValueError("위젯 보드를 찾을 수 없습니다.")
+            if int(wbrow["owner_user_id"]) != fid:
+                raise ValueError("해당 사용자가 소유자가 아닌 위젯 보드입니다.")
+            pd = int(wbrow["dptmt_info_id"])
+            if to_dpt != pd:
+                raise ValueError(
+                    "이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다."
+                )
+            assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
+            cur.execute(
+                """
+                UPDATE widget_board
+                SET owner_user_id = %s, update_dtm = NOW()
+                WHERE widget_board_id = %s AND owner_user_id = %s
+                """,
+                (tid, rid, fid),
+            )
+            if cur.rowcount == 0:
+                conn.rollback()
+                raise ValueError("위젯 보드 소유 이관에 실패했습니다.")
+            cur.execute(
+                """
+                UPDATE widget_item
+                SET create_user_id = %s, update_dtm = NOW()
+                WHERE widget_board_id = %s
+                """,
+                (tid, rid),
+            )
+            conn.commit()
+            return
         if rt == "project_invite":
             cur.execute(
                 """

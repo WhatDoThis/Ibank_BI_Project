@@ -11,7 +11,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 4. _get_table_label, _get_column_label: 유저 컨텍스트 없을 때 파일+기본만
 5. _load_column_labels: 파일 column_labels만
 4. _log: 디버그 로그 출력·파일 기록
-5. _contains_dangerous_sql: 금지 SQL 키워드 검사
+5. _contains_dangerous_sql: Backend.core.sql_safety 래퍼(디버그 로그)
 6. _fetch_relationships: FK/추론 관계 조회
 7. _get_or_compute_relationships_all: 관계 캐시·추론
 8. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성(create_user_id 컬럼 포함)
@@ -35,7 +35,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Dependencies]
 =========
-- Backend.core.db, Backend.core.dependencies, Backend.auth_server.permissions.require_permission
+- Backend.core.db, Backend.core.sql_safety, Backend.core.dependencies, Backend.auth_server.permissions.require_permission
 - require_query_read_perm / require_query_execute_perm: 테스트·오버라이드용 공통 Depends 대상
 - Backend.query_studio_server.schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
 - fastapi, psycopg2, psycopg2.extras.RealDictCursor, requests
@@ -60,6 +60,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from Backend.core import db
+from Backend.core.sql_safety import contains_dangerous_sql as _core_contains_dangerous_sql
 from Backend.query_studio_server import analysis_store
 from Backend.query_studio_server.relationship_inference import infer_relationships
 from Backend.auth_server.permissions import require_permission
@@ -356,40 +357,15 @@ def _log(msg, *args):
 
 # 7.
 def _contains_dangerous_sql(query):
-    if not query or not query.strip():
+    if not query or not str(query).strip():
         _log("dangerous_sql: query empty -> None")
         return None
-    text = query.upper()
-    phrases = [
-        "DROP TABLE", "DROP INDEX", "DROP VIEW", "DROP SCHEMA", "DROP DATABASE",
-        "DELETE FROM", "INSERT INTO",
-        "ALTER TABLE", "ALTER INDEX", "ALTER VIEW",
-        "CREATE TABLE", "CREATE INDEX", "CREATE VIEW", "CREATE SCHEMA",
-        "TRUNCATE TABLE",
-    ]
-    segments = text.split(";")
-    _log("dangerous_sql: segments count=%s", len(segments))
-    for i, segment in enumerate(segments):
-        segment = segment.strip()
-        if not segment:
-            continue
-        seg_preview = (segment[:80] + "...") if len(segment) > 80 else segment
-        seg_preview = seg_preview.replace("\n", "\\n")
-        if re.match(r"^\s*SELECT\b", segment):
-            _log("dangerous_sql: segment[%s] starts with SELECT -> skip", i)
-            continue
-        for phrase in phrases:
-            words = phrase.split()
-            parts = [r"\b" + re.escape(w) + r"\b" for w in words]
-            pattern = r"^\s*" + r"\s+".join(parts) + r"(?:\s|$)"
-            if re.match(pattern, segment):
-                _log("dangerous_sql: segment[%s] matched phrase=%s", i, phrase)
-                return phrase
-        if re.match(r"^\s*UPDATE\b\s", segment):
-            _log("dangerous_sql: segment[%s] matched UPDATE", i)
-            return "UPDATE"
-    _log("dangerous_sql: all segments passed -> None")
-    return None
+    matched = _core_contains_dangerous_sql(query)
+    if matched:
+        _log("dangerous_sql: matched=%s", matched)
+    else:
+        _log("dangerous_sql: all segments passed -> None")
+    return matched
 
 
 router = APIRouter(prefix="/api", tags=["report"])

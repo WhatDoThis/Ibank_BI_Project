@@ -1,6 +1,25 @@
 # Log
 
 ## Log Index
+296. 2026-04-09 위젯보드 목록 생성·수정 모달: 부서관리(admin-org) 모달 스타일 정합
+295. 2026-04-09 위젯보드 목록 참여자 열: 인원 수 글씨 축소·버튼 수직 정렬
+294. 2026-04-09 위젯보드 목록 모달: 오버레이 클릭 닫기·참여자/초대 이메일 열 말줄임
+293. 2026-04-09 위젯보드 목록 테이블: 관리 페이지와 동일 ibank-btn-table·admin-users__actions
+292. 2026-04-09 위젯보드: private/project·알림 초대·사용자관리 위젯보드 이관
+291. 2026-04-09 위젯보드: share_scope 비사용·초대(widget_board_share)만 접근 제어
+290. 2026-04-09 위젯보드 목록 페이지·참여자/초대 API·비활성·캔버스 라우트 분리
+289. 2026-04-09 widget_item.create_user_id DDL·add_widget INSERT 반영
+288. 2026-04-09 위젯보드: 설정 모달 통합·생성 시 지표/차원·기간 자동 집계
+287. 2026-04-09 위젯 카드 헤더 기간 표시: 2행 레이아웃·짧은 부제·말줄임(가독성)
+286. 2026-04-09 ETL DB 적재: column_mapping TEXT 오저장 시 소스 스키마로 타입 보정·타겟 TIMESTAMP 유지
+285. 2026-04-09 위젯 카드 헤더에 조회 기간 부제 표시
+284. 2026-04-09 위젯보드 data_config 기간·마법사 UI·saved_table 서버 필터
+283. 2026-04-09 core/sql_safety 통합·shared queryStudioTableApi·위젯보드-쿼리스튜디오 경계 정리
+282. 2026-04-09 위젯보드 FE 서버 연동·GET 보드 can_edit·API 가이드 §6.2
+281. 2026-04-09 docs/report/20 §7.0 프로젝트 귀속·개인 보드 FE 명시
+280. 2026-04-09 docs/report/20 §3.4 컬럼 사용 검증(위젯보드 테이블)
+279. 2026-04-09 docs/report/20 설계서 최적화·S0~S8·ibank_system_data psql 절 추가
+278. 2026-04-09 docs/report/20 위젯 보드 분리 설계서·ReportIndex 갱신
 277. 2026-04-09 홈 위젯보드 카드 부가 설명을 widgetboard로 복구
 276. 2026-04-09 위젯보드 패키지: Dashboard3Page → WidgetboardPage 명칭·문서 정합
 275. 2026-04-09 docs/main/03_API_GUIDE.md §5.3 campaign_dash_server 라우터·흐름·보안 요약
@@ -280,6 +299,208 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+296. 2026-04-09 위젯보드 목록 생성·수정 모달: 부서관리(admin-org) 모달 스타일 정합
+Purpose: `ap__modal` 계열 대신 `admin-org__modal-overlay`·`admin-org__modal`·`admin-org__label`·`admin-org__input`·`admin-org__modal-actions` 및 `ibank-btn-toolbar--secondary`로 부서 추가 모달과 동일 UI.
+
+Changes:
+
+- `WidgetboardListPage.jsx`: admin-org.css import, 생성·수정 모달 마크업·폼 submit
+- `widgetboard.css`: `.wb-list-modal__textarea` (textarea 모서리·높이)
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+295. 2026-04-09 위젯보드 목록 참여자 열: 인원 수 글씨 축소·버튼 수직 정렬
+Purpose: 참여자 열 `(N명)` 이 `ap__hint`로 인해 줄 높이·마진이 커져 버튼과 어긋남. 전용 클래스로 작은 글씨·line-height 1·마진 0.
+
+Changes:
+
+- `WidgetboardListPage.jsx`: `wb-list-participant-actions`·`wb-list-participant-count`
+- `widgetboard.css`: 위 클래스 스타일
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+294. 2026-04-09 위젯보드 목록 모달: 오버레이 클릭 닫기·참여자/초대 이메일 열 말줄임
+Purpose: 부서/사용자 관리와 동일하게 모달 배경 클릭 시 닫힘. 참여자·초대 모달에서 긴 이메일이 행을 밀지 않도록 말줄임·title 툴팁.
+
+Changes:
+
+- `WidgetboardListPage.jsx`: 생성·수정·참여자·초대 `ap__modal-overlay`에 `onClick`으로 각 상태 초기화, 참여자/초대 표에 `ap__td-clip-inviter`·`admin-users__email-*`·`wb-list-modal-table`
+- `widgetboard.css`: `.wb-list-modal-table`·`.wb-list-modal-email-cell` 보조 스타일
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+293. 2026-04-09 위젯보드 목록 테이블: 관리 페이지와 동일 ibank-btn-table·admin-users__actions
+Purpose: ibank-btn-small·flexWrap으로 어긋나던 목록 행을 AdminProjects/AdminUsers와 동일 패턴으로 정렬(한 줄·테이블 버튼). ap__table--projects 명·설명 말줄임.
+
+Changes:
+
+- `WidgetboardListPage.jsx`: admin-users.css import, `ap__table--projects`, `admin-users__actions`, 위험/주요 액션 variant, 참여자·초대 모달 행 버튼 정합
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
+
+292. 2026-04-09 위젯보드: private/project·알림 초대·사용자관리 위젯보드 이관
+Purpose: share_scope 복구(project=동일 프로젝트 읽기 캔버스). 초대는 알림(noti_type widget_board_invite) 후 수락 시 share. 목록 범위 컬럼·체크박스 일괄 초대. 어드민 소유 위젯보드 이관 시 위젯 create_user_id 일괄 이관.
+
+Changes:
+
+- `widget_board_server/service.py`·`schemas.py`·`router.py`: list has_share, invite batch·accept/reject, share_scope create/patch
+- `NotificationBell.jsx`·`widgetBoardClient.js`·`WidgetboardListPage.jsx`
+- `admin_server/service_users.py`·`ownership_guards.py`·`schemas.py`·`AdminUsersPage.jsx`
+
+Changed files: Backend/widget_board_server/service.py, schemas.py, router.py, Backend/admin_server/service_users.py, ownership_guards.py, schemas.py, Frontend/react-app/src/app/layout/NotificationBell.jsx, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, api/widgetBoardClient.js, docs/log/log.md
+
+291. 2026-04-09 위젯보드: share_scope 비사용·초대(widget_board_share)만 접근 제어
+Purpose: 프로젝트 전체 공유(project) 분기 제거. 보드 접근은 소유자 또는 widget_board_share 행만. 신규 INSERT는 share_scope 항상 private. API 바디의 share_scope는 deprecated(무시).
+
+Changes:
+
+- `widget_board_server/service.py`: `_can_read_board`·`_can_edit_board`·`list_boards`·`create_board`·`patch_board`·`upsert_share`·`list_board_participants` 정리
+- `schemas.py`: Create/Patch `share_scope` Field(deprecated)
+- `WidgetboardListPage.jsx`: 생성 시 share_scope 제거, 참여자 모달 안내 문구 통일
+
+Changed files: Backend/widget_board_server/service.py, schemas.py, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
+
+290. 2026-04-09 위젯보드 목록 페이지·참여자/초대 API·비활성·캔버스 라우트 분리
+Purpose: `/widgetboard` 목록·생성·참여자 모달·초대(위젯보드 권한자)·비활성/활성/삭제, `/widgetboard/:id` 캔버스. 제외 시 widget_item.create_user_id 소유자 이관.
+
+Changes:
+
+- `widget_board_server/service.py`: list_boards 확장(is_owner·can_edit·owner·participant_count), 비활성 보드 소유자 목록, get_detail/fetch_data 비활성 차단, patch_board active_yn·비활성 시 소유자만 메타 수정, upsert_share→custom·비활성 금지, delete_share 이관, list_board_participants·list_invite_candidates
+- `schemas.py`: WidgetBoardPatchBody.active_yn
+- `router.py`: GET participants, invite-candidates
+- `WidgetboardListPage.jsx`, `routes.jsx` 중첩 라우트, `WidgetboardPage.jsx` URL boardId·목록 링크, `widgetBoardClient.js` API 추가
+
+Changed files: Backend/widget_board_server/service.py, schemas.py, router.py, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, WidgetboardPage.jsx, api/widgetBoardClient.js, app/routes.jsx, docs/log/log.md
+
+289. 2026-04-09 widget_item.create_user_id DDL·add_widget INSERT 반영
+Purpose: 위젯 생성자 추적용 컬럼 추가 및 API 생성 시 JWT 사용자 ID 저장.
+
+Changes:
+
+- `widget_board_server/service.py` `add_widget`: INSERT 에 `create_user_id` 및 `int(user_id)` 바인딩
+
+Changed files: Backend/widget_board_server/service.py, docs/log/log.md
+
+288. 2026-04-09 위젯보드: 설정 모달 통합·생성 시 지표/차원·기간 자동 집계
+Purpose: 「변경」과 설정 중복 제거, 생성 마법사에 metric/dimension 추가, 시작≠종료일이면 차트 X축을 dateGrain 기준 버킷 집계.
+
+Changes:
+
+- `WidgetboardPage.jsx`: 헤더「변경」제거·테이블 미연결 시 설정으로 유도, 설정 모달에 테이블 셀렉트, 기간 변경 시 `handleDataWidgetRangePatch`로 dimensionKey 정리, 캐시 키에 `tableName` 포함, 마법사 edit 모드 제거
+- `WidgetDataWizardModal.jsx`: 생성 전용·지표/차원 필드, 복수 일이면 차원 비활성
+- `dataUtils.js`: `aggregateForChartByTimeGrain`, `resolveWidgetDateColumnName`, `bucketLabelForGrain`
+- `dateRangePolicy.js`: `isMultiDayWidgetRange`
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, WidgetDataWizardModal.jsx, utils/dataUtils.js, utils/dateRangePolicy.js, docs/log/log.md
+
+287. 2026-04-09 위젯 카드 헤더 기간 표시: 2행 레이아웃·짧은 부제·말줄임(가독성)
+Purpose: 좁은 KPI 카드에서 `word-break: break-all`로 날짜가 숫자 단위로 깨지던 문제를 제거하고, 제목·기간은 전체 너비를 쓰도록 한다.
+
+Changes:
+
+- `dateRangePolicy.js`: `formatWidgetPeriodSubtitleCompact` 추가
+- `WidgetboardPage.jsx` `WidgetBlock`: 헤더 primary / toolbar 2행, 기간 `title`에 전체 문구
+- `widgetboard.css`: `.widget-header-primary`, `.widget-header-toolbar`, 기간·데이터소스 말줄임
+
+Changed files: Frontend/react-app/src/packages/widgetboard/utils/dateRangePolicy.js, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+286. 2026-04-09 ETL DB 적재: column_mapping TEXT 오저장 시 소스 스키마로 타입 보정·타겟 TIMESTAMP 유지
+Purpose: UI가 PG `timestamp without time zone` 등을 TEXT로 저장해도 적재 시 CREATE/캐스트가 TEXT로 고정되던 문제를 막음.
+
+Changes:
+- `db_load_service.resolve_column_mapping_pg_type`: 저장 type이 TEXT이고 소스 information_schema 매핑이 TEXT가 아니면 소스 기준 PG 타입 사용. `run_db_load` 매핑 빌드에 적용.
+- `batch_executor_db`: 동일 헬퍼로 배치 DB Job 매핑 타입 결정.
+- `TargetTableSelectModal/constants.js`: `isDatetimeSemanticType`로 전체 타입명 인식, `inferredTypeToPg`·`typeFamily` 보강.
+
+Changed files: Backend/etl_server/db_load_service.py, batch_executor_db.py, Frontend/react-app/src/packages/etl/components/TargetTableSelectModal/constants.js, docs/log/log.md
+
+285. 2026-04-09 위젯 카드 헤더에 조회 기간 부제 표시
+Purpose: 기간이 적용된 데이터 위젯에서 제목 아래에 `YYYY-MM-DD ~ YYYY-MM-DD (일별|주별|월별)` 안내를 둔다.
+
+Changes:
+
+- `dateRangePolicy.js`: `formatWidgetPeriodSubtitle`
+- `WidgetboardPage.jsx` `WidgetBlock`: 헤더 좌측 제목+부제 레이아웃
+- `widgetboard.css`: `.widget-header-left`, `.widget-title-text`, `.widget-date-range`
+
+Changed files: Frontend/react-app/src/packages/widgetboard/utils/dateRangePolicy.js, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+284. 2026-04-09 위젯보드 data_config 기간·마법사 UI·saved_table 서버 필터
+Purpose: 위젯별 조회 기간을 DB 컬럼 추가 없이 data_config(JSON)로만 저장하고, 드롭 후 마법사에서 제목·테이블·일/주/월 상한 내 기간·날짜 컬럼을 설정한다. 서버 fetch_widget_data 가 saved_table 에 동일 상한으로 WHERE 를 적용한다.
+
+Changes:
+
+- `widget_board_server/service.py`: dateStart/End/Grain/Column 파싱·검증(14일·12주·12개월), psycopg2 식별자 안전 WHERE
+- `WidgetboardPage.jsx`: 전역 날짜 헤더 제거, 생성/편집 `WidgetDataWizardModal`, `buildDataConfigForApi`·캐시 키에 기간 반영, 설정 모달 기간·이름
+- `components/WidgetDataWizardModal.jsx`, `utils/dateRangePolicy.js`: 클라이언트 검증·기본 기간
+- `widgetboard.css`: 마법사 폼 스타일
+
+Changed files: Backend/widget_board_server/service.py, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/components/WidgetDataWizardModal.jsx, Frontend/react-app/src/packages/widgetboard/utils/dateRangePolicy.js, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+283. 2026-04-09 core/sql_safety 통합·shared queryStudioTableApi·위젯보드-쿼리스튜디오 경계 정리
+Purpose: query_studio와 widget_board 간 중복된 SQL 금지 검사를 제거하고, 위젯보드가 쿼리 스튜디오 HTTP API를 패키지 간 직접 import 없이 shared 경로로 사용하도록 한다.
+
+Changes:
+
+- `Backend/core/sql_safety.py` 신규: `contains_dangerous_sql` 단일 구현
+- `query_studio_server/router.py`: 코어 함수 래퍼로 `_contains_dangerous_sql` 축소
+- `widget_board_server/service.py`: 코어 import로 전환, `widget_board_server/sql_safety.py` 삭제
+- `shared/api/queryStudioTableApi.js` 신규: listTables, describeTable, executeQuery
+- `query_studio/api/queryStudioClient.js`: 위 세 함수 shared에서 re-export, `WidgetboardPage.jsx`는 shared 직접 import
+- `docs/report/20_…`, `docs/main/02_BACKEND_GUIDE.md` 설계·트리 문구 정합
+
+Changed files: Backend/core/sql_safety.py, Backend/query_studio_server/router.py, Backend/widget_board_server/service.py, Frontend/react-app/src/shared/api/queryStudioTableApi.js, Frontend/react-app/src/packages/query_studio/api/queryStudioClient.js, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/report/20_Widget_Board_System_Design.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/log/log.md (삭제: Backend/widget_board_server/sql_safety.py)
+
+282. 2026-04-09 위젯보드 FE 서버 연동·GET 보드 can_edit·API 가이드 §6.2
+Purpose: 운영 DB에 반영된 `widget_board`/`widget_item`/`widget_board_share`에 맞춰 위젯보드 UI를 `/api/widget-boards`와 동기화하고, 읽기 전용·편집 권한을 프론트에서 반영한다.
+
+Changes:
+
+- `widget_board_server/service.py`: `get_board_detail` 응답에 `can_edit` 추가
+- `WidgetboardPage.jsx`: 보드 목록·생성·전환, 드롭 시 `addWidget`, 테이블 선택 시 `updateWidget`, 레이아웃 디바운스 `patchWidgetBoardLayout`, 데이터 `fetchWidgetData`, localStorage 제거 후 흐름 정리, `WidgetBlock` 읽기 전용 처리
+- `widgetboard.css`: 보드 툴바·읽기 전용 팔레트 스타일
+- `docs/main/03_API_GUIDE.md`: 라우터 9개 도식·`§6.2 widget_board_server` 엔드포인트 표
+
+Changed files: Backend/widget_board_server/service.py, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+281. 2026-04-09 docs/report/20 §7.0 프로젝트 귀속·개인 보드 FE 명시
+Purpose: 위젯보드 프론트가 프로젝트 스코프+소유자 개인화 모델을 다루는지 문서에서 바로 읽히도록 §7 도입부·§13 목차를 보강한다.
+
+Changes:
+
+- `20_Widget_Board_System_Design.md`: §7.0 제품 맥락 표, §13 목차 6~7 설명
+
+Changed files: docs/report/20_Widget_Board_System_Design.md, docs/log/log.md
+
+280. 2026-04-09 docs/report/20 §3.4 컬럼 사용 검증(위젯보드 테이블)
+Purpose: 위젯보드 3테이블 컬럼이 BE/FE에서 모두 쓰이는지 검증하고, MVP에서 빈 값·후순위 UI가 될 수 있는 항목을 표로 남긴다.
+
+Changes:
+
+- `20_Widget_Board_System_Design.md`: §3.4 컬럼 사용 검증 추가
+
+Changed files: docs/report/20_Widget_Board_System_Design.md, docs/log/log.md
+
+279. 2026-04-09 docs/report/20 설계서 최적화·S0~S8·ibank_system_data psql 절 추가
+Purpose: 위젯보드 설계서를 시스템 최적안(localStorage 비사용·`widgetboard` 권한 1차·`table_project_mapping` 명칭)으로 정리하고, 컨텍스트 최적화용 S0~S8 게이트·`ibank_system_data` psql DDL/DML(파일 없음)을 단일 문서에 넣어 구현 가능하도록 한다.
+
+Changes:
+
+- `20_Widget_Board_System_Design.md`: §0 최적화·§11 psql·§12 게이트·§13 목차, API 권한 표 `widgetboard` 정합, ERD 매핑명 수정
+- `00_ReportIndex.md`: 20번 설명 갱신
+
+Changed files: docs/report/20_Widget_Board_System_Design.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+278. 2026-04-09 docs/report/20 위젯 보드 분리 설계서·ReportIndex 갱신
+Purpose: 사용자 정리안(3테이블·widget_board_server·엔드포인트·권한)을 바탕으로, 쿼리 스튜디오 정리는 제외하고 위젯보드 서버화·프론트(`packages/widgetboard`) 연동을 상세 설계 문서로 남긴다.
+
+Changes:
+
+- `docs/report/20_Widget_Board_System_Design.md` 신규: 원칙·DDL·ERD·API·데이터 흐름·현행 UI 매핑·추가 UI·클라이언트·구현 Phase
+- `docs/report/00_ReportIndex.md`: 20번 행 추가
+
+Changed files: docs/report/20_Widget_Board_System_Design.md, docs/report/00_ReportIndex.md, docs/log/log.md
 
 277. 2026-04-09 홈 위젯보드 카드 부가 설명을 widgetboard로 복구
 Purpose: 홈 카드 부가 문구가 어색해 `widgetboard` 표기로 되돌린다.

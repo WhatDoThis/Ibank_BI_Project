@@ -20,10 +20,11 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
 8. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
    (구 /api/dashboard·뉴 대시보드·마케팅 대시보드 라우터는 미등록 — 패키지는 저장소에 보존, 재연결 시 main에 include)
+9. widget_board_router: /api/widget-boards/* — 위젯 보드 메타·레이아웃(`dependencies=[require_permission("widgetboard")]`)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.query_studio_server, Backend.etl_server.router, Backend.campaign_dash_server
+- Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.query_studio_server, Backend.etl_server.router, Backend.campaign_dash_server, Backend.widget_board_server
 - fastapi, uvicorn
 """
 
@@ -51,6 +52,7 @@ from Backend.admin_server import router as admin_router
 from Backend.api_server.routers import health_router, query_studio_router
 from Backend.etl_server import router as etl_router
 from Backend.campaign_dash_server import router as campaign_dashboard_router
+from Backend.widget_board_server import router as widget_board_router
 
 from contextlib import asynccontextmanager
 
@@ -96,6 +98,10 @@ app.include_router(
 app.include_router(
     campaign_dashboard_router,
     dependencies=[Depends(require_permission("dashboard"))],
+)
+app.include_router(
+    widget_board_router,
+    dependencies=[Depends(require_permission("widgetboard"))],
 )
 
 

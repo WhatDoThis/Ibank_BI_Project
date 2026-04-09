@@ -7,7 +7,7 @@
  * ===========
  * 1. DATETIME_TYPES, NEW_TABLE_VALUE, ETL_TABLE_LABEL_MAX_LEN, ETL_TABLE_DSCRTN_MAX_LEN (etl_tables 길이 제한)
  * 2. TYPE_CAST_TARGET_OPTIONS, ON_ERROR_OPTIONS, TRANSFORM_OPTIONS, STRING_OPERATION_OPTIONS, MASKING_OPERATION_OPTIONS, DATETIME_EXTRACT_PART_OPTIONS, DATETIME_DATE_DIFF_UNIT_OPTIONS
- * 3. typeFamily, isTypeCompatible, inferredTypeToPg
+ * 3. typeFamily, isTypeCompatible, inferredTypeToPg (PG 전체 타입명 timestamp without time zone 등은 isDatetimeSemanticType)
  * 4. getOnErrorValue, normalizeSourceCol, parsePkColumns
  * 5. buildEmptyTransformSettings, TRANSFORM_OPTION_LABELS (모달↔부모 변환 스냅샷)
  * 6. getTransformTypeGuidance — 소스·변환 종류·타겟 타입 기준 비차단 안내 문구 배열
@@ -18,6 +18,16 @@
  */
 
 export const DATETIME_TYPES = ['datetime', 'date', 'timestamp', 'timestamptz', 'time', 'timetz', 'interval', 'year'];
+
+/** PG information_schema 등 전체 타입명(예: timestamp without time zone)을 날짜·시간 계열로 볼지 */
+function isDatetimeSemanticType(typeStr) {
+  const s = (typeStr || '').toString().trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('timestamp')) return true;
+  if (s === 'date' || s === 'datetime' || s === 'interval' || s === 'year') return true;
+  if (s === 'time' || s.startsWith('time with') || s.startsWith('time without') || s === 'timetz') return true;
+  return false;
+}
 
 /** etl_tables.table_label — 운영 DDL varchar(30), UNIQUE */
 export const ETL_TABLE_LABEL_MAX_LEN = 30;
@@ -31,7 +41,7 @@ export function typeFamily(typeStr) {
   if (['integer', 'int', 'int4', 'int8', 'bigint', 'smallint', 'serial', 'bigserial'].some((x) => t === x || t.startsWith(x))) return 'integer';
   if (['float', 'double', 'double precision', 'real', 'numeric', 'decimal'].some((x) => t === x || t.startsWith(x))) return 'float';
   if (['boolean', 'bool'].some((x) => t === x || t.startsWith(x))) return 'boolean';
-  if (DATETIME_TYPES.some((x) => t === x)) return 'datetime';
+  if (isDatetimeSemanticType(t)) return 'datetime';
   return 'text';
 }
 
@@ -183,7 +193,8 @@ export function inferredTypeToPg(typeStr) {
   /* Oracle NUMBER, MySQL decimal/float 등 → DOUBLE PRECISION. number는 Oracle 원본 타입명. */
   if (['float', 'double precision', 'double', 'numeric', 'decimal', 'real', 'number'].some((x) => t === x || t.startsWith(x))) return 'DOUBLE PRECISION';
   if (['boolean', 'bool'].some((x) => t === x || t.startsWith(x))) return 'BOOLEAN';
-  if (['datetime', 'date', 'timestamp', 'timestamptz', 'time', 'timetz', 'interval', 'year'].some((x) => t === x)) return 'TIMESTAMP';
+  if (t === 'date' && !t.includes('timestamp')) return 'DATE';
+  if (isDatetimeSemanticType(t)) return 'TIMESTAMP';
   return 'TEXT';
 }
 

@@ -854,6 +854,7 @@ export default function AdminUsersPage() {
       'invited_project_participants',
       'created_custom_roles',
       'created_departments',
+      'owned_widget_boards',
       'linked_tables',
       'etl_connections',
       'etl_tables',
@@ -872,6 +873,7 @@ export default function AdminUsersPage() {
       pmssn_master: '등록한 권한',
       table_master: '테이블 마스터',
       dptmt_creator: '등록한 부서 (생성자)',
+      widget_board: '위젯 보드',
       etl_meta: 'ETL 등록',
     }
     return m[t] || t
@@ -1552,6 +1554,17 @@ export default function AdminUsersPage() {
                                   true,
                                   work.target_user_dptmt_info_id,
                                   false,
+                                  false,
+                                )}
+                                {renderAssetList(
+                                  '소유한 위젯 보드',
+                                  work.owned_widget_boards,
+                                  uid,
+                                  'widget_board',
+                                  'widget_board_id',
+                                  'display_label',
+                                  true,
+                                  work.target_user_dptmt_info_id,
                                   false,
                                 )}
                                 {renderAssetList(

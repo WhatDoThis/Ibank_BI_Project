@@ -200,6 +200,7 @@ class TransferOwnershipBody(BaseModel):
         "pmssn_master",
         "table_master",
         "dptmt_creator",
+        "widget_board",
         "etl_connection",
         "etl_table",
         "etl_job",
@@ -208,7 +209,7 @@ class TransferOwnershipBody(BaseModel):
         "batch_job",
     ] = Field(
         ...,
-        description="project·project_invite(project_ptcpnt_info_id, 초대자 이관)·pmssn_master·table_master·dptmt_creator 또는 etl_db 메타",
+        description="project·project_invite·pmssn_master·table_master·dptmt_creator·widget_board 또는 etl_db 메타",
     )
     resource_id: int = Field(..., ge=1)
     from_user_id: int = Field(..., ge=1, description="현재 생성자·등록자")

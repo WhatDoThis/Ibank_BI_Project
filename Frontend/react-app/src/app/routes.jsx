@@ -7,10 +7,11 @@
  * 1. AppRoutes — 전체 Route 트리
  */
 
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 
 import QueryStudioPage from '@/packages/query_studio'
 import WidgetboardPage from '@/packages/widgetboard'
+import WidgetboardListPage from '@/packages/widgetboard/WidgetboardListPage.jsx'
 import ETLPage from '@/packages/etl'
 import CampaignDashboardPage from '@/packages/campaign_dashboard'
 
@@ -108,11 +109,14 @@ export function AppRoutes() {
           element={
             <NeedProjectRoute>
               <ProjectFeatureRoute feature="widgetboard">
-                <WidgetboardPage />
+                <Outlet />
               </ProjectFeatureRoute>
             </NeedProjectRoute>
           }
-        />
+        >
+          <Route index element={<WidgetboardListPage />} />
+          <Route path=":boardId" element={<WidgetboardPage />} />
+        </Route>
         <Route
           path="/etl"
           element={

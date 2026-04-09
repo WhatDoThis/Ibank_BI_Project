@@ -30,6 +30,7 @@
 | 17_SystemDB_Commercialization_Implementation_Guide.md | **시스템 DB 추가 및 상용화 개발 구현 가이드**: DB·config·인증·권한·프로젝트·알림·화면·API. **§10.4 M1/M2**, **§13** 전사 공통 `table_master`/ETL·`require_etl_infrastructure`. **docs/main/04·05·06** 과 교차 참조. **§12** 서브에이전트·`.cursor/`. |
 | 18_ETL_ibank_etl_data_Schema_Creator_CURL_FE.md | **ibank_etl_data 실측 스키마·생성자·CURL/FE 체크리스트**: `protocol`/`folder_type`, `id`/`registry_id` PK, `create_user_id`·`create_user_label` API/화면 정합, 동적 컬럼 감지 요약. |
 | 19_Project_Creation_Overhaul.md | **프로젝트 생성 전면 개편**: `creator_pmssn_master_id` 필수·단일 트랜잭션 `create_project_full`·타부서 `project_invite` 알림·`POST /api/projects/{id}/accept-invite`·모달 데이터 API(`users?scope=dept_tree` 등). Phase·파일 체크리스트. |
+| 20_Widget_Board_System_Design.md | **위젯 보드 분리·서버화 설계(단일 진행 문서)**: `ibank_system_data`용 **§11 psql DDL/DML(파일 없음)**, **§12 S0~S8 섹션 게이트**, localStorage 비사용·`widgetboard` 권한 1차안, 3테이블·API·FE 연동·`table_project_mapping` 정합. |
 | etc01_Backend_Learning_Flow.md | ETL 단일 스택 학습 가이드: **`Backend/etl_server`**, **`packages/etl`**, **`/api/etl`·`/api/etl/batch`**, `etlClient.js`(`etl2*`·`batch*` 함수명). 세부 구조는 **docs/main/02_BACKEND_GUIDE.md** 와 병행. |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |

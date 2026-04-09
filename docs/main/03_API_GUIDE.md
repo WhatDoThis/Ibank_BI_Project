@@ -13,7 +13,7 @@
 3. **[§3 project_server](#3-project_server-프로젝트-목록선택초대-응답)** — 목록, `select`, 타부서 초대 수락·거절
 4. **[§4 admin_server](#4-admin_server-조직프로젝트-관리)** — 초대~생성~멤버, 소유 가드, 이관·정지
 5. **[§5 캠페인 대시보드](#5-캠페인-대시보드-campaign_dash--core)** — [§5.3 HTTP 라우터](#53-campaign_dash_serverrouterpy) · `dashboard_service`
-6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.1 알림](#61-notification_server) · 쿼리 스튜디오·ETL 등
+6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.1 알림](#61-notification_server) · [§6.2 위젯 보드](#62-widget_board_server) · 쿼리 스튜디오·ETL 등
 
 ---
 
@@ -48,7 +48,7 @@
 │  FastAPI app 생성                              │
 │  ├─ CORS 미들웨어 (allow_origins=["*"])       │
 │  ├─ lifespan → ETL scheduler 기동             │
-│  └─ 8개 라우터 등록:                           │
+│  └─ 9개 라우터 등록:                           │
 │     ├─ health_router        (인증 없음)       │
 │     ├─ auth_router          (/api/auth)       │
 │     ├─ project_router       (/api/projects)   │
@@ -57,8 +57,10 @@
 │     ├─ query_studio_router  (/api/*)          │
 │     ├─ etl_router           (/api/etl)        │
 │     │   └─ Depends: require_etl_infrastructure│
-│     └─ campaign_dashboard   (/api/campaign-dashboard)│
-│         └─ Depends: require_permission("dashboard")  │
+│     ├─ campaign_dashboard   (/api/campaign-dashboard)│
+│     │   └─ Depends: require_permission("dashboard")  │
+│     └─ widget_board         (/api/widget-boards)     │
+│         └─ Depends: require_permission("widgetboard") │
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
@@ -72,7 +74,7 @@
 | 함수 | 기능 |
 |------|------|
 | `lifespan` | 앱 시작 시 ETL 배치 스케줄러 기동 |
-| `app` | FastAPI 인스턴스 생성, CORS, 8개 라우터 등록 |
+| `app` | FastAPI 인스턴스 생성, CORS, 9개 라우터 등록 |
 | `not_found_handler` | 404 JSON 응답 |
 | `internal_error_handler` | 500 JSON 응답 |
 | `__main__` | config 읽어 uvicorn 실행 (`configure_root_logging` 선행) |
@@ -197,6 +199,12 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 | `format_value` | datetime/decimal 등 JSON 직렬화 |
 | `validate_table_name` | 이름 패턴 + 스키마 존재 검증 |
 | `validate_column_name` | 컬럼명 패턴 검증 |
+
+#### `core/sql_safety.py`
+
+| 함수 | 기능 |
+|------|------|
+| `contains_dangerous_sql` | 세미콜론 분할 후 비SELECT 구간에서 DDL/DML 금지어 검사 — `query_studio_server` `_contains_dangerous_sql`·`widget_board_server` `fetch_widget_data`(query 타입) 공통 |
 
 #### `core/dependencies.py`
 
@@ -1419,6 +1427,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 - **`etl_server`**: `/api/etl`, `/api/etl/batch`, `require_etl_infrastructure` — **02_BACKEND_GUIDE.md**, `etl_server/router.py`·`router_file.py`.
 - **`notification_server`**: **§6.1** — HTTP는 목록·카운트·읽음만; 생성은 `service.insert_notification` 내부 호출 — `notification_server/router.py`·`service.py`.
 - **`campaign_dash_server`**: **§5.1** 흐름 개요 · **§5.3** 엔드포인트·내부함수·보안 — `campaign_dash_server/router.py` · **02_BACKEND_GUIDE.md** 병행.
+- **`widget_board_server`**: **§6.2** — `system_db` 메타·`main` DB 데이터 조회 — `widget_board_server/router.py` · 설계 **docs/report/20_Widget_Board_System_Design.md**.
 
 ---
 
@@ -1506,4 +1515,29 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ---
 
-*함수·엔드포인트 표는 **§1~§5** 각 절의 흐름도 바로 아래에 통합되어 있다. 캠페인 대시보드 HTTP 상세는 **§5.3**, 알림 상세는 **§6.1**, 그 외 **§6** 은 패키지 안내다.*
+### 6.2 `widget_board_server`
+
+라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`. 위젯 **데이터 조회**(`saved_table` / `query`)는 **`db.get_db_connection()`** 메인 DB에서 수행하며, 저장 테이블은 프로젝트 허용 목록·`test_report_` 접두·`validate_table_name` 규칙을 따른다.
+
+#### `router.py` — 엔드포인트
+
+| 메서드 | 경로 | 핵심 |
+|--------|------|------|
+| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 `{ items }` |
+| `POST` | `/api/widget-boards` | 보드 생성 |
+| `GET` | `/api/widget-boards/{board_id}` | 보드 상세 + 위젯 + **`can_edit`** |
+| `PATCH` | `/api/widget-boards/{board_id}` | 보드 메타 |
+| `DELETE` | `/api/widget-boards/{board_id}` | 논리 삭제(`active_yn`) |
+| `POST` | `/api/widget-boards/{board_id}/widgets` | 위젯 추가 |
+| `PATCH` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 패치 |
+| `DELETE` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 비활성 |
+| `PATCH` | `/api/widget-boards/{board_id}/layout` | 다건 `layout_x/y/w/h` |
+| `POST` | `/api/widget-boards/{board_id}/share` | 커스텀 공유 upsert |
+| `DELETE` | `/api/widget-boards/{board_id}/share/{shared_user_id}` | 공유 제거 |
+| `POST` | `/api/widget-boards/{board_id}/widgets/{widget_id}/data` | 위젯 데이터(SELECT·한도) |
+
+프론트 연동: `Frontend/react-app/src/packages/widgetboard/api/widgetBoardClient.js`.
+
+---
+
+*함수·엔드포인트 표는 **§1~§5** 각 절의 흐름도 바로 아래에 통합되어 있다. 캠페인 대시보드 HTTP 상세는 **§5.3**, 알림 상세는 **§6.1**, 위젯 보드는 **§6.2**, 그 외 **§6** 은 패키지 안내다.*

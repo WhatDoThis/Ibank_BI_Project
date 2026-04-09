@@ -35,6 +35,8 @@ def can_own_after_change(logical_type: str, new_dvsn: str, new_etl_yn: str) -> b
         return etl == "Y"
     if logical_type == "dptmt_creator":
         return nd in ("sa", "sa_dev")
+    if logical_type == "widget_board":
+        return nd in ("sa_dev", "sa", "a", "o", "u")
     return False
 
 
@@ -66,6 +68,11 @@ def _reason_for_block(logical_type: str, new_dvsn: str, new_etl_yn: str) -> str:
             f"목표 역할({nd})로는 등록한 부서의 생성자를 유지할 수 없습니다. "
             "부서를 추가할 수 있는 역할(SA·SA_DEV)만 가능합니다.「목록」에서 부서 생성자 이관 후 다시 시도하세요."
         )
+    if logical_type == "widget_board":
+        return (
+            f"목표 역할({nd})로는 위젯 보드 소유자를 유지할 수 없습니다. "
+            "「목록」에서 위젯 보드 소유를 이관한 뒤 다시 시도하세요."
+        )
     return "소유를 유지할 수 없습니다."
 
 
@@ -89,6 +96,7 @@ def build_ownership_violation_payload(
     departments: list[dict[str, Any]],
     etl_items: list[dict[str, Any]],
     project_invite_rows: list[dict[str, Any]] | None = None,
+    widget_boards: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     for_suspend=True 이면 비활성 상태는 어떤 소유도 불가 → 보유 건 전부 blocking.
@@ -238,6 +246,37 @@ def build_ownership_violation_payload(
                 "type": "etl_meta",
                 "count": len(etl_items),
                 "note": "ETL 등록 건을 그대로 유지합니다.",
+            }
+        )
+
+    wb_list = widget_boards or []
+    wb_block: list[dict[str, Any]] = []
+    for r in wb_list:
+        wid = int(r["widget_board_id"])
+        name = str(r.get("display_name") or wid)
+        if for_suspend or not can_own_after_change(
+            "widget_board", new_dvsn, new_etl_yn
+        ):
+            wb_block.append(
+                {
+                    "resource_type": "widget_board",
+                    "resource_id": wid,
+                    "name": name,
+                    "reason": (
+                        "활성 계정이 아니면 생성물을 남길 수 없습니다.「목록」에서 이관 후 정지하세요."
+                        if for_suspend
+                        else _reason_for_block("widget_board", new_dvsn, new_etl_yn)
+                    ),
+                }
+            )
+    if wb_block:
+        blocking.append({"type": "widget_board", "items": wb_block})
+    elif wb_list and not for_suspend:
+        allowed.append(
+            {
+                "type": "widget_board",
+                "count": len(wb_list),
+                "note": "위젯 보드 소유자로 유지됩니다.",
             }
         )
 

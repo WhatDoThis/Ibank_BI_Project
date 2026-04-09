@@ -10,7 +10,7 @@
  * [Dependencies]
  * =========
  * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm, app/auth/AuthContext
- * - project_invite: 수락·거절·invite_expires_at 표시·만료 시 버튼 비활성
+ * - project_invite·widget_board_invite: 수락·거절·만료 표시(위젯 보드는 작업 프로젝트 일치 필요)
  * - 수락/거절·초대 JSON 등 내부용 noti_content는 제목·보조줄만 표시(원문 JSON 비노출)
  * - project_invite: 수락 전 안내·수락 완료(needs_select 시 홈 선택 안내)·토스트와 행 문구 정렬
  * - 거절: 패널 상단 토스트
@@ -24,6 +24,10 @@ import {
   postRejectProjectInvite,
   postSelectProject,
 } from '@/shared/api/authClient.js'
+import {
+  postAcceptWidgetBoardInvite,
+  postRejectWidgetBoardInvite,
+} from '@/packages/widgetboard/api/widgetBoardClient.js'
 import {
   getNotifications,
   getUnreadCount,
@@ -47,6 +51,9 @@ const PROJECT_INVITE_HINT_DONE =
 
 const PROJECT_INVITE_HINT_DONE_NEEDS_HOME =
   '수락은 완료되었습니다. 홈에서 해당 프로젝트를 선택해야 쿼리·대시보드·위젯보드 권한이 적용됩니다.'
+
+const WIDGET_BOARD_INVITE_HINT_PENDING =
+  '수락하면 해당 위젯 보드에 참여자로 등록됩니다. 작업 프로젝트가 초대와 같은 프로젝트여야 수락할 수 있습니다.'
 
 /** sessionStorage 값: accepted | needs_select(postSelectProject 실패 시 수동 선택 필요) */
 function readStoredInviteAccepted() {
@@ -91,7 +98,7 @@ function isUnread(row) {
 /** 알림 본문으로 JSON(프로젝트 ID 등)만 담긴 행은 사용자에게 숨긴다. */
 function shouldShowNotiContentBody(notiType, raw) {
   const t = (notiType || '').trim()
-  if (t === 'project_invite') return false
+  if (t === 'project_invite' || t === 'widget_board_invite') return false
   if (!raw || !String(raw).trim()) return false
   const s = String(raw).trim()
   if (!s.startsWith('{')) return true
@@ -109,11 +116,31 @@ function shouldShowNotiContentBody(notiType, raw) {
       'invite_expires_at',
       'actor_user_id',
       'target_user_id',
+      'widget_board_id',
     ])
     const onlyInternalMeta = keys.every((k) => internalKeys.has(k))
     return !onlyInternalMeta
   } catch {
     return true
+  }
+}
+
+function parseWidgetBoardInvitePayload(raw) {
+  try {
+    const o = JSON.parse(raw || '{}')
+    const bid = o.widget_board_id
+    const pid = o.project_info_id
+    const boardId = bid != null ? Number(bid) : null
+    const projectId = pid != null ? Number(pid) : null
+    const expiresRaw = o.invite_expires_at != null ? String(o.invite_expires_at) : null
+    let inviteExpired = false
+    if (expiresRaw) {
+      const d = new Date(expiresRaw)
+      inviteExpired = !Number.isNaN(d.getTime()) && d.getTime() < Date.now()
+    }
+    return { boardId, projectId, expiresAt: expiresRaw, inviteExpired }
+  } catch {
+    return { boardId: null, projectId: null, expiresAt: null, inviteExpired: false }
   }
 }
 
@@ -135,7 +162,7 @@ function parseProjectInvitePayload(raw) {
 }
 
 export function NotificationBell() {
-  const { refreshMe, notifyParticipatingProjectsChanged } = useAuth()
+  const { me, refreshMe, notifyParticipatingProjectsChanged } = useAuth()
   const wrapRef = useRef(null)
   const toastTimerRef = useRef(null)
   const [open, setOpen] = useState(false)
@@ -295,6 +322,76 @@ export function NotificationBell() {
     }
   }
 
+  async function handleAcceptWidgetBoardInvite(row) {
+    const nid = row.notification_info_id
+    const { boardId, projectId, inviteExpired } = parseWidgetBoardInvitePayload(row.noti_content)
+    if (inviteExpired) {
+      window.alert('초대 유효 기간이 지났습니다.')
+      return
+    }
+    if (nid == null || boardId == null || Number.isNaN(boardId) || projectId == null || Number.isNaN(projectId)) {
+      window.alert('초대 정보를 확인할 수 없습니다. 목록을 새로고침한 뒤 다시 시도하세요.')
+      return
+    }
+    const curPid = me?.project_info_id != null ? Number(me.project_info_id) : null
+    if (curPid == null || Number.isNaN(curPid) || curPid !== projectId) {
+      window.alert(
+        '위젯 보드 초대를 수락하려면 헤더에서 해당 보드가 속한 프로젝트를 작업 프로젝트로 선택한 뒤 다시 시도하세요.',
+      )
+      return
+    }
+    if (!confirmCrud('위젯 보드 초대를 수락할까요?')) return
+    try {
+      await postAcceptWidgetBoardInvite(boardId, { notification_info_id: Number(nid) })
+      const idStr = String(nid)
+      setInviteAcceptedMap((prev) => {
+        const next = { ...prev, [idStr]: 'accepted' }
+        writeStoredInviteAccepted(next)
+        return next
+      })
+      await refreshMe()
+      await refreshCount()
+      await loadList()
+      showPanelToast('위젯 보드 초대를 수락했습니다.')
+    } catch (e) {
+      window.alert(e?.message || '수락에 실패했습니다.')
+    }
+  }
+
+  async function handleRejectWidgetBoardInvite(row) {
+    const nid = row.notification_info_id
+    const { boardId, projectId, inviteExpired } = parseWidgetBoardInvitePayload(row.noti_content)
+    if (inviteExpired) {
+      window.alert('초대 유효 기간이 지났습니다.')
+      return
+    }
+    if (nid == null || boardId == null || Number.isNaN(boardId) || projectId == null || Number.isNaN(projectId)) {
+      window.alert('초대 정보를 확인할 수 없습니다. 목록을 새로고침한 뒤 다시 시도하세요.')
+      return
+    }
+    const curPid = me?.project_info_id != null ? Number(me.project_info_id) : null
+    if (curPid == null || Number.isNaN(curPid) || curPid !== projectId) {
+      window.alert(
+        '거절하려면 헤더에서 해당 보드가 속한 프로젝트를 작업 프로젝트로 선택한 뒤 다시 시도하세요.',
+      )
+      return
+    }
+    if (
+      !confirmCrud(
+        '위젯 보드 초대를 거절할까요? 초대자에게 거절 알림이 전송되며, 이 알림은 삭제됩니다.',
+      )
+    )
+      return
+    try {
+      await postRejectWidgetBoardInvite(boardId, { notification_info_id: Number(nid) })
+      await refreshCount()
+      await loadList()
+      showPanelToast('초대를 거절했습니다. 초대자에게 알림이 전송되었습니다.')
+    } catch (e) {
+      window.alert(e?.message || '거절 처리에 실패했습니다.')
+    }
+  }
+
   async function handleRejectProjectInvite(row) {
     const nid = row.notification_info_id
     const { projectId: pid, inviteExpired } = parseProjectInvitePayload(row.noti_content)
@@ -356,7 +453,9 @@ export function NotificationBell() {
             ) : (
               items.map((row) => {
                 const isInvite = (row.noti_type || '').trim() === 'project_invite'
+                const isWbInvite = (row.noti_type || '').trim() === 'widget_board_invite'
                 const inv = isInvite ? parseProjectInvitePayload(row.noti_content) : null
+                const wbInv = isWbInvite ? parseWidgetBoardInvitePayload(row.noti_content) : null
                 const invitePid = inv?.projectId
                 const nidKey =
                   row.notification_info_id != null ? String(row.notification_info_id) : ''
@@ -369,13 +468,26 @@ export function NotificationBell() {
                   inv?.expiresAt && !Number.isNaN(new Date(inv.expiresAt).getTime())
                     ? `만료: ${formatDtm(inv.expiresAt)}`
                     : null
+                const wbExpLine =
+                  wbInv?.expiresAt && !Number.isNaN(new Date(wbInv.expiresAt).getTime())
+                    ? `만료: ${formatDtm(wbInv.expiresAt)}`
+                    : null
                 const inviteActions =
                   isInvite &&
                   invitePid != null &&
                   !Number.isNaN(invitePid) &&
                   !inv?.inviteExpired &&
                   !inviteAcceptedHere
+                const wbInviteActions =
+                  isWbInvite &&
+                  wbInv?.boardId != null &&
+                  !Number.isNaN(wbInv.boardId) &&
+                  wbInv?.projectId != null &&
+                  !Number.isNaN(wbInv.projectId) &&
+                  !wbInv?.inviteExpired &&
+                  !inviteAcceptedHere
                 const inviteExpiredUi = isInvite && inv?.inviteExpired
+                const wbInviteExpiredUi = isWbInvite && wbInv?.inviteExpired
                 return (
                   <div
                     key={String(row.notification_info_id)}
@@ -395,14 +507,27 @@ export function NotificationBell() {
                       {isInvite && expLine ? (
                         <div className="nb-item__meta nb-item__meta--expire">{expLine}</div>
                       ) : null}
+                      {isWbInvite && wbExpLine ? (
+                        <div className="nb-item__meta nb-item__meta--expire">{wbExpLine}</div>
+                      ) : null}
                       {inviteExpiredUi ? (
                         <div className="nb-item__meta nb-item__meta--warn">
                           유효 기간이 지난 초대입니다. 새 초대가 필요하면 관리자에게 요청하세요.
                         </div>
                       ) : null}
+                      {wbInviteExpiredUi ? (
+                        <div className="nb-item__meta nb-item__meta--warn">
+                          유효 기간이 지난 초대입니다. 소유자에게 새 초대를 요청하세요.
+                        </div>
+                      ) : null}
                       {isInvite && inviteActions ? (
                         <div className="nb-item__meta nb-item__meta--invite-hint" role="note">
                           {PROJECT_INVITE_HINT_PENDING}
+                        </div>
+                      ) : null}
+                      {isWbInvite && wbInviteActions ? (
+                        <div className="nb-item__meta nb-item__meta--invite-hint" role="note">
+                          {WIDGET_BOARD_INVITE_HINT_PENDING}
                         </div>
                       ) : null}
                       {isInvite && inviteAcceptedHere ? (
@@ -432,6 +557,30 @@ export function NotificationBell() {
                           onClick={(e) => {
                             e.stopPropagation()
                             handleAcceptProjectInvite(row)
+                          }}
+                        >
+                          수락
+                        </button>
+                      </div>
+                    ) : null}
+                    {wbInviteActions ? (
+                      <div className="nb-item__actions">
+                        <button
+                          type="button"
+                          className="nb-item__reject"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRejectWidgetBoardInvite(row)
+                          }}
+                        >
+                          거절
+                        </button>
+                        <button
+                          type="button"
+                          className="nb-item__accept"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAcceptWidgetBoardInvite(row)
                           }}
                         >
                           수락

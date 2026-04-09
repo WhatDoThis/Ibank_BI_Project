@@ -39,6 +39,7 @@
 Backend/
 ├── core/                          # 공유 DB·의존성·대시보드 집계·설정·로깅 (여러 서버가 import)
 │   ├── db.py                      # config.backend 기반 DB 연결(get_db_config, get_allowed_tables, get_db_connection, get_db_connection_system, get_db_connection_dash 등)
+│   ├── sql_safety.py              # contains_dangerous_sql — query_studio execute-query·widget_board query 소스 공통 검사
 │   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
 │   ├── auth_config.py             # JWT·SMTP·get_app_url (인증·초대 메일)
 │   ├── logging_setup.py           # 루트 로거 포맷: asctime / [LEVEL] message

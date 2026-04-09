@@ -2,24 +2,19 @@
  * query_studio/api/queryStudioClient.js (쿼리 스튜디오 패키지 API)
  * ================================================================
  * /health, /api/list-tables, execute-query 등 쿼리 스튜디오·쿼리 빌더 전용.
+ * listTables·describeTable·executeQuery 는 shared/api/queryStudioTableApi.js 에서 re-export.
  *
  * [Dependencies]
  * =========
- * - shared/api/http (request)
+ * - shared/api/http (request), shared/api/queryStudioTableApi.js
  */
 
 import { request } from '@/shared/api/http.js'
 
+export { listTables, describeTable, executeQuery } from '@/shared/api/queryStudioTableApi.js'
+
 export async function health() {
   return request('GET', '/health')
-}
-
-export async function listTables() {
-  return request('GET', '/api/list-tables')
-}
-
-export async function describeTable(tableName) {
-  return request('POST', '/api/describe-table', { table_name: tableName })
 }
 
 export async function tableRelationships(mode = 'all') {
@@ -33,10 +28,6 @@ export async function joinOrder(baseTable, requiredTables, filterTables = []) {
     required_tables: requiredTables || [],
     filter_tables: filterTables,
   })
-}
-
-export async function executeQuery(query) {
-  return request('POST', '/api/execute-query', { query })
 }
 
 export async function saveQueryAsTable(tableName, query) {

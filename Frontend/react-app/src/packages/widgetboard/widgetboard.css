@@ -1,7 +1,8 @@
 /**
  * packages/widgetboard/widgetboard.css (위젯보드 스타일)
  * ======================================================
- * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, react-grid-layout 오버라이드.
+ * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, 헤더 보드 툴바, react-grid-layout 오버라이드,
+ * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 목록 테이블 참여자 열 인원 수, 생성/수정 모달 textarea.
  */
 .widgetboard {
   width: 100%;
@@ -128,26 +129,54 @@
 }
 .react-grid-item .widget-header {
   padding: 10px 12px;
-  font-weight: 600;
   font-size: 0.875rem;
   color: var(--color-text);
   background: var(--background);
   border-bottom: 1px solid var(--color-border-light);
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
-.widget-header-right {
+.widget-header-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+}
+.widget-title-text {
+  font-weight: 600;
+  line-height: 1.25;
+}
+.widget-date-range {
+  display: block;
+  max-width: 100%;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.widget-header-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  width: 100%;
 }
 .widget-datasource {
+  max-width: min(100%, 11rem);
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .btn-change-datasource {
   padding: 4px 8px;
@@ -346,7 +375,54 @@
   color: var(--color-text-muted);
 }
 
-/* 헤더 액션 (기간 필터, 새로고침) */
+/* 데이터 위젯 마법사·설정 기간 */
+.modal-content.widget-data-wizard {
+  max-width: 440px;
+}
+.widget-wizard-input {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+}
+.widget-wizard-select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+}
+.widget-wizard-date-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.widget-wizard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light);
+}
+.widget-wizard-error {
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+  margin-bottom: 8px;
+}
+.widget-wizard-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-left: 8px;
+}
+
+/* 헤더 액션 (새로고침 등) */
 .widgetboard-header-top {
   display: flex;
   align-items: center;
@@ -360,6 +436,57 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.widgetboard-board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.widgetboard-board-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+.widgetboard-board-select {
+  min-width: 160px;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background: #fff;
+}
+.btn-new-board {
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.btn-new-board:hover:not(:disabled) {
+  border-color: var(--color-action-primary);
+  color: var(--color-action-primary);
+}
+.btn-new-board:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.widgetboard-readonly-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+.widgetboard-board-error {
+  width: 100%;
+  font-size: 0.8125rem;
+  color: var(--color-danger);
+}
+.palette-item-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.palette-item-disabled:active {
+  cursor: not-allowed;
 }
 .date-filter {
   display: flex;
@@ -524,4 +651,37 @@
 /* ECharts 위젯 */
 .widget-echarts {
   min-height: 120px;
+}
+
+/* 위젯보드 목록 모달: 참여자·초대 표 — 이메일/표시명 열 너비 제한 (admin ap__td-clip-inviter 보조) */
+.wb-list-modal-table.ap__table td.ap__td-clip-inviter {
+  max-width: min(42vw, 320px);
+}
+.wb-list-modal-email-cell.admin-users__email-cell {
+  min-width: 0;
+  max-width: 100%;
+}
+.wb-list-modal-email-cell .admin-users__email-text {
+  white-space: nowrap;
+}
+
+/* 위젯보드 목록 테이블: 참여자 열 — 인원 수 글씨 축소·버튼과 수직 정렬 */
+.wb-list-participant-actions.admin-users__actions {
+  align-items: center;
+}
+.wb-list-participant-count {
+  margin: 0;
+  padding: 0;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* 위젯보드 목록 생성/수정 모달: 설명 textarea — 부서관리 입력(admin-org__input)과 톤 맞춤, pill 대신 카드 모서리 */
+.wb-list-modal__textarea.admin-org__input {
+  border-radius: var(--radius-card);
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.45;
 }

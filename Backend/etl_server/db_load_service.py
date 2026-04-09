@@ -9,7 +9,7 @@ Backend.etl_server.db_load_service (DB 연동 추출·적재)
 2. _is_date_type, validate_incremental_column: 증분 컬럼 날짜 검증
 3. get_source_columns, get_source_indexes: 소스 컬럼·인덱스 조회
 4. _fetch_source_columns(_pg|_mysql|_oracle), _fetch_source_pk_columns, _fetch_pk_values_from_source, _fetch_pk_values_from_target
-5. _create_indexes_on_target, _pg_type_from_*: 타겟 인덱스 생성·타입 변환
+5. _create_indexes_on_target, _pg_type_from_*, resolve_column_mapping_pg_type: 타겟 인덱스·타입 변환·매핑 TEXT 오저장 시 소스 기준 보정
 6. _transformed_column_names_from_rules·_row_tuple_for_column_mapping·_incremental_cell_from_row·_columns_final_for_mapping_after_transform(변환 룰 적용 컬럼만 df dtype)·_override_mapping_types_for_transform_rules(매핑 type을 df dtype으로 맞춤 후 type cast), _serialize_value(JSON dict/list → JSON 텍스트), _copy_buf, _copy_insert_batch, _copy_upsert_batch·_copy_staging_cast_expr(JSONB 스테이징 캐스트), _copy_upsert_batch_safe
 7. _ensure_unique_constraint, _get_target_column_list
 8. _run_diff_sync: sync_mode=diff 시 소스/타겟 PK diff → 신규 INSERT·삭제 DELETE
@@ -33,7 +33,7 @@ import time
 import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Callable, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -835,6 +835,28 @@ def _pg_type_from_info_schema(data_type: str) -> str:
     return "TEXT"
 
 
+def resolve_column_mapping_pg_type(
+    stored_type: Optional[str],
+    source_column: str,
+    source_type_by_name: dict,
+    type_mapper: Callable[[str], str],
+) -> str:
+    """
+    etl_tables.column_mapping.type과 소스 information_schema를 조합해 타겟 PG 타입 결정.
+    저장이 비어 있으면 소스 기준(type_mapper). 저장이 TEXT인데 소스 매핑이 TEXT가 아니면
+    (UI가 PG의 timestamp without time zone 등을 TEXT로 잘못 넣은 경우) 소스 기준으로 보정.
+    그 외에는 저장값 유지.
+    """
+    st = (stored_type or "").strip().upper()
+    raw = (source_type_by_name or {}).get(source_column)
+    inferred = (type_mapper(raw) if raw else "TEXT") or "TEXT"
+    if not st:
+        return inferred
+    if st == "TEXT" and inferred != "TEXT":
+        return inferred
+    return st
+
+
 def _pg_type_from_pandas(dtype) -> str:
     """pandas dtype → PostgreSQL 타입 (변환 룰으로 추가된 컬럼용)."""
     s = str(dtype).lower()
@@ -1450,11 +1472,9 @@ def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
                 tgt = (m.get("target") or "").strip()
                 if src in col_set and tgt:
                     etl_service._validate_identifier(tgt, "target")
-                    type_val = (m.get("type") or "").strip().upper()
-                    if not type_val and src in source_type_by_name:
-                        type_val = type_mapper(source_type_by_name[src])
-                    if not type_val:
-                        type_val = "TEXT"
+                    type_val = resolve_column_mapping_pg_type(
+                        m.get("type"), src, source_type_by_name, type_mapper
+                    )
                     mapping_used.append({
                         "source": src,
                         "target": tgt,
