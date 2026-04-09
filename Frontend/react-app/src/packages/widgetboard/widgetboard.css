@@ -2,7 +2,7 @@
  * packages/widgetboard/widgetboard.css (위젯보드 스타일)
  * ======================================================
  * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, 헤더 보드 툴바, react-grid-layout 오버라이드,
- * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 초대 알림 모달(wb-invite-modal), 생성/수정 모달 textarea, 완전 삭제 확인 스크롤 영역.
+ * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 초대 알림 모달(wb-invite-modal), 생성/수정(wb-board-form-modal), 설정·마법사(modal-settings·widget-data-wizard) 본문 스크롤, 완전 삭제 확인 스크롤 영역.
  */
 .widgetboard {
   width: 100%;
@@ -334,6 +334,10 @@
   padding: 16px 20px;
   overflow: auto;
 }
+/* 바깥(오버레이) 클릭으로 닫지 않음 — 취소·×만 */
+.modal-overlay--no-dismiss {
+  cursor: default;
+}
 .modal-loading,
 .modal-empty {
   margin: 0;
@@ -378,7 +382,24 @@
 
 /* 데이터 위젯 마법사·설정 기간 */
 .modal-content.widget-data-wizard {
-  max-width: 440px;
+  max-width: 560px;
+  max-height: 85vh;
+}
+.widget-data-wizard .widget-wizard-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(68vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.widget-data-wizard .widget-wizard-footer {
+  flex-shrink: 0;
+  padding: 12px 20px 20px;
+  border-top: 1px solid var(--color-border-light);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .widget-wizard-input {
   width: 100%;
@@ -577,9 +598,31 @@
   user-select: none;
 }
 
-/* 설정 모달 */
-.modal-settings {
-  max-width: 480px;
+/* 설정 모달 (기본 대비 가로 +120px, 세로 패딩 +40px 수준) */
+.modal-content.modal-settings {
+  max-width: 600px;
+  max-height: 85vh;
+}
+.modal-settings .modal-header {
+  padding: 26px 32px 16px;
+  flex-shrink: 0;
+}
+.modal-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(68vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 20px 32px 16px;
+}
+.modal-settings-footer {
+  flex-shrink: 0;
+  padding: 12px 32px 24px;
+  border-top: 1px solid var(--color-border-light);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .settings-row {
   margin-bottom: 16px;
@@ -597,6 +640,39 @@
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-card);
   min-width: 180px;
+}
+.settings-row select.settings-select-fluid {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 위젯보드 목록: 생성·수정 (admin-org 모달 대비 가로 +120px·세로 여유 +40) */
+.admin-org__modal.wb-board-form-modal {
+  max-width: 600px;
+  padding: 40px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.wb-board-form-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.wb-board-form-modal__head h3 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 1.05rem;
+}
+.wb-board-form-modal .admin-org__select,
+.wb-board-form-modal .admin-org__input {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .settings-textarea {
   width: 100%;

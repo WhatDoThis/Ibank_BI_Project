@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. listWidgetBoards 로 테이블 렌더, 생성/수정/참여자(admin-org)/초대(admin-org)/완전 삭제 확인 모달
+ * 1. listWidgetBoards 로 테이블 렌더, 생성/수정(×·취소만 닫힘)/참여자/초대/완전 삭제 확인 모달
  *
  * [Dependencies]
  * =========
@@ -473,27 +473,32 @@ export default function WidgetboardListPage() {
       )}
 
       {createOpen ? (
-        <div
-          className="admin-org__modal-overlay"
-          role="presentation"
-          onClick={(ev) => {
-            if (ev.target === ev.currentTarget) setCreateOpen(false)
-          }}
-        >
+        <div className="admin-org__modal-overlay" role="presentation">
           <div
-            className="admin-org__modal"
+            className="admin-org__modal wb-board-form-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="wb-list-create-title"
             onClick={(ev) => ev.stopPropagation()}
           >
+            <div className="wb-board-form-modal__head">
+              <h3 id="wb-list-create-title">위젯보드 생성</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setCreateOpen(false)}
+                disabled={busyId === -1}
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
             <form
               onSubmit={(ev) => {
                 ev.preventDefault()
                 handleCreate()
               }}
             >
-              <h3 id="wb-list-create-title">위젯보드 생성</h3>
               <label className="admin-org__label">
                 위젯명
                 <input
@@ -544,27 +549,32 @@ export default function WidgetboardListPage() {
       ) : null}
 
       {editRow ? (
-        <div
-          className="admin-org__modal-overlay"
-          role="presentation"
-          onClick={(ev) => {
-            if (ev.target === ev.currentTarget) setEditRow(null)
-          }}
-        >
+        <div className="admin-org__modal-overlay" role="presentation">
           <div
-            className="admin-org__modal"
+            className="admin-org__modal wb-board-form-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="wb-list-edit-title"
             onClick={(ev) => ev.stopPropagation()}
           >
+            <div className="wb-board-form-modal__head">
+              <h3 id="wb-list-edit-title">보드 수정</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setEditRow(null)}
+                disabled={busyId === editRow.widget_board_id}
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
             <form
               onSubmit={(ev) => {
                 ev.preventDefault()
                 handleSaveEdit()
               }}
             >
-              <h3 id="wb-list-edit-title">보드 수정</h3>
               <label className="admin-org__label">
                 위젯명
                 <input

@@ -2,7 +2,7 @@
 widget_board_server.service (위젯 보드 CRUD·데이터 조회)
 ======================================================
 system_db: widget_board, widget_item, widget_board_share.
-메인 DB: saved_table / query 타입 SELECT (프로젝트 허용 테이블·SQL 안전 검사).
+saved_table은 `get_allowed_tables_by_project`(table_project_mapping)에서 main/dash 모두 허용하며, query 타입은 SQL 안전 검사.
 
 [Main Functions]
 ===========
@@ -15,13 +15,13 @@ system_db: widget_board, widget_item, widget_board_share.
 7. upsert_share / delete_share(제외 시 create_user_id 소유자 이관)
 8. list_board_participants / list_invite_candidates / send_invite_notifications(알림 초대)
 9. accept_widget_board_invite / reject_widget_board_invite — 수락 시 widget_board_share 반영
-10. fetch_widget_data — saved_table 시 data_config.dateStart/End/Grain/Column 기간 필터(상한: 14일·12주·12개월)
+10. fetch_widget_data — saved_table 시 기간 필터·컬럼에 data_type 포함(FE 차트 축)·meta.applied_date_column(기간 필터에 사용한 날짜 컬럼)
 
 [Dependencies]
 =========
 - psycopg2.extras.Json, psycopg2.sql
 - Backend.auth_server.permissions.is_project_participant
-- Backend.core.db (get_db_connection, get_table_schema, validate_table_name, validate_column_name, get_allowed_tables_by_project, get_table_columns_with_types, format_value)
+- Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, validate_table_name, validate_column_name, get_allowed_tables_by_project, format_value)
 - Backend.core.sql_safety.contains_dangerous_sql
 """
 
@@ -596,6 +596,11 @@ def add_widget(
     body: schemas.WidgetItemCreateBody,
 ) -> dict:
     assert_board_edit(conn, user_id, project_id, board_id)
+    dst = str(body.data_source_type or "saved_table").strip().lower()
+    if dst == "saved_table":
+        ref0 = (body.data_source_ref or "").strip()
+        if ref0:
+            _allowed_saved_table(project_id, ref0)
     title = (body.widget_title or "").strip() or "새 위젯"
     cur = conn.cursor()
     try:
@@ -652,8 +657,21 @@ def patch_widget(
             """,
             (widget_id, board_id),
         )
-        if not cur.fetchone():
+        wrow = cur.fetchone()
+        if not wrow:
             raise ValueError("위젯을 찾을 수 없습니다.")
+        w0 = dict(wrow)
+        dst = (
+            str(body.data_source_type).strip().lower()
+            if body.data_source_type is not None
+            else str(w0.get("data_source_type") or "query").strip().lower()
+        )
+        if body.data_source_ref is not None:
+            ref_merged = (body.data_source_ref or "").strip()
+        else:
+            ref_merged = (w0.get("data_source_ref") or "").strip()
+        if dst == "saved_table" and ref_merged:
+            _allowed_saved_table(project_id, ref_merged)
         fields = []
         params: list[Any] = []
         if body.widget_type is not None:
@@ -1161,15 +1179,18 @@ def list_invite_candidates(
         cur.close()
 
 
-def _allowed_saved_table(project_id: int, table_name: str) -> None:
+def _allowed_saved_table(project_id: int, table_name: str) -> str:
     ref = (table_name or "").strip()
     if not ref:
         raise ValueError("data_source_ref(테이블명)이 필요합니다.")
-    allowed = db.get_allowed_tables_by_project(int(project_id), "main")
-    if ref not in allowed:
-        if not ref.startswith("test_report_"):
-            raise ValueError("프로젝트에 매핑되지 않은 테이블입니다.")
+    allowed_main = db.get_allowed_tables_by_project(int(project_id), "main")
+    allowed_dash = db.get_allowed_tables_by_project(int(project_id), "dash")
+    in_main = ref in allowed_main
+    in_dash = ref in allowed_dash
+    if not in_main and not in_dash:
+        raise ValueError("프로젝트에 매핑되지 않은 테이블입니다. 쿼리 스튜디오에서 저장한 테이블은 자동 매핑되며, 그 외는 프로젝트·테이블 마스터에서 매핑하세요.")
     db.validate_table_name(ref)
+    return "main" if in_main else "dash"
 
 
 # 8.
@@ -1219,8 +1240,8 @@ def fetch_widget_data(
 
     if dst == "saved_table":
         ref = w.get("data_source_ref") or ""
-        _allowed_saved_table(project_id, ref)
-        schema = db.get_table_schema()
+        db_type = _allowed_saved_table(project_id, ref)
+        schema = db.get_table_schema() if db_type == "main" else db.get_dash_table_schema()
         dc_dict = dc if isinstance(dc, dict) else {}
         ds = _parse_iso_date_dc(dc_dict.get("dateStart"))
         de = _parse_iso_date_dc(dc_dict.get("dateEnd"))
@@ -1236,7 +1257,7 @@ def fetch_widget_data(
         else:
             dcol = None
 
-        mconn = db.get_db_connection()
+        mconn = db.get_db_connection() if db_type == "main" else db.get_db_connection_dash()
         try:
             mcur = mconn.cursor(cursor_factory=RealDictCursor)
             try:
@@ -1261,15 +1282,48 @@ def fetch_widget_data(
                     q = psql.Composed([base, psql.SQL("LIMIT %s")])
                     mcur.execute(q, (limit,))
                 rows = mcur.fetchall()
-                cols = [d[0] for d in mcur.description] if mcur.description else []
+                cols_no_types = [d[0] for d in mcur.description] if mcur.description else []
             finally:
                 mcur.close()
         finally:
             mconn.close()
-        return {
-            "columns": [{"name": c} for c in cols],
+        type_by_name: dict[str, str] = {}
+        try:
+            iconn = db.get_db_connection() if db_type == "main" else db.get_db_connection_dash()
+            icur = iconn.cursor(cursor_factory=RealDictCursor)
+            try:
+                icur.execute(
+                    """
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = %s
+                    ORDER BY ordinal_position
+                    """,
+                    (schema, ref),
+                )
+                for row in icur.fetchall():
+                    cn = row.get("column_name")
+                    dt = row.get("data_type")
+                    if cn and isinstance(cn, str):
+                        type_by_name[cn] = str(dt).lower() if dt else "text"
+            finally:
+                icur.close()
+                iconn.close()
+        except Exception:
+            pass
+        columns_out = [
+            {"name": c, "type": type_by_name.get(c, "text")} for c in cols_no_types
+        ]
+        meta: dict[str, Any] = {}
+        if use_dates and dcol:
+            meta["applied_date_column"] = dcol
+        out: dict[str, Any] = {
+            "columns": columns_out,
             "rows": [{k: db.format_value(v) for k, v in dict(r).items()} for r in rows],
         }
+        if meta:
+            out["meta"] = meta
+        return out
 
     if dst == "query":
         qtext = w.get("data_source_query") or ""

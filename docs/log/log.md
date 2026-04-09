@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+308. 2026-04-09 프로젝트 하위 페이지 기준 정리: db_type 비노출·매핑 여부 중심
+307. 2026-04-09 위젯보드/쿼리스튜디오: 매핑 db_type main·dash 동시 지원
+306. 2026-04-09 위젯보드: 테이블 test_report_ 제한 해제·매핑 검증, 쿼리저장 매핑 upsert 재시도
+305. 2026-04-09 위젯보드: 복수 일 차트 X축이 범주 컬럼으로 남는 문제(데이터 API 컬럼 타입·meta)
+304. 2026-04-09 위젯보드: 설정 변경 후 데이터 조회 PATCH 레이스 수정
+303. 2026-04-09 위젯보드 생성·설정 모달 UX: 크기·스크롤·오버레이 닫기 제거·차원/지표 라벨
 302. 2026-04-09 위젯보드 목록 초대 모달: admin-org 스타일·레이아웃 정리
 301. 2026-04-09 위젯보드 캔버스: 보드명 셸/브레드크럼·목록 링크 상단·카드 헤더 정리
 300. 2026-04-09 위젯보드 삭제 확인 UI·목록 API: 알림 건수 제거·요약 2항목만
@@ -305,6 +311,55 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+308. 2026-04-09 프로젝트 하위 페이지 기준 정리: db_type 비노출·매핑 여부 중심
+Purpose: 사용자 관점 정책을 명확히 반영 — 프로젝트 하위 페이지는 `main/dash` 구분값이 아니라 “현재 프로젝트에 매핑된 테이블인가”만 판단
+Changes:
+
+`/api/list-tables` 응답에서 `db_type` 노출 제거(내부 분기만 유지), 문서에 페이지 관점 기준 명시
+Changed files: Backend/query_studio_server/router.py, docs/main/03_API_GUIDE.md, docs/report/20_Widget_Board_System_Design.md, docs/log/log.md
+
+307. 2026-04-09 위젯보드/쿼리스튜디오: 매핑 db_type main·dash 동시 지원
+Purpose: `table_project_mapping`이 main뿐 아니라 dash도 포함할 수 있다는 정책에 맞춰, 조회·검증·saved_table 데이터 로드에서 db_type 분기 반영
+Changes:
+
+`widget_board_server.service`: `_allowed_saved_table`이 main/dash 매핑을 모두 판정하고 반환값(db_type)으로 `fetch_widget_data`의 연결·스키마를 선택
+`query_studio_server.router`: `/api/list-tables`가 main+dash 매핑을 통합 반환(`db_type` 포함), `/api/describe-table`이 프로젝트 매핑 기준으로 main/dash 스키마에서 컬럼 조회
+문서/주석: `03_API_GUIDE.md`, `20_Widget_Board_System_Design.md`, `WidgetboardPage.jsx` 코멘트
+Changed files: Backend/widget_board_server/service.py, Backend/query_studio_server/router.py, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/main/03_API_GUIDE.md, docs/report/20_Widget_Board_System_Design.md, docs/log/log.md
+
+306. 2026-04-09 위젯보드: 테이블 test_report_ 제한 해제·매핑 검증, 쿼리저장 매핑 upsert 재시도
+Purpose: 위젯 데이터 소스를 프로젝트에 매핑된 모든 main 테이블로 확장; `test_report_` 비매핑 우회 제거; 위젯 추가·수정·데이터 조회 시 동일 검증
+Changes:
+
+FE `listTables` 결과 전체 사용, 라벨 문구 정리; BE `_allowed_saved_table`·`add_widget`/`patch_widget` 검증; 저장 워커 `_upsert_table_master_and_mapping` 3회 재시도
+문서: `20_Widget_Board_System_Design.md`, `03_API_GUIDE.md` §6.2
+Changed files: Backend/widget_board_server/service.py, query_studio_server/router.py, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, components/WidgetDataWizardModal.jsx, docs/report/20_Widget_Board_System_Design.md, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+305. 2026-04-09 위젯보드: 복수 일 차트 X축이 범주 컬럼으로 남는 문제(데이터 API 컬럼 타입·meta)
+Purpose: `/widgets/.../data` 가 name-only 컬럼을 주어 FE가 날짜 축을 못 찾고 `dimensionKey`(campaign_id 등)로 집계하던 현상 제거
+Changes:
+
+`fetch_widget_data`(saved_table): `information_schema`로 컬럼 type 채움, 기간 필터 시 `meta.applied_date_column` 추가
+`WidgetboardPage`: 캐시에 `appliedDateColumn` 저장, `resolveWidgetDateColumnName` 보강, 복수 일인데 시간 축 불가 시 범주 집계 대신 빈 차트
+Changed files: Backend/widget_board_server/service.py, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, api/widgetBoardClient.js, docs/log/log.md
+
+304. 2026-04-09 위젯보드: 설정 변경 후 데이터 조회 PATCH 레이스 수정
+Purpose: `/widgets/{id}/data` 가 DB의 `data_config`를 읽는데, 프론트가 `updateWidget` 완료 전에 데이터를 요청하면 이전 기간·설정으로 조회되는 문제 제거
+Changes:
+
+`persistWidgetPatch`·`persistWidgetFullConfig`: PATCH 성공 후 `loadWidgetDataset(nextCfg)` 호출; 제목만 변경 시에는 데이터 재조회 생략
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/log/log.md
+
+303. 2026-04-09 위젯보드 생성·설정 모달 UX: 크기·스크롤·오버레이 닫기 제거·차원/지표 라벨
+Purpose: 캔버스 위젯 설정·데이터 마법사·목록 생성·수정 모달에서 바깥 클릭으로 닫힘 방지, 본문 스크롤·폭 확대, 확인/취소·× 정책 정리, 차트 차원(범주)·지표(Y) 문구 및 복수 일 차원 잠금 정합
+Changes:
+
+위젯 설정 모달: 푸터 취소/확인, 오버레이 비닫기, 본문 스크롤·max-width 600px, 차원 잠금을 복수 일만으로
+데이터 마법사: 동일 오버레이 정책, 푸터 분리·스크롤, 차원 비활성 조건 단순화
+목록 생성·수정: 오버레이 클릭 제거, 헤더 ×, wb-board-form-modal 폭·패딩
+widgetboard.css: modal-settings·widget-data-wizard·wb-board-form-modal 스타일
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, WidgetboardListPage.jsx, components/WidgetDataWizardModal.jsx, widgetboard.css, docs/log/log.md
 
 302. 2026-04-09 위젯보드 목록 초대 모달: admin-org 스타일·레이아웃 정리
 Purpose: 초대 알림 보내기 모달을 ap__modal 혼용에서 admin-org__modal·메타·툴바·테이블 랩·modal-actions로 통일.

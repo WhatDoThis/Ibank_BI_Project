@@ -1517,7 +1517,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ### 6.2 `widget_board_server`
 
-라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`. 위젯 **데이터 조회**(`saved_table` / `query`)는 **`db.get_db_connection()`** 메인 DB에서 수행하며, 저장 테이블은 프로젝트 허용 목록·`test_report_` 접두·`validate_table_name` 규칙을 따른다.
+라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`. 위젯 **데이터 조회**(`saved_table` / `query`)에서 핵심 기준은 **현재 프로젝트에 매핑된 테이블인지 여부**이며, 저장 테이블은 `get_allowed_tables_by_project` + `validate_table_name`으로 검증한다. `main`/`dash` 연결 분기는 내부 구현 세부사항이다.
 
 #### `router.py` — 엔드포인트
 

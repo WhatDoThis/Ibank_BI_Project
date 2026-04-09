@@ -15,7 +15,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 6. _fetch_relationships: FK/추론 관계 조회
 7. _get_or_compute_relationships_all: 관계 캐시·추론
 8. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성(create_user_id 컬럼 포함)
-9. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드)
+9. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드, CREATE 후 table_master·매핑 upsert 3회 재시도)
 10. _upsert_table_master_and_mapping: table_master(db_type,table_name,table_label,table_dscrtn)·create_user_id UPSERT 후 프로젝트 매핑
 
 [Endpoints]
@@ -493,6 +493,19 @@ def _get_or_compute_relationships_all(conn):
     return rels
 
 
+# 10a.
+def _resolve_project_table_db_type(project_info_id: int, table_name: str) -> str:
+    """프로젝트 매핑 기준 table_name의 db_type(main|dash) 결정. 동명이인 경우 main 우선."""
+    t = db.validate_table_name(table_name)
+    main_set = db.get_allowed_tables(project_info_id=int(project_info_id), db_type="main")
+    if t in main_set:
+        return "main"
+    dash_set = db.get_allowed_tables(project_info_id=int(project_info_id), db_type="dash")
+    if t in dash_set:
+        return "dash"
+    raise ValueError("프로젝트에 매핑되지 않은 테이블입니다.")
+
+
 # 10.
 @router.get("/list-tables")
 def list_tables(
@@ -504,12 +517,20 @@ def list_tables(
         if project_info_id is None:
             raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
 
-        allowed_rows = db.get_allowed_tables(
+        allowed_rows_main = db.get_allowed_tables(
             project_info_id=int(project_info_id),
             db_type="main",
             include_meta=True,
         )
-        allowed_map = {row["table_name"]: row for row in allowed_rows}
+        allowed_rows_dash = db.get_allowed_tables(
+            project_info_id=int(project_info_id),
+            db_type="dash",
+            include_meta=True,
+        )
+        # 동명이인(main/dash 모두 존재)인 경우 기존 query_studio 호환을 위해 main 우선 노출.
+        allowed_map = {row["table_name"]: row for row in allowed_rows_dash}
+        for row in allowed_rows_main:
+            allowed_map[row["table_name"]] = row
         allowed_names = list(allowed_map.keys())
         if not allowed_names:
             return {"tables": [], "count": 0}
@@ -562,6 +583,9 @@ def describe_table(
     _perm: dict = Depends(require_query_read_perm),
     conn=Depends(get_db),
 ):
+    conn_target = None
+    cur = None
+    should_close_conn_target = False
     try:
         table_name = db.validate_table_name(body.table_name)
         uid = _perm.get("user_id")
@@ -572,8 +596,13 @@ def describe_table(
             else _empty_user_labels()
         )
         file_labels = _load_labels_file()
-        schema = db.get_table_schema()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if pid is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        db_type = _resolve_project_table_db_type(int(pid), table_name)
+        schema = db.get_table_schema() if db_type == "main" else db.get_dash_table_schema()
+        conn_target = conn if db_type == "main" else db.get_db_connection_dash()
+        should_close_conn_target = db_type == "dash"
+        cur = conn_target.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
             SELECT
@@ -601,12 +630,24 @@ def describe_table(
                 "default": row["column_default"],
                 "label": _resolve_column_display_label(table_name, col_name, user_labels, file_labels),
             })
-        cur.close()
         return {"table_name": table_name, "columns": columns, "count": len(columns)}
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "message": "테이블 구조 조회 실패"})
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if should_close_conn_target and conn_target is not None:
+            try:
+                conn_target.close()
+            except Exception:
+                pass
 
 
 # 12.
@@ -931,12 +972,24 @@ def _save_table_worker():
                 cur_create.close()
                 conn_create.close()
                 conn_create = None
-                _upsert_table_master_and_mapping(
-                    project_info_id=project_info_id,
-                    db_type="main",
-                    table_name=table_name,
-                    create_user_id=save_create_uid,
-                )
+                # table_master + table_project_mapping: CREATE 직후 system_db 일시 오류 대비 짧은 재시도
+                last_map_err: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        _upsert_table_master_and_mapping(
+                            project_info_id=project_info_id,
+                            db_type="main",
+                            table_name=table_name,
+                            create_user_id=save_create_uid,
+                        )
+                        last_map_err = None
+                        break
+                    except Exception as _map_e:
+                        last_map_err = _map_e
+                        if attempt < 2:
+                            time.sleep(0.35 * (attempt + 1))
+                if last_map_err is not None:
+                    raise last_map_err
                 conn_up = db.get_db_connection()
                 cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(

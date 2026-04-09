@@ -128,7 +128,7 @@ CREATE INDEX idx_wi_board
 | `widget_type` | `table`, `bar`, `line`, `pie`, `doughnut`, `number_card`, `stat_card`, `text`, `kpi` 및 **현행 UI 타입 매핑** (`lineChart` → `line` 등)은 서비스/프론트에서 표준화 테이블로 관리 |
 | `data_source_type` | `query` \| `saved_table` \| `campaign_dash` |
 | `data_source_query` | `query` 일 때 SELECT SQL 저장 |
-| `data_source_ref` | `saved_table` → 테이블명(예: `test_report_*`); `campaign_dash` → 엔드포인트 키(예: `summary`) |
+| `data_source_ref` | `saved_table` → **프로젝트에 매핑된** 메인 DB 테이블명; `campaign_dash` → 엔드포인트 키(예: `summary`) |
 | `data_config` | 축 매핑, 필터, 정렬, 색상, LIMIT 등 JSON (예: `{ "dimensionKey", "metricKey", "chartType", "visibleColumns", "sortKey", "sortDir" }` — 현행 `WidgetboardPage` 설정과 대응) |
 
 ### 3.3 `widget_board_share` — 보드 공유 (`custom` 일 때)
@@ -224,7 +224,7 @@ widget_board_share ──► user_info (shared_user)
 | 값 | 저장 | 런타임 동작 |
 |----|------|-------------|
 | `query` | `data_source_query` | execute-query와 동일 검증 후 실행 |
-| `saved_table` | `data_source_ref` | `SELECT * FROM {ref} … LIMIT` (프로젝트 매핑·접두사 정책은 기존 `test_report_` 규칙과 정합) |
+| `saved_table` | `data_source_ref` | `SELECT * FROM {ref} … LIMIT` (`table_project_mapping` 에 속한 테이블만) |
 | `campaign_dash` | `data_source_ref` | `campaign_dash_server` 내부 서비스 함수 호출(HTTP 자가호출보다 직접 import 우선) |
 
 ### 4.3 system_db 맥락 (기존과의 관계)
@@ -320,7 +320,7 @@ Backend/widget_board_server/
 |------|-----------|
 | 저장소 | `localStorage`: `widgetboard_layout`, `widgetboard_widget_configs` |
 | 데이터 | `queryStudioClient`: `listTables`, `describeTable`, `executeQuery` |
-| 테이블 제한 | `WIDGETBOARD_TABLE_PREFIX = 'test_report_'` |
+| 테이블 | `/api/list-tables` 와 동일 — 작업 프로젝트에 매핑된 테이블 전체 (페이지 관점: 매핑 여부만 중요) |
 | 그리드 | `react-grid-layout/legacy`, `WidthProvider`, 12 cols, `rowHeight=60`, `margin=[16,16]` |
 | 위젯 타입 | `kpi`, `lineChart`, `barChart`, `pieChart`, `echartsRadar`, `echartsGauge`, `table`, `note` |
 | 설정 UI | 테이블 선택 모달, 설정 모달(dimension/metric, chartType, 테이블 컬럼 가시성·순서·정렬) |

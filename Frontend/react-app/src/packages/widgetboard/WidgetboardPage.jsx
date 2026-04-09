@@ -7,7 +7,7 @@
  * [Main Functions]
  * ===========
  * 1. /api/widget-boards 보드·위젯 CRUD·레이아웃 PATCH·데이터 fetch(저장 테이블)
- * 2. 데이터 위젯: 생성 마법사·설정 모달에서 테이블·기간·지표·(단일 일) 차원, fetchWidgetData로 서버 조회
+ * 2. 데이터 위젯: 생성 마법사·설정 모달(취소 시 스냅샷 복구·확인 닫기·오버레이 비닫기)에서 테이블(list-tables=프로젝트 매핑 전체)·기간·지표·(단일 일) 차원; PATCH 완료 후 fetchWidgetData
  * 3. react-grid-layout 드래그/리사이즈(수정 권한 시에만)
  *
  * [Dependencies]
@@ -107,9 +107,6 @@ function buildDataConfigForApi(prevCfg, patch) {
   if (prevCfg.minH != null) o.minH = prevCfg.minH
   return o
 }
-
-/** 위젯보드에서 선택 가능한 테이블 접두사 (allowed_tables와 별개) */
-const WIDGETBOARD_TABLE_PREFIX = 'test_report_'
 
 const WidthProvidedGrid = WidthProvider(GridLayout)
 
@@ -287,19 +284,23 @@ function WidgetBlock({
   const periodSubtitleDisplay =
     needsTable && tableName ? formatWidgetPeriodSubtitleCompact(periodCfg) : ''
 
-  const { columns = [], rows = [], error, loading } = tableData || {}
+  const { columns = [], rows = [], error, loading, appliedDateColumn: serverAppliedDate } = tableData || {}
   const { dimensionKey: fallbackDim, metricKey: fallbackMetric } = pickDimensionAndMetric(columns)
+  /** 복수 일 차트는 날짜 버킷 집계만 사용 — 서버가 알려 준 applied_date_column·컬럼 type 없이는 category 축으로 campaign_id 등이 잘못 쓰이기 쉬움 */
+  const resolvedDateCol =
+    resolveWidgetDateColumnName(columns, dateColumn) ||
+    (serverAppliedDate ? String(serverAppliedDate) : null)
+  const multiDay = isMultiDayWidgetRange(dateStart, dateEnd)
+  const chartTypesTime = ['lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge']
+  const useTimeGrainChart =
+    multiDay && resolvedDateCol && chartTypesTime.includes(type)
   const dimensionKey = cfgDim ?? fallbackDim
   const metricKey = cfgMetric ?? fallbackMetric
-  const resolvedDateCol = resolveWidgetDateColumnName(columns, dateColumn)
-  const multiDay = isMultiDayWidgetRange(dateStart, dateEnd)
-  const useTimeGrainChart =
-    multiDay &&
-    resolvedDateCol &&
-    ['lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge'].includes(type)
   const chartData = useTimeGrainChart
     ? aggregateForChartByTimeGrain(rows, resolvedDateCol, metricKey, dateGrain || 'day')
-    : aggregateForChart(rows, dimensionKey, metricKey)
+    : multiDay && chartTypesTime.includes(type)
+      ? []
+      : aggregateForChart(rows, dimensionKey, metricKey)
   const kpiValue = computeKpi(rows, columns, metricKey)
 
   const effectiveChartType = cfgChartType ?? (type === 'pieChart' ? 'pie' : type === 'barChart' ? 'bar' : type === 'lineChart' ? 'line' : 'line')
@@ -507,6 +508,8 @@ export default function WidgetboardPage() {
   /** null | { mode:'create', widgetType } */
   const [dataWizard, setDataWizard] = useState(null)
   const [settingsWidgetId, setSettingsWidgetId] = useState(null)
+  /** 설정 모달 오픈 시점 config — 취소 시 서버·로컬 복구 */
+  const settingsModalSnapshotRef = useRef(null)
   const [dragOver, setDragOver] = useState(false)
   /** 셸 헤더·브레드크럼·PageHeader 제목 — GET 보드 상세의 board_name */
   const [boardDisplayName, setBoardDisplayName] = useState('')
@@ -546,11 +549,8 @@ export default function WidgetboardPage() {
       const data = await listTables()
       const list = data?.tables || []
       const raw = Array.isArray(list) ? list : []
-      const filtered = raw.filter((t) => {
-        const name = t?.table_name ?? t?.[0] ?? ''
-        return String(name).startsWith(WIDGETBOARD_TABLE_PREFIX)
-      })
-      setTables(filtered)
+      /** listTables = 현재 작업 프로젝트에 매핑된 테이블 전체(main/dash, query_studio /api/list-tables) */
+      setTables(raw)
     } catch (e) {
       console.warn('listTables failed', e)
       setTables([])
@@ -568,7 +568,7 @@ export default function WidgetboardPage() {
       const wid = cfg?.widgetItemId
       setTableDataCache((prev) => ({
         ...prev,
-        [key]: { columns: [], rows: [], loading: true, error: null }
+        [key]: { columns: [], rows: [], loading: true, error: null, appliedDateColumn: null }
       }))
       try {
         if (bid != null && wid != null && cfg?.type !== 'note') {
@@ -578,9 +578,13 @@ export default function WidgetboardPage() {
             type: c.type || 'text'
           }))
           const rows = data?.rows || []
+          const applied =
+            data?.meta && data.meta.applied_date_column != null
+              ? String(data.meta.applied_date_column)
+              : null
           setTableDataCache((prev) => ({
             ...prev,
-            [key]: { columns: cols, rows, loading: false, error: null }
+            [key]: { columns: cols, rows, loading: false, error: null, appliedDateColumn: applied }
           }))
           return
         }
@@ -588,7 +592,7 @@ export default function WidgetboardPage() {
         if (!tableName) {
           setTableDataCache((prev) => ({
             ...prev,
-            [key]: { columns: [], rows: [], loading: false, error: null }
+            [key]: { columns: [], rows: [], loading: false, error: null, appliedDateColumn: null }
           }))
           return
         }
@@ -607,13 +611,19 @@ export default function WidgetboardPage() {
         const rows = queryRes?.data || []
         setTableDataCache((prev) => ({
           ...prev,
-          [key]: { columns, rows, loading: false, error: null }
+          [key]: {
+            columns,
+            rows,
+            loading: false,
+            error: null,
+            appliedDateColumn: dr?.start && dr?.end && dateCol ? String(dateCol) : null
+          }
         }))
       } catch (e) {
         const msg = e?.message || e?.error || '데이터 로드 실패'
         setTableDataCache((prev) => ({
           ...prev,
-          [key]: { columns: [], rows: [], loading: false, error: msg }
+          [key]: { columns: [], rows: [], loading: false, error: msg, appliedDateColumn: null }
         }))
       }
     },
@@ -803,11 +813,12 @@ export default function WidgetboardPage() {
     [configs, layout, canEditBoard, loadWidgetDataset]
   )
 
+  /** PATCH 성공 후에만 데이터 조회: 서버 /widgets/{id}/data 는 DB의 data_config 를 읽으므로, PATCH 전에 fetch 하면 이전 기간·설정이 나올 수 있음 */
   const persistWidgetPatch = useCallback(
-    (widgetId, patch, prevCfg) => {
+    (widgetId, patch, prevCfg, nextCfg) => {
       const bid = selectedBoardIdRef.current
       const wid = prevCfg?.widgetItemId
-      if (bid == null || wid == null || !canEditBoard) return
+      if (bid == null || wid == null || !canEditBoard) return undefined
       const body = {}
       if (patch.widget_title !== undefined || patch.title !== undefined) {
         body.widget_title = patch.title ?? patch.widget_title ?? ''
@@ -820,18 +831,77 @@ export default function WidgetboardPage() {
       if (touchesDc) {
         body.data_config = buildDataConfigForApi(prevCfg || {}, patch)
       }
-      if (Object.keys(body).length === 0) return
-      updateWidget(bid, wid, body).catch((e) => console.warn('updateWidget', e))
+      if (Object.keys(body).length === 0) return undefined
+      const reloadData =
+        nextCfg &&
+        nextCfg.type !== 'note' &&
+        (patch.tableName !== undefined ||
+          WIDGET_DATA_CONFIG_KEYS.some((k) => patch[k] !== undefined))
+      return updateWidget(bid, wid, body)
+        .then(() => {
+          if (reloadData) loadWidgetDataset(nextCfg)
+        })
+        .catch((e) => console.warn('updateWidget', e))
     },
-    [canEditBoard]
+    [canEditBoard, loadWidgetDataset]
   )
+
+  /** 설정 취소 시 전체 cfg를 스냅샷으로 되돌릴 때 한 번에 PATCH */
+  const persistWidgetFullConfig = useCallback(
+    (widgetId, cfg) => {
+      const bid = selectedBoardIdRef.current
+      const wid = cfg?.widgetItemId
+      if (bid == null || wid == null || !canEditBoard || !cfg) return undefined
+      const body = {
+        widget_title: cfg.title ?? '',
+        data_config: buildDataConfigForApi(cfg, {})
+      }
+      if (cfg.type === 'note') {
+        body.data_source_type = cfg.dataSourceType || 'query'
+        body.data_source_query = 'SELECT 1 LIMIT 0'
+        body.data_source_ref = null
+      } else {
+        body.data_source_type = 'saved_table'
+        body.data_source_ref = cfg.tableName ?? null
+      }
+      return updateWidget(bid, wid, body)
+        .then(() => {
+          if (cfg.type !== 'note') loadWidgetDataset(cfg)
+        })
+        .catch((e) => console.warn('updateWidget full', e))
+    },
+    [canEditBoard, loadWidgetDataset]
+  )
+
+  const handleOpenSettings = useCallback((id) => {
+    const c = configsRef.current[id]
+    settingsModalSnapshotRef.current = c ? JSON.parse(JSON.stringify(c)) : null
+    setSettingsWidgetId(id)
+  }, [])
+
+  const handleSettingsConfirmClose = useCallback(() => {
+    settingsModalSnapshotRef.current = null
+    setSettingsWidgetId(null)
+  }, [])
+
+  const handleSettingsCancel = useCallback(() => {
+    const id = settingsWidgetId
+    const snap = settingsModalSnapshotRef.current
+    if (id && snap) {
+      setConfigs((prev) => ({ ...prev, [id]: { ...snap } }))
+      persistWidgetFullConfig(id, snap)
+    }
+    settingsModalSnapshotRef.current = null
+    setSettingsWidgetId(null)
+  }, [settingsWidgetId, persistWidgetFullConfig])
 
   const handleConfigUpdate = useCallback(
     (widgetId, patch) => {
       setConfigs((prev) => {
         const prevCfg = prev[widgetId]
-        const next = { ...prev, [widgetId]: { ...prevCfg, ...patch } }
-        persistWidgetPatch(widgetId, patch, prevCfg)
+        const nextCfg = { ...prevCfg, ...patch }
+        const next = { ...prev, [widgetId]: nextCfg }
+        persistWidgetPatch(widgetId, patch, prevCfg, nextCfg)
         return next
       })
     },
@@ -847,8 +917,9 @@ export default function WidgetboardPage() {
         const merged = { ...prevCfg, ...patch }
         const extra = isMultiDayWidgetRange(merged.dateStart, merged.dateEnd) ? { dimensionKey: null } : {}
         const fullPatch = { ...patch, ...extra }
-        const next = { ...prev, [widgetId]: { ...prevCfg, ...fullPatch } }
-        persistWidgetPatch(widgetId, fullPatch, prevCfg)
+        const nextCfg = { ...prevCfg, ...fullPatch }
+        const next = { ...prev, [widgetId]: nextCfg }
+        persistWidgetPatch(widgetId, fullPatch, prevCfg, nextCfg)
         return next
       })
     },
@@ -937,16 +1008,18 @@ export default function WidgetboardPage() {
               minH: sizes.minH
             }
           ])
+          const newCfg = {
+            type,
+            title: '',
+            tableName: null,
+            widgetItemId: row.widget_item_id,
+            dataSourceType: row.data_source_type
+          }
           setConfigs((prev) => ({
             ...prev,
-            [newId]: {
-              type,
-              title: '',
-              tableName: null,
-              widgetItemId: row.widget_item_id,
-              dataSourceType: row.data_source_type
-            }
+            [newId]: newCfg
           }))
+          settingsModalSnapshotRef.current = JSON.parse(JSON.stringify(newCfg))
           setSettingsWidgetId(newId)
         } catch (err) {
           console.warn('addWidget', err)
@@ -1050,13 +1123,10 @@ export default function WidgetboardPage() {
   const settingsCacheKey = settingsConfig ? cacheKeyForConfig(settingsConfig) : null
   const settingsTableData = settingsCacheKey ? tableDataCache[settingsCacheKey] : null
   const settingsColumns = settingsTableData?.columns || []
-  const settingsResolvedDateCol = settingsConfig
-    ? resolveWidgetDateColumnName(settingsColumns, settingsConfig.dateColumn)
-    : null
+  /** 복수 일(시작≠끝)이면 차원은 기간 단위로 자동 집계·셀렉트 비활성. 단일 일만 차원(범주 축) 선택 가능 */
   const settingsDimLocked =
     Boolean(settingsConfig) &&
     isMultiDayWidgetRange(settingsConfig.dateStart, settingsConfig.dateEnd) &&
-    Boolean(settingsResolvedDateCol) &&
     ['lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge'].includes(settingsConfig.type)
 
   useEffect(() => {
@@ -1143,7 +1213,7 @@ export default function WidgetboardPage() {
                     })()}
                     onDelete={handleDelete}
                     onDuplicate={handleDuplicate}
-                    onOpenSettings={setSettingsWidgetId}
+                    onOpenSettings={handleOpenSettings}
                     onNoteContentChange={handleNoteContentChange}
                     onConfigUpdate={handleConfigUpdate}
                   />
@@ -1172,13 +1242,15 @@ export default function WidgetboardPage() {
       />
 
       {settingsWidgetId && settingsConfig && (
-        <div className="modal-overlay" onClick={() => setSettingsWidgetId(null)}>
-          <div className="modal-content modal-settings" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay modal-overlay--no-dismiss" role="presentation">
+          <div className="modal-content modal-settings" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="wb-settings-title">
             <div className="modal-header">
-              <h3>위젯 설정</h3>
-              <button type="button" className="modal-close" onClick={() => setSettingsWidgetId(null)} aria-label="닫기">×</button>
+              <h3 id="wb-settings-title">위젯 설정</h3>
+              <button type="button" className="modal-close" onClick={handleSettingsConfirmClose} aria-label="닫기">
+                ×
+              </button>
             </div>
-            <div className="modal-body">
+            <div className="modal-settings-body">
               <div className="settings-row">
                 <label htmlFor="wb-set-title">위젯 이름</label>
                 <input
@@ -1203,7 +1275,7 @@ export default function WidgetboardPage() {
               )}
               {settingsConfig.type !== 'note' && DATA_LIKE_WIDGET_TYPES.includes(settingsConfig.type) && (
                 <div className="settings-row">
-                  <label htmlFor="wb-set-table">테이블 (test_report_*)</label>
+                  <label htmlFor="wb-set-table">테이블 (프로젝트 매핑)</label>
                   {tablesLoading ? (
                     <p className="modal-loading">테이블 목록 로딩 중...</p>
                   ) : (
@@ -1236,6 +1308,7 @@ export default function WidgetboardPage() {
                   <div className="settings-row">
                     <label>기간 단위</label>
                     <select
+                      className="widget-wizard-select"
                       value={settingsConfig.dateGrain || 'day'}
                       onChange={(e) => {
                         const g = e.target.value
@@ -1278,6 +1351,7 @@ export default function WidgetboardPage() {
                     <div className="settings-row">
                       <label>날짜 컬럼</label>
                       <select
+                        className="widget-wizard-select"
                         value={settingsConfig.dateColumn ?? ''}
                         onChange={(e) =>
                           handleConfigUpdate(settingsWidgetId, {
@@ -1302,8 +1376,9 @@ export default function WidgetboardPage() {
                     <>
                       {['lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge'].includes(settingsConfig.type) && (
                         <div className="settings-row">
-                          <label>Dimension (X축·단일 일자일 때만)</label>
+                          <label>차원·구분 (범주 축 · 단일 일일 때만)</label>
                           <select
+                            className="settings-select-fluid"
                             value={settingsConfig.dimensionKey ?? ''}
                             onChange={(e) => handleConfigUpdate(settingsWidgetId, { dimensionKey: e.target.value || null })}
                             disabled={settingsDimLocked}
@@ -1313,14 +1388,21 @@ export default function WidgetboardPage() {
                               <option key={c.name} value={c.name}>{c.name}</option>
                             ))}
                           </select>
-                          {settingsDimLocked && (
-                            <p className="settings-hint">여러 날짜 범위에서는 기간 단위(일·주·월)로 자동 집계됩니다.</p>
+                          {settingsDimLocked ? (
+                            <p className="settings-hint">
+                              시작일≠종료일인 기간 조회에서는 X축이 일·주·월 등으로 자동이며, 차원 컬럼은 사용하지 않습니다.
+                            </p>
+                          ) : (
+                            <p className="settings-hint">
+                              막대/라인 등에서 X축(또는 파이의 조각 기준)에 올 문자열·범주 컬럼입니다. Y축 값은 아래 지표를 사용합니다.
+                            </p>
                           )}
                         </div>
                       )}
                       <div className="settings-row">
-                        <label>Metric (숫자)</label>
+                        <label>지표 (숫자·집계 값 · Y축)</label>
                         <select
+                          className="settings-select-fluid"
                           value={settingsConfig.metricKey ?? ''}
                           onChange={(e) => handleConfigUpdate(settingsWidgetId, { metricKey: e.target.value || null })}
                         >
@@ -1336,6 +1418,7 @@ export default function WidgetboardPage() {
                     <div className="settings-row">
                       <label>차트 유형</label>
                       <select
+                        className="widget-wizard-select"
                         value={settingsConfig.chartType ?? 'line'}
                         onChange={(e) => handleConfigUpdate(settingsWidgetId, { chartType: e.target.value })}
                       >
@@ -1413,6 +1496,7 @@ export default function WidgetboardPage() {
                   <div className="settings-row">
                     <label>기본 정렬</label>
                     <select
+                      className="widget-wizard-select"
                       value={settingsConfig.sortKey ?? ''}
                       onChange={(e) => handleConfigUpdate(settingsWidgetId, { sortKey: e.target.value || null })}
                     >
@@ -1434,6 +1518,14 @@ export default function WidgetboardPage() {
                   </div>
                 </>
               )}
+            </div>
+            <div className="modal-footer modal-settings-footer">
+              <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={handleSettingsCancel}>
+                취소
+              </button>
+              <button type="button" className="ibank-btn-toolbar" onClick={handleSettingsConfirmClose}>
+                확인
+              </button>
             </div>
           </div>
         </div>

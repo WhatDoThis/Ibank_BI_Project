@@ -10,7 +10,7 @@
  * - upsertWidgetBoardShare, deleteWidgetBoardShare
  * - getWidgetBoardParticipants, getWidgetBoardInviteCandidates
  * - postWidgetBoardInviteNotifications, postAcceptWidgetBoardInvite, postRejectWidgetBoardInvite
- * - fetchWidgetData
+ * - fetchWidgetData (응답 columns에 type, 기간 필터 시 meta.applied_date_column)
  *
  * [Dependencies]
  * =========
