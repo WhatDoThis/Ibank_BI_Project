@@ -345,6 +345,30 @@
   color: var(--color-text-muted);
 }
 
+.query-studio .qs-table-label-gear {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-btn-sm);
+  background: var(--background);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.query-studio .qs-table-label-gear:hover {
+  color: var(--color-action-primary);
+  border-color: var(--color-border);
+  background: var(--primary-light);
+}
+
 .query-studio .column-item {
   padding: 7px 10px;
   border-radius: var(--radius-btn-sm);

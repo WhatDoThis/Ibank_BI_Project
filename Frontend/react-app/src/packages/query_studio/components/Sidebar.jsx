@@ -7,7 +7,7 @@
  * [Main Functions]
  * ===========
  * 1. getTableFolder: 테이블명 → 폴더(I1/쿼리빌더/기타)
- * 2. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
+ * 2. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. 테이블 행 톱니바퀴 → onOpenTableLabelsModal(table). 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
  *
  * [Dependencies]
  * =========
@@ -35,7 +35,17 @@ function getTableFolder(tableName) {
 const FOLDER_ORDER = [FOLDER_I1, FOLDER_QUERY_BUILDER, FOLDER_OTHER]
 
 // 2.
-export default function Sidebar({ tables = [], tableRelationships = {}, relationshipOptions = {}, addedTables = [], loading, dbStatus = {}, onOpenColumnLabelsModal, onRefreshTables, onRefreshDbStatus }) {
+export default function Sidebar({
+  tables = [],
+  tableRelationships = {},
+  relationshipOptions = {},
+  addedTables = [],
+  loading,
+  dbStatus = {},
+  onOpenTableLabelsModal,
+  onRefreshTables,
+  onRefreshDbStatus
+}) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [folderExpanded, setFolderExpanded] = useState({ [FOLDER_I1]: true, [FOLDER_QUERY_BUILDER]: true, [FOLDER_OTHER]: true })
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -130,6 +140,20 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
             {t.table_label ?? t.table_name}
           </span>
           <span className="table-count">({cols.length}개)</span>
+          {typeof onOpenTableLabelsModal === 'function' && (
+            <button
+              type="button"
+              className="qs-table-label-gear"
+              title="이 테이블 표시명·컬럼 라벨 편집"
+              aria-label={`${t.table_name} 표시명 편집`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenTableLabelsModal(t.table_name)
+              }}
+            >
+              ⚙
+            </button>
+          )}
         </div>
         <div className={`column-list ${expanded ? 'expanded' : ''}`}>
           {cols.map((c) => (
@@ -157,16 +181,6 @@ export default function Sidebar({ tables = [], tableRelationships = {}, relation
     <div className="sidebar">
       <div className="sidebar-header qs-sidebar__header">
         <span className="qs-sidebar__title">테이블 목록</span>
-        {typeof onOpenColumnLabelsModal === 'function' && (
-          <button
-            type="button"
-            className="btn-small secondary qs-sidebar__header-btn"
-            onClick={onOpenColumnLabelsModal}
-            title="DB 테이블·컬럼명은 그대로 두고, 화면에 보이는 표시명만 변경합니다."
-          >
-            표시명
-          </button>
-        )}
       </div>
       <div className="sidebar-db-status-wrap qs-sidebar__status-row">
         <span className={`sidebar-db-status ${dbStatus.ok === true ? 'ok' : dbStatus.ok === false ? 'error' : ''}`} title="API /health 결과">

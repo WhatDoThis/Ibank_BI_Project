@@ -388,6 +388,24 @@ UNIQUE 제약: (project_info_id, table_master_id)
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12a. query_studio_user_labels (쿼리 스튜디오 표시명, 계정·프로젝트별)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+시스템 DB(public). JWT `user_id` + 헤더 선택 `project_info_id` 단위로 **테이블·컬럼 표시명**을 JSONB에 저장한다. 앱 최초 사용 시 `CREATE TABLE IF NOT EXISTS`로 생성된다.
+
+표시 우선순위(테이블명): 본 행 `labels_json.table_labels` → `table_master.table_label`(목록 메타) → `Env/config/column_labels.json` → 코드 내장 기본 → 물리 테이블명.  
+컬럼명: `labels_json.column_labels` → 동일 파일 → 코드 내장 기본 → 물리 컬럼명.
+
+컬럼명                    타입             제약조건        설명
+───────────────────────  ──────────────  ────────────  ─────────────────
+user_id                  int4            PK(복합)       user_info.user_id
+project_info_id          int4            PK(복합)       project_info
+labels_json              jsonb           NOT NULL      `{ "table_labels": {}, "column_labels": {} }`
+updated_at               timestamptz     NOT NULL      마지막 저장 시각
+
+PRIMARY KEY: (user_id, project_info_id)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 13. etl_connections (ETL DB 커넥션)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ETL 원천 데이터베이스 접속 정보를 관리합니다.

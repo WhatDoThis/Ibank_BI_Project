@@ -5,9 +5,11 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Helpers]
 ===========
-1. _load_labels_file, _save_labels_file: 컬럼/테이블 라벨 JSON 파일 로드·저장
-2. _get_table_label, _get_column_label: 테이블·컬럼 표시 라벨 조회
-3. _load_column_labels: 컬럼 라벨 전체 로드
+1. _load_labels_file, _save_labels_file: 공통 라벨 JSON 파일 로드·저장(레거시·디폴트 보조)
+2. query_studio_user_labels: 시스템 DB에 user_id+project_info_id별 labels_json(JSONB) 저장
+3. _resolve_table_display_label / _resolve_column_display_label: 유저 JSON → 파일 → table_master(테이블명만) → 코드 기본 → 물리명
+4. _get_table_label, _get_column_label: 유저 컨텍스트 없을 때 파일+기본만
+5. _load_column_labels: 파일 column_labels만
 4. _log: 디버그 로그 출력·파일 기록
 5. _contains_dangerous_sql: 금지 SQL 키워드 검사
 6. _fetch_relationships: FK/추론 관계 조회
@@ -178,27 +180,159 @@ def _save_labels_file(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# 3.
-def _get_table_label(table_name):
-    """저장된 값 우선, 없으면 기본 라벨, 없으면 테이블명."""
-    data = _load_labels_file()
-    saved = (data.get("table_labels") or {}).get(table_name)
-    if saved:
-        return saved
+# 2a. 계정·프로젝트별 라벨 (시스템 DB JSONB)
+_QUERY_STUDIO_USER_LABELS_TABLE = "query_studio_user_labels"
+_user_labels_table_lock = threading.Lock()
+_user_labels_table_ready = False
+
+
+def _ensure_query_studio_user_labels_table():
+    global _user_labels_table_ready
+    if _user_labels_table_ready:
+        return
+    with _user_labels_table_lock:
+        if _user_labels_table_ready:
+            return
+        conn = db.get_db_connection_system_core()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {_QUERY_STUDIO_USER_LABELS_TABLE} (
+                    user_id INT4 NOT NULL,
+                    project_info_id INT4 NOT NULL,
+                    labels_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_id, project_info_id)
+                )
+                """
+            )
+            conn.commit()
+            _user_labels_table_ready = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+
+def _empty_user_labels():
+    return {"table_labels": {}, "column_labels": {}}
+
+
+def _normalize_stored_labels(raw):
+    if raw is None:
+        return _empty_user_labels()
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return _empty_user_labels()
+    if not isinstance(raw, dict):
+        return _empty_user_labels()
+    tl = raw.get("table_labels") or {}
+    cl = raw.get("column_labels") or {}
+    if not isinstance(tl, dict):
+        tl = {}
+    if not isinstance(cl, dict):
+        cl = {}
+    col_norm = {}
+    for tk, tv in cl.items():
+        if isinstance(tv, dict):
+            col_norm[str(tk)] = {str(ck): ("" if cv is None else str(cv)) for ck, cv in tv.items()}
+    return {
+        "table_labels": {str(k): ("" if v is None else str(v)) for k, v in tl.items()},
+        "column_labels": col_norm,
+    }
+
+
+def _load_user_project_labels(user_id: int, project_info_id: int) -> dict:
+    _ensure_query_studio_user_labels_table()
+    conn = db.get_db_connection_system_core()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(
+            f"SELECT labels_json FROM {_QUERY_STUDIO_USER_LABELS_TABLE} WHERE user_id = %s AND project_info_id = %s",
+            (int(user_id), int(project_info_id)),
+        )
+        row = cur.fetchone()
+        if not row:
+            return _empty_user_labels()
+        return _normalize_stored_labels(row.get("labels_json"))
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _persist_user_project_labels(user_id: int, project_info_id: int, data: dict) -> None:
+    _ensure_query_studio_user_labels_table()
+    normalized = {
+        "table_labels": dict(data.get("table_labels") or {}),
+        "column_labels": {str(k): dict(v) for k, v in (data.get("column_labels") or {}).items()},
+    }
+    conn = db.get_db_connection_system_core()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            INSERT INTO {_QUERY_STUDIO_USER_LABELS_TABLE} (user_id, project_info_id, labels_json, updated_at)
+            VALUES (%s, %s, %s::jsonb, NOW())
+            ON CONFLICT (user_id, project_info_id)
+            DO UPDATE SET labels_json = EXCLUDED.labels_json, updated_at = NOW()
+            """,
+            (int(user_id), int(project_info_id), json.dumps(normalized, ensure_ascii=False)),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _resolve_table_display_label(table_name, user_data, file_data, row_meta=None):
+    """유저 JSON → table_master 메타 → 파일 → DEFAULT_TABLE_LABELS → 물리명."""
+    row_meta = row_meta or {}
+    ut = (user_data.get("table_labels") or {}).get(table_name)
+    if ut is not None and str(ut).strip():
+        return str(ut).strip()
+    rm = row_meta.get("table_label") if isinstance(row_meta, dict) else None
+    if rm is not None and str(rm).strip():
+        return str(rm).strip()
+    ft = (file_data.get("table_labels") or {}).get(table_name)
+    if ft is not None and str(ft).strip():
+        return str(ft).strip()
     return DEFAULT_TABLE_LABELS.get(table_name) or table_name
 
 
-# 4.
-def _get_column_label(table_name, column_name):
-    """저장된 값 우선, 테이블별 기본값, 공통 기본값, 없으면 컬럼명."""
-    data = _load_labels_file()
-    col_labels = (data.get("column_labels") or {}).get(table_name, {})
-    if column_name in col_labels and col_labels[column_name]:
-        return col_labels[column_name]
+def _resolve_column_display_label(table_name, column_name, user_data, file_data):
+    """유저 JSON → 파일 → 테이블별/공통 기본 → 물리명."""
+    uc = (user_data.get("column_labels") or {}).get(table_name, {}).get(column_name)
+    if uc is not None and str(uc).strip():
+        return str(uc).strip()
+    fc = (file_data.get("column_labels") or {}).get(table_name, {}).get(column_name)
+    if fc is not None and str(fc).strip():
+        return str(fc).strip()
     by_table = DEFAULT_COLUMN_LABELS_BY_TABLE.get(table_name, {}).get(column_name)
     if by_table:
         return by_table
     return COMMON_COLUMN_LABELS.get(column_name) or column_name
+
+
+# 3.
+def _get_table_label(table_name):
+    """파일·기본만 (유저 컨텍스트 없음)."""
+    fd = _load_labels_file()
+    return _resolve_table_display_label(table_name, _empty_user_labels(), fd, {})
+
+
+# 4.
+def _get_column_label(table_name, column_name):
+    """파일·기본만 (유저 컨텍스트 없음)."""
+    fd = _load_labels_file()
+    return _resolve_column_display_label(table_name, column_name, _empty_user_labels(), fd)
 
 
 # 5.
@@ -406,8 +540,14 @@ def list_tables(
 
         schema = db.get_table_schema()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        data = _load_labels_file()
-        table_labels_saved = data.get("table_labels") or {}
+        uid = _perm.get("user_id")
+        pid = int(project_info_id)
+        user_labels = (
+            _load_user_project_labels(int(uid), pid)
+            if uid is not None
+            else _empty_user_labels()
+        )
+        file_labels = _load_labels_file()
         tables = []
         for tname in allowed_names:
             size_pretty = None
@@ -424,7 +564,7 @@ def list_tables(
             tables.append({
                 "table_name": tname,
                 "size": size_pretty,
-                "table_label": row_meta.get("table_label") or table_labels_saved.get(tname) or DEFAULT_TABLE_LABELS.get(tname) or tname,
+                "table_label": _resolve_table_display_label(tname, user_labels, file_labels, row_meta),
                 "table_dscrtn": row_meta.get("table_dscrtn"),
             })
         cur.close()
@@ -448,6 +588,14 @@ def describe_table(
 ):
     try:
         table_name = db.validate_table_name(body.table_name)
+        uid = _perm.get("user_id")
+        pid = _perm.get("project_info_id")
+        user_labels = (
+            _load_user_project_labels(int(uid), int(pid))
+            if uid is not None and pid is not None
+            else _empty_user_labels()
+        )
+        file_labels = _load_labels_file()
         schema = db.get_table_schema()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
@@ -475,7 +623,7 @@ def describe_table(
                 "type": col_type,
                 "nullable": row["is_nullable"] == "YES",
                 "default": row["column_default"],
-                "label": _get_column_label(table_name, col_name),
+                "label": _resolve_column_display_label(table_name, col_name, user_labels, file_labels),
             })
         cur.close()
         return {"table_name": table_name, "columns": columns, "count": len(columns)}
@@ -491,13 +639,22 @@ def get_column_labels(
     table_name: str = Query(..., description="테이블명"),
     _perm: dict = Depends(require_query_read_perm),
 ):
-    """테이블별 컬럼 라벨·테이블 라벨 조회."""
+    """테이블별 컬럼 라벨·테이블 라벨 조회(유저 저장 ∪ 파일, 표시용 table_label은 병합 해석)."""
     try:
         table_name = db.validate_table_name(table_name)
-        data = _load_labels_file()
-        col_labels = (data.get("column_labels") or {}).get(table_name, {})
-        table_label = _get_table_label(table_name)
-        return {"table_name": table_name, "table_label": table_label, "labels": col_labels}
+        uid = _perm.get("user_id")
+        pid = _perm.get("project_info_id")
+        user_labels = (
+            _load_user_project_labels(int(uid), int(pid))
+            if uid is not None and pid is not None
+            else _empty_user_labels()
+        )
+        file_labels = _load_labels_file()
+        user_cols = (user_labels.get("column_labels") or {}).get(table_name, {})
+        file_cols = (file_labels.get("column_labels") or {}).get(table_name, {})
+        labels_merged = {**file_cols, **user_cols}
+        table_label = _resolve_table_display_label(table_name, user_labels, file_labels, {})
+        return {"table_name": table_name, "table_label": table_label, "labels": labels_merged}
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
 
@@ -508,10 +665,12 @@ def save_column_labels(
     body: ColumnLabelsRequest,
     _perm: dict = Depends(require_query_read_perm),
 ):
-    """테이블·컬럼 라벨 저장. 사용자가 수정한 라벨만 저장(기본값 덮어씀)."""
+    """테이블·컬럼 라벨을 계정·프로젝트별 JSON(system DB)에 저장. 미입력 시 파일·기본값이 표시에 사용됨."""
     try:
         table_name = db.validate_table_name(body.table_name)
-        data = _load_labels_file()
+        user_id = int(_perm["user_id"])
+        project_info_id = int(_perm["project_info_id"])
+        data = _load_user_project_labels(user_id, project_info_id)
         if "table_labels" not in data or data["table_labels"] is None:
             data["table_labels"] = {}
         if "column_labels" not in data or data["column_labels"] is None:
@@ -526,11 +685,12 @@ def save_column_labels(
             if not re.match(r"^[a-zA-Z0-9_]+$", col_name):
                 continue
             data["column_labels"][table_name][col_name] = (label or "").strip() or col_name
-        _save_labels_file(data)
+        _persist_user_project_labels(user_id, project_info_id, data)
+        file_labels = _load_labels_file()
         return {
             "table_name": table_name,
-            "table_label": data["table_labels"].get(table_name) or _get_table_label(table_name),
-            "labels": data["column_labels"].get(table_name, {}),
+            "table_label": _resolve_table_display_label(table_name, data, file_labels, {}),
+            "labels": dict((data.get("column_labels") or {}).get(table_name, {})),
         }
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})

@@ -990,30 +990,27 @@ export default function QueryStudioPage() {
     resetBuilderState('success', '초기화되었습니다')
   }, [resetBuilderState])
 
-  const openColumnLabelsModal = useCallback(() => {
-    if (gridColumns.length === 0) {
-      showToast('info', '먼저 그리드에 표시할 컬럼을 선택한 뒤 표시명 편집을 사용할 수 있습니다.')
-      return
-    }
-    const byTable = {}
-    gridColumns.forEach((c) => {
-      if (!byTable[c.table]) byTable[c.table] = []
-      byTable[c.table].push(c)
-    })
-    const tableLabels = {}
-    const columnLabelsByTable = {}
-    Object.keys(byTable).forEach((tableName) => {
-      const t = tables.find((x) => x.table_name === tableName)
-      tableLabels[tableName] = t?.table_label ?? t?.table_name ?? tableName
-      columnLabelsByTable[tableName] = {}
-      byTable[tableName].forEach((col) => {
-        columnLabelsByTable[tableName][col.column] = col.label ?? col.column ?? ''
+  /** 왼쪽 목록 테이블 행 ⚙ — 해당 테이블 전체 컬럼 표시명 편집 (미지정 시 물리명·목록 기본값) */
+  const openTableLabelsModal = useCallback(
+    (tableName) => {
+      const name = (tableName || '').trim()
+      if (!name) return
+      const t = tables.find((x) => x.table_name === name)
+      if (!t) {
+        showToast('warning', '테이블을 찾을 수 없습니다. 목록을 새로고침해 보세요.')
+        return
+      }
+      const cols = t.columns || []
+      const colDraft = {}
+      cols.forEach((c) => {
+        colDraft[c.name] = c.label ?? c.name ?? ''
       })
-    })
-    setTableLabelsDraft(tableLabels)
-    setColumnLabelsByTableDraft(columnLabelsByTable)
-    setShowColumnLabelsModal(true)
-  }, [tables, gridColumns, showToast])
+      setTableLabelsDraft({ [name]: t.table_label ?? t.table_name ?? name })
+      setColumnLabelsByTableDraft({ [name]: colDraft })
+      setShowColumnLabelsModal(true)
+    },
+    [tables, showToast]
+  )
 
   const saveColumnLabelsAndClose = useCallback(async () => {
     const tableNames = Object.keys(columnLabelsByTableDraft)
@@ -1052,6 +1049,11 @@ export default function QueryStudioPage() {
     }
   }, [tableLabelsDraft, columnLabelsByTableDraft, showToast])
 
+  const columnLabelsModalTableName =
+    showColumnLabelsModal && Object.keys(columnLabelsByTableDraft).length > 0
+      ? Object.keys(columnLabelsByTableDraft)[0]
+      : null
+
   return (
     <>
       <div className="qs-page">
@@ -1059,7 +1061,7 @@ export default function QueryStudioPage() {
         <div className="container query-studio qs-page__workspace">
         <Sidebar
           tables={tables}
-          onOpenColumnLabelsModal={openColumnLabelsModal}
+          onOpenTableLabelsModal={openTableLabelsModal}
           tableRelationships={tableRelationships}
           relationshipOptions={relationshipOptions}
           addedTables={addedTables}
@@ -1139,57 +1141,62 @@ export default function QueryStudioPage() {
         />
         </div>
       </div>
-      {showColumnLabelsModal && (
+      {showColumnLabelsModal && columnLabelsModalTableName && (
         <div
           className="relationship-diagram-overlay"
           role="dialog"
           aria-modal="true"
-          aria-label="컬럼 라벨 편집"
+          aria-label={`표시명 편집 ${columnLabelsModalTableName}`}
           onClick={() => setShowColumnLabelsModal(false)}
         >
           <div className="relationship-diagram-modal" style={{ minWidth: 360, maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
             <div className="relationship-diagram-header">
-              <span>표시명 편집</span>
+              <span>표시명 — {columnLabelsModalTableName}</span>
               <button type="button" className="relationship-diagram-close" onClick={() => setShowColumnLabelsModal(false)} aria-label="닫기">×</button>
             </div>
             <div className="relationship-diagram-body">
               <p style={{ marginBottom: 12, padding: 8, background: 'var(--bg-muted, #f1f5f9)', borderRadius: 6, fontSize: 12, color: 'var(--text-light)' }}>
-                <strong>DB 테이블·컬럼명은 변경되지 않습니다.</strong> 화면에 보이는 표시명만 수정합니다. 비워두면 물리명이 표시됩니다.
+                <strong>DB 테이블·컬럼명은 변경되지 않습니다.</strong> 왼쪽 목록·그리드에 보이는 이름만 바꿉니다. 비우면 물리명이 표시됩니다.
               </p>
               <div style={{ maxHeight: 360, overflowY: 'auto', marginBottom: 16 }}>
-                {Object.keys(columnLabelsByTableDraft).map((tableName) => (
-                  <div key={tableName} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ marginBottom: 8 }}>
-                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-light)', fontFamily: 'monospace', marginBottom: 2 }}>테이블 물리명 (변경 불가): {tableName}</span>
-                      <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>표시 라벨 (화면에만 표시)</label>
-                      <input
-                        type="text"
-                        value={tableLabelsDraft[tableName] ?? ''}
-                        onChange={(e) => setTableLabelsDraft((prev) => ({ ...prev, [tableName]: e.target.value }))}
-                        placeholder={`예: ${tableName} → 캠페인 목록`}
-                        style={{ width: '100%', padding: 6, fontSize: 12 }}
-                      />
-                    </div>
-                    <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 11 }}>컬럼 표시 라벨</label>
-                    {Object.keys(columnLabelsByTableDraft[tableName] || {}).map((colName) => (
-                      <div key={colName} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <span style={{ flex: '0 0 110px', fontSize: 11, fontFamily: 'monospace', color: 'var(--text-light)' }} title="물리명">{colName}</span>
-                        <span style={{ color: 'var(--text-light)', fontSize: 12 }}>→</span>
-                        <input
-                          type="text"
-                          value={columnLabelsByTableDraft[tableName][colName] ?? ''}
-                          onChange={(e) =>
-                            setColumnLabelsByTableDraft((prev) => ({
-                              ...prev,
-                              [tableName]: { ...(prev[tableName] || {}), [colName]: e.target.value }
-                            }))
+                <div style={{ marginBottom: 8 }}>
+                  <span style={{ display: 'block', fontSize: 11, color: 'var(--text-light)', fontFamily: 'monospace', marginBottom: 2 }}>
+                    테이블 물리명 (변경 불가): {columnLabelsModalTableName}
+                  </span>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 11 }}>테이블 표시 라벨</label>
+                  <input
+                    type="text"
+                    value={tableLabelsDraft[columnLabelsModalTableName] ?? ''}
+                    onChange={(e) =>
+                      setTableLabelsDraft((prev) => ({ ...prev, [columnLabelsModalTableName]: e.target.value }))
+                    }
+                    placeholder={columnLabelsModalTableName}
+                    style={{ width: '100%', padding: 6, fontSize: 12 }}
+                  />
+                </div>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 11 }}>컬럼 표시 라벨</label>
+                {Object.keys(columnLabelsByTableDraft[columnLabelsModalTableName] || {}).map((colName) => (
+                  <div key={colName} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ flex: '0 0 110px', fontSize: 11, fontFamily: 'monospace', color: 'var(--text-light)' }} title="물리명">
+                      {colName}
+                    </span>
+                    <span style={{ color: 'var(--text-light)', fontSize: 12 }}>→</span>
+                    <input
+                      type="text"
+                      value={columnLabelsByTableDraft[columnLabelsModalTableName][colName] ?? ''}
+                      onChange={(e) =>
+                        setColumnLabelsByTableDraft((prev) => ({
+                          ...prev,
+                          [columnLabelsModalTableName]: {
+                            ...(prev[columnLabelsModalTableName] || {}),
+                            [colName]: e.target.value
                           }
-                          placeholder={colName}
-                          style={{ flex: 1, padding: 6, fontSize: 12 }}
-                          title="비워두면 물리명 표시"
-                        />
-                      </div>
-                    ))}
+                        }))
+                      }
+                      placeholder={colName}
+                      style={{ flex: 1, padding: 6, fontSize: 12 }}
+                      title="비워두면 물리명 표시"
+                    />
                   </div>
                 ))}
               </div>
