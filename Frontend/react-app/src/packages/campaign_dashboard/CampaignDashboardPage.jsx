@@ -1,7 +1,7 @@
 /**
  * CampaignDashboardPage (캠페인 대시보드 — Star JSONB 테이블)
  * ===========================================================
- * 뉴 대시보드와 동일 레이아웃. API는 /api/campaign-dashboard, table_id=*_star_1.
+ * 뉴 대시보드와 동일 레이아웃. API는 /api/campaign-dashboard, table_id는 목록의 첫 Star 테이블만 사용(선택 UI 없음).
  *
  * [Main Functions]
  * 1. todayStr
@@ -42,7 +42,6 @@ function todayStr() {
 // 2.
 export default function CampaignDashboardPage() {
   const { projectContextNonce } = useAuth()
-  const [tables, setTables] = useState([])
   const [tableId, setTableId] = useState('')
   const [targetDate, setTargetDate] = useState(todayStr())
   const [period, setPeriod] = useState('daily')
@@ -70,13 +69,11 @@ export default function CampaignDashboardPage() {
       .then((res) => {
         if (cancelled) return
         const list = res.tables || []
-        setTables(list)
         setTableId(list.length > 0 ? list[0].id : '')
         setTableListRevision((r) => r + 1)
       })
       .catch((e) => {
         if (!cancelled) setError(e.message)
-        setTables([])
         setTableId('')
         setTableListRevision((r) => r + 1)
       })
@@ -162,12 +159,9 @@ export default function CampaignDashboardPage() {
 
   return (
     <>
-      <PageHeader description="캠페인·발송 KPI와 회원·채널 지표를 기간·테이블 기준으로 조회합니다." />
+      <PageHeader description="캠페인·발송 KPI와 회원·채널 지표를 기간 기준으로 조회합니다." />
       <div className="new-dashboard-page">
         <SummaryHeader
-          tables={tables}
-          tableId={tableId}
-          onTableChange={setTableId}
           targetDate={targetDate}
           onDateChange={handleDateChange}
           period={period}

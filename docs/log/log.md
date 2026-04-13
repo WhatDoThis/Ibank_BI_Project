@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+336. 2026-04-13 캠페인 대시보드: 헤더 그리드 열 배치(grid-column) 수정
+335. 2026-04-13 캠페인 대시보드: 헤더 Star 테이블 셀렉트 제거
 334. 2026-04-13 문서 21: §4.1 require_*·Depends 인벤토리·§3 체크 완료
 333. 2026-04-13 문서 21 Phase D: share_scope·config 정합(02·03·§3·§13)
 332. 2026-04-13 초대자 알림·라벨: notify_inviter_*·user_display_label 통합·§9.2 재점검
@@ -337,6 +339,26 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+336. 2026-04-13 캠페인 대시보드: 헤더 그리드 열 배치(grid-column) 수정
+Purpose: 테이블 셀렉트 제거 후 `nd-header`를 3열 그리드로 둔 상태에서 자식이 2개만 있어 자동 배치로 첫 번째 블록이 1열(왼쪽 1fr)에 들어가 날짜·우측 컨트롤이 왼쪽으로 밀렸다. 중앙·우측 열에 명시 배치한다.
+
+Changes:
+
+- `campaign-dashboard.css`: `.nd-header__center { grid-column: 2 }`, `.nd-header__right { grid-column: 3 }`, 주석 보강.
+
+Changed files: Frontend/react-app/src/packages/campaign_dashboard/campaign-dashboard.css, docs/log/log.md
+
+335. 2026-04-13 캠페인 대시보드: 헤더 Star 테이블 셀렉트 제거
+Purpose: `nd-header__table-select`는 단일 Star 테이블만 쓰는 제품 가정에서 불필요하므로 UI·상태를 제거하고, API는 목록의 첫 테이블만 사용한다.
+
+Changes:
+
+- `SummaryHeader.jsx`: `tables`·`tableId`·`onTableChange` 및 `<select>` 제거.
+- `CampaignDashboardPage.jsx`: `tables` state 제거, `getCampaignDashboardTables` 응답으로 `tableId`만 설정.
+- `campaign-dashboard.css`: `.nd-header` 그리드로 날짜 중앙·우측 컨트롤 정렬, 테이블 셀렉트 스타일 삭제.
+
+Changed files: Frontend/react-app/src/packages/campaign_dashboard/components/SummaryHeader.jsx, Frontend/react-app/src/packages/campaign_dashboard/CampaignDashboardPage.jsx, Frontend/react-app/src/packages/campaign_dashboard/campaign-dashboard.css, docs/log/log.md
 
 334. 2026-04-13 문서 21: §4.1 require_*·Depends 인벤토리·§3 체크 완료
 Purpose: `require_*`·권한 팩토리 변경 시 재스캔 범위를 고정한다. `main.py` 등록 라우터와 ETL `router_file` 포함 여부를 표로 남기고 글로벌 체크리스트 §3 항목을 완료 처리한다.

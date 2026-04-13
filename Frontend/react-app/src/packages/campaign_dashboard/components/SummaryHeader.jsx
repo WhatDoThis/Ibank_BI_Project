@@ -1,7 +1,7 @@
 /**
  * SummaryHeader (뉴 대시보드 상단 헤더)
  * =====================================
- * 테이블 선택, 날짜 네비(클릭 시 네이티브 달력), 주간 N주차, period 토글, 새로고침.
+ * 날짜 네비(클릭 시 네이티브 달력), 주간 N주차, period 토글, 새로고침. 테이블은 페이지에서 단일 Star 테이블만 사용.
  * onDateChange: 날짜 직접 선택 시 호출.
  *
  * [Components]
@@ -11,9 +11,6 @@ import { getMonthWeekLabel, dateToWeekValue, weekValueToDate } from './dateUtils
 
 // 1.
 export default function SummaryHeader({
-  tables,
-  tableId,
-  onTableChange,
   targetDate,
   onDateChange,
   period,
@@ -61,19 +58,6 @@ export default function SummaryHeader({
 
   return (
     <header className="nd-header">
-      <div className="nd-header__left">
-        <select
-          className="nd-header__table-select"
-          value={tableId}
-          onChange={(e) => onTableChange(e.target.value)}
-        >
-          {(tables || []).map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-      </div>
       <div className="nd-header__center">
         <button type="button" className="nd-header__nav-btn" onClick={onPrev} aria-label="이전">
           ◀
