@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+337. 2026-04-13 사이드바 브랜드(메인 아이콘) 클릭 시 홈 이동
 336. 2026-04-13 캠페인 대시보드: 헤더 그리드 열 배치(grid-column) 수정
 335. 2026-04-13 캠페인 대시보드: 헤더 Star 테이블 셀렉트 제거
 334. 2026-04-13 문서 21: §4.1 require_*·Depends 인벤토리·§3 체크 완료
@@ -339,6 +340,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+337. 2026-04-13 사이드바 브랜드(메인 아이콘) 클릭 시 홈 이동
+Purpose: 좌측 네비 상단 시린 마크·워드마크 영역에 라우팅이 없어 홈으로 돌아가기 어렵다. `/`로 이동하는 링크를 부착한다.
+
+Changes:
+
+- `ProtectedLayout.jsx`: `ibank-sidebar-brand`를 `NavLink to="/"`(end)로 감싸고 `aria-label`·`title` 추가.
+- `app-shell.css`: 앵커 기본 스타일 제거·`:focus-visible`·현재 경로 `.ibank-sidebar-brand--active` 약한 표시.
+
+Changed files: Frontend/react-app/src/app/layout/ProtectedLayout.jsx, Frontend/react-app/src/styles/app-shell.css, docs/log/log.md
 
 336. 2026-04-13 캠페인 대시보드: 헤더 그리드 열 배치(grid-column) 수정
 Purpose: 테이블 셀렉트 제거 후 `nd-header`를 3열 그리드로 둔 상태에서 자식이 2개만 있어 자동 배치로 첫 번째 블록이 1열(왼쪽 1fr)에 들어가 날짜·우측 컨트롤이 왼쪽으로 밀렸다. 중앙·우측 열에 명시 배치한다.

@@ -3,7 +3,7 @@
  * Analytica 셸: 좌측 주 메뉴(풀 라벨) + 고정 헤더·브레드크럼 + 스크롤 본문
  * requiresProject 항목은 JWT에 프로젝트 클레임 없으면 비활성 표시(클릭 시 홈으로 튕김 방지)
  * 헤더: 이메일 · ProjectHeaderSelect(GET /api/projects) · NotificationBell
- * 사이드바 브랜드: 접힘 시 시린 마크, 펼침 시 워드마크. 네비 접힘 시 항목은 아이콘만 표시.
+ * 사이드바 브랜드: 접힘 시 시린 마크, 펼침 시 워드마크. 클릭 시 홈(`/`) 이동. 네비 접힘 시 항목은 아이콘만 표시.
  * docs/ui/UI_UX_재사용_가이드.md §2·§5
  * ShellChromeProvider: 하위 페이지가 셸 헤더·브레드크럼 현재 칸 제목을 덮어쓸 수 있음(위젯보드 캔버스 보드명).
  */
@@ -71,7 +71,15 @@ function ProtectedLayoutContent({ me, logout }) {
   return (
     <div className="ibank-app-shell">
       <aside className="ibank-sidebar" aria-label="주 메뉴">
-        <div className="ibank-sidebar-brand">
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) =>
+            `ibank-sidebar-brand${isActive ? ' ibank-sidebar-brand--active' : ''}`
+          }
+          aria-label="홈으로 이동"
+          title="홈"
+        >
           <img
             src={`${ROUTER_BASENAME}/starbucks-siren-mark.png`}
             alt=""
@@ -88,7 +96,7 @@ function ProtectedLayoutContent({ me, logout }) {
             height={32}
             decoding="async"
           />
-        </div>
+        </NavLink>
         <nav className="ibank-sidebar-nav">
           {navItems.map((item) => {
             const { to, label, icon, requiresProject } = item
