@@ -15,9 +15,10 @@
  * - React, react-grid-layout, recharts, echarts, @/shared/api/queryStudioTableApi.js, ./api/widgetBoardClient.js, ./utils/dataUtils, ./utils/dateRangePolicy.js(formatWidgetPeriodSubtitle·formatWidgetPeriodSubtitleCompact), ./components/WidgetDataWizardModal.jsx, @/shared/utils/crudConfirm.js
  * - app/auth/AuthContext projectContextNonce·me: 프로젝트 변경 시 보드·위젯 API 재로드
  * - app/layout/ShellChromeOverrideContext: 셸·브레드크럼에 보드명 반영
+ * - 프로젝트 변경·보드 없음·권한 없음(로드 실패) 시 `/widgetboard` 목록으로 replace 네비게이션(URL·캔버스 정리)
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import GridLayout from 'react-grid-layout/legacy'
 import { WidthProvider } from 'react-grid-layout/legacy'
@@ -486,6 +487,7 @@ function WidgetBlock({
 // 8.
 export default function WidgetboardPage() {
   const { boardId: boardIdParam } = useParams()
+  const navigate = useNavigate()
   const numericBoardId = useMemo(() => {
     const n = parseInt(String(boardIdParam), 10)
     return Number.isFinite(n) && n > 0 ? n : null
@@ -643,11 +645,11 @@ export default function WidgetboardPage() {
     }
     if (numericBoardId == null) {
       setBoardsLoading(false)
-      setBoardInitError('보드 ID가 올바르지 않습니다.')
       setBoardDisplayName('')
       setSelectedBoardId(null)
       setLayout([])
       setConfigs({})
+      navigate('/widgetboard', { replace: true })
       return undefined
     }
     setBoardsLoading(true)
@@ -660,9 +662,10 @@ export default function WidgetboardPage() {
       } catch (e) {
         if (!cancelled) {
           setBoardDisplayName('')
-          setBoardInitError(e?.message || '위젯 보드를 불러오지 못했습니다.')
+          setSelectedBoardId(null)
           setLayout([])
           setConfigs({})
+          navigate('/widgetboard', { replace: true })
         }
       } finally {
         if (!cancelled) setBoardsLoading(false)
@@ -671,7 +674,7 @@ export default function WidgetboardPage() {
     return () => {
       cancelled = true
     }
-  }, [projectContextNonce, me?.project_info_id, numericBoardId, hydrateFromServer])
+  }, [projectContextNonce, me?.project_info_id, numericBoardId, hydrateFromServer, navigate])
 
   useEffect(() => {
     const n = (boardDisplayName || '').trim()

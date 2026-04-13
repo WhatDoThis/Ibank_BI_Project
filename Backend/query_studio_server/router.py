@@ -12,8 +12,9 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 5. _load_column_labels: 파일 column_labels만
 4. _log: 디버그 로그 출력·파일 기록
 5. _contains_dangerous_sql: Backend.core.sql_safety 래퍼(디버그 로그)
-6. _fetch_relationships: FK/추론 관계 조회
-7. _get_or_compute_relationships_all: 관계 캐시·추론
+6. _fetch_relationships: FK/추론 관계 조회(`*, project_info_id` 필수, 병합 허용 집합)
+7. _compute_relationships_all_raw: FK+추론 전체 관계 계산(무캐시)
+7a. _compute_relationships_all: peak_guard(TTL 캐시·동시성 상한) 적용 래퍼
 8. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성(create_user_id 컬럼 포함)
 9. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드, CREATE 후 table_master·매핑 upsert 3회 재시도)
 10. _upsert_table_master_and_mapping: table_master(db_type,table_name,table_label,table_dscrtn)·create_user_id UPSERT 후 프로젝트 매핑
@@ -24,8 +25,8 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 12. describe_table: POST /api/describe-table (테이블 구조)
 13. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
 14. save_column_labels: POST /api/column-labels (라벨 저장)
-15. table_relationships: GET /api/table-relationships (mode=fk|all)
-16. api_join_order: POST /api/join-order (JOIN 순서)
+15. table_relationships: GET /api/table-relationships (mode=fk|all, JWT project_info_id 필수)
+16. api_join_order: POST /api/join-order (JOIN 순서, 허용 테이블은 프로젝트 매핑 병합 집합)
 17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
 18. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
 19. execute_query: POST /api/execute-query (SELECT 실행)
@@ -37,7 +38,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 =========
 - Backend.core.db, Backend.core.sql_safety, Backend.core.dependencies, Backend.auth_server.permissions.require_permission
 - require_query_read_perm / require_query_execute_perm: 테스트·오버라이드용 공통 Depends 대상
-- Backend.query_studio_server.schemas, pluralize, join_path, join_metrics, relationship_inference, analysis_store
+- Backend.query_studio_server.schemas, pluralize, join_path, join_metrics, relationship_inference, peak_guard
 - fastapi, psycopg2, psycopg2.extras.RealDictCursor, requests
 """
 
@@ -61,7 +62,7 @@ from fastapi.responses import JSONResponse, Response
 
 from Backend.core import db
 from Backend.core.sql_safety import contains_dangerous_sql as _core_contains_dangerous_sql
-from Backend.query_studio_server import analysis_store
+from Backend.query_studio_server import peak_guard
 from Backend.query_studio_server.relationship_inference import infer_relationships
 from Backend.auth_server.permissions import require_permission
 from Backend.core.dependencies import get_db, get_config
@@ -372,9 +373,9 @@ router = APIRouter(prefix="/api", tags=["report"])
 
 
 # 8.
-def _fetch_relationships(conn, mode="fk", table_columns=None):
-    """관계 목록 반환 (dedup: 쌍당 한 방향). mode=all일 때 table_columns를 넘기면 컬럼 조회를 한 번만 수행."""
-    allowed = list(db.get_allowed_tables())
+def _fetch_relationships(conn, mode="fk", table_columns=None, *, project_info_id: int):
+    """관계 목록 반환 (dedup: 쌍당 한 방향). mode=all일 때 table_columns를 넘기면 컬럼 조회를 한 번만 수행. project_info_id=프로젝트 허용 집합."""
+    allowed = db.get_merged_allowed_table_names_for_project(int(project_info_id))
     if not allowed:
         return []
     mode = (mode or "fk").strip().lower()
@@ -455,7 +456,10 @@ def _fetch_relationships(conn, mode="fk", table_columns=None):
             cur.close()
     if mode == "all":
         if table_columns is None:
-            table_columns = db.get_all_tables_columns_with_types(allowed)
+            table_columns = db.get_all_tables_columns_with_types(
+                allowed,
+                project_info_id=int(project_info_id),
+            )
         existing = {
             (r["from_table"], r["from_column"], r["to_table"], r["to_column"])
             for r in relationships
@@ -475,22 +479,73 @@ def _fetch_relationships(conn, mode="fk", table_columns=None):
 
 
 # 9.
-def _get_or_compute_relationships_all(conn):
-    """저장된 분석이 있고 allowlist가 같으면 그대로 반환, 없으면 분석 후 저장하고 반환. mode=all 기준."""
-    current_allowed = set(db.get_allowed_tables())
+def _compute_relationships_all_raw(conn, project_info_id: int):
+    """FK+컬럼 추론 포함 전체 관계 목록 계산(캐시·세마포어 없음). project_info_id 필수."""
+    current_allowed = set(db.get_merged_allowed_table_names_for_project(int(project_info_id)))
+    table_columns = db.get_all_tables_columns_with_types(
+        list(current_allowed),
+        project_info_id=int(project_info_id),
+    )
+    return _fetch_relationships(conn, "all", table_columns, project_info_id=int(project_info_id))
+
+
+def _compute_relationships_all(conn, project_info_id: int, backend_cfg=None):
+    """
+    전체 관계 계산. backend.query_studio_peak_guard 가 있으면 TTL 캐시·동시 계산 상한 적용. project_info_id 필수.
+    """
+    pid = int(project_info_id)
+    rt = peak_guard.load_runtime(backend_cfg) if backend_cfg is not None else None
+    if rt is None:
+        return _compute_relationships_all_raw(conn, pid)
+    sorted_names = sorted(db.get_merged_allowed_table_names_for_project(pid))
+    cache_pid = pid
+    cached = peak_guard.get_cached_relationships_full(
+        cache_pid, sorted_names, rt.relationship_cache_ttl_seconds
+    )
+    if cached is not None:
+        return cached
+
+    def _once():
+        again = peak_guard.get_cached_relationships_full(
+            cache_pid, sorted_names, rt.relationship_cache_ttl_seconds
+        )
+        if again is not None:
+            return again
+        rels = _compute_relationships_all_raw(conn, pid)
+        peak_guard.set_cached_relationships_full(
+            cache_pid, sorted_names, rt.relationship_cache_ttl_seconds, rels
+        )
+        return rels
+
     try:
-        latest = analysis_store.get_latest_analysis_result()
-        if latest and set(latest.get("allowed_tables") or []) == current_allowed:
-            return latest["relationships"]
-    except Exception:
-        pass
-    table_columns = db.get_all_tables_columns_with_types(list(current_allowed))
-    rels = _fetch_relationships(conn, "all", table_columns=table_columns)
-    try:
-        analysis_store.save_analysis_result(list(current_allowed), table_columns, rels)
-    except Exception:
-        pass
-    return rels
+        return peak_guard.run_under_relationship_sem(rt.heavy_compute_concurrency, _once)
+    except RuntimeError as e:
+        if str(e) == "relationship_compute_sem_timeout":
+            raise
+        raise
+
+
+def _peak_guard_429(retry_after: int, message: str):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "요청 한도 초과",
+            "retry_after_seconds": retry_after,
+            "message": message,
+        },
+        headers={"Retry-After": str(max(1, retry_after))},
+    )
+
+
+def _peak_guard_503_busy():
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "서버 혼잡",
+            "message": "관계 분석 처리가 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+        },
+        headers={"Retry-After": "30"},
+    )
 
 
 # 10a.
@@ -720,16 +775,33 @@ def save_column_labels(
 def table_relationships(
     _perm: dict = Depends(require_query_read_perm),
     conn=Depends(get_db),
+    cfg=Depends(get_config),
     mode: str = Query("fk", description="fk=FK만(문서기본), all=FK+_id추론"),
 ):
-    """개선된 관계 분석. mode=all이면 저장된 분석 결과가 있고 allowlist가 같으면 그대로 사용, 없으면 분석 후 저장."""
+    """개선된 관계 분석. mode=all은 peak_guard(설정 시)로 분당 한도·동시 계산·TTL 캐시 적용."""
     try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        pid = int(project_info_id)
         mode = (mode or "fk").strip().lower()
         if mode == "all":
-            rels = _get_or_compute_relationships_all(conn)
+            rt = peak_guard.load_runtime(cfg)
+            if rt:
+                ok, retry = peak_guard.check_heavy_rate_limit(_perm.get("user_id"), rt)
+                if not ok:
+                    return _peak_guard_429(retry, "관계 분석(mode=all) 요청이 너무 잦습니다.")
+            try:
+                rels = _compute_relationships_all(conn, project_info_id=pid, backend_cfg=cfg)
+            except RuntimeError as e:
+                if str(e) == "relationship_compute_sem_timeout":
+                    return _peak_guard_503_busy()
+                raise
             return {"relationships": rels, "count": len(rels)}
-        rels = _fetch_relationships(conn, mode)
+        rels = _fetch_relationships(conn, mode, project_info_id=pid)
         return {"relationships": rels, "count": len(rels)}
+    except HTTPException:
+        raise
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 관계 조회 실패"})
@@ -741,23 +813,47 @@ def api_join_order(
     body: JoinOrderRequest,
     _perm: dict = Depends(require_query_read_perm),
     conn=Depends(get_db),
+    cfg=Depends(get_config),
 ):
     """
     JOIN 자동 생성 명세: base_table 기준 required_tables의 JOIN 순서 + 엣지 정보.
     반환: join_order (각 단계 table, from_table, from_column, to_table, to_column), warnings, errors
     """
     try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        pid = int(project_info_id)
         base_table = (body.base_table or "").strip()
         required_tables = [t.strip() for t in (body.required_tables or []) if t and t.strip()]
         if not base_table:
             return JSONResponse(status_code=400, content={"error": "base_table 필요", "join_order": [], "warnings": [], "errors": ["base_table이 비어 있습니다."]})
-        allowed = list(db.get_allowed_tables())
+        allowed = db.get_merged_allowed_table_names_for_project(pid)
         if base_table not in allowed:
-            return JSONResponse(status_code=400, content={"error": "base_table이 스키마에 없음", "join_order": [], "warnings": [], "errors": [f"테이블 '{base_table}'을 메인 스키마에서 찾을 수 없습니다."]})
+            return JSONResponse(status_code=400, content={"error": "base_table이 허용 목록에 없음", "join_order": [], "warnings": [], "errors": [f"테이블 '{base_table}'이 현재 프로젝트에 매핑된 테이블에 없습니다."]})
         for t in required_tables:
             if t not in allowed:
-                return JSONResponse(status_code=400, content={"error": "required_tables에 없는 테이블 있음", "join_order": [], "warnings": [], "errors": [f"테이블 '{t}'을 메인 스키마에서 찾을 수 없습니다."]})
-        fk_list = _get_or_compute_relationships_all(conn)
+                return JSONResponse(status_code=400, content={"error": "required_tables에 없는 테이블 있음", "join_order": [], "warnings": [], "errors": [f"테이블 '{t}'이 현재 프로젝트에 매핑된 테이블에 없습니다."]})
+        rt = peak_guard.load_runtime(cfg)
+        if rt:
+            ok, retry = peak_guard.check_heavy_rate_limit(_perm.get("user_id"), rt)
+            if not ok:
+                return _peak_guard_429(retry, "JOIN 순서 분석 요청이 너무 잦습니다.")
+        try:
+            fk_list = _compute_relationships_all(conn, project_info_id=pid, backend_cfg=cfg)
+        except RuntimeError as e:
+            if str(e) == "relationship_compute_sem_timeout":
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": "서버 혼잡",
+                        "join_order": [],
+                        "warnings": [],
+                        "errors": ["관계 분석 처리가 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."],
+                    },
+                    headers={"Retry-After": "30"},
+                )
+            raise
         join_order = determine_join_order(base_table, required_tables, fk_list)
         validation = validate_join_order(join_order, max_depth=4)
         filter_tables = set((body.filter_tables or []) if getattr(body, "filter_tables", None) else [])
@@ -793,6 +889,8 @@ def api_join_order(
             "valid": validation.get("valid", True),
             "join_accuracy": accuracy,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e), "message": "JOIN 순서 계산 실패", "join_order": [], "warnings": [], "errors": [str(e)]})
@@ -1213,6 +1311,11 @@ def execute_query(
         if dangerous:
             _log("reject: dangerous=%s", dangerous)
             return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
+        rt = peak_guard.load_runtime(cfg)
+        if rt:
+            ok, retry = peak_guard.check_execute_query_rate_limit(_perm.get("user_id"), rt)
+            if not ok:
+                return _peak_guard_429(retry, "쿼리 실행 요청이 너무 잦습니다.")
         timeout = getattr(cfg, "query_timeout_seconds", None)
         if timeout is None:
             raise ValueError("Env/config/config.json 에 backend.query_timeout_seconds 가 없습니다.")

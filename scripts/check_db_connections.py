@@ -20,8 +20,7 @@ def main():
         print(f"   backend.main_db.db_host = {getattr(main, 'db_host', 'N/A')}")
         print(f"   backend.main_db.db_name = {getattr(main, 'db_name', 'N/A')}")
     else:
-        print(f"   backend.db_host (레거시) = {getattr(backend, 'db_host', 'N/A')}")
-        print(f"   backend.db_name (레거시) = {getattr(backend, 'db_name', 'N/A')}")
+        print("   backend.main_db = 없음 (필수 — Env/config/config.json 에 main_db 블록 추가)")
     sys_db = getattr(backend, 'system_db', None)
     if sys_db:
         print(f"   backend.system_db.db_host = {getattr(sys_db, 'db_host', 'N/A')}")
@@ -30,9 +29,9 @@ def main():
         print("   backend.system_db = 없음")
         return 1
 
-    print("\n2. get_db_config() / get_system_db_config() 호출...")
+    print("\n2. get_main_db_config() / get_system_db_config() 호출...")
     from Backend.core import db
-    main_cfg = db.get_db_config()
+    main_cfg = db.get_main_db_config()
     sys_cfg = db.get_system_db_config()
     print(f"   메인 DB: host={main_cfg['host']}, database={main_cfg['database']}, port={main_cfg['port']}")
     print(f"   시스템 DB: host={sys_cfg['host']}, database={sys_cfg['database']}, port={sys_cfg['port']}")

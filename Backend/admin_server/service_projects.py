@@ -15,7 +15,8 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 
 [Dependencies]
 =========
-- create_project_full·add_member: notification_info(project_invite | 즉시멤버 대상/실행자 쌍), remove_member 쌍 알림
+- Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
+- Backend.core.invite_expiry.invite_expired_from_payload
 - json
 - psycopg2, psycopg2.errors, psycopg2.extras.Json(feature_flags)
 """
@@ -30,24 +31,21 @@ import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json
 
+from Backend.core.invite_expiry import invite_expired_from_payload
+from Backend.notification_server.service import (
+    delete_notification_by_id_in_txn,
+    delete_project_invite_notifications_for_project_in_txn,
+    fetch_notification_by_id,
+    fetch_pending_project_invite_rows_for_project,
+    insert_notification,
+    pending_project_invite_exists_for_user_project,
+    user_display_label_for_notification,
+)
+
 _DEFAULT_FEATURE_FLAGS: dict[str, bool] = {"query": True, "dash": True, "widget": True}
 
 # 타부서 project_invite 알림 JSON `invite_expires_at`(UTC ISO) — 기본 7일
 _PROJECT_INVITE_VALID_DAYS = 7
-
-
-def _invite_expired_from_payload(payload: dict[str, Any]) -> bool:
-    raw = payload.get("invite_expires_at")
-    if raw is None or raw == "":
-        return False
-    try:
-        s = str(raw).strip().replace("Z", "+00:00")
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) > dt
-    except (ValueError, TypeError, OSError):
-        return False
 
 
 def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
@@ -406,7 +404,7 @@ def create_project_full(
                 (uid, actor_user_id, pid, mid),
             )
             _notify_project_member_added_pair(
-                cur, pid, pname, int(actor_user_id), uid
+                conn, cur, pid, pname, int(actor_user_id), uid
             )
             members_added += 1
             seen_u.add(uid)
@@ -470,18 +468,13 @@ def create_project_full(
                 ensure_ascii=False,
             )
             title = (f"'{pname}' 프로젝트에 초대되었습니다")[:200]
-            cur.execute(
-                """
-                INSERT INTO notification_info (
-                    user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-                ) VALUES (%s, %s, %s, %s, 'N', NOW())
-                """,
-                (
-                    iuid,
-                    "project_invite",
-                    title,
-                    payload,
-                ),
+            insert_notification(
+                conn,
+                iuid,
+                "project_invite",
+                title,
+                payload,
+                autocommit=False,
             )
             invites_sent += 1
 
@@ -624,16 +617,7 @@ def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> No
 
         try:
             cur.execute("SAVEPOINT sp_admin_purge_notif")
-            cur.execute(
-                """
-                DELETE FROM notification_info
-                WHERE noti_type = 'project_invite'
-                  AND COALESCE(noti_content::text, '') <> ''
-                  AND NULLIF(TRIM(noti_content::json->>'project_info_id'), '') IS NOT NULL
-                  AND (noti_content::json->>'project_info_id')::int = %s
-                """,
-                (pid,),
-            )
+            delete_project_invite_notifications_for_project_in_txn(conn, pid)
             cur.execute("RELEASE SAVEPOINT sp_admin_purge_notif")
         except (pg_errors.InvalidTextRepresentation, pg_errors.UntranslatableCharacter):
             cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_notif")
@@ -692,25 +676,12 @@ def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> No
 
 
 # 4.
-def _list_pending_project_invites(cur, project_info_id: int) -> list[dict[str, Any]]:
+def _list_pending_project_invites(
+    conn, cur, project_info_id: int
+) -> list[dict[str, Any]]:
     """noti_type=project_invite 이지만 아직 project_ptcpnt_info에 없는 수신자(타부서 초대 대기)."""
     pid = int(project_info_id)
-    cur.execute(
-        """
-        SELECT n.notification_info_id, n.user_id, n.create_dtm, n.noti_content,
-               u.user_email, u.user_nickname
-        FROM notification_info n
-        INNER JOIN user_info u ON u.user_id = n.user_id
-        WHERE n.noti_type = 'project_invite'
-          AND NOT EXISTS (
-            SELECT 1 FROM project_ptcpnt_info pp
-            WHERE pp.project_info_id = %s AND pp.ptcpnt_user_id = n.user_id
-          )
-        ORDER BY n.create_dtm
-        """,
-        (pid,),
-    )
-    rows = cur.fetchall()
+    rows = fetch_pending_project_invite_rows_for_project(conn, pid)
     out: list[dict[str, Any]] = []
     pmssn_cache: dict[int, str | None] = {}
     inviter_cache: dict[int, tuple[Any, Any]] = {}
@@ -785,7 +756,7 @@ def _list_pending_project_invites(cur, project_info_id: int) -> list[dict[str, A
                 "invite_user_email": ie,
                 "invite_user_nickname": ink,
                 "invite_expires_at": exp_raw,
-                "invite_expired": _invite_expired_from_payload(payload),
+                "invite_expired": invite_expired_from_payload(payload),
                 "membership_status": "pending_invite",
             }
         )
@@ -825,7 +796,7 @@ def list_members(
         items = [dict(r) for r in cur.fetchall()]
         for d in items:
             d["membership_status"] = "active"
-        pending = _list_pending_project_invites(cur, pid)
+        pending = _list_pending_project_invites(conn, cur, pid)
         return {"items": items, "pending_invites": pending}
     except ValueError:
         raise
@@ -845,15 +816,7 @@ def cancel_project_invite(
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
         pid = int(project_info_id)
         nid = int(notification_info_id)
-        cur.execute(
-            """
-            SELECT noti_content, noti_type, user_id
-            FROM notification_info
-            WHERE notification_info_id = %s
-            """,
-            (nid,),
-        )
-        row = cur.fetchone()
+        row = fetch_notification_by_id(conn, nid)
         if not row:
             raise ValueError(
                 "초대 알림을 찾을 수 없습니다. 이미 수락했거나 취소되었을 수 있습니다."
@@ -880,11 +843,7 @@ def cancel_project_invite(
         )
         if cur.fetchone():
             raise ValueError("이미 멤버입니다. 멤버 제거는 별도 작업을 사용하세요.")
-        cur.execute(
-            "DELETE FROM notification_info WHERE notification_info_id = %s",
-            (nid,),
-        )
-        if cur.rowcount == 0:
+        if delete_notification_by_id_in_txn(conn, nid) == 0:
             conn.rollback()
             raise ValueError("초대 취소에 실패했습니다.")
         conn.commit()
@@ -898,61 +857,8 @@ def cancel_project_invite(
         cur.close()
 
 
-def _pending_invite_for_user_project(
-    cur, project_info_id: int, target_user_id: int
-) -> bool:
-    """동일 프로젝트에 미수락 `project_invite` 알림이 있는지(noti_content JSON의 project_info_id 일치)."""
-    pid = int(project_info_id)
-    uid = int(target_user_id)
-    cur.execute(
-        """
-        SELECT noti_content FROM notification_info
-        WHERE user_id = %s AND noti_type = 'project_invite'
-          AND NOT EXISTS (
-            SELECT 1 FROM project_ptcpnt_info pp
-            WHERE pp.project_info_id = %s AND pp.ptcpnt_user_id = %s
-          )
-        """,
-        (uid, pid, uid),
-    )
-    for row in cur.fetchall():
-        raw = row.get("noti_content")
-        if raw is None:
-            continue
-        if not isinstance(raw, str):
-            raw = str(raw)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        try:
-            row_pid = int(payload["project_info_id"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if row_pid == pid:
-            return True
-    return False
-
-
-def _noti_user_label(cur, user_id: int) -> str:
-    cur.execute(
-        """
-        SELECT COALESCE(
-            NULLIF(TRIM(user_nickname), ''),
-            NULLIF(TRIM(user_email), '')
-        ) AS lab
-        FROM user_info WHERE user_id = %s
-        """,
-        (int(user_id),),
-    )
-    row = cur.fetchone()
-    lab = row.get("lab") if row else None
-    if lab:
-        return str(lab).strip()[:100]
-    return f"user_id {int(user_id)}"
-
-
 def _notify_project_member_added_pair(
+    conn,
     cur,
     project_info_id: int,
     project_name: str,
@@ -964,8 +870,8 @@ def _notify_project_member_added_pair(
     aid = int(actor_user_id)
     tid = int(target_user_id)
     pname = (project_name or "").strip() or "프로젝트"
-    al = _noti_user_label(cur, aid)
-    tl = _noti_user_label(cur, tid)
+    al = user_display_label_for_notification(conn, aid, max_len=100)
+    tl = user_display_label_for_notification(conn, tid, max_len=100)
     meta = json.dumps(
         {"project_info_id": pid, "actor_user_id": aid, "target_user_id": tid},
         ensure_ascii=False,
@@ -976,17 +882,18 @@ def _notify_project_member_added_pair(
         (tid, "project_member_added", title_t),
         (aid, "project_member_add_done", title_a),
     ):
-        cur.execute(
-            """
-            INSERT INTO notification_info (
-                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-            ) VALUES (%s, %s, %s, %s, 'N', NOW())
-            """,
-            (uid, typ[:30], title, meta),
+        insert_notification(
+            conn,
+            uid,
+            typ,
+            title,
+            meta,
+            autocommit=False,
         )
 
 
 def _notify_project_member_removed_pair(
+    conn,
     cur,
     project_info_id: int,
     project_name: str,
@@ -1004,17 +911,17 @@ def _notify_project_member_removed_pair(
     )
     if aid == tid:
         title = (f"본인을 '{pname}' 프로젝트에서 멤버에서 제외했습니다")[:200]
-        cur.execute(
-            """
-            INSERT INTO notification_info (
-                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-            ) VALUES (%s, %s, %s, %s, 'N', NOW())
-            """,
-            (aid, "project_member_remove_done", title, meta),
+        insert_notification(
+            conn,
+            aid,
+            "project_member_remove_done",
+            title,
+            meta,
+            autocommit=False,
         )
         return
-    al = _noti_user_label(cur, aid)
-    tl = _noti_user_label(cur, tid)
+    al = user_display_label_for_notification(conn, aid, max_len=100)
+    tl = user_display_label_for_notification(conn, tid, max_len=100)
     title_t = (
         f"{al} 님이 '{pname}' 프로젝트에서 멤버에서 제외했습니다"
     )[:200]
@@ -1023,13 +930,13 @@ def _notify_project_member_removed_pair(
         (tid, "project_member_removed", title_t),
         (aid, "project_member_remove_done", title_a),
     ):
-        cur.execute(
-            """
-            INSERT INTO notification_info (
-                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-            ) VALUES (%s, %s, %s, %s, 'N', NOW())
-            """,
-            (uid, typ[:30], title, meta),
+        insert_notification(
+            conn,
+            uid,
+            typ,
+            title,
+            meta,
+            autocommit=False,
         )
 
 
@@ -1079,7 +986,7 @@ def add_member(
         if cur.fetchone():
             raise ValueError("이미 프로젝트 멤버입니다.")
 
-        if _pending_invite_for_user_project(cur, pid, target_uid):
+        if pending_project_invite_exists_for_user_project(conn, pid, target_uid):
             raise ValueError("이미 초대 대기 중인 사용자입니다.")
 
         if _user_in_actor_dept_scope(cur, adpt, target_uid):
@@ -1097,7 +1004,7 @@ def add_member(
                 (target_uid, aid, pid, mid),
             )
             _notify_project_member_added_pair(
-                cur, pid, str(pname_immediate), aid, target_uid
+                conn, cur, pid, str(pname_immediate), aid, target_uid
             )
             conn.commit()
             return {"outcome": "member_added"}
@@ -1146,18 +1053,13 @@ def add_member(
             ensure_ascii=False,
         )
         title = (f"'{pname}' 프로젝트에 초대되었습니다")[:200]
-        cur.execute(
-            """
-            INSERT INTO notification_info (
-                user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-            ) VALUES (%s, %s, %s, %s, 'N', NOW())
-            """,
-            (
-                target_uid,
-                "project_invite",
-                title,
-                payload,
-            ),
+        insert_notification(
+            conn,
+            target_uid,
+            "project_invite",
+            title,
+            payload,
+            autocommit=False,
         )
         conn.commit()
         return {"outcome": "invite_sent"}
@@ -1255,6 +1157,7 @@ def remove_member(
             conn.rollback()
             raise ValueError("멤버를 찾을 수 없습니다.")
         _notify_project_member_removed_pair(
+            conn,
             cur,
             int(project_info_id),
             str(pname_rm),

@@ -10,9 +10,9 @@
       "db_password": "",
       "table_schema": "public"
     },
-    "query_timeout_seconds": 10,
     "claude_api_key": "",
     "claude_api_url": "https://api.anthropic.com/v1/messages",
+    "query_timeout_seconds": 10,
     "system_db": {
       "db_host": "",
       "db_port": 5432,
@@ -24,15 +24,49 @@
     "etl_limits": {
       "max_file_size_mb": 50,
       "max_rows_per_load": 1000000,
-      "max_batch_size": 50000
+      "max_batch_size": 50000,
+      "max_zip_extract_total_mb": 2048
+    },
+    "etl_db": {
+      "db_host": "",
+      "db_port": 5432,
+      "db_name": "ibank_etl_data",
+      "db_user": "",
+      "db_password": "",
+      "table_schema": "public"
+    },
+    "dash_db": {
+      "db_host": "",
+      "db_port": 5432,
+      "db_name": "ibank_dash_data",
+      "db_user": "",
+      "db_password": "",
+      "table_schema": "public"
+    },
+    "jwt_secret": "",
+    "jwt_pre_auth_expire_minutes": 5,
+    "jwt_access_expire_minutes": 30,
+    "jwt_refresh_expire_days": 7,
+    "smtp_info": {
+      "smtp_host": "",
+      "smtp_port": 587,
+      "smtp_user": "",
+      "smtp_password": "",
+      "smtp_from": "",
+      "app_url": ""
+    },
+    "query_studio_peak_guard": {
+      "enabled": true,
+      "relationship_cache_ttl_seconds": 600,
+      "heavy_compute_concurrency": 3,
+      "heavy_per_user_per_minute": 40,
+      "execute_query_per_user_per_minute": 60
     }
   },
   "frontend": {
     "static_port": 8080,
     "main_page": "index.html",
     "api_base_url": "http://localhost:5001",
-    "app_url": "",
-    "static_dir": "Frontend/react-app/dist",
-    "disable_auth": false
+    "static_dir": "Frontend/react-app/dist"
   }
 }

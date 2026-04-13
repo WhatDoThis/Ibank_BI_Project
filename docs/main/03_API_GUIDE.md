@@ -13,7 +13,7 @@
 3. **[§3 project_server](#3-project_server-프로젝트-목록선택초대-응답)** — 목록, `select`, 타부서 초대 수락·거절
 4. **[§4 admin_server](#4-admin_server-조직프로젝트-관리)** — 초대~생성~멤버, 소유 가드, 이관·정지
 5. **[§5 캠페인 대시보드](#5-캠페인-대시보드-campaign_dash--core)** — [§5.3 HTTP 라우터](#53-campaign_dash_serverrouterpy) · `dashboard_service`
-6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.1 알림](#61-notification_server) · [§6.2 위젯 보드](#62-widget_board_server) · 쿼리 스튜디오·ETL 등
+6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.1 알림](#61-notification_server) · [§6.2 위젯 보드 API](#62-widget_board_server) · 쿼리 스튜디오(`list-tables`·`describe-table`)·ETL 등
 
 ---
 
@@ -167,8 +167,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 | 함수 | 기능 |
 |------|------|
 | `_PooledConnection` | 풀 연결 래퍼 (`close` → `putconn`) |
-| `_resolve_main_db` | `main_db` 또는 레거시 설정 객체 반환 |
-| `get_db_config` | 메인 DB 연결 dict |
+| `get_main_db_config` | `backend.main_db` 에서 메인 DB 연결 dict (블록 필수) |
 | `get_system_db_config` | 시스템 DB 연결 dict |
 | `get_etl_db_config` | ETL DB dict (없으면 system_db fallback) |
 | `get_dash_db_config` | 대시보드 DB 연결 dict |
@@ -176,16 +175,13 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 | `get_system_table_schema` | ETL 스키마 우선, system_db fallback |
 | `get_system_table_schema_core` | system_db 스키마 고정 반환 |
 | `get_allowed_tables_by_project` | 프로젝트별 허용 테이블 (매핑 기반) |
-| `get_allowed_tables` | 프로젝트 지정 시 매핑, 미지정 시 스키마 전체 |
-| `get_table_schema` | 메인 DB 스키마명 |
+| `get_allowed_tables` | `project_info_id` 필수, 매핑 기반(`get_allowed_tables_by_project`) |
+| `get_table_schema` | `main_db.table_schema`(비면 `public`; `main_db` 없으면 오류) |
 | `_table_exists` | 테이블 존재 여부 (내부) |
 | `_query_table_columns` | 컬럼명 목록 조회 (내부) |
 | `_query_primary_key_columns` | PK 컬럼 목록 조회 (내부) |
-| `get_table_columns` | 허용 테이블 컬럼명 목록 |
 | `get_table_columns_with_types` | 컬럼명 + `data_type` 목록 |
-| `get_all_tables_columns_with_types` | 복수 테이블 일괄 컬럼·타입 |
-| `get_primary_key_columns` | 허용 테이블 PK 목록 |
-| `table_exists_in_schema` | 스키마 내 존재 여부 (allowed 미검사) |
+| `get_all_tables_columns_with_types` | 복수 테이블 일괄 컬럼·타입(`project_info_id` 필수) |
 | `get_table_columns_for_etl_target` | ETL 타겟 컬럼 (allowed 미검사) |
 | `get_primary_key_columns_for_etl_target` | ETL 타겟 PK (allowed 미검사) |
 | `get_db_connection` | 메인 DB 풀 연결 |
@@ -1423,11 +1419,11 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ## 6. 기타 패키지
 
-- **`query_studio_server`**: `/api` 하위 쿼리 스튜디오·execute-query — **02_BACKEND_GUIDE.md**, `query_studio_server/router.py`.
+- **`query_studio_server`**: `/api` 하위 쿼리 스튜디오·execute-query — **02_BACKEND_GUIDE.md**, `query_studio_server/router.py`. **`GET /api/list-tables`**: 현재 프로젝트의 **main·dash 매핑을 합친** 허용 테이블 목록(동일 `table_name`이 양쪽에 있으면 **main 메타 우선**). JSON에는 **`db_type` 키를 넣지 않음**(클라이언트는 “매핑된 테이블” 여부만 사용). **`POST /api/describe-table`**: 요청 테이블이 매핑된 쪽(**main 또는 dash**)을 판별해 해당 스키마의 `information_schema`로 컬럼을 조회한다. 선택 설정 **`backend.query_studio_peak_guard`** 가 있으면 `GET /api/table-relationships?mode=all`·`POST /api/join-order`·`POST /api/execute-query`에 분당 한도(슬라이딩 60초)·관계 전체 계산 동시 상한·관계 결과 TTL 인메모리 캐시를 적용하며, 한도 초과 시 **429**(`Retry-After`)·동시 상한 대기 초과 시 **503**을 반환할 수 있다(`peak_guard.py`).
 - **`etl_server`**: `/api/etl`, `/api/etl/batch`, `require_etl_infrastructure` — **02_BACKEND_GUIDE.md**, `etl_server/router.py`·`router_file.py`.
 - **`notification_server`**: **§6.1** — HTTP는 목록·카운트·읽음만; 생성은 `service.insert_notification` 내부 호출 — `notification_server/router.py`·`service.py`.
 - **`campaign_dash_server`**: **§5.1** 흐름 개요 · **§5.3** 엔드포인트·내부함수·보안 — `campaign_dash_server/router.py` · **02_BACKEND_GUIDE.md** 병행.
-- **`widget_board_server`**: **§6.2** — `system_db` 메타·`main` DB 데이터 조회 — `widget_board_server/router.py` · 설계 **docs/report/20_Widget_Board_System_Design.md**.
+- **`widget_board_server`**: **§6.2** — `system_db` 메타·`/api/widget-boards`(초대·참여자·공유 포함) — `widget_board_server/router.py` · 설계 **docs/report/20_Widget_Board_System_Design.md**.
 
 ---
 
@@ -1517,27 +1513,36 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ### 6.2 `widget_board_server`
 
-라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`. 위젯 **데이터 조회**(`saved_table` / `query`)에서 핵심 기준은 **현재 프로젝트에 매핑된 테이블인지 여부**이며, 저장 테이블은 `get_allowed_tables_by_project` + `validate_table_name`으로 검증한다. `main`/`dash` 연결 분기는 내부 구현 세부사항이다.
+라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`.
+
+**접근 정책**: 보드를 **읽을** 수 있는 주체는 (1) **소유자**, (2) **`widget_board_share`에 등록된 사용자**, (3) **`share_scope = project`** 이고 동일 프로젝트 **`project_ptcpnt_info` 참여자**인 경우(읽기 전용 캔버스). **편집**은 소유자 또는 `widget_board_share.can_edit = true` 인 사용자만. **`share_scope`** 는 `POST`/`PATCH` 바디에서 **`private`**(기본·초대·공유 행 위주) 또는 **`project`** 로 설정하며, 스키마·`widget_board_server/service.py`·목록 UI와 정합된다. **초대**는 **`widget_board_invite` 알림** → 수락 시 `widget_board_share` 행이 생기는 흐름을 병행한다. 목록 API는 `share_scope=project` 인 보드 중 **위젯보드 권한이 없는** 비공유 참여자에게는 노출하지 않도록 필터한다(`list_boards`).
+
+**위젯 데이터**(`saved_table` / `query`): 소스 테이블·쿼리는 **현재 프로젝트에 매핑된 리소스만** 허용한다. **`table_project_mapping`의 main·dash** 를 모두 고려해 허용 여부와 **조회 시 DB 연결(main vs dash 스키마)** 을 고른다. SQL 금지어 검사는 **`Backend.core.sql_safety`** 를 `query_studio_server` 와 공유한다(구 `widget_board_server/sql_safety.py` 없음).
 
 #### `router.py` — 엔드포인트
 
 | 메서드 | 경로 | 핵심 |
 |--------|------|------|
-| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 `{ items }` (항목에 `widget_item_count`, `share_row_count` 등) |
+| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 `{ items }` (`is_owner`, `can_edit`, `owner`, `participant_count`, `widget_item_count` 등 — 알림 건수 필드 없음) |
 | `POST` | `/api/widget-boards` | 보드 생성 |
 | `GET` | `/api/widget-boards/{board_id}` | 보드 상세 + 위젯 + **`can_edit`** |
-| `PATCH` | `/api/widget-boards/{board_id}` | 보드 메타 |
-| `DELETE` | `/api/widget-boards/{board_id}` | 비활성 보드만 물리 삭제(위젯·공유·관련 알림 후 행 삭제). 활성 시 400 |
-| `POST` | `/api/widget-boards/{board_id}/widgets` | 위젯 추가 |
+| `GET` | `/api/widget-boards/{board_id}/participants` | 참여자·공유 대상 목록 |
+| `GET` | `/api/widget-boards/{board_id}/invite-candidates` | 초대 후보(같은 프로젝트 등 정책 반영) |
+| `PATCH` | `/api/widget-boards/{board_id}` | 보드 메타(비활성 보드는 소유자만 일부 수정) |
+| `DELETE` | `/api/widget-boards/{board_id}` | **비활성** 보드만 물리 삭제(위젯·공유·관련 알림 정리 후 행 삭제). **활성이면 400** |
+| `POST` | `/api/widget-boards/{board_id}/widgets` | 위젯 추가(`create_user_id` 등 메타 반영) |
 | `PATCH` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 패치 |
 | `DELETE` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 비활성 |
 | `PATCH` | `/api/widget-boards/{board_id}/layout` | 다건 `layout_x/y/w/h` |
-| `POST` | `/api/widget-boards/{board_id}/share` | 커스텀 공유 upsert |
+| `POST` | `/api/widget-boards/{board_id}/invite-notifications` | 초대 알림 일괄 발송 |
+| `POST` | `/api/widget-boards/{board_id}/accept-invite` | 알림 ID 기준 초대 수락 → 공유 |
+| `POST` | `/api/widget-boards/{board_id}/reject-invite` | 초대 거절 |
+| `POST` | `/api/widget-boards/{board_id}/share` | 지정 사용자 공유 upsert(커스텀 공유) |
 | `DELETE` | `/api/widget-boards/{board_id}/share/{shared_user_id}` | 공유 제거 |
-| `POST` | `/api/widget-boards/{board_id}/widgets/{widget_id}/data` | 위젯 데이터(SELECT·한도) |
+| `POST` | `/api/widget-boards/{board_id}/widgets/{widget_id}/data` | 위젯 데이터(SELECT·기간·한도 — `data_config` 정책은 서비스·FE 마법사와 정합) |
 
-프론트 연동: `Frontend/react-app/src/packages/widgetboard/api/widgetBoardClient.js`.
+프론트: **`Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx`**(캔버스), **`WidgetboardListPage.jsx`**(목록), **`api/widgetBoardClient.js`**. 설계 상세는 **docs/report/20_Widget_Board_System_Design.md**.
 
 ---
 
-*함수·엔드포인트 표는 **§1~§5** 각 절의 흐름도 바로 아래에 통합되어 있다. 캠페인 대시보드 HTTP 상세는 **§5.3**, 알림 상세는 **§6.1**, 위젯 보드는 **§6.2**, 그 외 **§6** 은 패키지 안내다.*
+*함수·엔드포인트 표는 **§1~§5** 각 절의 흐름도 바로 아래에 통합되어 있다. 캠페인 대시보드 HTTP 상세는 **§5.3**, 알림은 **§6.1**, 위젯 보드(서버·초대·공유)는 **§6.2**, 그 외 **§6** 은 패키지 안내다.*

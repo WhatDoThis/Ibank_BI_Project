@@ -324,7 +324,7 @@ def _builtin_storage_connections_for_list() -> List[dict]:
     main_name = "main_db"
     dash_name = "dash_db"
     try:
-        main_name = api.get_db_config()["database"]
+        main_name = api.get_main_db_config()["database"]
     except Exception as e:
         logger.warning("builtin_storage_list main_db_name fallback err=%s", e)
     try:
@@ -2040,7 +2040,7 @@ def _storage_pg_identity_tuple(storage_connection_id: Any) -> Optional[tuple]:
     api_db = _get_db()
     try:
         if is_builtin_main_storage(storage_connection_id):
-            c = api_db.get_db_config()
+            c = api_db.get_main_db_config()
             return (
                 _norm_host_identity(c.get("host")),
                 int(c.get("port") or 5432),

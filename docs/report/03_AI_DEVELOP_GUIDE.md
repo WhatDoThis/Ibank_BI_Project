@@ -32,6 +32,7 @@ flowchart LR
     R[query_studio_server /api]
     E[etl_server /api/etl]
     C[campaign_dash /api/campaign-dashboard]
+    W[widget_board /api/widget-boards]
   end
   React -->|HTTP JSON Bearer| api
   api --> PG1[(main_db 쿼리스튜디오)]
@@ -50,8 +51,8 @@ flowchart LR
 | 쿼리 스튜디오 | `/api/list-tables`, `execute-query`, … | `Backend/query_studio_server` | `Depends(require_permission(...))` |
 | ETL | `/api/etl`, `/api/etl/batch` | `Backend/etl_server` | 앱 레벨 `require_etl_infrastructure` |
 | 캠페인 대시보드 | `/api/campaign-dashboard/*` | `Backend/campaign_dash_server` | `require_permission("dashboard")`, dash_db Star |
+| 위젯 보드 | `/api/widget-boards/*` | `Backend/widget_board_server` | `require_permission("widgetboard")` |
 | 헬스·루트 | `/health`, `/`, `/api` | `Backend/api_server/routers/health.py` | |
-| (미등록 보존) | `/api/dashboard`, `/api/new-dashboard*`, … | `legacy_dashboard_server`, `new_dash_server`, `new_dash_server2` | **main.py 미포함** — PRD·01 기준 앱은 캠페인 대시보드 단일 |
 
 ---
 
@@ -71,11 +72,11 @@ flowchart LR
 | `dependencies.py` | FastAPI `get_db`, `get_config` | `query_studio_server/router`, `api_server/routers/health` |
 | `auth_config.py` | JWT·SMTP·`get_app_url` | `auth_server`, `email_service` |
 | `logging_setup.py` | 루트 로깅 포맷 구성 | `api_server/main`(기동 시) |
-| `dashboard_service.py` | 캠페인/일자/워크플로우/채널 집계·차트·필터 | `legacy_dashboard_server`, `new_dash_server`, `campaign_dash_server` |
+| `dashboard_service.py` | 캠페인/일자/워크플로우/채널 집계·차트·필터 | `campaign_dash_server` |
 
 **의존 규칙 (중요)**:
 
-- `core`는 **`query_studio_server` / `legacy_dashboard_server` / 라우터 패키지를 import하지 않는다.** (순환 방지.)
+- `core`는 **`query_studio_server` / 라우터 패키지를 import하지 않는다.** (순환 방지.)
 - `query_studio_server` → `core`만 바라본다.
 
 각 파일 상단 docstring에 **`[Package Usage]`**(어느 패키지가 어떤 함수를 쓰는지)가 번호 맞춰 적혀 있으므로, 세부 호출 관계는 코드를 열기 전에 그 블록을 보면 된다.
@@ -84,18 +85,13 @@ flowchart LR
 
 - **`router.py`**: `/api` prefix 전역. `Env/config/column_labels.json` 경로는 `router.py` 기준 프로젝트 루트 계산(3단 `parent`)으로 잡힌다.
 - **스키마**: `schemas.py`(쿼리 스튜디오용 Pydantic만).
-- **전용 유틸**: `join_path`, `join_metrics`, `relationship_inference`, `pluralize`, `analysis_store`.
+- **전용 유틸**: `join_path`, `join_metrics`, `relationship_inference`, `pluralize`, `peak_guard`(`config.backend.query_studio_peak_guard` 선택).
 
-### 2.4 구 대시보드: `Backend/legacy_dashboard_server`
-
-- **`router.py`**: `/api/dashboard`.
-- **`schemas.py`**: `DashboardDataRequest`, `ChartDataRequest` 등 구 대시보드 POST 바디만.
-
-### 2.5 ETL·대시보드 전용 패키지
+### 2.4 ETL·대시보드·위젯 보드 전용 패키지
 
 - **`etl_server`**: 메타·적재·배치·워커. `core.db`로 시스템 DB·메인 DB 접근.
-- **`new_dash_server` / `campaign_dash_server`**: `core.dashboard_service` + `core.db`(dash 분기).
-- **`new_dash_server2`**: `config.backend.star_db` 전용 모듈(`star_db.py`). **의도적으로 `Backend.core.db`를 쓰지 않는다.**
+- **`campaign_dash_server`**: `/api/campaign-dashboard`. `core.dashboard_service` + `core.db`(dash 분기).
+- **`widget_board_server`**: `/api/widget-boards`. system_db 메타·메인 DB 조회.
 
 ---
 
@@ -103,10 +99,9 @@ flowchart LR
 
 | 설정 키(개념) | 용도 | 주로 쓰는 모듈 |
 |---------------|------|----------------|
-| `config.backend.main_db` | 메인 비즈니스 DB(`db_*`, `table_schema`). 레거시: 평면 `backend.db_*` | `core.db`, 쿼리 스튜디오·ETL |
+| `config.backend.main_db` | 메인 비즈니스 DB(`db_*`, `table_schema`) — **필수 블록** | `core.db`, 쿼리 스튜디오·ETL |
 | `config.backend.system_db` | ETL 메타·Job 등 | `core.db.get_db_connection_system`, `etl_server` |
 | `config.backend.dash_db` | `ibank_1` 계열·Star 물리 테이블 | `core.db.get_db_connection_dash` 등, 대시보드 서비스/라우터 |
-| `config.backend.star_db` | 마케팅 대시보드 전용 | `new_dash_server2/star_db.py`만 |
 
 설정 파일은 **`Env/config/config.json`만** 쓴다 (.env 없음).
 
@@ -139,33 +134,23 @@ flowchart LR
 3. 프론트: `packages/query_studio/api/queryStudioClient.js` 및 호출 컴포넌트.
 4. 검증: `.cursor/skills/api-client-sync/SKILL.md`, `cross-check/SKILL.md` 절차.
 
-### 5.2 구 대시보드 API만 변경
+### 5.2 캠페인 대시보드 API/집계 변경
 
-1. `Backend/legacy_dashboard_server/router.py`, `schemas.py`.
-2. 집계 로직 변경이면 **`Backend/core/dashboard_service.py`** (뉴/캠페인과 공유되는지 확인).
-
-### 5.3 뉴·캠페인 대시보드 API/집계 변경
-
-1. 라우터: `new_dash_server/router.py` 또는 `campaign_dash_server/router.py`.
+1. 라우터: `Backend/campaign_dash_server/router.py`.
 2. 공통 집계·KPI: `core/dashboard_service.py`.
 3. 테이블/연결 규칙: `core/db.py`의 dash 분기·`is_new_dash_physical_table` 등.
 
-### 5.4 마케팅 대시보드(new-dashboard2)
-
-1. `Backend/new_dash_server2/router.py`, `service.py`, `star_db.py`.
-2. **`core.db`를 import하지 않는지** 유지(기존 설계).
-
-### 5.5 ETL 동작·적재·배치
+### 5.3 ETL 동작·적재·배치
 
 1. `Backend/etl_server/` — **02_BACKEND_GUIDE §6**, **docs/report/08_ETL_Phase_Implement_Guide.md**.
 2. DB 스키마 변경 시 마이그레이션·Pydantic·client·UI 연쇄는 **migration-helper 스킬** 참고.
 
-### 5.6 공통 DB 연결·허용 테이블·풀 동작 변경
+### 5.4 공통 DB 연결·허용 테이블·풀 동작 변경
 
 1. `Backend/core/db.py` 단일 진입으로 모은다.
 2. 영향 범위: `db.py`의 `[Package Usage]` 1~22번 목록을 본다.
 
-### 5.7 신규 React 페이지(신규 메뉴)
+### 5.5 신규 React 페이지(신규 메뉴)
 
 1. `app/routes.jsx`, `app/layout/navConfig.js`.
 2. `packages/<새 도메인>/` (페이지, `api/*Client.js`, 전용 CSS).
@@ -264,7 +249,7 @@ flowchart LR
 
 ### 12.2 뉴/캠페인 `member-summary` (스냅샷)
 
-- **주 테이블**: 보통 `ibank_1_0` (서브 `…_0`). **날짜 컬럼**: `_0`만 **`base_date`**, 그 외 서브는 **`delivery_date`** (`new_dash_server/router.py` 주석 참고).
+- **주 테이블**: 보통 `ibank_1_0` (서브 `…_0`). **날짜 컬럼**: `_0`만 **`base_date`**, 그 외 서브는 **`delivery_date`** (`campaign_dash_server/router.py` 주석 참고).
 - **API에서 읽는 대표 컬럼**(행은 `base_date` 최신 1건 스냅샷 등으로 선택):
 
 | 컬럼명 | 용도 |

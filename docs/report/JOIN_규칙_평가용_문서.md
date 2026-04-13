@@ -416,8 +416,8 @@ def get_table_columns_with_types(table_name):
 
 
 def get_db_connection():
-    """DB 연결 생성. config.backend 만 사용 (get_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
-    cfg = get_db_config()
+    """DB 연결 생성. config.backend 만 사용 (get_main_db_config에서 이미 검증). 한글 등 UTF-8 쿼리 지원을 위해 client_encoding 설정."""
+    cfg = get_main_db_config()
     conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
     conn.set_client_encoding("UTF8")
     return conn

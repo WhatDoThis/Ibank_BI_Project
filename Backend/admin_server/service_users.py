@@ -35,6 +35,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 - (ETL 메타 조회용 로컬 헬퍼 _admin_etl_q, _admin_etl_table_columns_lower, _admin_etl_select_cols — etl_server 패키지 import 회피)
 - Backend.admin_server.service_projects.validate_invite_user_project
 - Backend.auth_server.permissions (get_effective_permission_ids_for_me, is_project_participant)
+- Backend.notification_server.service.delete_notifications_for_user_in_txn
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ from Backend.auth_server.permissions import (
 from Backend.core import auth_config
 from Backend.core import db as core_db
 from Backend.core.user_dvsn_codes import canon_user_dvsn
+from Backend.notification_server.service import delete_notifications_for_user_in_txn
 
 _log = logging.getLogger(__name__)
 
@@ -1381,7 +1383,7 @@ def delete_inactive_user(
             (tid,),
         )
         cur.execute("DELETE FROM user_login_log WHERE user_id = %s", (tid,))
-        cur.execute("DELETE FROM notification_info WHERE user_id = %s", (tid,))
+        delete_notifications_for_user_in_txn(conn, tid)
         cur.execute(
             "DELETE FROM project_ptcpnt_info WHERE ptcpnt_user_id = %s",
             (tid,),

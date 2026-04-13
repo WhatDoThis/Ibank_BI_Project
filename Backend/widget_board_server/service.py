@@ -2,6 +2,7 @@
 widget_board_server.service (위젯 보드 CRUD·데이터 조회)
 ======================================================
 system_db: widget_board, widget_item, widget_board_share.
+읽기 접근: 소유자·`widget_board_share`·또는 `share_scope=project` 인 동일 프로젝트 참여자(`_can_read_board`·`list_boards`).
 saved_table은 `get_allowed_tables_by_project`(table_project_mapping)에서 main/dash 모두 허용하며, query 타입은 SQL 안전 검사.
 
 [Main Functions]
@@ -14,13 +15,18 @@ saved_table은 `get_allowed_tables_by_project`(table_project_mapping)에서 main
 6. patch_layout
 7. upsert_share / delete_share(제외 시 create_user_id 소유자 이관)
 8. list_board_participants / list_invite_candidates / send_invite_notifications(알림 초대)
-9. accept_widget_board_invite / reject_widget_board_invite — 수락 시 widget_board_share 반영
+9. accept_widget_board_invite / reject_widget_board_invite — `_parse_widget_board_invite_payload` 공통 검증 후 share 반영·알림 처리
 10. fetch_widget_data — saved_table 시 기간 필터·컬럼에 data_type 포함(FE 차트 축)·meta.applied_date_column(기간 필터에 사용한 날짜 컬럼)
 
 [Dependencies]
 =========
+- Backend.notification_server.service (insert_notification, fetch_notification_by_id,
+  mark_notification_read_in_txn, delete_notification_by_id_in_txn,
+  user_has_pending_widget_board_invite, delete_widget_board_notifications_for_board_in_txn,
+  notify_inviter_widget_board_invite_resolved)
 - psycopg2.extras.Json, psycopg2.sql
 - Backend.auth_server.permissions.is_project_participant
+- Backend.core.invite_expiry.invite_expired_from_payload
 - Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, validate_table_name, validate_column_name, get_allowed_tables_by_project, format_value)
 - Backend.core.sql_safety.contains_dangerous_sql
 """
@@ -40,6 +46,16 @@ from Backend.auth_server.permissions import (
     is_project_participant,
 )
 from Backend.core import db
+from Backend.core.invite_expiry import invite_expired_from_payload
+from Backend.notification_server.service import (
+    delete_notification_by_id_in_txn,
+    delete_widget_board_notifications_for_board_in_txn,
+    fetch_notification_by_id,
+    insert_notification,
+    mark_notification_read_in_txn,
+    notify_inviter_widget_board_invite_resolved,
+    user_has_pending_widget_board_invite,
+)
 from Backend.widget_board_server import schemas
 from Backend.core.sql_safety import contains_dangerous_sql
 
@@ -58,89 +74,45 @@ def _scope(s: str | None) -> str:
     return v
 
 
-def _invite_expired_from_payload(payload: dict[str, Any]) -> bool:
-    raw = payload.get("invite_expires_at")
-    if raw is None or raw == "":
-        return False
+def _parse_widget_board_invite_payload(
+    conn,
+    notification_info_id: int,
+    user_id: int,
+    project_info_id: int,
+    board_id: int,
+    *,
+    action_label: str,
+    expired_message: str,
+) -> dict[str, Any]:
+    """알림 단건 조회·타입·소유자·JSON·보드/프로젝트 일치·만료까지 검증 후 payload 반환."""
+    nid = int(notification_info_id)
+    uid = int(user_id)
+    pid = int(project_info_id)
+    bid = int(board_id)
+    noti = fetch_notification_by_id(conn, nid)
+    if not noti:
+        raise ValueError(
+            "이 초대는 취소되었거나 이미 처리되었습니다. 소유자에게 새 초대를 요청하세요."
+        )
+    if (noti.get("noti_type") or "").strip() != "widget_board_invite":
+        raise ValueError("위젯 보드 초대 알림이 아닙니다.")
+    if int(noti["user_id"]) != uid:
+        raise ValueError(f"본인의 알림만 {action_label}할 수 있습니다.")
     try:
-        s = str(raw).strip().replace("Z", "+00:00")
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) > dt
-    except (ValueError, TypeError, OSError):
-        return False
-
-
-def _notify_widget_board_inviter(
-    cur,
-    inviter_user_id: int,
-    widget_board_id: int,
-    board_name: str,
-    invitee_user_id: int,
-    resolved_notification_id: int,
-    accepted: bool,
-) -> None:
-    if not inviter_user_id or inviter_user_id <= 0:
-        return
-    cur.execute(
-        "SELECT user_email, user_nickname FROM user_info WHERE user_id = %s",
-        (int(invitee_user_id),),
-    )
-    urow = cur.fetchone()
-    em = (urow.get("user_email") if urow else None) or ""
-    nk = (urow.get("user_nickname") if urow else None) or ""
-    who = (
-        (str(nk).strip() if nk else "")
-        or (str(em).strip() if em else "")
-        or f"user_id {invitee_user_id}"
-    )
-    bname = (board_name or "").strip() or "위젯 보드"
-    if accepted:
-        typ = "widget_board_invite_accepted"
-        title = f"{who} 님이 '{bname}' 위젯 보드 초대를 수락했습니다"
-    else:
-        typ = "widget_board_invite_rejected"
-        title = f"{who} 님이 '{bname}' 위젯 보드 초대를 거절했습니다"
-    meta = json.dumps(
-        {
-            "widget_board_id": int(widget_board_id),
-            "invitee_user_id": int(invitee_user_id),
-            "resolved_notification_info_id": int(resolved_notification_id),
-        },
-        ensure_ascii=False,
-    )
-    cur.execute(
-        """
-        INSERT INTO notification_info (
-            user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-        ) VALUES (%s, %s, %s, %s, 'N', NOW())
-        """,
-        (int(inviter_user_id), typ[:30], title[:200], meta),
-    )
-
-
-def _user_has_pending_widget_invite(
-    cur, invitee_user_id: int, board_id: int
-) -> bool:
-    cur.execute(
-        """
-        SELECT noti_content, read_yn
-        FROM notification_info
-        WHERE user_id = %s
-          AND noti_type = 'widget_board_invite'
-          AND COALESCE(UPPER(TRIM(read_yn)), 'N') <> 'Y'
-        """,
-        (int(invitee_user_id),),
-    )
-    for row in cur.fetchall():
-        try:
-            p = json.loads(row.get("noti_content") or "{}")
-            if int(p.get("widget_board_id") or 0) == int(board_id):
-                return True
-        except (json.JSONDecodeError, TypeError, ValueError):
-            continue
-    return False
+        payload = json.loads(noti["noti_content"] or "{}")
+    except json.JSONDecodeError as e:
+        raise ValueError("알림 내용이 올바르지 않습니다.") from e
+    try:
+        wid = int(payload["widget_board_id"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError("알림 내용이 올바르지 않습니다.") from e
+    if wid != bid:
+        raise ValueError("알림과 보드가 일치하지 않습니다.")
+    if int(payload.get("project_info_id") or 0) != pid:
+        raise ValueError("알림과 프로젝트가 일치하지 않습니다.")
+    if invite_expired_from_payload(payload):
+        raise ValueError(expired_message)
+    return payload
 
 
 def _is_date_like_pg_type(data_type: str) -> bool:
@@ -557,21 +529,7 @@ def delete_board(conn, user_id: int, project_id: int, board_id: int) -> None:
             "DELETE FROM widget_board_share WHERE widget_board_id = %s",
             (board_id,),
         )
-        # 초대/수락·거절 알림: noti_content JSON에 widget_board_id 포함(직렬화 공백과 무관하게 숫자만 매칭)
-        like_pat = f'%"widget_board_id": {int(board_id)}%'
-        cur.execute(
-            """
-            DELETE FROM notification_info
-            WHERE noti_type IN (
-                'widget_board_invite',
-                'widget_board_invite_accepted',
-                'widget_board_invite_rejected'
-            )
-              AND noti_content IS NOT NULL
-              AND noti_content LIKE %s
-            """,
-            (like_pat,),
-        )
+        delete_widget_board_notifications_for_board_in_txn(conn, int(board_id))
         cur.execute(
             "DELETE FROM widget_board WHERE widget_board_id = %s",
             (board_id,),
@@ -839,7 +797,7 @@ def send_invite_notifications(
             )
             if cur.fetchone():
                 continue
-            if _user_has_pending_widget_invite(cur, target, board_id):
+            if user_has_pending_widget_board_invite(conn, target, board_id):
                 continue
             invite_expires_at = (
                 datetime.now(timezone.utc) + timedelta(days=_INVITE_VALID_DAYS)
@@ -855,13 +813,13 @@ def send_invite_notifications(
                 ensure_ascii=False,
             )
             title = (f"'{bname}' 위젯 보드에 초대되었습니다")[:200]
-            cur.execute(
-                """
-                INSERT INTO notification_info (
-                    user_id, noti_type, noti_title, noti_content, read_yn, create_dtm
-                ) VALUES (%s, %s, %s, %s, 'N', NOW())
-                """,
-                (target, "widget_board_invite", title, payload),
+            insert_notification(
+                conn,
+                target,
+                "widget_board_invite",
+                title,
+                payload,
+                autocommit=False,
             )
             sent += 1
         conn.commit()
@@ -885,33 +843,17 @@ def accept_widget_board_invite(
     nid = int(notification_info_id)
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT noti_content, noti_type, user_id AS target_uid
-            FROM notification_info
-            WHERE notification_info_id = %s
-            """,
-            (nid,),
-        )
-        noti = cur.fetchone()
-        if not noti:
-            raise ValueError(
-                "이 초대는 취소되었거나 이미 처리되었습니다. 소유자에게 새 초대를 요청하세요."
-            )
-        if (noti.get("noti_type") or "").strip() != "widget_board_invite":
-            raise ValueError("위젯 보드 초대 알림이 아닙니다.")
-        if int(noti["target_uid"]) != uid:
-            raise ValueError("본인의 알림만 수락할 수 있습니다.")
-        payload = json.loads(noti["noti_content"] or "{}")
-        wid = int(payload["widget_board_id"])
-        if wid != int(board_id):
-            raise ValueError("알림과 보드가 일치하지 않습니다.")
-        if int(payload.get("project_info_id") or 0) != pid:
-            raise ValueError("알림과 프로젝트가 일치하지 않습니다.")
-        if _invite_expired_from_payload(payload):
-            raise ValueError(
+        payload = _parse_widget_board_invite_payload(
+            conn,
+            nid,
+            uid,
+            pid,
+            int(board_id),
+            action_label="수락",
+            expired_message=(
                 "초대 유효 기간이 지났습니다. 소유자에게 새 초대를 요청하세요."
-            )
+            ),
+        )
         cur.execute(
             "SELECT * FROM widget_board WHERE widget_board_id = %s",
             (board_id,),
@@ -943,31 +885,22 @@ def accept_widget_board_invite(
             """,
             (board_id, uid, can_edit),
         )
-        cur.execute(
-            """
-            UPDATE notification_info
-            SET read_yn = 'Y', update_dtm = NOW()
-            WHERE notification_info_id = %s AND user_id = %s
-            """,
-            (nid, uid),
-        )
+        mark_notification_read_in_txn(conn, uid, nid)
         inv_uid = int(payload.get("inviter_user_id") or 0)
-        _notify_widget_board_inviter(
-            cur,
+        notify_inviter_widget_board_invite_resolved(
+            conn,
             inv_uid,
-            board_id,
+            int(board_id),
             str(bd.get("board_name") or ""),
             uid,
             nid,
             True,
+            autocommit=False,
         )
         conn.commit()
     except ValueError:
         conn.rollback()
         raise
-    except json.JSONDecodeError as e:
-        conn.rollback()
-        raise ValueError("알림 내용이 올바르지 않습니다.") from e
     except Exception:
         conn.rollback()
         raise
@@ -987,32 +920,17 @@ def reject_widget_board_invite(
     nid = int(notification_info_id)
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT noti_content, noti_type, user_id AS target_uid
-            FROM notification_info
-            WHERE notification_info_id = %s
-            """,
-            (nid,),
-        )
-        noti = cur.fetchone()
-        if not noti:
-            raise ValueError(
-                "이 초대는 취소되었거나 이미 처리되었습니다. 소유자에게 새 초대를 요청하세요."
-            )
-        if (noti.get("noti_type") or "").strip() != "widget_board_invite":
-            raise ValueError("위젯 보드 초대 알림이 아닙니다.")
-        if int(noti["target_uid"]) != uid:
-            raise ValueError("본인의 알림만 거절할 수 있습니다.")
-        payload = json.loads(noti["noti_content"] or "{}")
-        if int(payload.get("widget_board_id") or 0) != int(board_id):
-            raise ValueError("알림과 보드가 일치하지 않습니다.")
-        if int(payload.get("project_info_id") or 0) != pid:
-            raise ValueError("알림과 프로젝트가 일치하지 않습니다.")
-        if _invite_expired_from_payload(payload):
-            raise ValueError(
+        payload = _parse_widget_board_invite_payload(
+            conn,
+            nid,
+            uid,
+            pid,
+            int(board_id),
+            action_label="거절",
+            expired_message=(
                 "초대 유효 기간이 지났습니다. 알림은 삭제하거나 소유자에게 문의하세요."
-            )
+            ),
+        )
         cur.execute(
             "SELECT board_name FROM widget_board WHERE widget_board_id = %s",
             (board_id,),
@@ -1020,23 +938,23 @@ def reject_widget_board_invite(
         br = cur.fetchone()
         bname = (dict(br).get("board_name") if br else "") or ""
         inv_uid = int(payload.get("inviter_user_id") or 0)
-        cur.execute(
-            "DELETE FROM notification_info WHERE notification_info_id = %s",
-            (nid,),
-        )
-        if cur.rowcount == 0:
+        if delete_notification_by_id_in_txn(conn, nid) == 0:
             conn.rollback()
             raise ValueError("초대 알림을 삭제하지 못했습니다.")
-        _notify_widget_board_inviter(
-            cur, inv_uid, board_id, str(bname), uid, nid, False
+        notify_inviter_widget_board_invite_resolved(
+            conn,
+            inv_uid,
+            int(board_id),
+            str(bname),
+            uid,
+            nid,
+            False,
+            autocommit=False,
         )
         conn.commit()
     except ValueError:
         conn.rollback()
         raise
-    except json.JSONDecodeError as e:
-        conn.rollback()
-        raise ValueError("알림 내용이 올바르지 않습니다.") from e
     except Exception:
         conn.rollback()
         raise
@@ -1165,7 +1083,7 @@ def list_invite_candidates(
             )
             if cur.fetchone():
                 continue
-            if _user_has_pending_widget_invite(cur, cand, board_id):
+            if user_has_pending_widget_board_invite(conn, cand, board_id):
                 continue
             out.append(
                 {

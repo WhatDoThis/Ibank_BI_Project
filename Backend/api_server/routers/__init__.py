@@ -1,7 +1,7 @@
 """
 Backend.api_server.routers (호스트용 라우터 재export)
 ====================================================
-health는 로컬, 쿼리 스튜디오는 query_studio_server에서 로드. 구 대시보드(/api/dashboard)는 main에 미등록(legacy_dashboard_server 패키지는 보존).
+health는 로컬, 쿼리 스튜디오는 query_studio_server에서 로드.
 
 [Main]
 ===========

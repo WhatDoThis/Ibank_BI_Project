@@ -7,58 +7,53 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 [Main Functions / Classes]
 ===========
 1. _PooledConnection: 풀에서 빌린 연결 래퍼 (close 시 putconn)
-2. _resolve_main_db / get_db_config: config.backend.main_db(또는 레거시 평면 db_*)에서 메인 DB dict
+2. get_main_db_config: config.backend.main_db 에서 메인 DB dict (필수 블록, system_db 와 동일 키 구조)
 3. get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict 반환
 4. get_etl_db_config: config.backend.etl_db 우선, 없으면 system_db fallback으로 ETL DB dict 반환
 5. get_system_table_schema: ETL 스키마 우선(backend.etl_db.table_schema), 없으면 system_db.table_schema fallback
 6. get_system_table_schema_core: 비ETL 시스템 기능용 system_db.table_schema 고정 반환
 7. get_allowed_tables_by_project: project_info_id + db_type 기반 허용 테이블 조회(table_project_mapping+table_master)
-8. get_allowed_tables: project_info_id 지정 시 get_allowed_tables_by_project 우선, 미지정 시 레거시 스키마 전체 호환
-9. get_table_schema: main_db.table_schema(또는 레거시 backend.table_schema)
+8. get_allowed_tables: project_info_id 필수, get_allowed_tables_by_project 위임(db_type·include_meta)
+8a. get_merged_allowed_table_names_for_project: list-tables와 동일 병합(dash+main 메타, 동명이인 시 main 우선) 후 정렬된 테이블명
+9. get_table_schema: backend.main_db.table_schema(비면 public; main_db 필수)
 10. _table_exists, _query_table_columns, _query_primary_key_columns: 내부 공통 SQL 헬퍼 (conn 인자로 커넥션 1회 사용)
-11. get_table_columns: 테이블 컬럼명 목록 (information_schema, 허용 테이블만)
-12. get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
-13. get_all_tables_columns_with_types: 복수 테이블 컬럼·타입 일괄 조회
-14. get_primary_key_columns: 테이블 PK 컬럼명 목록 (허용 테이블만)
-15. table_exists_in_schema: 테이블 스키마 내 존재 여부 (allowed_tables 미검사)
-16. get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사, 커넥션 1회)
-17. get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사, 커넥션 1회)
-18. get_db_connection: 메인 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback.
-19. get_db_connection_etl: ETL DB 연결을 풀에서 반환(etl_db 우선, 없으면 system_db fallback)
-20. get_db_connection_system: ETL 호환 alias. 기존 ETL 호출부를 위해 get_db_connection_etl() 위임
-21. get_db_connection_system_core: 비ETL 시스템 기능(auth/admin/project/notification)용 system_db 고정 연결
-22. get_dash_db_config / get_dash_table_schema / get_db_connection_dash: 뉴 대시보드 전용 dash_db(ibank_dash_data 등) 연결
-23. is_new_dash_physical_table: ibank_1·ibank_1_0~4·ibank_*_star_1|2 여부 (dash_db 집계·Star JSONB 테이블)
-24. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
-25. is_table_allowed_for_project_dashboard: 프로젝트·table_master·매핑 기준 대시보드 테이블 허용 여부(M1-8)
-26. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
-27. validate_table_name: 이름 패턴·스키마 내 실제 존재 여부 검증
-28. validate_column_name: 컬럼명 허용 패턴 검증
+11. get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
+12. get_all_tables_columns_with_types: 복수 테이블 컬럼·타입 일괄 조회(project_info_id 필수, 병합 허용 집합과 교집합)
+13. get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사, 커넥션 1회)
+14. get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사, 커넥션 1회)
+15. get_db_connection: 메인 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback.
+16. get_db_connection_etl: ETL DB 연결을 풀에서 반환(etl_db 우선, 없으면 system_db fallback)
+17. get_db_connection_system: ETL 호환 alias. 기존 ETL 호출부를 위해 get_db_connection_etl() 위임
+18. get_db_connection_system_core: 비ETL 시스템 기능(auth/admin/project/notification)용 system_db 고정 연결
+19. get_dash_db_config / get_dash_table_schema / get_db_connection_dash: 뉴 대시보드 전용 dash_db(ibank_dash_data 등) 연결
+20. is_new_dash_physical_table: ibank_1·ibank_1_0~4·ibank_*_star_1|2 여부 (dash_db 집계·Star JSONB 테이블)
+21. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
+22. is_table_allowed_for_project_dashboard: 프로젝트·table_master·매핑 기준 대시보드 테이블 허용 여부(M1-8)
+23. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
+24. validate_table_name: 이름 패턴·스키마 내 실제 존재 여부 검증
+25. validate_column_name: 컬럼명 허용 패턴 검증
 
 [Package Usage]
 ===========
 1. _PooledConnection: Backend/core/db.py 내부(get_db_connection 등이 풀 연결 반환 시)
-2. get_db_config: Backend/api_server/main.py, scripts/check_db_connections.py
+2. get_main_db_config: Backend/api_server/main.py, scripts/check_db_connections.py
 3. get_system_db_config: scripts/check_db_connections.py, Backend/core/dependencies.py(get_system_db 경유)
 4. get_etl_db_config / get_system_table_schema / get_db_connection_etl / get_db_connection_system: Backend/etl_server(다수 모듈), scripts/check_db_connections.py
 5. get_system_table_schema_core / get_db_connection_system_core: Backend/core/dependencies.py(get_system_db) 경유 auth/admin/project/notification
-6. get_allowed_tables_by_project / get_allowed_tables / is_table_allowed_for_project_dashboard: Backend/query_studio_server/router.py, Backend/api_server/main.py, Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
-7. get_table_schema: Backend/query_studio_server/router.py, analysis_store.py, Backend/etl_server/service.py(get_target_db_connection), scripts/create_I1_derived_tables.py, dump_four_tables_schema.py
+6. get_allowed_tables_by_project / get_allowed_tables / get_merged_allowed_table_names_for_project / is_table_allowed_for_project_dashboard: Backend/query_studio_server/router.py, Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
+7. get_table_schema: Backend/query_studio_server/router.py, Backend/etl_server/service.py(get_target_db_connection), scripts/create_I1_derived_tables.py, dump_four_tables_schema.py
 8. _table_exists, _query_table_columns, _query_primary_key_columns: Backend/core/db.py 내부(다른 db 함수에서 호출)
-9. get_table_columns: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
-10. get_table_columns_with_types: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_all_tables_columns_with_types 등)
-11. get_all_tables_columns_with_types: Backend/query_studio_server/router.py
-12. get_primary_key_columns: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
-13. table_exists_in_schema: (현 레포 Python 코드에서 직접 호출 없음 — 공개 API)
-14. get_table_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
-15. get_primary_key_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
-16. get_db_connection: Backend/core/dependencies.py, Backend/query_studio_server/router.py, analysis_store.py, scripts/*.py
-17. get_dash_db_config: Backend/core/db.py 내부(get_db_connection_dash 풀·fallback). get_dash_table_schema·get_db_connection_dash: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
-18. is_new_dash_physical_table: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_table_columns_with_types·validate_dashboard_data_table_name)
-19. validate_dashboard_data_table_name: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
-20. format_value: Backend/query_studio_server/router.py
-21. validate_table_name: Backend/query_studio_server/router.py, Backend/core/dashboard_service.py
-22. validate_column_name: Backend/query_studio_server/router.py
+9. get_table_columns_with_types: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_all_tables_columns_with_types 등)
+10. get_all_tables_columns_with_types / get_merged_allowed_table_names_for_project: Backend/query_studio_server/router.py
+11. get_table_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
+12. get_primary_key_columns_for_etl_target: Backend/etl_server/router.py, load_service.py
+13. get_db_connection: Backend/core/dependencies.py, Backend/query_studio_server/router.py, scripts/*.py
+14. get_dash_db_config: Backend/core/db.py 내부(get_db_connection_dash 풀·fallback). get_dash_table_schema·get_db_connection_dash: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
+15. is_new_dash_physical_table: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_table_columns_with_types·validate_dashboard_data_table_name)
+16. validate_dashboard_data_table_name: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
+17. format_value: Backend/query_studio_server/router.py
+18. validate_table_name: Backend/query_studio_server/router.py, Backend/core/dashboard_service.py
+19. validate_column_name: Backend/query_studio_server/router.py
 
 [Dependencies]
 =========
@@ -81,7 +76,7 @@ _ETL_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
 _MAIN_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
 _DASH_DB_POOL: psycopg2_pool.ThreadedConnectionPool | None = None
 _POOL_MIN = 1
-_POOL_MAX = 20
+_POOL_MAX = 30
 _system_pool_lock = threading.Lock()
 _etl_pool_lock = threading.Lock()
 _main_pool_lock = threading.Lock()
@@ -145,47 +140,43 @@ except ImportError:
 
 
 # 2.
-def _resolve_main_db():
-    """메인 비즈니스 DB 설정 객체. backend.main_db 우선, 없으면 레거시(평면 db_*·table_schema)."""
+def get_main_db_config():
+    """
+    config.backend.main_db 에서 메인 비즈니스 DB 연결 dict 반환.
+    main_db 블록이 없거나 필수 키가 비어 있으면 ValueError (system_db·dash_db 와 동일 정책).
+    """
     backend = config.backend
     main = getattr(backend, "main_db", None)
-    if main is not None:
-        return main
-    return backend
-
-
-def get_db_config():
-    """config.backend.main_db(또는 레거시 backend db_*)에서 DB 설정 읽기. 없거나 비어 있으면 ValueError."""
-    src = _resolve_main_db()
-    host = getattr(src, "db_host", None)
-    port = getattr(src, "db_port", None)
-    database = getattr(src, "db_name", None)
-    user = getattr(src, "db_user", None)
-    password = getattr(src, "db_password", None)
-
-    loc = "backend.main_db"
-    if getattr(config.backend, "main_db", None) is None:
-        loc = "backend (레거시 평면 키)"
+    if main is None:
+        raise ValueError(
+            "Env/config/config.json 에 backend.main_db 가 없습니다. "
+            "메인 비즈니스 DB 연결을 위해 main_db 블록(db_host, db_port, db_name, db_user, db_password)을 추가하세요."
+        )
+    host = getattr(main, "db_host", None)
+    port = getattr(main, "db_port", None)
+    database = getattr(main, "db_name", None)
+    user = getattr(main, "db_user", None)
+    password = getattr(main, "db_password", None)
 
     if not host or not str(host).strip():
-        raise ValueError(f"Env/config/config.json 의 {loc}.db_host 가 없거나 비어 있습니다.")
+        raise ValueError("backend.main_db.db_host 가 없거나 비어 있습니다.")
     if database is None or not str(database).strip():
-        raise ValueError(f"Env/config/config.json 의 {loc}.db_name 이 없거나 비어 있습니다.")
+        raise ValueError("backend.main_db.db_name 이 없거나 비어 있습니다.")
     if not user or not str(user).strip():
-        raise ValueError(f"Env/config/config.json 의 {loc}.db_user 가 없거나 비어 있습니다.")
+        raise ValueError("backend.main_db.db_user 가 없거나 비어 있습니다.")
     if port is None or port == "":
-        raise ValueError(f"Env/config/config.json 의 {loc}.db_port 가 없습니다.")
+        raise ValueError("backend.main_db.db_port 가 없습니다.")
     try:
         port = int(port)
     except (TypeError, ValueError):
-        raise ValueError(f"Env/config/config.json 의 {loc}.db_port 는 숫자여야 합니다.")
+        raise ValueError("backend.main_db.db_port 는 숫자여야 합니다.")
 
     return {
-        'host': str(host).strip(),
-        'port': port,
-        'database': str(database).strip(),
-        'user': str(user).strip(),
-        'password': str(password).strip() if password is not None else '',
+        "host": str(host).strip(),
+        "port": port,
+        "database": str(database).strip(),
+        "user": str(user).strip(),
+        "password": str(password).strip() if password is not None else "",
     }
 
 
@@ -388,47 +379,16 @@ def get_allowed_tables_by_project(
 
 
 def get_allowed_tables(
-    project_info_id: int | None = None,
+    project_info_id: int,
     db_type: str = "main",
     include_meta: bool = False,
 ) -> set[str] | list[dict[str, Any]]:
     """
-    허용 테이블 조회.
-    - project_info_id 지정: system_db의 table_project_mapping + table_master 조인 결과
-    - project_info_id 미지정: 기존 호환을 위해 메인 스키마(BASE TABLE/VIEW) 전체 반환
+    허용 테이블 조회. project_info_id 필수.
+    system_db의 table_project_mapping + table_master 조인 결과(get_allowed_tables_by_project).
     include_meta=True면 [{table_name, table_label, table_dscrtn, db_type}] 반환.
     """
     norm_db_type = _normalize_db_type(db_type)
-    if project_info_id is None:
-        schema = get_table_schema()
-        conn = get_db_connection()
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                """
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = %s
-                  AND table_type IN ('BASE TABLE', 'VIEW')
-                """,
-                (schema,),
-            )
-            names = [row["table_name"] for row in cur.fetchall()]
-            if include_meta:
-                return [
-                    {
-                        "table_name": name,
-                        "table_label": None,
-                        "table_dscrtn": None,
-                        "db_type": norm_db_type,
-                    }
-                    for name in names
-                ]
-            return set(names)
-        finally:
-            cur.close()
-            conn.close()
-
     return get_allowed_tables_by_project(
         project_info_id=int(project_info_id),
         db_type=norm_db_type,
@@ -436,15 +396,35 @@ def get_allowed_tables(
     )
 
 
+# 5a.
+def get_merged_allowed_table_names_for_project(project_info_id: int) -> list[str]:
+    """
+    query_studio list-tables와 동일: dash(db_type) 허용 행을 먼저 맵에 넣고 main 행으로 덮어 동명이인 시 main 우선.
+    반환 테이블명은 정렬되어 호출 간 순서가 안정적이다.
+    """
+    pid = int(project_info_id)
+    allowed_rows_main = get_allowed_tables_by_project(pid, db_type="main", include_meta=True)
+    allowed_rows_dash = get_allowed_tables_by_project(pid, db_type="dash", include_meta=True)
+    allowed_map: dict[str, Any] = {row["table_name"]: row for row in allowed_rows_dash}
+    for row in allowed_rows_main:
+        allowed_map[row["table_name"]] = row
+    return sorted(allowed_map.keys())
+
+
 # 6.
 def get_table_schema():
     """
     리포트·허용 테이블 조회용 스키마명.
     backend.main_db.table_schema 가 비어 있거나 없으면 'public' (해당 스키마의 테이블·뷰 전부 조회).
-    레거시 평면 backend.table_schema 동일 규칙.
+    backend.main_db 가 없으면 ValueError.
     """
-    src = _resolve_main_db()
-    schema = getattr(src, "table_schema", None)
+    main = getattr(config.backend, "main_db", None)
+    if main is None:
+        raise ValueError(
+            "Env/config/config.json 에 backend.main_db 가 없습니다. "
+            "get_table_schema() 는 main_db.table_schema 를 사용합니다."
+        )
+    schema = getattr(main, "table_schema", None)
     if schema is None or not str(schema).strip():
         return "public"
     return str(schema).strip()
@@ -508,18 +488,6 @@ def _query_primary_key_columns(conn, schema: str, table_name: str):
 
 
 # 10.
-def get_table_columns(table_name):
-    """테이블의 컬럼명 목록 반환 (information_schema 기준). 허용된 테이블만 조회 가능."""
-    validate_table_name(table_name)
-    schema = get_table_schema()
-    conn = get_db_connection()
-    try:
-        return _query_table_columns(conn, schema, table_name)
-    finally:
-        conn.close()
-
-
-# 11.
 def get_table_columns_with_types(table_name):
     """테이블의 컬럼명·데이터타입 목록 반환. [{ column_name, data_type }, ...]. 대시보드 필수 컬럼 타입 검증용."""
     if is_new_dash_physical_table(table_name):
@@ -547,10 +515,10 @@ def get_table_columns_with_types(table_name):
         conn.close()
 
 
-# 12.
-def get_all_tables_columns_with_types(table_names):
-    """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [{ column_name, data_type }, ...] }. 테이블 수가 많을 때 분석 부하 감소용."""
-    allowed = get_allowed_tables()
+# 11.
+def get_all_tables_columns_with_types(table_names, project_info_id: int):
+    """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [{ column_name, data_type }, ...] }. project_info_id 병합 허용 집합과 교집합."""
+    allowed = set(get_merged_allowed_table_names_for_project(int(project_info_id)))
     raw_names = [t for t in (table_names or []) if t in allowed]
     main_names = [t for t in raw_names if not is_new_dash_physical_table(t)]
     dash_names = [t for t in raw_names if is_new_dash_physical_table(t)]
@@ -593,32 +561,7 @@ def get_all_tables_columns_with_types(table_names):
     return out
 
 
-# 13.
-def get_primary_key_columns(table_name):
-    """테이블의 PK 컬럼명 목록 반환 (information_schema). 허용된 테이블만. PK 없으면 []."""
-    validate_table_name(table_name)
-    schema = get_table_schema()
-    conn = get_db_connection()
-    try:
-        return _query_primary_key_columns(conn, schema, table_name)
-    finally:
-        conn.close()
-
-
-# 14.
-def table_exists_in_schema(table_name: str) -> bool:
-    """메인 DB의 table_schema에 해당 table_name이 존재하는지 조회. allowed_tables 미검사(ETL 실행 전 타겟 존재 여부 확인용)."""
-    if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
-        return False
-    schema = get_table_schema()
-    conn = get_db_connection()
-    try:
-        return _table_exists(conn, schema, table_name)
-    finally:
-        conn.close()
-
-
-# 15.
+# 12.
 def get_table_columns_for_etl_target(table_name: str):
     """ETL 타겟 테이블의 컬럼명 목록 반환. allowed_tables 미검사(ETL로 생성된 테이블용). 테이블이 없으면 ValueError."""
     if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
@@ -633,7 +576,7 @@ def get_table_columns_for_etl_target(table_name: str):
         conn.close()
 
 
-# 16.
+# 13.
 def get_primary_key_columns_for_etl_target(table_name: str):
     """ETL 타겟 테이블의 PK 컬럼명 목록 반환. allowed_tables 미검사. PK 없으면 []."""
     if not table_name or not re.match(r"^[a-zA-Z0-9_]+$", table_name):
@@ -648,13 +591,13 @@ def get_primary_key_columns_for_etl_target(table_name: str):
         conn.close()
 
 
-# 17.
+# 14.
 def get_db_connection():
     """메인 DB 연결을 풀에서 반환. close() 시 풀에 반환. 풀 고갈 시 직접 연결 fallback(close 시 실제 종료)."""
     global _MAIN_DB_POOL
     with _main_pool_lock:
         if _MAIN_DB_POOL is None:
-            cfg = {**get_db_config(), "cursor_factory": RealDictCursor}
+            cfg = {**get_main_db_config(), "cursor_factory": RealDictCursor}
             _MAIN_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
                 _POOL_MIN, _POOL_MAX, **cfg
             )
@@ -663,13 +606,13 @@ def get_db_connection():
         raw.set_client_encoding("UTF8")
         return _PooledConnection(_MAIN_DB_POOL, raw)
     except Exception:
-        cfg = get_db_config()
+        cfg = get_main_db_config()
         conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
         conn.set_client_encoding("UTF8")
         return conn
 
 
-# 18.
+# 15.
 def get_db_connection_etl():
     """ETL DB 연결(etl_db 우선, 없으면 system_db fallback)을 풀에서 반환. close() 시 풀 반환."""
     global _ETL_DB_POOL
@@ -690,13 +633,13 @@ def get_db_connection_etl():
         return conn
 
 
-# 19.
+# 16.
 def get_db_connection_system():
     """ETL 호환 alias. 기존 ETL 호출부 영향 최소화를 위해 ETL DB 연결(get_db_connection_etl)을 반환."""
     return get_db_connection_etl()
 
 
-# 20.
+# 17.
 def get_db_connection_system_core():
     """비ETL 시스템 기능(auth/admin/project/notification)용 system_db 고정 연결."""
     global _SYSTEM_DB_POOL
@@ -717,7 +660,7 @@ def get_db_connection_system_core():
         return conn
 
 
-# 21.
+# 18.
 def get_db_connection_dash():
     """뉴 대시보드용 dash_db 연결을 풀에서 반환. close() 시 풀 반환. 풀 고갈 시 직접 연결 fallback."""
     global _DASH_DB_POOL
@@ -738,7 +681,7 @@ def get_db_connection_dash():
         return conn
 
 
-# 21a.
+# 19.
 def is_new_dash_physical_table(table_name: str) -> bool:
     """ibank_1·ibank_1_0~4 또는 ibank_*_star_1|2 (backend.dash_db 뉴 대시보드·Star 물리 테이블)."""
     if not table_name or not str(table_name).strip():
@@ -746,7 +689,7 @@ def is_new_dash_physical_table(table_name: str) -> bool:
     return _NEW_DASH_PHYSICAL_TABLE_RE.match(str(table_name).strip()) is not None
 
 
-# 21b.
+# 20.
 def validate_dashboard_data_table_name(table_name):
     """
     대시보드·뉴 대시보드 API용 테이블명 검증.
@@ -762,7 +705,7 @@ def validate_dashboard_data_table_name(table_name):
     return validate_table_name(name)
 
 
-# 21c.
+# 21.
 def is_table_allowed_for_project_dashboard(project_info_id: int, table_id: str) -> bool:
     """
     대시보드 API용 테이블명이 현재 프로젝트의 table_master·table_project_mapping에 허용되는지.

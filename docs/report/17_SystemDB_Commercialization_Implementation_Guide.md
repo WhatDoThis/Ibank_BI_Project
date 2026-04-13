@@ -298,14 +298,6 @@ ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_pmssn_maste
       "db_password": "",
       "table_schema": "public"
     },
-    "star_db": {
-      "db_host": "",
-      "db_port": 5432,
-      "db_name": "ibank_star_data",
-      "db_user": "",
-      "db_password": "",
-      "table_schema": "public"
-    },
     "etl_limits": {
       "max_file_size_mb": 50,
       "max_rows_per_load": 1000000,
@@ -338,7 +330,7 @@ ALTER TABLE email_invite_code_master ADD COLUMN IF NOT EXISTS invite_pmssn_maste
 }
 ```
 
-**기존 대비 변경**: 최상위 `db_host`/`db_name` 등 → `main_db` 객체로 묶음. `main_db.table_schema`는 비어 있으면 앱에서 `public`으로 간주. `jwt_secret`, **`jwt_pre_auth_expire_minutes`**, `jwt_access_*`, `jwt_refresh_*`, **`smtp_info`**(내부 `smtp_*`·초대 링크용 `app_url`; 초대 메일은 `{app_url}/signup`으로 조립되므로 `app_url`은 프론트 Vite `base`(`/ibank-bi/`)와 맞는 공개 베이스, 예: `https://호스트/ibank-bi`) 추가. 레거시 `backend` 평면 `smtp_*`·`app_url`도 `auth_config`에서 호환 읽기. **`frontend.app_url`(선택)** 은 위 둘이 비었을 때 초대용 공개 베이스(`frontend.api_base_url`은 리포트/API용이므로 초대 링크에 쓰지 않음). `system_db`, `dash_db`, `star_db`, `etl_limits`는 `main_db`와 동일 레벨. **`smtp_info.smtp_host`(또는 레거시 `smtp_host`)가 비어 있으면** §2.7 개발 모드(콘솔 출력·발송 스킵).
+**기존 대비 변경**: 최상위 `db_host`/`db_name` 등 → `main_db` 객체로 묶음. `main_db.table_schema`는 비어 있으면 앱에서 `public`으로 간주. `jwt_secret`, **`jwt_pre_auth_expire_minutes`**, `jwt_access_*`, `jwt_refresh_*`, **`smtp_info`**(내부 `smtp_*`·초대 링크용 `app_url`; 초대 메일은 `{app_url}/signup`으로 조립되므로 `app_url`은 프론트 Vite `base`(`/ibank-bi/`)와 맞는 공개 베이스, 예: `https://호스트/ibank-bi`) 추가. 레거시 `backend` 평면 `smtp_*`·`app_url`도 `auth_config`에서 호환 읽기. **`frontend.app_url`(선택)** 은 위 둘이 비었을 때 초대용 공개 베이스(`frontend.api_base_url`은 리포트/API용이므로 초대 링크에 쓰지 않음). `system_db`, `dash_db`, `etl_limits`는 `main_db`와 동일 레벨. (과거 마케팅 대시보드 전용 `star_db`는 제거됨.) **`smtp_info.smtp_host`(또는 레거시 `smtp_host`)가 비어 있으면** §2.7 개발 모드(콘솔 출력·발송 스킵).
 
 ### 0.13 테이블 관계도
 
@@ -360,8 +352,7 @@ pmssn_master.pmssn_list(TEXT[]) ↔ pmssn_master_detail.pmssn_detail_name
 
 [config.json — 전 부서·프로젝트 공유]
   main_db ── 리포트·ETL 적재 대상
-  dash_db ── 대시보드 물리 테이블
-  star_db ── 마케팅 대시보드
+  dash_db ── 대시보드 물리 테이블(Star·집계)
   system_db ── 유저·부서·프로젝트 메타 + ETL 메타
 ```
 
@@ -635,22 +626,19 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 |--------|-----------|---------|
 | health | 없음 | |
 | query_studio_server | query.read | execute-query, explain-sql, save-query-as-table, query-stats → query.execute 추가 |
-| legacy_dashboard_server | dashboard | |
-| new_dash_server | dashboard | |
 | campaign_dash_server | dashboard | |
-| new_dash_server2 | dashboard | |
+| widget_board_server | widgetboard | |
 | etl_server | `require_etl_infrastructure` (`sa_dev` 또는 `etl_yn=Y`) | 프로젝트 선택 불필요 |
 
 ### 6.6 `core/db.py` 변경
 
 | 함수 | 변경 |
 |------|------|
-| `get_db_config()` | `config.backend` → `config.backend.main_db` (키 경로) |
+| `get_main_db_config()` | `config.backend.main_db` (키 경로) |
 | `get_allowed_tables()` | `main_db.table_schema`(비면 `public`) 기준 DB 메타 전체 |
 | `get_db_connection()` | main_db config |
 | `get_db_connection_dash()` | dash_db |
 | `get_db_connection_system()` | system_db |
-| star_db | star_db |
 
 ---
 

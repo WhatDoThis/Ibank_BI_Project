@@ -1,6 +1,32 @@
 # Log
 
 ## Log Index
+334. 2026-04-13 문서 21: §4.1 require_*·Depends 인벤토리·§3 체크 완료
+333. 2026-04-13 문서 21 Phase D: share_scope·config 정합(02·03·§3·§13)
+332. 2026-04-13 초대자 알림·라벨: notify_inviter_*·user_display_label 통합·§9.2 재점검
+331. 2026-04-13 초대 검증 중복 제거: core/invite_expiry·위젯/프로젝트 parse 헬퍼
+330. 2026-04-13 notification_info DML 전부 notification_server 소유·§1.1 패키지–테이블 경계 문서화
+329. 2026-04-13 notification_info 적재: insert_notification 공통화(autocommit)·admin/project/widget_board 치환
+328. 2026-04-13 notification_server: §9 문서·insert_notification 미호출 명시(service docstring)
+327. 2026-04-13 docs/report/21 §8 admin_server: 도메인→service·409 계약·router 분할 판단
+326. 2026-04-13 docs/report/21 §7 auth_server: router↔service 표·JWT/feature_flags/AuthContext 문서화
+325. 2026-04-13 api_server main: lifespan ETL 스케줄러 실패 시 logger.exception 로깅
+324. 2026-04-13 config에서 backend.star_db 제거(new_dash_server2 삭제 후 미사용)
+323. 2026-04-13 레거시 대시보드 패키지 빈 폴더·__pycache__ 제거
+322. 2026-04-13 미등록 레거시 대시보드 패키지 삭제·문서 정합
+321. 2026-04-13 core/db·query_studio: get_allowed_tables 무인자 제거·project_info_id 필수
+320. 2026-04-13 docs/report/21 Phase C: db.py 미사용 공개 헬퍼 제거(get_table_columns 등)
+319. 2026-04-13 Env/config.json.example 실제 config.json 구조 정합(etl_db·star_db·dash_db·JWT·SMTP·etl_limits)
+318. 2026-04-13 query_studio: 피크 가드(TTL 캐시·분당 한도·동시 계산 상한)
+317. 2026-04-13 query_studio: allowlist_analysis·analysis_store 제거(관계 매 요청 계산)
+316. 2026-04-13 docs/report/21 Phase B: 쿼리 스튜디오 관계/JOIN 허용 테이블 프로젝트 스코프·analysis_store
+315. 2026-04-09 docs/report/21 섹션 구조 재정리(목차·패키지별 작업 카드)
+314. 2026-04-13 docs/report/21 백엔드 패키지 리팩터링 인벤토리·체크리스트 문서
+313. 2026-04-13 core/db.py get_db_config → get_main_db_config 명명 통일·호출부·문서
+312. 2026-04-13 core/db.py main_db 단일화(레거시 평면 db_* 제거)·문서 정합
+311. 2026-04-13 docs/main/03_API_GUIDE.md 로그·코드 정합(list-tables·§6.2·§6.3 제거)
+310. 2026-04-13 docs/main/03_API_GUIDE.md §6.3 Dashboard3Page·query_studio(SPA 위젯 캔버스)
+309. 2026-04-13 위젯보드 캔버스: 프로젝트 전환·권한 없음 시 목록으로 리다이렉트
 308. 2026-04-09 프로젝트 하위 페이지 기준 정리: db_type 비노출·매핑 여부 중심
 307. 2026-04-09 위젯보드/쿼리스튜디오: 매핑 db_type main·dash 동시 지원
 306. 2026-04-09 위젯보드: 테이블 test_report_ 제한 해제·매핑 검증, 쿼리저장 매핑 upsert 재시도
@@ -311,6 +337,278 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+334. 2026-04-13 문서 21: §4.1 require_*·Depends 인벤토리·§3 체크 완료
+Purpose: `require_*`·권한 팩토리 변경 시 재스캔 범위를 고정한다. `main.py` 등록 라우터와 ETL `router_file` 포함 여부를 표로 남기고 글로벌 체크리스트 §3 항목을 완료 처리한다.
+
+Changes:
+
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §4.1 표 추가, §3·Phase D·§18 갱신.
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+333. 2026-04-13 문서 21 Phase D: share_scope·config 정합(02·03·§3·§13)
+Purpose: 리팩터 다음 단계로 문서 21 글로벌·§13 체크리스트를 코드와 맞춘다. `03_API_GUIDE` §6.2의 위젯보드 `share_scope` 폐기 문구는 실제 서비스(private|project·목록 필터)와 불일치하여 수정한다. `02_BACKEND_GUIDE`에 `etl_db`·`query_studio_peak_guard`를 명시한다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md`: §6.2 접근 정책·`share_scope`·초대 병행 설명.
+- `docs/main/02_BACKEND_GUIDE.md`: §3.1 bullet 확장, §3.2.3 `etl_db`·`query_studio_peak_guard`.
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §3·§13·Phase D·§18.
+- `Backend/widget_board_server/service.py`: 모듈 docstring에 읽기 접근·`share_scope` 한 줄.
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, Backend/widget_board_server/service.py, docs/log/log.md
+
+332. 2026-04-13 초대자 알림·라벨: notify_inviter_*·user_display_label 통합·§9.2 재점검
+Purpose: 리팩터 완료 패키지 재점검. 프로젝트·위젯보드에 남아 있던 초대자용 `insert_notification` 조립 로직을 `notification_server`로 이전하고, `user_info` 표시 라벨 SQL을 `user_display_label_for_notification` 단일화한다.
+
+Changes:
+
+- `Backend/notification_server/service.py`: `user_display_label_for_notification`, `notify_inviter_project_invite_resolved`, `notify_inviter_widget_board_invite_resolved`.
+- `Backend/project_server/service.py`, `Backend/widget_board_server/service.py`: 로컬 `_notify_*` 제거·위 API 호출.
+- `Backend/admin_server/service_projects.py`: `_noti_user_label` 제거·`user_display_label_for_notification(conn, …, max_len=100)`.
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §9.2 표·§18.
+
+Changed files: Backend/notification_server/service.py, Backend/project_server/service.py, Backend/widget_board_server/service.py, Backend/admin_server/service_projects.py, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+331. 2026-04-13 초대 검증 중복 제거: core/invite_expiry·위젯/프로젝트 parse 헬퍼
+Purpose: 위젯보드·프로젝트 초대 수락/거절에서 동일한 알림 조회·타입·소유자·JSON·만료 검증이 복붙되어 있던 부분을 헬퍼로 모은다. `invite_expires_at` 판별은 세 곳에 동일 구현이 있어 `core.invite_expiry`로 통합한다.
+
+Changes:
+
+- `Backend/core/invite_expiry.py`: `invite_expired_from_payload` 신설.
+- `Backend/admin_server/service_projects.py`: 로컬 만료 함수 제거·core 호출.
+- `Backend/widget_board_server/service.py`: `_parse_widget_board_invite_payload`·수락/거절에서 공통 사용.
+- `Backend/project_server/service.py`: `_parse_project_invite_payload`·수락/거절에서 공통 사용.
+
+Changed files: Backend/core/invite_expiry.py, Backend/admin_server/service_projects.py, Backend/widget_board_server/service.py, Backend/project_server/service.py, docs/log/log.md
+
+330. 2026-04-13 notification_info DML 전부 notification_server 소유·§1.1 패키지–테이블 경계 문서화
+Purpose: 알림 테이블에 대한 SELECT/UPDATE/DELETE를 한 패키지에 모아, 확장 시 SQL·권한 조건이 흩어지지 않게 한다. 다른 도메인은 동일 `conn`에서 `*_in_txn`·`fetch_*`만 호출한다. 다른 테이블에도 §1.1 원칙을 재사용할 수 있게 문서 21에 공통 규칙을 추가한다.
+
+Changes:
+
+- `Backend/notification_server/service.py`: `fetch_notification_by_id`, `mark_notification_read_in_txn`, `delete_*_in_txn`, `fetch_pending_project_invite_rows_for_project`, `pending_project_invite_exists_for_user_project`, `user_has_pending_widget_board_invite`, `delete_widget_board_notifications_for_board_in_txn`. `mark_read_one`은 `mark_notification_read_in_txn` 위임.
+- `Backend/project_server/service.py`, `Backend/widget_board_server/service.py`, `Backend/admin_server/service_projects.py`, `Backend/admin_server/service_users.py`: 인라인 `notification_info` SQL 제거·위 함수 호출.
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §1.1 DML 경계, §9.2·연관 경로·체크리스트·§18 갱신.
+
+Changed files: Backend/notification_server/service.py, Backend/project_server/service.py, Backend/widget_board_server/service.py, Backend/admin_server/service_projects.py, Backend/admin_server/service_users.py, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+329. 2026-04-13 notification_info 적재: insert_notification 공통화(autocommit)·admin/project/widget_board 치환
+Purpose: 타 시스템과 같이 알림 INSERT를 단일 헬퍼로 모아 길이 절단·에러 처리·commit 경계를 일관되게 한다. 업무 트랜잭션과 같은 연결에서는 `autocommit=False`로 상위 `commit`에 맡긴다.
+
+Changes:
+
+- `Backend/notification_server/service.py`: `insert_notification(..., autocommit=False|True)` — False 시 commit 없음, True 시 실패 시 rollback.
+- `Backend/admin_server/service_projects.py`, `Backend/project_server/service.py`, `Backend/widget_board_server/service.py`: 인라인 `INSERT INTO notification_info` 제거, `insert_notification` 호출. `_notify_*` 헬퍼에 `conn` 인자 추가.
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §9.2·연관 경로·체크리스트·§18 갱신.
+
+Changed files: Backend/notification_server/service.py, Backend/admin_server/service_projects.py, Backend/project_server/service.py, Backend/widget_board_server/service.py, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+328. 2026-04-13 notification_server: §9 문서·insert_notification 미호출 명시(service docstring)
+Purpose: 알림 HTTP는 `notification_server`만 두고, `notification_info` INSERT는 타 패키지 트랜잭션에 흩어져 있음을 문서·코드 주석으로 고정한다. `insert_notification` 통합은 commit 경계 설계 후 별도 작업.
+
+Changes:
+
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §9.1 HTTP→service, §9.2 인라인 INSERT 위치 표·통합 과제, §9.3 404/03 가이드 정합. 연관 경로·체크리스트 [x]. §18.
+- `Backend/notification_server/service.py`: 모듈 docstring·`# 4.` 주석에 미호출 이유(타 트랜잭션 인라인 INSERT) 명시.
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, Backend/notification_server/service.py, docs/log/log.md
+
+327. 2026-04-13 docs/report/21 §8 admin_server: 도메인→service·409 계약·router 분할 판단
+Purpose: 패키지 경계 문서화로 어드민 라우터→`service_*` 누락·오해를 줄이고, 소유 가드 409 페이로드가 FE와 맞는지 검증한다. `router.py` 물리 분할은 비용 대비 이득이 없어 단일 유지로 기록한다.
+
+Changes:
+
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §8.1 URL 그룹별 주 모듈, §8.2 `changeable`/`blocking_assets`/`allowed_assets`/`target` 계약·`AdminUsersPage.jsx` 정합, §8.3 분할 보류 트리거. 목차·§18·체크리스트 [x].
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+326. 2026-04-13 docs/report/21 §7 auth_server: router↔service 표·JWT/feature_flags/AuthContext 문서화
+Purpose: 문서 21 §7 체크리스트(매핑 표·FE 동기화)를 코드 변경 없이 충족한다. 인증 HTTP 표면과 `service`·권한·JWT·`feature_flags`·`AuthContext` 관계를 한 곳에 고정한다.
+
+Changes:
+
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §7.1 엔드포인트→`service` 표, §7.2 JWT 클레임( flags 미포함 )·`/me`에서 `permissions` 계산·`refreshMe` 동기화 규칙·JWT 변경 시 전수 점검 메모. 목차 §7 설명 보강. 체크리스트 [x].
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+325. 2026-04-13 api_server main: lifespan ETL 스케줄러 실패 시 logger.exception 로깅
+Purpose: ETL 폴더 배치 스케줄러 기동 실패를 삼키지 않고 스택을 남기되, API 기동은 기존과 같이 계속한다.
+
+Changes:
+
+- `logging`·`logger = logging.getLogger(__name__)` 추가, `lifespan`에서 `except Exception` 시 `logger.exception`(한국어 메시지) 호출
+- 모듈·`lifespan` docstring에 스케줄러 실패 로깅·API 계속 기동 명시
+
+Changed files: Backend/api_server/main.py, docs/main/02_BACKEND_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+324. 2026-04-13 config에서 backend.star_db 제거(new_dash_server2 삭제 후 미사용)
+Purpose: 마케팅 대시보드(`new_dash_server2`) 전용이었던 `star_db` 설정을 제거하고 예시·상용화 가이드 JSON 스키마를 맞춘다.
+
+Changes:
+
+- `Env/config/config.json`, `config.json.example`: `backend.star_db` 블록 삭제
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: §0.12 예시 JSON·설명·관계도·§6.6 표에서 `star_db` 정리
+
+Changed files: Env/config/config.json, Env/config/config.json.example, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md
+
+323. 2026-04-13 레거시 대시보드 패키지 빈 폴더·__pycache__ 제거
+Purpose: 파일 삭제 후 남은 `Backend/legacy_dashboard_server`, `new_dash_server`, `new_dash_server2` 디렉터리(잔여 `__pycache__` 포함)를 제거한다.
+
+Changes:
+
+- `Remove-Item -Recurse -Force` 로 위 세 경로 삭제
+
+Changed files: (디렉터리만 삭제, 코드 파일 변경 없음) docs/log/log.md
+
+322. 2026-04-13 미등록 레거시 대시보드 패키지 삭제·문서 정합
+Purpose: `main.py`에 포함되지 않던 `legacy_dashboard_server`, `new_dash_server`, `new_dash_server2`를 저장소에서 제거하고, PRD·백엔드 가이드·README·인벤토리 문서를 현행 구조에 맞춘다.
+
+Changes:
+
+- 삭제: `Backend/legacy_dashboard_server/*`, `Backend/new_dash_server/*`, `Backend/new_dash_server2/*`
+- 갱신: `Backend/api_server/main.py`, `routers/__init__.py`, `query_studio_server/schemas.py`, `Backend/__init__.py`, `README.md`, `docs/main/00_PRD.md`, `docs/main/02_BACKEND_GUIDE.md`, `docs/report/03_AI_DEVELOP_GUIDE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`(§6.5 표), `docs/report/21_Backend_Package_Refactoring_Inventory.md`
+
+Changed files: Backend/(삭제 3패키지), Backend/api_server/main.py, Backend/api_server/routers/__init__.py, Backend/query_studio_server/schemas.py, Backend/__init__.py, README.md, docs/main/00_PRD.md, docs/main/02_BACKEND_GUIDE.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+321. 2026-04-13 core/db·query_studio: get_allowed_tables 무인자 제거·project_info_id 필수
+Purpose: 문서 21 §5·§15 — 메인 스키마 전체를 허용으로 쓰던 레거시를 제거하고, 허용 테이블은 항상 프로젝트 매핑 기준으로만 조회한다.
+
+Changes:
+
+- `Backend/core/db.py`: `get_allowed_tables(project_info_id 필수)`만 `get_allowed_tables_by_project` 위임. `get_all_tables_columns_with_types(..., project_info_id 필수)`.
+- `Backend/query_studio_server/router.py`: `_fetch_relationships(..., *, project_info_id)`, `_compute_relationships_all*` 무인자 경로 제거.
+- `docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/report/21_Backend_Package_Refactoring_Inventory.md`: 서술·체크리스트 갱신.
+
+Changed files: Backend/core/db.py, Backend/query_studio_server/router.py, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+320. 2026-04-13 docs/report/21 Phase C: db.py 미사용 공개 헬퍼 제거(get_table_columns 등)
+Purpose: 레포 내 미호출이 확인된 `Backend/core/db.py` 공개 함수를 삭제하고 문서·주석 번호를 정합한다.
+
+Changes:
+
+- `Backend/core/db.py`: `get_table_columns`, `get_primary_key_columns`, `table_exists_in_schema` 삭제. `# N.` 주석 및 모듈 docstring `[Main Functions]`·`[Package Usage]` 재번호·갱신.
+- `docs/main/03_API_GUIDE.md`: `core/db.py` 표에서 위 세 심볼 행 제거(ETL 타겟 변형·내부 헬퍼 행 유지).
+
+Changed files: Backend/core/db.py, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+319. 2026-04-13 Env/config.json.example 실제 config.json 구조 정합(etl_db·star_db·dash_db·JWT·SMTP·etl_limits)
+Purpose: 사용 중인 `config.json` 키 순서·블록과 예시 파일을 맞춰 신규 복사 시 누락 필드를 줄인다.
+
+Changes:
+
+- `Env/config/config.json.example`: `main_db` → `claude`·`query_timeout_seconds`·`system_db`·`etl_limits`(max_zip_extract_total_mb)·`etl_db`·`star_db`·`dash_db`·`jwt_*`·`smtp_info`·`query_studio_peak_guard`·`frontend`(static_dir 등) 구조 반영. 비밀·호스트는 빈 값·플레이스홀더.
+
+Changed files: Env/config/config.json.example, docs/log/log.md
+
+318. 2026-04-13 query_studio: 피크 가드(TTL 캐시·분당 한도·동시 계산 상한)
+Purpose: 출근 피크 등 대비해 `table-relationships?mode=all`·`join-order`·`execute-query`에 분당 한도(슬라이딩 60초)와 관계 전체 계산 동시 실행 상한·허용 테이블 집합 기준 TTL 인메모리 캐시를 선택 적용한다.
+
+Changes:
+
+- 신설: `Backend/query_studio_server/peak_guard.py` — `load_runtime`, 슬라이딩 윈도 rate limit, 관계 전체 TTL 캐시, `BoundedSemaphore`
+- `Backend/query_studio_server/router.py`: `_compute_relationships_all_raw` 분리, `query_studio_peak_guard` 연동, 429/503 응답
+- `Env/config/config.json.example`: `query_studio_peak_guard` 블록 예시
+- `docs/main/02_BACKEND_GUIDE.md`: `peak_guard.py` 파일 나열
+- `docs/main/03_API_GUIDE.md` §6, `docs/report/03_AI_DEVELOP_GUIDE.md`: 피크 가드 요약
+
+Changed files: Backend/query_studio_server/peak_guard.py, Backend/query_studio_server/router.py, Env/config/config.json.example, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/log/log.md
+
+317. 2026-04-13 query_studio: allowlist_analysis·analysis_store 제거(관계 매 요청 계산)
+Purpose: DB에서 `allowlist_analysis` 테이블을 삭제한 환경에 맞춰, 쿼리 스튜디오 관계 분석 DB 캐시·스크립트·모듈을 제거하고 `mode=all`·`join-order`는 매 요청 전체 계산만 수행한다.
+
+Changes:
+
+- `Backend/query_studio_server/router.py`: `analysis_store` 의존 제거, `_get_or_compute_relationships_all` → `_compute_relationships_all`(저장/조회 없음)
+- 삭제: `Backend/query_studio_server/analysis_store.py`, `scripts/create_allowlist_analysis.py`
+- `Backend/core/db.py` docstring: `analysis_store` 참조 제거
+- `docs/main/02_BACKEND_GUIDE.md`, `docs/report/03_AI_DEVELOP_GUIDE.md`, `docs/report/21_Backend_Package_Refactoring_Inventory.md`: 목록·체크리스트 정합
+
+Changed files: Backend/query_studio_server/router.py, Backend/core/db.py, docs/main/02_BACKEND_GUIDE.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md (삭제: analysis_store.py, create_allowlist_analysis.py)
+
+316. 2026-04-13 docs/report/21 Phase B: 쿼리 스튜디오 관계/JOIN 허용 테이블 프로젝트 스코프·analysis_store
+Purpose: `get_allowed_tables()` 무인자(스키마 전체)를 query_studio 관계·JOIN order·컬럼 일괄 조회에서 제거하고, JWT `project_info_id`와 `list-tables` 동일 병합 허용 집합을 쓴다. allowlist_analysis 캐시를 프로젝트별로 분리한다.
+
+Changes:
+
+- `Backend/core/db.py`: `get_merged_allowed_table_names_for_project`, `get_all_tables_columns_with_types(..., project_info_id=...)`
+- `Backend/query_studio_server/router.py`: `_fetch_relationships` / `_get_or_compute_relationships_all` / `table_relationships` / `api_join_order`에 프로젝트 스코프·403 정합
+- `Backend/query_studio_server/analysis_store.py`, `scripts/create_allowlist_analysis.py`: `project_info_id` 컬럼·인덱스·INSERT/SELECT
+- `Backend/api_server/main.py`: 기동 배너에서 스키마 전체 테이블 수 제거
+
+Changed files: Backend/core/db.py, Backend/query_studio_server/router.py, Backend/query_studio_server/analysis_store.py, scripts/create_allowlist_analysis.py, Backend/api_server/main.py, docs/log/log.md
+
+315. 2026-04-09 docs/report/21 섹션 구조 재정리(목차·패키지별 작업 카드)
+Purpose: `21_Backend_Package_Refactoring_Inventory.md`를 섹션 단위 작업에 맞게 재구성한다(목차 표, §0~§18, 패키지마다「이 섹션에서 할 일」·파일 맵·연관 경로·전용 체크리스트).
+
+Changes:
+
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: 전면 재작성(공통/패키지/횡단/로드맵/부록 분리)
+- `docs/report/00_ReportIndex.md`: 21번 행 설명 갱신
+- `docs/log/log.md`: 본 항목
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+314. 2026-04-13 docs/report/21 백엔드 패키지 리팩터링 인벤토리·체크리스트 문서
+Purpose: 지정 Backend 패키지에 대한 리팩터링 가이드(원칙·전수검사 방법·글로벌 체크리스트·패키지별 연관 경로·`get_allowed_tables` 무인자 잔재·미등록 라우터·단계별 실행·스모크)를 `docs/report/21_…` 및 `00_ReportIndex`에 반영한다.
+
+Changes:
+
+- 신규: `docs/report/21_Backend_Package_Refactoring_Inventory.md`
+- 갱신: `docs/report/00_ReportIndex.md`
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+313. 2026-04-13 core/db.py get_db_config → get_main_db_config 명명 통일·호출부·문서
+Purpose: `get_system_db_config`·`get_dash_db_config` 등과 동일하게 메인 DB 설정 로더 이름을 `get_main_db_config`로 맞춘다.
+
+Changes:
+
+- `Backend/core/db.py`: 함수명·내부 호출·모듈 주석
+- `Backend/api_server/main.py`, `Backend/etl_server/service.py`, `scripts/check_db_connections.py`
+- `docs/main/02_BACKEND_GUIDE.md`, `03_API_GUIDE.md`, `docs/report/17_…`, `JOIN_규칙_평가용_문서.md`
+
+Changed files: Backend/core/db.py, Backend/api_server/main.py, Backend/etl_server/service.py, scripts/check_db_connections.py, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/JOIN_규칙_평가용_문서.md, docs/log/log.md
+
+312. 2026-04-13 core/db.py main_db 단일화(레거시 평면 db_* 제거)·문서 정합
+Purpose: `Env/config/config.json` 만 쓰는 현재 정책에 맞춰 메인 DB 설정을 `backend.main_db` 블록으로 통일하고, `backend` 루트 평면 `db_*` 폴백을 제거해 `get_system_db_config` 등과 동일한 필수 블록 패턴으로 맞춘다.
+
+Changes:
+
+- `Backend/core/db.py`: `_resolve_main_db` 제거, `get_db_config`·`get_table_schema` 는 `main_db` 없을 때 명시적 `ValueError`
+- `scripts/check_db_connections.py`: 레거시 출력 분기 제거
+- `README.md`, `docs/main/02_BACKEND_GUIDE.md`, `03_API_GUIDE.md`, `00_PRD.md`, `docs/report/03_AI_DEVELOP_GUIDE.md`
+
+Changed files: Backend/core/db.py, scripts/check_db_connections.py, README.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/00_PRD.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/log/log.md
+
+311. 2026-04-13 docs/main/03_API_GUIDE.md 로그·코드 정합(list-tables·§6.2·§6.3 제거)
+Purpose: `docs/log` 306~308·`widget_board_server/router.py`·`query_studio_server/router.py`·프론트 위젯보드 패키지와 맞춰 API 가이드를 갱신한다.
+
+Changes:
+
+- §6 `query_studio_server`: `GET /api/list-tables` main+dash 통합·동명 main 우선·응답에 `db_type` 비노출, `describe-table` 매핑 기준 스키마 분기
+- §6.2: 초대·수락/거절·participants·invite-candidates 엔드포인트, `share_scope` deprecated·접근 모델, main/dash 매핑·`core.sql_safety` 공유, FE 경로·DELETE 400/비활성 물리 삭제 명확화
+- 제거: 존재하지 않는 `Dashboard3Page` 기준 §6.3 — 읽는 순서·§6 bullet·맺음말 정리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+310. 2026-04-13 docs/main/03_API_GUIDE.md §6.3 Dashboard3Page·query_studio(SPA 위젯 캔버스)
+Purpose: 서버 저장형 `widget_board_server`(§6.2)와 구분해, `Dashboard3Page.jsx` 가 `listTables`·`describeTable`·`executeQuery` 만 사용하는 패턴·`test_report_` 클라이언트 필터·localStorage·`projectContextNonce` 재조회를 API 가이드에 반영한다.
+
+Changes:
+
+- `03_API_GUIDE.md`: 읽는 순서·§6 bullet·§6.3 본문·맺음말
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+309. 2026-04-13 위젯보드 캔버스: 프로젝트 전환·권한 없음 시 목록으로 리다이렉트
+Purpose: 작업 프로젝트를 바꾼 뒤에도 `/widgetboard/:boardId`에 머물며 "이 보드를 볼 권한이 없습니다"만 보이던 현상 제거 — 캔버스는 유효한 보드에만 묶이도록 목록으로 이동
+Changes:
+
+`GET /api/widget-boards/{id}` 실패(권한·404 등) 시 `navigate('/widgetboard', { replace: true })`; 잘못된 boardId도 동일 처리
+`useNavigate` 도입, 보드 로드 effect 의존성에 `navigate` 반영; 파일 상단 docstring에 동작 명시
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/log/log.md
 
 308. 2026-04-09 프로젝트 하위 페이지 기준 정리: db_type 비노출·매핑 여부 중심
 Purpose: 사용자 관점 정책을 명확히 반영 — 프로젝트 하위 페이지는 `main/dash` 구분값이 아니라 “현재 프로젝트에 매핑된 테이블인가”만 판단

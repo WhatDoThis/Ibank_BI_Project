@@ -14,7 +14,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 1.2 핵심 가치
 - **쿼리 스튜디오(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
-- **대시보드**(/dashboard): **캠페인 대시보드** 단일 UI(`packages/campaign_dashboard`). 발송 요약·추이·회원·인구통계·시간대 등. 데이터는 Star 물리 테이블(`ibank_*_star_1`, `ibank_*_star_2`), API `/api/campaign-dashboard`, **dash_db**. `/campaign-dashboard` 경로는 `/dashboard` 로 리다이렉트. 구형 `/api/dashboard`·뉴·마케팅 대시보드는 앱에 연결하지 않음(코드 보존). 상세 **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md §4.6.2**.
+- **대시보드**(/dashboard): **캠페인 대시보드** 단일 UI(`packages/campaign_dashboard`). 발송 요약·추이·회원·인구통계·시간대 등. 데이터는 Star 물리 테이블(`ibank_*_star_1`, `ibank_*_star_2`), API `/api/campaign-dashboard`, **dash_db**. `/campaign-dashboard` 경로는 `/dashboard` 로 리다이렉트. 구형 `/api/dashboard`·`/api/new-dashboard*`·`/api/new-dashboard2*` 는 미제공. 상세 **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md §4.6.2**.
 - **위젯보드**(/widgetboard): 드래그 앤 드롭 위젯 그리드. 쿼리 스튜디오 API 활용.
 - **ETL**(/etl, 단일): 파일·외부 DB → 우리 PostgreSQL 적재. **소스**: 파일(CSV/Excel/Parquet), DB(PostgreSQL·MySQL·Oracle). **저장 DB** 등록·선택, 테이블선택 및 컬럼매핑, column_mapping·형변환·**변환 룰**(날짜/시간 연산 등)·증분 컬럼 검증. 목록에서 **설정** 버튼으로 동기화 모드(전체/증분/**PK 차이(diff)**)·증분 컬럼·배치·**행 실패 시 동작**(fail/skip) 수정. **동일 target_table** 다른 연결에서 추가 적재 허용. PostgreSQL 적재 시 **COPY FROM STDIN**(Full·Incremental). **diff**는 DB 소스·PK 기준 소스/타겟 집합 비교 적재(최초는 full 후 전환). **폴더 배치**: SFTP/S3 폴더 연결·파일 패턴·주기 실행·배치 Job 등록·이력·즉시 실행. **DB 탭 배치**: ETL 테이블 기반 **배치설정** 버튼으로 주기 배치 등록(status=done 시 활성). **배치 파일별 에러 정책**(on_file_error): stop/continue. **인덱스 설정**(index_definitions), **CSV 인코딩** 통합(csv_reader). API prefix **/api/etl**, Backend **etl_server**. 상세는 **01 §4.5**, **02 §6**, **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**, **docs/report/14_ETL_PK_DIFF.md**(diff).
 - **JOIN 자동 필터링**: FK 기반 허용 테이블만 노출, JOIN 불가 테이블 비활성화
@@ -29,7 +29,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 - **진입·실행**: run.py(back|front|serve), start.bat, requirements.txt.
 - **Frontend/react-app**: React(Vite), base `/ibank-bi/`. **라우트·네비**: `src/app/layout/navConfig.js`, `src/app/routes.jsx`. **앱 페이지**: `src/app/auth|home|mypage|admin|layout|guards/`. **packages**: **query_studio**, **campaign_dashboard**, **widgetboard**, **etl**. **공용**: `shared/config/api.js`, `shared/api/http.js`(패키지별 `api/*Client.js` 가 사용). 상세는 **01_FRONTEND_GUIDE.md §3** 참고.
 - **Frontend/static_server**: dist 서빙, SPA fallback, api-config.js 주입.
-- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(`db`, `dependencies`, `dashboard_service`, `auth_config`, `logging_setup`), **auth_server**(`/api/auth`), **project_server**(`/api/projects`), **notification_server**(`/api/notifications`), **admin_server**(`/api/admin`), **query_studio_server**(쿼리 스튜디오 `/api/*`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard` — 앱에 등록되는 유일 대시보드 API). `legacy_dashboard_server`·`new_dash_server`·`new_dash_server2` 는 저장소 보존·`main` 미등록. 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **docs/report/03_AI_DEVELOP_GUIDE.md**.
+- **Backend** (단일 프로세스·`api_server/main.py`에서 라우터 조립): **core**(`db`, `dependencies`, `dashboard_service`, `auth_config`, `logging_setup`), **auth_server**(`/api/auth`), **project_server**(`/api/projects`), **notification_server**(`/api/notifications`), **admin_server**(`/api/admin`), **query_studio_server**(쿼리 스튜디오 `/api/*`), **api_server**(호스트·CORS·`health`), **etl_server**(`/api/etl`, `/api/etl/batch`), **campaign_dash_server**(`/api/campaign-dashboard`), **widget_board_server**(`/api/widget-boards`). 상세·트리는 **02_BACKEND_GUIDE.md**, 아키텍처 요약은 **docs/report/03_AI_DEVELOP_GUIDE.md**.
 - **Env/config**: loader.py, config.json. 설정 구조는 §3.2 참고.
 
 ### 2.2 실행 방식
@@ -78,7 +78,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ```
 
 - `config.json` 은 `.gitignore` 대상. 코드에서는 `config.backend.*`, `config.frontend.*` 만 사용.
-- **쿼리 스튜디오 API 노출 테이블**: `backend.main_db.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거). 레거시: 평면 `backend.db_*`·`backend.table_schema` 도 `Backend.core.db` 가 인식한다.
+- **쿼리 스튜디오 API 노출 테이블**: `backend.main_db.table_schema` 기준으로 DB `information_schema` 에서 BASE TABLE·VIEW 목록을 사용한다(구 `allowed_tables` 설정 제거). **`backend.main_db` 블록은 필수**이며, 평면 `backend.db_*` 는 지원하지 않는다.
 - **ETL 사용 시**: backend.system_db(시스템 DB, ETL 메타 저장), backend.etl_limits(파일 크기·행 수·배치 상한·**ZIP 압축 해제 총량 상한**) 선택. **etl_limits 미지정 시** `Backend/etl_server/etl_limits.py` 기본값(파일 50MB·행 10만·배치 5만·**ZIP 총량 2GB** 등). **max_zip_extract_total_mb**: add-files-zip 시 압축 해제 전 총 용량 상한(MB), 초과 시 전체 실패(ZIP bomb 방지). **배치 크기 미입력** 시 DB 적재는 기본 1만 건 상한으로 스트리밍. 상세는 **02_BACKEND_GUIDE.md §3.2·§3.3**.
 - **인증·메일(상용)**: backend.jwt_secret·jwt_*_expire_*, 선택 **backend.smtp_info**(smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, **app_url** — 초대 링크 베이스). `smtp_host`가 비어 있으면 메일 발송 생략·로그 폴백만(`auth_config.is_smtp_skipped`). 상세 **02_BACKEND_GUIDE.md §3**, **docs/report/17_SystemDB_Commercialization_Implementation_Guide.md**.
 - **뉴 대시보드 물리 테이블**: backend.**dash_db**(예: `ibank_dash_data`) — `ibank_1`, `ibank_1_0`~`ibank_1_4` 등 집계·서브 테이블. 메인 `db_name`과 분리. 상세는 **02_BACKEND_GUIDE.md §3.2.1·§4.6**.

@@ -5,9 +5,13 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 
 [Main Functions]
 ===========
-1. lifespan: ETL 배치 스케줄러(etl_server.scheduler_file) 기동
+1. lifespan: ETL 배치 스케줄러(etl_server.scheduler_file) 기동(실패 시 예외 스택을 로깅하고 API 기동은 계속)
 2. not_found_handler: 404 예외 시 JSON 응답
 3. internal_error_handler: 500 예외 시 JSON 응답
+
+[기동]
+===========
+- `python -m Backend.api_server.main`(또는 run.py): 메인 DB 설정 확인·중립 배너(프로젝트 허용 테이블은 JWT·매핑 기준)
 
 [라우터]
 ===========
@@ -19,15 +23,15 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 6. query_studio_router: /api/* — Backend.query_studio_server.router (엔드포인트별 require_permission)
 7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
 8. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
-   (구 /api/dashboard·뉴 대시보드·마케팅 대시보드 라우터는 미등록 — 패키지는 저장소에 보존, 재연결 시 main에 include)
 9. widget_board_router: /api/widget-boards/* — 위젯 보드 메타·레이아웃(`dependencies=[require_permission("widgetboard")]`)
 
 [Dependencies]
 =========
 - Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.query_studio_server, Backend.etl_server.router, Backend.campaign_dash_server, Backend.widget_board_server
-- fastapi, uvicorn
+- logging (표준), fastapi, uvicorn
 """
 
+import logging
 import os
 import sys
 
@@ -56,17 +60,22 @@ from Backend.widget_board_server import router as widget_board_router
 
 from contextlib import asynccontextmanager
 
+logger = logging.getLogger(__name__)
+
 
 # 1.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """ETL 배치 스케줄러 기동. shutdown 시 yield 이후 정리 가능."""
+    """ETL 배치 스케줄러 기동. 실패 시 로깅만 하고 API는 계속 기동. shutdown 시 yield 이후 정리 가능."""
     try:
         from Backend.etl_server import scheduler_file
         scheduler_file.start_scheduler()
         scheduler_file.load_active_batch_jobs()
     except Exception:
-        pass
+        logger.exception(
+            "ETL 폴더 배치 스케줄러 기동에 실패했습니다. API 서버는 계속 기동하며 "
+            "폴더 기반 배치 스케줄링은 비활성 상태입니다."
+        )
     yield
 
 
@@ -147,14 +156,13 @@ if __name__ == "__main__":
     if port is None or port == "":
         raise ValueError("Env/config/config.json 에 backend.api_port 가 없습니다.")
     port = int(port)
-    db_config = db.get_db_config()
-    allowed = db.get_allowed_tables()
+    db_config = db.get_main_db_config()
 
     print("=" * 50)
     print("Starbucks CRM NoCode Query Builder API (FastAPI)")
     print("=" * 50)
-    print(f"Database: {db_config.get('database')}@{db_config.get('host')}")
-    print(f"메인 스키마 테이블·뷰: {len(allowed)}개 (DB 메타데이터 기준)")
+    print(f"Database: {db_config.get('database')}@{db_config.get('host')} (연결 설정 로드됨)")
+    print("프로젝트별 허용 테이블은 table_project_mapping 기준이며, 기동 시 전 스키마 테이블 수로 표시하지 않습니다.")
     print(f"Server: http://localhost:{port}")
     print(f"Health Check: http://localhost:{port}/health")
     print("=" * 50)
