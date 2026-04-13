@@ -172,13 +172,14 @@
 | 파일 | 내용 | 비고 |
 |------|------|------|
 | `main.py` | `lifespan`, `app`, 예외 핸들러, `include_router` | 기동 배너는 스키마 전체 테이블 수 미사용 |
-| `routers/health.py` | 헬스·`/api` 인덱스 | `get_db_connection` |
+| `routers/health.py` | 헬스·`/api` 인덱스 | `get_db` (`/health`만) |
 | `routers/__init__.py` | `query_studio` re-export | |
 
 ### 이 섹션 전용 체크리스트
 
 - [x] 기동 배너: 스키마 전체 테이블 수 미표시(연결·안내 문구만)
 - [x] `lifespan` 스케줄러 기동 실패: `pass` 제거 → `logger.exception` 후 API 기동 유지(2026-04-13)
+- [x] `GET /api`·`/api/` 인덱스 JSON이 `main.py` 등록 라우터 범위와 요약 정합(2026-04-13)
 
 ---
 
@@ -380,7 +381,7 @@
 
 ### 이 섹션 전용 체크리스트
 
-- [ ] `select` 후 클라이언트 `refreshMe`·라우트 가드와 정합
+- [x] `select` 후 클라이언트 `refreshMe`·라우트 가드와 정합 — `ProjectHeaderSelect.jsx`에서 `postSelectProject` 직후 `refreshMe()` 호출·`ProjectFeatureRoute` 가드와 대조(2026-04-13)
 
 ---
 
@@ -483,7 +484,7 @@
 ### Phase C — dead code
 
 - [x] 미참조 함수 제거 PR(분리)
-- [ ] `compileall`·pytest(운영 시 주기 실행 권장)
+- [x] `compileall`·pytest(운영 시 주기 실행 권장) — 로컬 `python -m compileall Backend` 확인·기록(2026-04-13, pytest는 DB·환경 의존 시 별도)
 
 ### Phase D — 문서·로그
 
@@ -531,3 +532,4 @@ Get-ChildItem -Path Backend\core -Filter *.py -Recurse | ForEach-Object {
 - 2026-04-13: §9.2 초대자 알림(`notify_inviter_*`)·`user_display_label_for_notification` 정리, admin `_noti_user_label` 제거.
 - 2026-04-13: §3·§13 위젯보드 `share_scope`·config 키 정합, `02_BACKEND_GUIDE` §3.2.3·`03_API_GUIDE` §6.2 갱신, Phase D 일부 [x].
 - 2026-04-13: §4.1 `require_*`·Depends 전수 인벤토리(`main` 등록 라우터·ETL batch 포함), §3 글로벌 체크 `require_*` 항목 [x].
+- 2026-04-13: §6 `health.py` `/api` 인덱스를 `main.py` 마운트 기준으로 갱신, §10 프로젝트 `select`→`refreshMe` 코드 대조 [x], Phase C `compileall` 확인 반영.

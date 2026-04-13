@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+338. 2026-04-13 문서 21 후속: health `/api` 인덱스·§10·§6·Phase C compileall
 337. 2026-04-13 사이드바 브랜드(메인 아이콘) 클릭 시 홈 이동
 336. 2026-04-13 캠페인 대시보드: 헤더 그리드 열 배치(grid-column) 수정
 335. 2026-04-13 캠페인 대시보드: 헤더 Star 테이블 셀렉트 제거
@@ -340,6 +341,17 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+338. 2026-04-13 문서 21 후속: health `/api` 인덱스·§10·§6·Phase C compileall
+Purpose: 미체크 항목 정리. `GET /api` 안내가 쿼리 스튜디오·캠페인 대시보드만 나열해 `main.py` 표면과 어긋남. §10은 FE에 이미 구현됨.
+
+Changes:
+
+- `Backend/api_server/routers/health.py`: `api_index`에 auth·projects·notifications·admin·ETL·widget-board 요약·`note` 필드 추가, 캠페인 대시보드 세부 경로 유지.
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §6 표(health `get_db`)·체크, §10 [x], Phase C compileall [x], §18.
+- `python -m compileall Backend -q` 통과.
+
+Changed files: Backend/api_server/routers/health.py, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
 
 337. 2026-04-13 사이드바 브랜드(메인 아이콘) 클릭 시 홈 이동
 Purpose: 좌측 네비 상단 시린 마크·워드마크 영역에 라우팅이 없어 홈으로 돌아가기 어렵다. `/`로 이동하는 링크를 부착한다.

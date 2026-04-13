@@ -150,19 +150,19 @@ export default function HomePage() {
           {showQuery ? (
             <Link to="/query-studio" className="home__card">
               쿼리 스튜디오
-              <span className="home__card-desc">쿼리 스튜디오 (query.read / query.execute)</span>
+              <span className="home__card-desc">노코드 쿼리 빌더</span>
             </Link>
           ) : null}
           {showDash ? (
             <Link to="/dashboard" className="home__card">
               대시보드
-              <span className="home__card-desc">캠페인 등 (dashboard)</span>
+              <span className="home__card-desc">캠페인 마케팅 데이터</span>
             </Link>
           ) : null}
           {showWidget ? (
             <Link to="/widgetboard" className="home__card">
               위젯보드
-              <span className="home__card-desc">widgetboard</span>
+              <span className="home__card-desc">위젯보드 생성·수정</span>
             </Link>
           ) : null}
         </div>
@@ -175,32 +175,32 @@ export default function HomePage() {
         <div className="home__cards">
           {showEtl ? (
             <Link to="/etl" className="home__card">
-              ETL
-              <span className="home__card-desc">ETL 관리자 (etl_yn 또는 SA_DEV)</span>
+              ETL 관리리
+              <span className="home__card-desc">ETL 관리자 전용</span>
             </Link>
           ) : null}
           {showUsers ? (
             <Link to="/admin/users" className="home__card">
               사용자 관리
-              <span className="home__card-desc">같은 부서 사용자</span>
+              <span className="home__card-desc">부서 유저</span>
             </Link>
           ) : null}
           {showRoles ? (
             <Link to="/admin/roles" className="home__card">
-              역할 관리
-              <span className="home__card-desc">시스템·커스텀 역할</span>
+              권한 관리
+              <span className="home__card-desc">프로젝트 권한</span>
             </Link>
           ) : null}
           {showProjects ? (
             <Link to="/admin/projects" className="home__card">
               프로젝트 관리
-              <span className="home__card-desc">프로젝트·멤버 (운영자 포함)</span>
+              <span className="home__card-desc">프로젝트·멤버</span>
             </Link>
           ) : null}
           {showDept ? (
             <Link to="/admin/org" className="home__card">
               부서 관리
-              <span className="home__card-desc">부서명 수정 (슈퍼어드민·SA_DEV)</span>
+              <span className="home__card-desc">부서·하위부서</span>
             </Link>
           ) : null}
         </div>
