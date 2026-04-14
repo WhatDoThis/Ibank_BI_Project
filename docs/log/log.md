@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+350. 2026-04-13 docs/main/03_API_GUIDE: 읽기 순서 §3 admin·§4 project(마운트 순서는 §1.1 유지)
+349. 2026-04-13 프로젝트 활성화 후 헤더 작업 프로젝트 목록 갱신
 348. 2026-04-13 프로젝트 모달: 페이지 기능 끄면 테이블 매핑 채널 비활성·저장 시 미적용
 347. 2026-04-13 프로젝트 비활성/삭제 UX·purge 위젯보드 연쇄·위젯 삭제/건수 정합
 346. 2026-04-13 위젯·describe-table: dash 전용 테이블도 스키마 조회·저장 가능
@@ -351,6 +353,26 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+350. 2026-04-13 docs/main/03_API_GUIDE: 읽기 순서 §3 admin·§4 project(마운트 순서는 §1.1 유지)
+Purpose: 문서 본문에서 조직·관리(admin)를 프로젝트(project)보다 먼저 읽도록 절 순서를 맞춘다. `api_server/main.py`의 `include_router` 순서(project → notification → admin)는 변경하지 않으며, 구성 원칙 문단과 §2 교차 참조만 갱신한다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md`: §3↔§4 본문 교체, 소제목 번호·내부 §3.1/§4.2 참조 정합, 목차·구성 원칙 문구
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: project_server 연관 경로 §3→§4
+- `docs/log/log.md`: 본 항목
+
+Changed files: docs/main/03_API_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+349. 2026-04-13 프로젝트 활성화 후 헤더 작업 프로젝트 목록 갱신
+Purpose: 비활성→활성 후 어드민 목록에는 보이나 `notifyParticipatingProjectsChanged` 미호출로 `ProjectHeaderSelect`가 이전 GET /api/projects 캐시를 유지해 드롭다운에 안 나왔다.
+
+Changes:
+
+- `AdminProjectsPage.jsx` `handleActivateProject`: 활성화 성공 시 `notifyParticipatingProjectsChanged()`
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
 
 348. 2026-04-13 프로젝트 모달: 페이지 기능 끄면 테이블 매핑 채널 비활성·저장 시 미적용
 Purpose: 쿼리 스튜디오·위젯보드 페이지를 끈 뒤에도 테이블 매핑 체크가 그대로여서 DB에 채널 Y로 남을 수 있었다. 기능이 꺼지면 해당 열·전체 선택 비활성, `table_mappings`는 `기능 ON && 체크`로만 전송한다.

@@ -2,7 +2,7 @@
  * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성 모달·수정·비활성)
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
- * 생성 성공 시 notifyParticipatingProjectsChanged. 비활성화·purge: 현재 작업 프로젝트면 refreshMe(/me가 토큰에서 project 제거)·notifyParticipatingProjectsChanged 후 홈(/)으로 이동.
+ * 생성·프로젝트 활성화 성공 시 notifyParticipatingProjectsChanged(헤더 드롭다운 재조회). 비활성화·purge: 현재 작업 프로젝트면 refreshMe·notify 후 홈(/)으로 이동.
  * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은「프로젝트 페이지 선택」과 연동: 쿼리 스튜디오·위젯보드 끄면 해당 열 비활성·체크 해제·API에는 해당 채널 N(미포함 시 행 제거).
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
@@ -544,6 +544,7 @@ export default function AdminProjectsPage() {
     setError('')
     try {
       await patchAdminProject(projectInfoId, { active_yn: 'Y' })
+      notifyParticipatingProjectsChanged()
       const sel = me?.project_info_id
       if (sel != null && Number(sel) === Number(projectInfoId)) {
         await refreshMe()

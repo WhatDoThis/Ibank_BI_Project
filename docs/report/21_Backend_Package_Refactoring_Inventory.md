@@ -273,7 +273,7 @@
 
 ### 연관 경로
 
-`notification_server`, `core/db.py`(ETL 일부), `Frontend/.../admin`, `03_API_GUIDE.md` §4
+`notification_server`, `core/db.py`(ETL 일부), `Frontend/.../admin`, `03_API_GUIDE.md` §3 (`admin_server`)
 
 ### 8.1 URL 도메인 → `service_*` (라우터는 `service.py`를 거치지 않음)
 
@@ -378,7 +378,7 @@
 
 ### 연관 경로
 
-`auth_server`(JWT), `notification_server`, FE 헤더, `03_API_GUIDE.md` §3
+`auth_server`(JWT), `notification_server`, FE 헤더, `03_API_GUIDE.md` §4 (`project_server`)
 
 ### 이 섹션 전용 체크리스트
 
@@ -540,3 +540,4 @@ Get-ChildItem -Path Backend\core -Filter *.py -Recurse | ForEach-Object {
 - 2026-04-13: §4.1 `require_*`·Depends 전수 인벤토리(`main` 등록 라우터·ETL batch 포함), §3 글로벌 체크 `require_*` 항목 [x].
 - 2026-04-13: §6 `health.py` `/api` 인덱스를 `main.py` 마운트 기준으로 갱신, §10 프로젝트 `select`→`refreshMe` 코드 대조 [x], Phase C `compileall` 확인 반영.
 - 2026-04-13: §5 `invite_expiry.py`, §11 `campaign_period.py`·`GET /page`, §12 `peak_guard.py`·체크리스트·§17 스모크 보강. `03_API_GUIDE` §5.3·`02_BACKEND_GUIDE` §2 트리 정합.
+- 2026-04-13: `03_API_GUIDE` 본문 읽기 순서 **§3 `admin_server` → §4 `project_server`**(라우터 마운트 순서는 §1.1·`main.py`와 동일). 본 문서 §8·§10의 03 절 번호 참조 갱신.

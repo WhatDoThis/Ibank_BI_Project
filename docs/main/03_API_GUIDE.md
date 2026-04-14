@@ -1,7 +1,7 @@
 # 백엔드 코드·API 통합 가이드
 
 본 문서는 **`Backend/`** 이하 패키지의 **코드 파일(모듈) 단위 기능을 표로 요약**하고, **시스템·업무 흐름을 ASCII 도식**으로 정리하는 통합 레퍼런스다.  
-**구성 원칙**: 백엔드 **동작 단위(호스트 앱 → auth → project → admin → 대시보드 등)** 로 큰 절을 나누고, **각 절에서는 흐름도 바로 아래에 그 흐름에 쓰이는 모듈·함수 표**를 둔다. (위에서 아래로 읽으면 API 한 줄의 원인을 같은 화면에서 따라갈 수 있게 한다.)  
+**구성 원칙**: 백엔드 **동작 단위(호스트 앱 → auth → admin → project → 대시보드 등)** 로 큰 절을 나누고, **라우터 마운트 순서**는 §1.1과 같다(auth 다음 project·notification·admin). **§3·§4**는 조직 관리 → 프로젝트 선택 흐름을 읽기 쉽게 admin을 project보다 앞에 둔다. **각 절에서는 흐름도 바로 아래에 그 흐름에 쓰이는 모듈·함수 표**를 둔다. (위에서 아래로 읽으면 API 한 줄의 원인을 같은 화면에서 따라갈 수 있게 한다.)
 디렉터리 트리·실행 방식·패키지 목록은 **02_BACKEND_GUIDE.md**, DB 스키마는 **04_DB_ARCHITECTURE.md**, 권한 모델은 **05_Permission_ARCHITECTURE.md**, AI 작업 분해는 **docs/report/03_AI_DEVELOP_GUIDE.md**를 병행한다.
 
 ---
@@ -10,8 +10,8 @@
 
 1. **[§1 API 호스트·공유 코어](#1-api-호스트공유-코어-api_server-core)** — 앱 기동, 로깅, DB 풀, `auth_config`·역할 코드
 2. **[§2 auth_server](#2-auth_server-인증세션권한-게이트)** — 로그인·토큰·`require_active_access`·`require_permission`·refresh/정지 연동
-3. **[§3 project_server](#3-project_server-프로젝트-목록선택초대-응답)** — 목록, `select`, 타부서 초대 수락·거절
-4. **[§4 admin_server](#4-admin_server-조직프로젝트-관리)** — 초대~생성~멤버, 소유 가드, 이관·정지
+3. **[§3 admin_server](#3-admin_server-조직프로젝트-관리)** — 초대~생성~멤버, 소유 가드, 이관·정지
+4. **[§4 project_server](#4-project_server-프로젝트-목록선택초대-응답)** — 목록, `select`, 타부서 초대 수락·거절
 5. **[§5 캠페인 대시보드](#5-캠페인-대시보드-campaign_dash--core)** — [§5.3 HTTP 라우터](#53-campaign_dash_serverrouterpy) · `dashboard_service`
 6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.1 알림](#61-notification_server) · [§6.2 위젯 보드 API](#62-widget_board_server) · 쿼리 스튜디오(`list-tables`·`describe-table`)·ETL 등
 
@@ -250,7 +250,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 
 ## 2. `auth_server` — 인증·세션·권한 게이트
 
-### 2.1 로그인·토큰·로그아웃 (프로젝트 선택은 §3)
+### 2.1 로그인·토큰·로그아웃 (프로젝트 선택은 §4)
 
 ```
 사용자
@@ -289,7 +289,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 │                                             ▼
 │  ◀─── { access_token, refresh_token } ─────┘
 │
-│  (홈에서 프로젝트 카드·JWT에 `project_info_id` 넣기 → §3 `POST …/select`)
+│  (홈에서 프로젝트 카드·JWT에 `project_info_id` 넣기 → §4 `POST …/select`)
 │
 ├─ 3. 보호 API (Bearer access_token) ───────────────────┐
 │                                                        ▼
@@ -567,109 +567,9 @@ PATCH /api/admin/users/{id}/suspend
 
 ---
 
-## 3. `project_server` — 프로젝트 목록·선택·초대 응답
+## 3. `admin_server` — 조직·프로젝트 관리
 
-### 3.1 프로젝트 선택 → 업무 진입
-
-```
-사용자 로그인 후 홈 화면
-│
-├─ GET /api/projects
-│  → 참여 프로젝트 카드 목록 (active_yn=Y만)
-│
-├─ 프로젝트 카드 클릭
-│  → POST /api/projects/{id}/select
-│  │
-│  ▼
-│  ┌──────────────────────────────────────────┐
-│  │  service.select_project_tokens            │
-│  │  → auth_service.rotate_session_tokens_    │
-│  │    with_project                           │
-│  │  ├─ session_log 유효 확인                 │
-│  │  ├─ project_ptcpnt_info 참여 확인         │
-│  │  ├─ is_project_active (비활성 거부)       │
-│  │  ├─ 비활성·잠금 계정 검사                 │
-│  │  ├─ 새 access_token (project_info_id 포함)│
-│  │  ├─ 새 refresh_token (project_info_id 포함)│
-│  │  └─ session_log UPDATE                    │
-│  └──────────────────────────────────────────┘
-│
-└─ 이후 API 호출
-   Authorization: Bearer {새 access_token}
-   → require_permission이 JWT의 project_info_id로
-     pmssn_list ∩ feature_flags 검증
-```
-
-### 3.2 타부서 초대 수락·거절
-
-```
-초대받은 사용자 (알림 벨에서 project_invite 확인)
-│
-├─ [수락] POST /api/projects/{id}/accept-invite
-│  body: { notification_info_id }
-│  │
-│  ▼
-│  ┌──────────────────────────────────────────────────┐
-│  │  [accept_project_invite]                          │
-│  │  ① notification_info 조회 + 본인 확인              │
-│  │  ② noti_content JSON 파싱                          │
-│  │     { project_info_id, pmssn_master_id,            │
-│  │       invite_user_id, invite_expires_at }          │
-│  │  ③ invite_expires_at 만료? → ValueError            │
-│  │  ④ project_info.active_yn = Y? → 비활성 거부       │
-│  │  ⑤ 이미 멤버? → ValueError                         │
-│  │  ⑥ _assert_pmssn_for_project (역할 정합)           │
-│  │  ⑦ project_ptcpnt_info INSERT (멤버 등록)          │
-│  │  ⑧ notification_info UPDATE (read_yn=Y)            │
-│  │  ⑨ _notify_inviter_invite_resolved (수락 알림)     │
-│  │     → 초대자에게 "OO님이 수락했습니다"              │
-│  │  ⑩ 수락자 본인에게 참여 완료 알림                   │
-│  │     → "프로젝트 참여가 완료되었습니다"              │
-│  │  ⑪ COMMIT                                          │
-│  └──────────────────────────────────────────────────┘
-│
-└─ [거절] POST /api/projects/{id}/reject-invite
-   body: { notification_info_id }
-   │
-   ▼
-   ┌──────────────────────────────────────────────────┐
-   │  [reject_project_invite]                          │
-   │  ① notification_info 조회 + 본인 확인              │
-   │  ② noti_content JSON 파싱                          │
-   │  ③ invite_expires_at 만료? → ValueError            │
-   │  ④ 이미 멤버? → "알림을 닫아 주세요"               │
-   │  ⑤ notification_info DELETE (알림 삭제)             │
-   │  ⑥ _notify_inviter_invite_resolved (거절 알림)     │
-   │     → 초대자에게 "OO님이 거절했습니다"              │
-   │  ⑦ COMMIT                                          │
-   └──────────────────────────────────────────────────┘
-```
-
-### 3.3 `project_server/router.py`
-
-| 엔드포인트 | 기능 |
-|------------|------|
-| `GET /api/projects` | 내 참여 프로젝트 목록 (활성만) |
-| `POST /api/projects/{id}/select` | 프로젝트 선택 → JWT 재발급 (`project_info_id` 포함) |
-| `POST /api/projects/{id}/accept-invite` | 타부서 초대 수락 |
-| `POST /api/projects/{id}/reject-invite` | 타부서 초대 거절 |
-
-### 3.4 `project_server/service.py`
-
-| 함수 | 기능 |
-|------|------|
-| `list_projects_for_user` | 참여 프로젝트 목록 (`active_yn=Y`, 역할명 포함) |
-| `select_project_tokens` | `auth_service.rotate_session_tokens_with_project` 위임 |
-| `_invite_expired_from_payload` | `invite_expires_at` ISO 파싱 → 만료 여부 |
-| `_notify_inviter_invite_resolved` | 초대자에게 수락/거절 결과 알림 INSERT |
-| `accept_project_invite` | 수락: 만료 검사 → 활성 확인 → 멤버 등록 → 알림 `read_yn` → 초대자 알림 → 수락자 참여 완료 알림 |
-| `reject_project_invite` | 거절: 만료 검사 → 알림 DELETE → 초대자 거절 알림 |
-
----
-
-## 4. `admin_server` — 조직·프로젝트 관리
-
-### 4.0 연계 한눈에
+### 3.0 연계 한눈에
 
 ```
 [사용자 초대 ~ 프로젝트 업무까지]
@@ -685,11 +585,11 @@ PATCH /api/admin/users/{id}/suspend
 └─ 6. 프로젝트 카드 선택 → POST /api/projects/{id}/select → require_permission 업무 API
 ```
 
-프로젝트 생성·멤버·소유 가드·이관·purge·부서 비활성 등 **세부 단계**는 아래 **§4.1** 을 본다.
+프로젝트 생성·멤버·소유 가드·이관·purge·부서 비활성 등 **세부 단계**는 아래 **§3.1** 을 본다.
 
 ---
 
-### 4.1 상세 동작 흐름
+### 3.1 상세 동작 흐름
 
 #### A. 프로젝트 생성 전체 흐름 (`create_project_full`)
 
@@ -743,7 +643,7 @@ POST /api/admin/projects
 
 #### B. 타부서 초대 수락·거절
 
-API·단계별 처리는 **§3.2** (`project_server` — `accept_project_invite` / `reject_project_invite`) 와 동일하다.
+API·단계별 처리는 **§4.2** (`project_server` — `accept_project_invite` / `reject_project_invite`) 와 동일하다.
 
 #### C. 멤버 추가 분기 (`add_member`)
 
@@ -980,7 +880,7 @@ GET /api/admin/projects/{id}/members
 
 ---
 
-### 4.2 사용자 정지·이관 (개요)
+### 3.2 사용자 정지·이관 (개요)
 
 ```
 관리자: 사용자 정지 시도
@@ -1024,11 +924,11 @@ GET /api/admin/projects/{id}/members
       └─ invalidate_all_sessions(do_commit=False) → 단일 commit
 ```
 
-> **보강**: 409·`blocking_assets`·일괄 변경은 **§4.1 D·E** 와 `ownership_guards.py` 를 본다. 정지 직후 세션 무효는 **§2.3.4** 와 맞춘다.
+> **보강**: 409·`blocking_assets`·일괄 변경은 **§3.1 D·E** 와 `ownership_guards.py` 를 본다. 정지 직후 세션 무효는 **§2.3.4** 와 맞춘다.
 
 ---
 
-### 4.3 `admin_server` 모듈 (`deps` ~ `router`)
+### 3.3 `admin_server` 모듈 (`deps` ~ `router`)
 
 #### `admin_server/deps.py`
 
@@ -1187,6 +1087,106 @@ GET /api/admin/projects/{id}/members
 | `POST /api/admin/projects/{id}/members` | 멤버 추가 (부서 내 즉시 / 타부서 알림) |
 | `PATCH /api/admin/projects/{id}/members/{uid}` | 멤버 역할 변경 |
 | `DELETE /api/admin/projects/{id}/members/{uid}` | 멤버 제거 |
+
+---
+
+## 4. `project_server` — 프로젝트 목록·선택·초대 응답
+
+### 4.1 프로젝트 선택 → 업무 진입
+
+```
+사용자 로그인 후 홈 화면
+│
+├─ GET /api/projects
+│  → 참여 프로젝트 카드 목록 (active_yn=Y만)
+│
+├─ 프로젝트 카드 클릭
+│  → POST /api/projects/{id}/select
+│  │
+│  ▼
+│  ┌──────────────────────────────────────────┐
+│  │  service.select_project_tokens            │
+│  │  → auth_service.rotate_session_tokens_    │
+│  │    with_project                           │
+│  │  ├─ session_log 유효 확인                 │
+│  │  ├─ project_ptcpnt_info 참여 확인         │
+│  │  ├─ is_project_active (비활성 거부)       │
+│  │  ├─ 비활성·잠금 계정 검사                 │
+│  │  ├─ 새 access_token (project_info_id 포함)│
+│  │  ├─ 새 refresh_token (project_info_id 포함)│
+│  │  └─ session_log UPDATE                    │
+│  └──────────────────────────────────────────┘
+│
+└─ 이후 API 호출
+   Authorization: Bearer {새 access_token}
+   → require_permission이 JWT의 project_info_id로
+     pmssn_list ∩ feature_flags 검증
+```
+
+### 4.2 타부서 초대 수락·거절
+
+```
+초대받은 사용자 (알림 벨에서 project_invite 확인)
+│
+├─ [수락] POST /api/projects/{id}/accept-invite
+│  body: { notification_info_id }
+│  │
+│  ▼
+│  ┌──────────────────────────────────────────────────┐
+│  │  [accept_project_invite]                          │
+│  │  ① notification_info 조회 + 본인 확인              │
+│  │  ② noti_content JSON 파싱                          │
+│  │     { project_info_id, pmssn_master_id,            │
+│  │       invite_user_id, invite_expires_at }          │
+│  │  ③ invite_expires_at 만료? → ValueError            │
+│  │  ④ project_info.active_yn = Y? → 비활성 거부       │
+│  │  ⑤ 이미 멤버? → ValueError                         │
+│  │  ⑥ _assert_pmssn_for_project (역할 정합)           │
+│  │  ⑦ project_ptcpnt_info INSERT (멤버 등록)          │
+│  │  ⑧ notification_info UPDATE (read_yn=Y)            │
+│  │  ⑨ _notify_inviter_invite_resolved (수락 알림)     │
+│  │     → 초대자에게 "OO님이 수락했습니다"              │
+│  │  ⑩ 수락자 본인에게 참여 완료 알림                   │
+│  │     → "프로젝트 참여가 완료되었습니다"              │
+│  │  ⑪ COMMIT                                          │
+│  └──────────────────────────────────────────────────┘
+│
+└─ [거절] POST /api/projects/{id}/reject-invite
+   body: { notification_info_id }
+   │
+   ▼
+   ┌──────────────────────────────────────────────────┐
+   │  [reject_project_invite]                          │
+   │  ① notification_info 조회 + 본인 확인              │
+   │  ② noti_content JSON 파싱                          │
+   │  ③ invite_expires_at 만료? → ValueError            │
+   │  ④ 이미 멤버? → "알림을 닫아 주세요"               │
+   │  ⑤ notification_info DELETE (알림 삭제)             │
+   │  ⑥ _notify_inviter_invite_resolved (거절 알림)     │
+   │     → 초대자에게 "OO님이 거절했습니다"              │
+   │  ⑦ COMMIT                                          │
+   └──────────────────────────────────────────────────┘
+```
+
+### 4.3 `project_server/router.py`
+
+| 엔드포인트 | 기능 |
+|------------|------|
+| `GET /api/projects` | 내 참여 프로젝트 목록 (활성만) |
+| `POST /api/projects/{id}/select` | 프로젝트 선택 → JWT 재발급 (`project_info_id` 포함) |
+| `POST /api/projects/{id}/accept-invite` | 타부서 초대 수락 |
+| `POST /api/projects/{id}/reject-invite` | 타부서 초대 거절 |
+
+### 4.4 `project_server/service.py`
+
+| 함수 | 기능 |
+|------|------|
+| `list_projects_for_user` | 참여 프로젝트 목록 (`active_yn=Y`, 역할명 포함) |
+| `select_project_tokens` | `auth_service.rotate_session_tokens_with_project` 위임 |
+| `_invite_expired_from_payload` | `invite_expires_at` ISO 파싱 → 만료 여부 |
+| `_notify_inviter_invite_resolved` | 초대자에게 수락/거절 결과 알림 INSERT |
+| `accept_project_invite` | 수락: 만료 검사 → 활성 확인 → 멤버 등록 → 알림 `read_yn` → 초대자 알림 → 수락자 참여 완료 알림 |
+| `reject_project_invite` | 거절: 만료 검사 → 알림 DELETE → 초대자 거절 알림 |
 
 ---
 
