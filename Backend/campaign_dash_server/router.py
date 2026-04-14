@@ -2,7 +2,7 @@
 Backend.campaign_dash_server.router (캠페인 대시보드 API 라우터)
 ===============================================================
 ibank_*_star_1(발송 팩트·JSONB 인구·시간대)·ibank_*_star_2(회원 스냅샷·JSONB). main에 등록되는 유일 대시보드 API.
-table_id는 프로젝트별 table_master + table_project_mapping(main/dash/star) 기준으로 허용 여부 검사(M1-8).
+table_id 허용은 db.is_table_allowed_for_project_dashboard(대시보드 기능 켜짐 시 dash는 table_master 카탈로그, 꺼짐 시 dash 매핑·*_star_ 물리 규칙).
 
 [Main Functions]
 ================

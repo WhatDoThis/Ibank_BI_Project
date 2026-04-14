@@ -13,25 +13,45 @@ widget_board_server.schemas (Pydantic 요청/응답)
 [Dependencies]
 =========
 - pydantic
+- Backend.widget_board_server.constants (BOARD_DSCRTN_MAX_LEN)
 """
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from Backend.widget_board_server.constants import BOARD_DSCRTN_MAX_LEN
 
 
 class WidgetBoardCreateBody(BaseModel):
     board_name: str | None = Field(None, max_length=200)
-    board_dscrtn: str | None = None
+    board_dscrtn: str | None = Field(
+        None,
+        description=f"보드 설명, 최대 {BOARD_DSCRTN_MAX_LEN}자",
+    )
     share_scope: str | None = Field(
         None,
         description="private(초대만) | project(동일 프로젝트 위젯보드 권한자 읽기 캔버스)",
     )
 
+    @field_validator("board_dscrtn")
+    @classmethod
+    def _board_dscrtn_len(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if len(v) > BOARD_DSCRTN_MAX_LEN:
+            raise ValueError(
+                f"보드 설명은 최대 {BOARD_DSCRTN_MAX_LEN}자까지 입력할 수 있습니다."
+            )
+        return v
+
 
 class WidgetBoardPatchBody(BaseModel):
     board_name: str | None = Field(None, max_length=200)
-    board_dscrtn: str | None = None
+    board_dscrtn: str | None = Field(
+        None,
+        description=f"보드 설명, 최대 {BOARD_DSCRTN_MAX_LEN}자",
+    )
     board_order: int | None = None
     is_default: bool | None = None
     share_scope: str | None = Field(
@@ -39,6 +59,17 @@ class WidgetBoardPatchBody(BaseModel):
         description="private | project (소유자만)",
     )
     active_yn: bool | None = Field(None, description="true=Y 활성, false=N 비활성 (소유자만)")
+
+    @field_validator("board_dscrtn")
+    @classmethod
+    def _board_dscrtn_len_patch(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if len(v) > BOARD_DSCRTN_MAX_LEN:
+            raise ValueError(
+                f"보드 설명은 최대 {BOARD_DSCRTN_MAX_LEN}자까지 입력할 수 있습니다."
+            )
+        return v
 
 
 class WidgetItemCreateBody(BaseModel):

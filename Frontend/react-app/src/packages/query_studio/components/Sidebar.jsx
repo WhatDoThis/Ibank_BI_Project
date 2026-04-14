@@ -7,7 +7,8 @@
  * [Main Functions]
  * ===========
  * 1. getTableFolder: 테이블명 → 폴더(I1/쿼리빌더/기타)
- * 2. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. 테이블 행 톱니바퀴 → onOpenTableLabelsModal(table). 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
+ * 2. getEmptyTableListHint: 테이블 목록이 비었을 때 dbStatus.ok(연결됨/아님)에 따라 매핑 안내 vs 연결 확인 문구
+ * 3. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. 테이블 행 톱니바퀴 → onOpenTableLabelsModal(table). 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
  *
  * [Dependencies]
  * =========
@@ -35,6 +36,17 @@ function getTableFolder(tableName) {
 const FOLDER_ORDER = [FOLDER_I1, FOLDER_QUERY_BUILDER, FOLDER_OTHER]
 
 // 2.
+function getEmptyTableListHint(dbStatus) {
+  if (dbStatus?.ok === true) {
+    return '표시할 테이블이 없으므로 프로젝트 설정에서 쿼리 스튜디오용 테이블 매핑이 있는지 확인한 뒤 목록을 새로고침하세요.'
+  }
+  if (dbStatus?.ok === false) {
+    return 'DB 연결을 확인해 주세요.'
+  }
+  return 'DB 연결 상태를 확인한 뒤 목록을 새로고침해 주세요.'
+}
+
+// 3.
 export default function Sidebar({
   tables = [],
   tableRelationships = {},
@@ -50,24 +62,24 @@ export default function Sidebar({
   const [folderExpanded, setFolderExpanded] = useState({ [FOLDER_I1]: true, [FOLDER_QUERY_BUILDER]: true, [FOLDER_OTHER]: true })
   const [searchKeyword, setSearchKeyword] = useState('')
 
-  // 3.
+  // 4.
   function toggleTable(tableName) {
     setTableExpanded((prev) => ({ ...prev, [tableName]: !prev[tableName] }))
   }
 
-  // 4.
+  // 5.
   function toggleFolder(folderName) {
     setFolderExpanded((prev) => ({ ...prev, [folderName]: !prev[folderName] }))
   }
 
-  // 5.
+  // 6.
   function onColumnDragStart(e, tableName, column) {
     e.dataTransfer.setData('application/json', JSON.stringify({ table: tableName, column: column.name, type: column.type, label: column.label }))
     e.dataTransfer.effectAllowed = 'copy'
     e.currentTarget.classList.add('dragging')
   }
 
-  // 6.
+  // 7.
   function onTableDragStart(e, tableRow) {
     const cols = tableRow.columns || []
     const columns = cols.map((c) => ({ name: c.name, type: c.type, label: c.label }))
@@ -79,7 +91,7 @@ export default function Sidebar({
     e.currentTarget.classList.add('dragging')
   }
 
-  // 7.
+  // 8.
   function onColumnDragEnd(e) {
     e.currentTarget.classList.remove('dragging')
   }
@@ -103,7 +115,7 @@ export default function Sidebar({
     return map
   }, [filteredTables])
 
-  // 8.
+  // 9.
   function renderTableGroup(t) {
     const expanded = !!tableExpanded[t.table_name]
     const cols = t.columns || []
@@ -215,7 +227,7 @@ export default function Sidebar({
       </div>
       <div className="sidebar-content">
         {loading && '로딩 중...'}
-        {!loading && tables.length === 0 && 'DB 설정 후 새로고침하세요. (Env/config/config.json)'}
+        {!loading && tables.length === 0 && getEmptyTableListHint(dbStatus)}
         {!loading && tables.length > 0 && (
           <>
             {FOLDER_ORDER.map((folderName) => {

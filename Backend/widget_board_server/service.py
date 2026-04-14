@@ -3,7 +3,7 @@ widget_board_server.service (위젯 보드 CRUD·데이터 조회)
 ======================================================
 system_db: widget_board, widget_item, widget_board_share.
 읽기 접근: 소유자·`widget_board_share`·또는 `share_scope=project` 인 동일 프로젝트 참여자(`_can_read_board`·`list_boards`).
-saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True)` 로 위젯보드 플래그 매핑만 허용(main/dash)하며, 물리 존재는 매핑이 가리키는 DB(메인 우선)에서 확인한다. query 타입은 SQL 안전 검사.
+saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_type=main)` 로만 허용한다. dash_db 테이블은 위젯보드 saved_table·list-tables에 쓰이지 않는다. query 타입은 SQL 안전 검사.
 
 [Main Functions]
 ===========
@@ -24,7 +24,7 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True)` 로 
   mark_notification_read_in_txn, delete_notification_by_id_in_txn,
   user_has_pending_widget_board_invite, delete_widget_board_notifications_for_board_in_txn,
   notify_inviter_widget_board_invite_resolved)
-- psycopg2.extras.Json, psycopg2.sql
+- psycopg2.extras.Json, psycopg2.sql, psycopg2.errors(StringDataRightTruncation → 보드 설명·이름 길이 안내)
 - Backend.auth_server.permissions.is_project_participant
 - Backend.core.invite_expiry.invite_expired_from_payload
 - Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, validate_table_identifier, validate_column_name, get_allowed_tables_by_project, format_value, _table_exists)
@@ -37,6 +37,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from psycopg2 import errors as pg_errors
 from psycopg2 import sql as psql
 from psycopg2.extras import Json, RealDictCursor
 
@@ -398,6 +399,11 @@ def create_board(
         row = cur.fetchone()
         conn.commit()
         return dict(row)
+    except pg_errors.StringDataRightTruncation:
+        conn.rollback()
+        raise ValueError(
+            "보드 설명(또는 이름)이 DB에 허용된 길이를 초과합니다. 내용을 줄여 주세요."
+        ) from None
     except Exception:
         conn.rollback()
         raise
@@ -508,6 +514,11 @@ def patch_board(
         if _board_is_active(b2):
             return get_board_detail(conn, user_id, project_id, board_id)
         return dict(b2)
+    except pg_errors.StringDataRightTruncation:
+        conn.rollback()
+        raise ValueError(
+            "보드 설명(또는 이름)이 DB에 허용된 길이를 초과합니다. 내용을 줄여 주세요."
+        ) from None
     except Exception:
         conn.rollback()
         raise
@@ -1103,23 +1114,16 @@ def _allowed_saved_table(project_id: int, table_name: str) -> str:
     allowed_main = db.get_allowed_tables_by_project(
         int(project_id), "main", usage_widgetboard=True
     )
-    allowed_dash = db.get_allowed_tables_by_project(
-        int(project_id), "dash", usage_widgetboard=True
-    )
-    in_main = ref in allowed_main
-    in_dash = ref in allowed_dash
-    if not in_main and not in_dash:
+    if ref not in allowed_main:
         raise ValueError("프로젝트에 매핑되지 않은 테이블입니다. 쿼리 스튜디오에서 저장한 테이블은 자동 매핑되며, 그 외는 프로젝트·테이블 마스터에서 매핑하세요.")
-    # list-tables / describe-table 과 동일: main·dash 동시 매핑 시 main 우선
-    db_type = "main" if in_main else "dash"
-    schema = db.get_table_schema() if db_type == "main" else db.get_dash_table_schema()
-    mconn = db.get_db_connection() if db_type == "main" else db.get_db_connection_dash()
+    schema = db.get_table_schema()
+    mconn = db.get_db_connection()
     try:
         if not db._table_exists(mconn, schema, ref):
             raise ValueError(f"테이블을 찾을 수 없습니다: {ref}")
     finally:
         mconn.close()
-    return db_type
+    return "main"
 
 
 # 8.

@@ -5,7 +5,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 
 [Main Functions]
 ===========
-1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시)·…·타부서 알림
+1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시; 매핑은 main table_master만)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE)
 4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member / update_member_role
@@ -75,19 +75,28 @@ def _sync_project_table_mappings_with_usage(
         if tmid in seen:
             continue
         seen.add(tmid)
+        cur.execute(
+            """
+            SELECT LOWER(TRIM(COALESCE(db_type, ''))) AS db_type_norm
+            FROM table_master WHERE table_master_id = %s
+            """,
+            (tmid,),
+        )
+        trow = cur.fetchone()
+        if not trow:
+            raise ValueError(f"테이블 마스터를 찾을 수 없습니다. (table_master_id={tmid})")
+        master_dbt = str(trow.get("db_type_norm") or "").strip() or "main"
+        if master_dbt != "main":
+            raise ValueError(
+                "프로젝트 테이블 매핑은 main_db(table_master)만 가능합니다. "
+                f"(table_master_id={tmid})"
+            )
         qs = bool(raw.get("use_query_studio", True))
         wb = bool(raw.get("use_widgetboard", True))
         if not qs and not wb:
             continue
         normalized.append((tmid, "Y" if qs else "N", "Y" if wb else "N"))
     ids = [x[0] for x in normalized]
-    for tmid in ids:
-        cur.execute(
-            "SELECT 1 FROM table_master WHERE table_master_id = %s",
-            (tmid,),
-        )
-        if not cur.fetchone():
-            raise ValueError(f"테이블 마스터를 찾을 수 없습니다. (table_master_id={tmid})")
     if not ids:
         cur.execute(
             "DELETE FROM table_project_mapping WHERE project_info_id = %s",
@@ -119,16 +128,27 @@ def _sync_project_table_mappings_with_usage(
 
 
 def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: list[int]) -> None:
-    """레거시: 나열된 table_master 는 쿼리 스튜디오·위젯보드 모두 Y."""
+    """레거시: 나열된 table_master 는 쿼리 스튜디오·위젯보드 모두 Y (main 테이블만)."""
     ids = list(dict.fromkeys(int(x) for x in table_master_ids if x is not None))
-    entries: list[dict[str, Any]] = [
-        {
+    entries: list[dict[str, Any]] = []
+    for i in ids:
+        cur.execute(
+            """
+            SELECT LOWER(TRIM(COALESCE(db_type, ''))) AS db_type_norm
+            FROM table_master WHERE table_master_id = %s
+            """,
+            (i,),
+        )
+        trow = cur.fetchone()
+        if not trow:
+            raise ValueError(f"테이블 마스터를 찾을 수 없습니다. (table_master_id={i})")
+        if str(trow.get("db_type_norm") or "").strip() != "main":
+            continue
+        entries.append({
             "table_master_id": i,
             "use_query_studio": True,
             "use_widgetboard": True,
-        }
-        for i in ids
-    ]
+        })
     _sync_project_table_mappings_with_usage(cur, project_info_id, entries)
 
 
@@ -388,13 +408,19 @@ def create_project_full(
         else:
             for tmid in tid_list:
                 cur.execute(
-                    "SELECT 1 FROM table_master WHERE table_master_id = %s",
+                    """
+                    SELECT LOWER(TRIM(COALESCE(db_type, ''))) AS db_type_norm
+                    FROM table_master WHERE table_master_id = %s
+                    """,
                     (tmid,),
                 )
-                if not cur.fetchone():
+                trow = cur.fetchone()
+                if not trow:
                     raise ValueError(
                         f"테이블 마스터를 찾을 수 없습니다. (table_master_id={tmid})"
                     )
+                if str(trow.get("db_type_norm") or "").strip() != "main":
+                    continue
                 cur.execute(
                     """
                     INSERT INTO table_project_mapping (

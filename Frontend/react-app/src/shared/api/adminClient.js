@@ -37,9 +37,9 @@ export async function getAdminRolesProjectAssignable() {
   return request('GET', '/api/admin/roles?scope=project_assignable')
 }
 
-/** 테이블 마스터 — sort=project_create 시 dash 우선 정렬 */
+/** 프로젝트 매핑용: main_db table_master만 (QS·위젯보드) */
 export async function getAdminTablesForProjectCreate() {
-  return request('GET', '/api/admin/tables?limit=2000&sort=project_create')
+  return request('GET', '/api/admin/tables?db_type=main&limit=2000&sort=project_create')
 }
 
 export async function patchAdminUserSuspend(userId) {
@@ -188,9 +188,12 @@ export async function getAdminProjects() {
   return request('GET', '/api/admin/projects')
 }
 
-/** @returns {Promise<{ items?: Array<{ table_master_id: number, db_type?: string, table_name?: string, table_label?: string, use_query_studio?: boolean, use_widgetboard?: boolean }> }>} */
+/**
+ * QS·위젯보드용 main 매핑만 조회 (`db_type=main`).
+ * @returns {Promise<{ items?: Array<{ table_master_id: number, db_type?: string, table_name?: string, table_label?: string, use_query_studio?: boolean, use_widgetboard?: boolean }> }>}
+ */
 export async function getAdminProjectTables(projectInfoId) {
-  return request('GET', `/api/admin/projects/${projectInfoId}/tables`)
+  return request('GET', `/api/admin/projects/${projectInfoId}/tables?db_type=main`)
 }
 
 /**

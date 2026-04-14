@@ -798,7 +798,7 @@ def admin_tables_list(
     limit: int = Query(300, ge=1, le=2000),
     sort: str | None = Query(
         None,
-        description="project_create: dash 우선·update_dtm desc·table_name",
+        description="project_create: db_type=main이면 update_dtm desc·table_name; 아니면 dash 우선·동일",
     ),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
@@ -837,7 +837,10 @@ def admin_table_patch(
 @router.get("/projects/{project_info_id}/tables")
 def admin_project_tables_list(
     project_info_id: int,
-    db_type: str | None = Query(None, description="main|dash"),
+    db_type: str | None = Query(
+        None,
+        description="main|dash. 프로젝트 QS/WB 매핑 UI는 main만 조회 권장",
+    ),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),
 ):

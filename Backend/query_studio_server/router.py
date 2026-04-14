@@ -22,17 +22,17 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 [Endpoints]
 ===========
 11. list_tables: GET /api/list-tables?mapping_usage=query_studio|widgetboard (채널별 매핑)
-12. describe_table: POST /api/describe-table (mapping_usage 동일, main/dash 매핑 연결별 존재 확인)
+12. describe_table: POST /api/describe-table (mapping_usage 동일, main_db 매핑 테이블만·항상 main 연결)
 13. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
 14. save_column_labels: POST /api/column-labels (라벨 저장)
 15. table_relationships: GET /api/table-relationships (mode=fk|all, JWT project_info_id 필수)
 16. api_join_order: POST /api/join-order (JOIN 순서, 허용 테이블은 프로젝트 매핑 병합 집합)
 17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
 18. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
-19. execute_query: POST /api/execute-query (SELECT 실행)
+19. execute_query: POST /api/execute-query (SELECT, main_db만)
 20. explain_sql: POST /api/explain-sql (Claude 해석)
-21. get_column_values: POST /api/get-column-values (컬럼 고유값)
-22. query_stats: POST /api/query-stats (쿼리 통계)
+21. get_column_values: POST /api/get-column-values (main_db·main 매핑만)
+22. query_stats: POST /api/query-stats (COUNT·EXPLAIN, main_db만)
 
 [Dependencies]
 =========
@@ -596,8 +596,8 @@ def _resolve_project_table_db_type(
     *,
     for_widgetboard: bool = False,
 ) -> str:
-    """프로젝트 매핑 기준 table_name의 db_type(main|dash) 결정. 동명이인 경우 main 우선."""
-    t = db.validate_table_name(table_name)
+    """쿼리 스튜디오·위젯보드 채널: main_db(table_master) 매핑에 있을 때만 main. dash 매핑은 사용하지 않는다."""
+    t = db.validate_table_identifier(table_name)
     kw: dict = (
         {"usage_widgetboard": True}
         if for_widgetboard
@@ -610,14 +610,21 @@ def _resolve_project_table_db_type(
     )
     if t in main_set:
         return "main"
-    dash_set = db.get_allowed_tables(
-        project_info_id=int(project_info_id),
-        db_type="dash",
-        **kw,
+    raise ValueError("프로젝트에 매핑되지 않은 테이블입니다. (쿼리 스튜디오·위젯보드는 main DB 테이블만)")
+
+
+def _qs_mapped_table_conn(
+    project_info_id: int,
+    table_name: str,
+    *,
+    for_widgetboard: bool,
+    main_conn,
+):
+    """QS·위젯보드 list/describe/고유값: 항상 main_db 연결(main_conn, 닫지 않음)."""
+    _resolve_project_table_db_type(
+        int(project_info_id), table_name, for_widgetboard=for_widgetboard
     )
-    if t in dash_set:
-        return "dash"
-    raise ValueError("프로젝트에 매핑되지 않은 테이블입니다.")
+    return main_conn, db.get_table_schema(), False
 
 
 # 10.
@@ -648,17 +655,8 @@ def list_tables(
             include_meta=True,
             **filt,
         )
-        allowed_rows_dash = db.get_allowed_tables(
-            project_info_id=int(project_info_id),
-            db_type="dash",
-            include_meta=True,
-            **filt,
-        )
-        # 동명이인(main/dash 모두 존재)인 경우 기존 query_studio 호환을 위해 main 우선 노출.
-        allowed_map = {row["table_name"]: row for row in allowed_rows_dash}
-        for row in allowed_rows_main:
-            allowed_map[row["table_name"]] = row
-        allowed_names = list(allowed_map.keys())
+        allowed_map = {row["table_name"]: row for row in allowed_rows_main}
+        allowed_names = sorted(allowed_map.keys())
         if not allowed_names:
             return {"tables": [], "count": 0}
 
@@ -728,12 +726,9 @@ def describe_table(
             else _empty_user_labels()
         )
         file_labels = _load_labels_file()
-        db_type = _resolve_project_table_db_type(
-            int(pid), table_name, for_widgetboard=for_wb
+        conn_target, schema, should_close_conn_target = _qs_mapped_table_conn(
+            int(pid), table_name, for_widgetboard=for_wb, main_conn=conn
         )
-        schema = db.get_table_schema() if db_type == "main" else db.get_dash_table_schema()
-        conn_target = conn if db_type == "main" else db.get_db_connection_dash()
-        should_close_conn_target = db_type == "dash"
         if not db._table_exists(conn_target, schema, table_name):
             raise ValueError(f"테이블을 찾을 수 없습니다: {table_name}")
         cur = conn_target.cursor(cursor_factory=RealDictCursor)
@@ -792,7 +787,7 @@ def get_column_labels(
 ):
     """테이블별 컬럼 라벨·테이블 라벨 조회(유저 저장 ∪ 파일, 표시용 table_label은 병합 해석)."""
     try:
-        table_name = db.validate_table_name(table_name)
+        table_name = db.validate_table_identifier(table_name)
         uid = _perm.get("user_id")
         pid = _perm.get("project_info_id")
         user_labels = (
@@ -818,7 +813,7 @@ def save_column_labels(
 ):
     """테이블·컬럼 라벨을 계정·프로젝트별 JSON(system DB)에 저장. 미입력 시 파일·기본값이 표시에 사용됨."""
     try:
-        table_name = db.validate_table_name(body.table_name)
+        table_name = db.validate_table_identifier(body.table_name)
         user_id = int(_perm["user_id"])
         project_info_id = int(_perm["project_info_id"])
         data = _load_user_project_labels(user_id, project_info_id)
@@ -1404,6 +1399,7 @@ def execute_query(
     conn=Depends(get_db),
     cfg=Depends(get_config),
 ):
+    cur = None
     try:
         query = (body.query or "").strip()
         _log("request: len=%s startswith_SELECT=%s", len(query), query.upper().startswith("SELECT"))
@@ -1436,6 +1432,7 @@ def execute_query(
         _log("execute_query: DB 실행 %d ms, 행 %d", _db_ms, len(rows))
         result = [dict((k, db.format_value(v)) for k, v in row.items()) for row in rows]
         cur.close()
+        cur = None
         payload = {"data": result, "count": len(result), "query": query}
 
         def _json_default(obj):
@@ -1464,6 +1461,12 @@ def execute_query(
         import traceback
         _log("traceback: %s", traceback.format_exc())
         return JSONResponse(status_code=500, content={"error": str(e), "message": "쿼리 실행 실패"})
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
 
 
 # 21.
@@ -1534,28 +1537,54 @@ def get_column_values(
     _perm: dict = Depends(require_query_read_perm),
     conn=Depends(get_db),
 ):
+    conn_target = None
+    cur = None
+    should_close = False
     try:
-        table_name = db.validate_table_name(body.table_name)
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        table_name = db.validate_table_identifier(body.table_name)
         column_name = db.validate_column_name(body.column_name)
         limit = min(body.limit or 100, 1000)
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute(
-            f'SELECT DISTINCT "{column_name}" FROM {table_name} WHERE "{column_name}" IS NOT NULL ORDER BY "{column_name}" LIMIT %s',
-            (limit,),
+        conn_target, schema, should_close = _qs_mapped_table_conn(
+            int(project_info_id), table_name, for_widgetboard=False, main_conn=conn
         )
+        if not db._table_exists(conn_target, schema, table_name):
+            raise ValueError(f"테이블을 찾을 수 없습니다: {table_name}")
+        cur = conn_target.cursor(cursor_factory=RealDictCursor)
+        q = pg_sql.SQL(
+            "SELECT DISTINCT {col} FROM {tbl} WHERE {col} IS NOT NULL ORDER BY {col} LIMIT %s"
+        ).format(
+            col=pg_sql.Identifier(column_name),
+            tbl=pg_sql.Identifier(schema, table_name),
+        )
+        cur.execute(q, (limit,))
         rows = cur.fetchall()
         values = [db.format_value(row[column_name]) for row in rows]
-        cur.close()
         return {
             "table": table_name,
             "column": column_name,
             "values": values,
             "count": len(values),
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "message": "고유값 조회 실패"})
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if should_close and conn_target is not None:
+            try:
+                conn_target.close()
+            except Exception:
+                pass
 
 
 # 23.
@@ -1564,7 +1593,9 @@ def query_stats(
     body: QueryStatsRequest,
     _perm: dict = Depends(require_query_execute_perm),
     conn=Depends(get_db),
+    cfg=Depends(get_config),
 ):
+    cur = None
     try:
         query = (body.query or "").strip()
         if not query or not query.upper().startswith("SELECT"):
@@ -1572,15 +1603,29 @@ def query_stats(
         dangerous = _contains_dangerous_sql(query)
         if dangerous:
             return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
+        timeout = getattr(cfg, "query_timeout_seconds", None)
+        if timeout is None:
+            raise ValueError("Env/config/config.json 에 backend.query_timeout_seconds 가 없습니다.")
+        timeout = int(timeout)
+        if timeout < 60:
+            timeout = 120
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(f"SET statement_timeout = '{timeout}s'")
         cur.execute("SELECT COUNT(*) as total FROM (" + query + ") as subquery")
         count_result = cur.fetchone()
         cur.execute("EXPLAIN " + query)
         explain_result = cur.fetchall()
         cur.close()
+        cur = None
         return {
             "total_rows": count_result["total"],
             "explain": [row["QUERY PLAN"] for row in explain_result],
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "message": "통계 조회 실패"})
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass

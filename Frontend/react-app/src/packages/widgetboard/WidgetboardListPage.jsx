@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/auth/AuthContext, ./api/widgetBoardClient, shared/utils/crudConfirm
+ * - react-router-dom, app/auth/AuthContext, ./api/widgetBoardClient, ./constants, shared/utils/crudConfirm
  * - app/admin/admin-pages.css, admin-users.css, admin-org.css(생성·수정 모달), widgetboard.css
  */
 
@@ -29,6 +29,7 @@ import {
   deleteWidgetBoardShare,
   postWidgetBoardInviteNotifications
 } from '@/packages/widgetboard/api/widgetBoardClient.js'
+import { WIDGET_BOARD_DSCRTN_MAX_LEN } from '@/packages/widgetboard/constants.js'
 
 import '@/app/admin/admin-pages.css'
 import '@/app/admin/admin-users.css'
@@ -152,6 +153,12 @@ export default function WidgetboardListPage() {
 
   const handleCreate = async () => {
     const name = cName.trim() || '새 위젯 보드'
+    if (cDesc.length > WIDGET_BOARD_DSCRTN_MAX_LEN) {
+      setError(
+        `보드 설명은 최대 ${WIDGET_BOARD_DSCRTN_MAX_LEN}자까지 입력할 수 있습니다.`,
+      )
+      return
+    }
     setBusyId(-1)
     try {
       await createWidgetBoard({
@@ -173,6 +180,12 @@ export default function WidgetboardListPage() {
 
   const handleSaveEdit = async () => {
     if (!editRow) return
+    if (eDesc.length > WIDGET_BOARD_DSCRTN_MAX_LEN) {
+      setError(
+        `보드 설명은 최대 ${WIDGET_BOARD_DSCRTN_MAX_LEN}자까지 입력할 수 있습니다.`,
+      )
+      return
+    }
     const id = editRow.widget_board_id
     setBusyId(id)
     try {
@@ -516,8 +529,13 @@ export default function WidgetboardListPage() {
                   className="admin-org__input wb-list-modal__textarea"
                   value={cDesc}
                   onChange={(e) => setCDesc(e.target.value)}
-                  rows={3}
+                  rows={4}
+                  maxLength={WIDGET_BOARD_DSCRTN_MAX_LEN}
+                  spellCheck={false}
                 />
+                <p className="wb-list-modal__dsc-hint">
+                  {cDesc.length} / {WIDGET_BOARD_DSCRTN_MAX_LEN}
+                </p>
               </label>
               <label className="admin-org__label">
                 공유 범위
@@ -591,8 +609,13 @@ export default function WidgetboardListPage() {
                   className="admin-org__input wb-list-modal__textarea"
                   value={eDesc}
                   onChange={(e) => setEDesc(e.target.value)}
-                  rows={3}
+                  rows={4}
+                  maxLength={WIDGET_BOARD_DSCRTN_MAX_LEN}
+                  spellCheck={false}
                 />
+                <p className="wb-list-modal__dsc-hint">
+                  {eDesc.length} / {WIDGET_BOARD_DSCRTN_MAX_LEN}
+                </p>
               </label>
               <label className="admin-org__label">
                 공유 범위
@@ -850,9 +873,7 @@ export default function WidgetboardListPage() {
                 </li>
               </ul>
               <p className="wb-delete-confirm__note">
-                초대·수락·거절 알림은 보드와 FK로 직접 묶이지 않고 알림 본문(JSON)에 보드 ID만 담기는 형태입니다. 삭제 시 서버에서
-                해당 유형 알림을 가능한 범위로 함께 정리하며, 화면에서는 건수를 확정하지 않습니다. 보드 정의 행은 마지막에
-                제거됩니다.
+                초대·수락·거절 알림은 삭제 시 서버에서 해당 유형 알림을 가능한 범위로 함께 정리하며, 화면에서는 건수를 확정하지 않습니다.
               </p>
             </div>
             <div className="admin-org__modal-actions">

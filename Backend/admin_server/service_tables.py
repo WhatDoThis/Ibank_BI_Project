@@ -5,10 +5,10 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 
 [Main Functions]
 ===========
-1. list_table_master(project_create 정렬: dash 우선·update_dtm·table_name)
+1. list_table_master(project_create: db_type=main이면 update_dtm·table_name; 그 외에는 dash 우선 포함 정렬)
 2. update_table_master
 3. list_project_tables(use_query_studio·use_widgetboard bool)
-4. add_project_table_mapping(양 채널 Y 기본)
+4. add_project_table_mapping(main table_master만, 양 채널 Y 기본)
 5. delete_project_table_mapping
 
 [Endpoints/Classes/Functions]
@@ -93,13 +93,19 @@ def list_table_master(
         """
         params.extend([like_term, like_term])
     if project_create:
-        sql += """
-            ORDER BY
-                CASE WHEN LOWER(TRIM(COALESCE(db_type,''))) = 'dash' THEN 0 ELSE 1 END,
-                update_dtm DESC NULLS LAST,
-                table_name ASC
-            LIMIT %s
-        """
+        if dbt == "main":
+            sql += """
+                ORDER BY update_dtm DESC NULLS LAST, table_name ASC
+                LIMIT %s
+            """
+        else:
+            sql += """
+                ORDER BY
+                    CASE WHEN LOWER(TRIM(COALESCE(db_type,''))) = 'dash' THEN 0 ELSE 1 END,
+                    update_dtm DESC NULLS LAST,
+                    table_name ASC
+                LIMIT %s
+            """
     else:
         sql += " ORDER BY db_type, table_name LIMIT %s"
     params.append(lim)
@@ -207,11 +213,22 @@ def add_project_table_mapping(
     try:
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
         cur.execute(
-            "SELECT table_master_id FROM table_master WHERE table_master_id = %s",
+            """
+            SELECT table_master_id,
+                   LOWER(TRIM(COALESCE(db_type,''))) AS db_type_norm
+            FROM table_master
+            WHERE table_master_id = %s
+            """,
             (table_master_id,),
         )
-        if not cur.fetchone():
+        tm_row = cur.fetchone()
+        if not tm_row:
             raise ValueError("테이블 마스터를 찾을 수 없습니다.")
+        mdt = str(tm_row.get("db_type_norm") or "").strip() or "main"
+        if mdt != "main":
+            raise ValueError(
+                "프로젝트 테이블 매핑은 main_db(table_master)만 가능합니다."
+            )
 
         cur.execute(
             """

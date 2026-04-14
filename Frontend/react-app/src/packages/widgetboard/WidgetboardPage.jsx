@@ -2,7 +2,7 @@
  * packages/widgetboard/WidgetboardPage.jsx (위젯보드 캔버스)
  * ======================================================
  * 라우트 `/widgetboard/:boardId`. 왼쪽: 위젯 팔레트(드롭). 오른쪽: 캔버스. 목록은 WidgetboardListPage.
- * 연결한 테이블 기준 listTables/describeTable/executeQuery → dataUtils로 KPI·차트·테이블 자동 렌더링.
+ * 연결한 테이블 기준 listTables/describeTable/executeQuery(main_db) → dataUtils로 KPI·차트·테이블 자동 렌더링.
  *
  * [Main Functions]
  * ===========

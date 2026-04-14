@@ -3,7 +3,7 @@
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
  * 생성·프로젝트 활성화·비활성화·purge 성공 시 notifyParticipatingProjectsChanged(헤더 드롭다운 재조회). 비활성화·purge: 현재 작업 프로젝트면 refreshMe 후 홈(/)으로 이동.
- * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은「프로젝트 페이지 선택」과 연동: 쿼리 스튜디오·위젯보드 끄면 해당 열 비활성·체크 해제·API에는 해당 채널 N(미포함 시 행 제거).
+ * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 QS·위젯보드용으로 main_db(table_master)만 API에서 내려줌; 대시보드 허용 테이블은 별도(서버 table_master·feature_flags). QS/WB는 페이지 선택과 연동.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
@@ -707,7 +707,7 @@ export default function AdminProjectsPage() {
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">테이블 매핑</div>
                   <p className="ap__hint ap__hint--tight">
-                    「프로젝트 페이지 선택」에서 쿼리 스튜디오·위젯보드를 끄면 해당 열은 비활성화되고(체크는 꺼진 것처럼 보임), 저장 시 해당 채널은 DB에 적용되지 않습니다. 기능을 다시 켜면 이전에 켜 둔 매핑 선택이 그대로 보입니다.
+                    「프로젝트 페이지 선택」에서 쿼리 스튜디오·위젯보드를 끄면 해당 열은 비활성화되고(체크는 꺼진 것처럼 보임), 저장 시 해당 채널은 DB에 적용되지 않습니다. 기능을 다시 켜면 이전에 켜 둔 매핑 선택이 그대로 보입니다. 이 목록은 main_db 테이블만(쿼리 스튜디오·위젯보드용)이며, 대시보드에서 쓰는 테이블 허용은 서버가 별도로 판단합니다.
                   </p>
                   <div className="ap__table-pick-head ap__table-pick-head--dual">
                     <label className="ap__check">
@@ -741,7 +741,6 @@ export default function AdminProjectsPage() {
                     <table className="ap__table ap__table--compact">
                       <thead>
                         <tr>
-                          <th>DB</th>
                           <th>테이블명</th>
                           <th>라벨</th>
                           <th>쿼리스튜디오</th>
@@ -754,7 +753,6 @@ export default function AdminProjectsPage() {
                           const u = tableUsageById[id] || { qs: false, wb: false }
                           return (
                             <tr key={String(id)}>
-                              <td>{t.db_type || '—'}</td>
                               <td className="ap__mono">{t.table_name || '—'}</td>
                               <td>{t.table_label || '—'}</td>
                               <td>
@@ -762,9 +760,7 @@ export default function AdminProjectsPage() {
                                   type="checkbox"
                                   checked={Boolean(enabledPages.queryStudio && u.qs)}
                                   onChange={() => toggleTableChannel(id, 'qs')}
-                                  disabled={
-                                    formBusy || lockPagesTables || !enabledPages.queryStudio
-                                  }
+                                  disabled={formBusy || lockPagesTables || !enabledPages.queryStudio}
                                 />
                               </td>
                               <td>
@@ -772,9 +768,7 @@ export default function AdminProjectsPage() {
                                   type="checkbox"
                                   checked={Boolean(enabledPages.widgetboard && u.wb)}
                                   onChange={() => toggleTableChannel(id, 'wb')}
-                                  disabled={
-                                    formBusy || lockPagesTables || !enabledPages.widgetboard
-                                  }
+                                  disabled={formBusy || lockPagesTables || !enabledPages.widgetboard}
                                 />
                               </td>
                             </tr>

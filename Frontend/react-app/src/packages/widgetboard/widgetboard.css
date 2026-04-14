@@ -755,12 +755,23 @@
   white-space: nowrap;
 }
 
-/* 위젯보드 목록 생성/수정 모달: 설명 textarea — 부서관리 입력(admin-org__input)과 톤 맞춤, pill 대신 카드 모서리 */
+/* 위젯보드 목록 생성/수정 모달: 설명 textarea — 고정 높이, 넘치면 스크롤(상용 폼에서 영역 무한 확장 방지) */
 .wb-list-modal__textarea.admin-org__input {
   border-radius: var(--radius-card);
-  min-height: 72px;
-  resize: vertical;
+  box-sizing: border-box;
+  height: 5.5rem;
+  min-height: 5.5rem;
+  max-height: 5.5rem;
+  resize: none;
+  overflow-y: auto;
   line-height: 1.45;
+}
+
+.wb-list-modal__dsc-hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-align: right;
 }
 
 /* 위젯보드 목록: 완전 삭제 확인 — 연관 삭제 목록(길면 스크롤) */

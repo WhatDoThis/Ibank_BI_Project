@@ -6,10 +6,10 @@ FastAPI POST 엔드포인트 요청 검증용 Pydantic 모델(쿼리 스튜디�
 [Pydantic Models]
 ===========
 1. DescribeTableRequest: POST /api/describe-table(table_name, mapping_usage query_studio|widgetboard)
-2. ExecuteQueryRequest: POST /api/execute-query
+2. ExecuteQueryRequest: POST /api/execute-query(query)
 3. ExplainSqlRequest: POST /api/explain-sql (query/sql)
 4. GetColumnValuesRequest: POST /api/get-column-values
-5. QueryStatsRequest: POST /api/query-stats
+5. QueryStatsRequest: POST /api/query-stats(query)
 6. JoinOrderRequest: POST /api/join-order
 7. SaveQueryAsTableRequest: POST /api/save-query-as-table
 8. ColumnLabelsRequest: GET/POST /api/column-labels
@@ -35,7 +35,7 @@ class DescribeTableRequest(BaseModel):
 
 # 2.
 class ExecuteQueryRequest(BaseModel):
-    query: str = Field(..., description="SELECT 쿼리")
+    query: str = Field(..., description="SELECT 쿼리 (main_db에서만 실행)")
 
 
 # 3.
@@ -56,7 +56,7 @@ class GetColumnValuesRequest(BaseModel):
 
 # 5.
 class QueryStatsRequest(BaseModel):
-    query: str = Field(..., description="SELECT 쿼리")
+    query: str = Field(..., description="SELECT 쿼리 (main_db)")
 
 
 # 6.

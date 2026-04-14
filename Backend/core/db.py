@@ -16,7 +16,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 7. list_dash_schema_table_names: dash_db 스키마 BASE TABLE 목록(대시보드 후보 스캔)
 8. get_allowed_tables_by_project: project_info_id + db_type + 선택적 QS/위젯 플래그 필터(table_project_mapping)
 9. get_allowed_tables: get_allowed_tables_by_project 위임
-9a. get_merged_allowed_table_names_for_project: list-tables 병합(main 우선), usage_query_studio 필터 지원
+9a. get_merged_allowed_table_names_for_project: 쿼리스튜디오·위젯보드용 허용명 — main_db 매핑만(dash 제외)
 9. get_table_schema: backend.main_db.table_schema(비면 public; main_db 필수)
 10. _table_exists, _query_table_columns, _query_primary_key_columns: 내부 공통 SQL 헬퍼 (conn 인자로 커넥션 1회 사용)
 11. get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
@@ -30,7 +30,9 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 19. get_dash_db_config / get_dash_table_schema / get_db_connection_dash: 뉴 대시보드 전용 dash_db(ibank_dash_data 등) 연결
 20. is_new_dash_physical_table: ibank_1·ibank_1_0~4·ibank_*_star_1|2 여부 (dash_db 집계·Star JSONB 테이블)
 21. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
-22. is_table_allowed_for_project_dashboard: *_star_1|2 는 dash_db 물리 존재 시 매핑 없이 허용, 그 외 기존 매핑 규칙
+22. project_dashboard_feature_enabled: project_info.feature_flags.dash 가 False가 아니면 True(레거시·NULL→True)
+22a. get_table_master_table_names_by_db_type: table_master에서 db_type 일치하는 table_name 집합
+22b. is_table_allowed_for_project_dashboard: *_star_1|2 물리 존재 시 매핑 없이 허용; 그 외 dash는 대시보드 기능 켜진 프로젝트는 table_master dash 카탈로그, 아니면 매핑만
 23. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
 24. validate_table_name: 이름 패턴·메인 DB 스키마 내 실제 존재 여부 검증
 24a. validate_table_identifier: 이름 패턴만 검증(메인/대시 물리 존재는 호출부에서 해당 연결·스키마로 확인)
@@ -62,9 +64,10 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 [Dependencies]
 =========
 - Env (config.backend)
-- psycopg2, psycopg2.extras.RealDictCursor
+- json, psycopg2, psycopg2.extras.RealDictCursor
 """
 
+import json
 import re
 import threading
 from typing import Any
@@ -459,25 +462,22 @@ def get_merged_allowed_table_names_for_project(
     project_info_id: int,
     *,
     usage_query_studio: bool | None = True,
+    usage_widgetboard: bool | None = None,
 ) -> list[str]:
     """
-    query_studio list-tables와 동일: dash 허용 행을 먼저 맵에 넣고 main 행으로 덮어 동명이인 시 main 우선.
-    usage_query_studio=True(기본)이면 쿼리 스튜디오용 매핑만 포함한다.
+    쿼리 스튜디오·위젯보드: table_master.db_type=main 매핑만 허용. dash 테이블은 대시보드 등 별도 경로.
+    usage_widgetboard=True 이면 위젯보드 채널 플래그만, 그 외 기본은 쿼리 스튜디오 채널 필터.
     """
     pid = int(project_info_id)
     kw: dict[str, Any] = {}
-    if usage_query_studio is True:
+    if usage_widgetboard is True:
+        kw["usage_widgetboard"] = True
+    elif usage_query_studio is not False:
         kw["usage_query_studio"] = True
     allowed_rows_main = get_allowed_tables_by_project(
         pid, db_type="main", include_meta=True, **kw
     )
-    allowed_rows_dash = get_allowed_tables_by_project(
-        pid, db_type="dash", include_meta=True, **kw
-    )
-    allowed_map: dict[str, Any] = {row["table_name"]: row for row in allowed_rows_dash}
-    for row in allowed_rows_main:
-        allowed_map[row["table_name"]] = row
-    return sorted(allowed_map.keys())
+    return sorted({row["table_name"] for row in allowed_rows_main})
 
 
 # 6c.
@@ -586,52 +586,45 @@ def get_table_columns_with_types(table_name):
 
 # 11.
 def get_all_tables_columns_with_types(table_names, project_info_id: int):
-    """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [{ column_name, data_type }, ...] }. project_info_id 병합 허용 집합과 교집합."""
+    """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [...] }. 허용 집합은 main+쿼리스튜디오 채널 매핑만.
+
+    dash_db 테이블은 쿼리 스튜디오 관계 추론 대상에서 제외한다.
+    """
+    pid = int(project_info_id)
     allowed = set(
-        get_merged_allowed_table_names_for_project(
-            int(project_info_id), usage_query_studio=True
-        )
+        get_merged_allowed_table_names_for_project(pid, usage_query_studio=True)
     )
     raw_names = [t for t in (table_names or []) if t in allowed]
-    main_names = [t for t in raw_names if not is_new_dash_physical_table(t)]
-    dash_names = [t for t in raw_names if is_new_dash_physical_table(t)]
+    if not raw_names:
+        return {}
 
-    def _fetch_batch(schema, names, conn_getter):
-        if not names:
-            return {}
-        conn = conn_getter()
-        cur = conn.cursor()
-        try:
-            placeholders = ", ".join(["%s"] * len(names))
-            cur.execute(
-                """
-                SELECT table_name, column_name, data_type
-                FROM information_schema.columns
-                WHERE table_schema = %s AND table_name IN (""" + placeholders + """)
-                ORDER BY table_name, ordinal_position
-                """,
-                (schema,) + tuple(names),
-            )
-            out = {}
-            for row in cur.fetchall():
-                t = row["table_name"]
-                if t not in out:
-                    out[t] = []
-                out[t].append({"column_name": row["column_name"], "data_type": row["data_type"]})
-            for t in names:
-                if t not in out:
-                    out[t] = []
-            return out
-        finally:
-            cur.close()
-            conn.close()
-
-    out = {}
-    if main_names:
-        out.update(_fetch_batch(get_table_schema(), main_names, get_db_connection))
-    if dash_names:
-        out.update(_fetch_batch(get_dash_table_schema(), dash_names, get_db_connection_dash))
-    return out
+    schema = get_table_schema()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        placeholders = ", ".join(["%s"] * len(raw_names))
+        cur.execute(
+            """
+            SELECT table_name, column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name IN (""" + placeholders + """)
+            ORDER BY table_name, ordinal_position
+            """,
+            (schema,) + tuple(raw_names),
+        )
+        out: dict[str, list[dict[str, str]]] = {}
+        for row in cur.fetchall():
+            t = row["table_name"]
+            if t not in out:
+                out[t] = []
+            out[t].append({"column_name": row["column_name"], "data_type": row["data_type"]})
+        for t in raw_names:
+            if t not in out:
+                out[t] = []
+        return out
+    finally:
+        cur.close()
+        conn.close()
 
 
 # 12.
@@ -779,14 +772,70 @@ def validate_dashboard_data_table_name(table_name):
 
 
 # 21.
+def project_dashboard_feature_enabled(project_info_id: int) -> bool:
+    """
+    프로젝트에 대시보드 페이지가 켜져 있는지(feature_flags.dash).
+    NULL·키 없음·레거시 JSON → True. 명시적으로 dash=False 인 프로젝트만 False.
+    """
+    conn = get_db_connection_system_core()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(
+            "SELECT feature_flags FROM project_info WHERE project_info_id = %s",
+            (int(project_info_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        raw = row.get("feature_flags")
+        if raw is None:
+            return True
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return True
+        if not isinstance(raw, dict):
+            return True
+        if raw.get("dash") is False:
+            return False
+        return True
+    finally:
+        cur.close()
+        conn.close()
+
+
+# 21a.
+def get_table_master_table_names_by_db_type(db_type: str) -> set[str]:
+    """system_db table_master 에서 db_type(정규화)이 일치하는 물리 테이블명 집합."""
+    norm = _normalize_db_type(db_type)
+    conn = get_db_connection_system_core()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT table_name FROM table_master
+            WHERE LOWER(TRIM(COALESCE(db_type, ''))) = %s
+            """,
+            (norm,),
+        )
+        return {str(r[0]).strip() for r in cur.fetchall() if r and r[0]}
+    finally:
+        cur.close()
+        conn.close()
+
+
+# 21b.
 def is_table_allowed_for_project_dashboard(project_info_id: int, table_id: str) -> bool:
     """
     캠페인 대시보드용 table_id 허용.
     `*_star_1` 팩트는 dash_db에 물리 테이블이 있으면 table_project_mapping 없이 허용한다.
     `*_star_2` 는 동일 접두 `*_star_1` 이 위 규칙으로 허용되면 허용.
-    그 외는 기존처럼 main/dash 매핑 및 ibank_n_0~4 서브 패턴을 따른다.
+    그 외 main 은 프로젝트 매핑(main)을 따른다.
+    dash 는 프로젝트에 대시보드 기능이 켜져 있으면 table_master 의 dash 등록 테이블 전체를 허용 집합으로 쓰고,
+    대시보드가 꺼진 프로젝트는 기존처럼 dash 매핑만 인정한다.
     """
-    _ = int(project_info_id)  # JWT 프로젝트 스코프 유지(향후 프로젝트별 dash 분리 시 사용)
+    pid = int(project_info_id)
     name = str(table_id or "").strip()
     if not name:
         return False
@@ -815,8 +864,11 @@ def is_table_allowed_for_project_dashboard(project_info_id: int, table_id: str) 
                 conn.close()
         except Exception:
             pass
-    main_s = get_allowed_tables_by_project(int(project_info_id), "main")
-    dash_s = get_allowed_tables_by_project(int(project_info_id), "dash")
+    main_s = get_allowed_tables_by_project(pid, "main")
+    if project_dashboard_feature_enabled(pid):
+        dash_s = get_table_master_table_names_by_db_type("dash")
+    else:
+        dash_s = get_allowed_tables_by_project(pid, "dash")
     if name in main_s or name in dash_s:
         return True
     m = re.match(r"^(ibank_\d+)_[0-4]$", name)

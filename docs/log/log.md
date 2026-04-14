@@ -1,6 +1,15 @@
 # Log
 
 ## Log Index
+366. 2026-04-14 쿼리 스튜디오: 빈 테이블 목록 안내를 DB 연결·테이블 매핑 상황별로 분기
+365. 2026-04-13 위젯보드 목록 생성·수정: 설명 입력 고정 높이·스크롤·1000자 제한·DB 잘림 한글 안내
+364. 2026-04-13 admin PATCH 프로젝트: table_master 조회 행 RealDict 대응(db_type_norm·KeyError:0 수정)
+363. 2026-04-13 어드민 프로젝트 모달: 테이블 매핑 그리드에서 DB 열 제거(main-only 목록과 중복)
+362. 2026-04-13 프로젝트 테이블 매핑 main-only 단순화: API·동기화·어드민 UI에서 dash 분기 제거
+361. 2026-04-13 대시보드 ON 프로젝트: dash 허용 집합을 table_master+feature_flags로 판단·어드민 매핑 그리드에서 dash 행 숨김
+360. 2026-04-13 QS·위젯보드: 테이블 매핑·API main만, dash는 대시보드 전용·어드민 UI·저장 검증
+359. 2026-04-13 execute-query·query-stats: db_target(main|dash)·QS 워크스페이스·위젯보드 폴백 연동
+358. 2026-04-13 describe-table: dash 전용 매핑 테이블 컬럼 조회(_resolve에서 validate_table_identifier)
 357. 2026-04-13 헤더 작업 프로젝트 목록: 활성화 직후 갱신·비활성/ purge 시 항상 notify
 356. 2026-04-13 docs/main/03_API_GUIDE §2.3.3: 리프레시 정책·거절 순서를 ASCII 흐름도로 정리
 355. 2026-04-13 docs/main/03_API_GUIDE: 리프레시 7일·슬라이딩·refresh 거절·즉시 무효화 요약(§2.3.3)
@@ -360,6 +369,104 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+366. 2026-04-14 쿼리 스튜디오: 빈 테이블 목록 안내를 DB 연결·테이블 매핑 상황별로 분기
+Purpose: 매핑 미설정으로 목록이 비어 있을 때 `config.json` 안내는 부적절하므로, health 기준으로 연결 정상이면 테이블 매핑 확인을, 연결 실패면 DB 연결 확인을 안내한다.
+
+Changes:
+
+- `Sidebar.jsx`: `getEmptyTableListHint(dbStatus)` 추가, 빈 목록 시 `dbStatus.ok` 분기 문구
+
+Changed files: Frontend/react-app/src/packages/query_studio/components/Sidebar.jsx, docs/log/log.md
+
+365. 2026-04-13 위젯보드 목록 생성·수정: 설명 입력 고정 높이·스크롤·1000자 제한·DB 잘림 한글 안내
+Purpose: 상용 폼에서 설명 textarea가 세로로 늘어나지 않도록 고정 영역+스크롤로 통일하고, `board_dscrtn`은 API·UI에서 동일 상한(1000자)으로 검증하며 DB VARCHAR 잘림 시 사용자 메시지로 매핑.
+
+Changes:
+
+- `widget_board_server/constants.py`: `BOARD_DSCRTN_MAX_LEN`
+- `schemas.py`: `board_dscrtn` 길이 검증(한글 `ValueError` → 422)
+- `service.py`: `StringDataRightTruncation` 시 한글 `ValueError`
+- `WidgetboardListPage.jsx`, `constants.js`, `widgetboard.css`: 고정 높이 textarea·글자 수·클라이언트 선검증
+
+Changed files: Backend/widget_board_server/constants.py, schemas.py, service.py, Frontend/react-app/src/packages/widgetboard/constants.js, WidgetboardListPage.jsx, widgetboard.css, docs/log/log.md
+
+364. 2026-04-13 admin PATCH 프로젝트: table_master 조회 행 RealDict 대응(db_type_norm·KeyError:0 수정)
+Purpose: `get_system_db` 커서가 `RealDictCursor`라 `fetchone()`이 튜플이 아니라 dict인데, `trow[0]`로 접근해 `KeyError: 0`으로 PATCH `/api/admin/projects/{id}`가 500이 났다.
+
+Changes:
+
+- `service_projects.py`: `SELECT ... AS db_type_norm` 후 `trow.get("db_type_norm")` 사용(`_sync_project_table_mappings_with_usage`, `_sync_project_table_mappings`, `create_project_full` tid_list 루프)
+
+Changed files: Backend/admin_server/service_projects.py, docs/log/log.md
+
+363. 2026-04-13 어드민 프로젝트 모달: 테이블 매핑 그리드에서 DB 열 제거(main-only 목록과 중복)
+Purpose: 매핑 후보가 모두 main_db이므로 DB 타입 열은 정보 가치가 없어 테이블을 단순화.
+
+Changes:
+
+- `AdminProjectsPage.jsx`: 테이블 매핑 `<th>DB`·`db_type` 셀 제거
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+362. 2026-04-13 프로젝트 테이블 매핑 main-only 단순화: API·동기화·어드민 UI에서 dash 분기 제거
+Purpose: QS·위젯보드 매핑은 main `table_master`만 다루므로 어드민·동기화·클라이언트에서 dash 전용 분기와 UI 가드를 제거하고, 단일 규칙(비-main 매핑 거절·목록은 `db_type=main`)으로 맞춤.
+
+Changes:
+
+- `adminClient.js`: `getAdminTablesForProjectCreate`·`getAdminProjectTables`에 `db_type=main` 고정
+- `service_projects.py`: 동기화·생성 시 비-main `table_master` 스킵/거절을 dash 특수 케이스가 아닌 공통 규칙으로 정리
+- `service_tables.py`: `list_table_master` project_create+main 시 정렬 단순화, `add_project_table_mapping` main만 허용
+- `router.py`: `/tables`·`/projects/.../tables` Query 설명 보강
+- `AdminProjectsPage.jsx`: dash 행 필터·토글 가드 제거(목록이 main만)
+
+Changed files: Frontend/react-app/src/shared/api/adminClient.js, Backend/admin_server/service_projects.py, Backend/admin_server/service_tables.py, Backend/admin_server/router.py, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+361. 2026-04-13 대시보드 ON 프로젝트: dash 허용 집합을 table_master+feature_flags로 판단·어드민 매핑 그리드에서 dash 행 숨김
+Purpose: 대시보드 페이지가 포함된 프로젝트는 dash DB 타입이 사실상 항상 의미가 있으므로, 테이블 매핑 UI에 dash 행을 두지 않아도 서버가 `project_info.feature_flags.dash`와 `table_master`(db_type=dash)로 대시보드용 테이블 허용을 판단하도록 했다. 대시보드가 명시적으로 끈 프로젝트는 기존처럼 dash `table_project_mapping`만 인정.
+
+Changes:
+
+- `core/db.py`: `project_dashboard_feature_enabled`, `get_table_master_table_names_by_db_type`, `is_table_allowed_for_project_dashboard` 분기
+- `admin_server/service_projects.py`: dash용 N,N 매핑 유지·생성·레거시 동기화 제거(매핑은 main·QS/WB만)
+- `AdminProjectsPage.jsx`: 매핑 표는 main 행만·안내 문구
+
+Changed files: Backend/core/db.py, Backend/admin_server/service_projects.py, Backend/campaign_dash_server/router.py(주석), Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+360. 2026-04-13 QS·위젯보드: 테이블 매핑·API main만, dash는 대시보드 전용·어드민 UI·저장 검증
+Purpose: 쿼리 스튜디오·위젯보드는 main_db 매핑만 사용하고 dash_db 테이블은 대시보드 등 다른 기능에서만 쓰도록 정책 통일. list-tables·describe·관계·execute-query·query-stats·컬럼 일괄 조회·위젯 saved_table 허용을 main으로 제한하고, 어드민 프로젝트 매핑 저장 시 dash table_master에 QS/WB 플래그 시도 시 거절·UI에서 체크 비활성.
+
+Changes:
+
+- `core/db.py`: `get_merged_allowed_table_names_for_project`·`get_all_tables_columns_with_types` main 매핑만
+- `query_studio_server/router.py`·`schemas.py`: list-tables dash 병합 제거, `mapping_db_type` 응답 제거, execute/query-stats dash 분기 제거, `_resolve_project_table_db_type` main만
+- `admin_server/service_projects.py`: dash에 QS/WB 금지·동기화 시 dash는 `N,N`으로 프로젝트 연결 유지(대시보드용), 생성 tid_list·레거시 동기화 동일
+- `widget_board_server/service.py`: `_allowed_saved_table` main만
+- FE: `queryStudioTableApi`·`QueryStudioPage`·`useQueryStudioData`·`WidgetboardPage` 정리, `AdminProjectsPage` dash 행 QS/WB 비활성·payload 제외
+
+Changed files: Backend/core/db.py, Backend/query_studio_server/router.py, Backend/query_studio_server/schemas.py, Backend/admin_server/service_projects.py, Backend/widget_board_server/service.py, Frontend/react-app/src/shared/api/queryStudioTableApi.js, Frontend/react-app/src/packages/query_studio/hooks/useQueryStudioData.js, Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+359. 2026-04-13 execute-query·query-stats: db_target(main|dash)·QS 워크스페이스·위젯보드 폴백 연동
+Purpose: 매핑상 dash_db 전용 테이블도 describe는 되지만 SELECT 실행·통계가 메인 `Depends(get_db)`에만 붙어 빈 결과·오류가 났다. 요청 body `db_target`으로 연결을 분기하고, 쿼리스튜디오는 `list-tables`의 `mapping_db_type`을 보존·워크스페이스 내 main/dash 혼합 시 실행 차단, 위젯보드 로컬 폴백은 행 메타로 `db_target` 전달.
+
+Changes:
+
+- `query_studio_server/router.py`: `query_stats`에 `db_target`·dash 연결·timeout·finally 정리; `execute_query` finally에서 커서 정리 보강
+- `query_studio_server/schemas.py`: `ExecuteQueryRequest`·`QueryStatsRequest`에 `db_target` 필드(문서 주석)
+- `shared/api/queryStudioTableApi.js`: `executeQuery`·`queryStats` opts.dbTarget→body
+- `query_studio`: `useQueryStudioData`가 `mapping_db_type` 보존, `QueryStudioPage` `resolveWorkspaceDbTarget`·실행·COUNT·피벗에 opts 전달, `queryStudioClient`에서 `queryStats` re-export
+- `widgetboard/WidgetboardPage.jsx`: 폴백 `executeQuery`에 매핑 행 기준 dbTarget
+
+Changed files: Backend/query_studio_server/router.py, Backend/query_studio_server/schemas.py, Frontend/react-app/src/shared/api/queryStudioTableApi.js, Frontend/react-app/src/packages/query_studio/api/queryStudioClient.js, Frontend/react-app/src/packages/query_studio/hooks/useQueryStudioData.js, Frontend/react-app/src/packages/query_studio/QueryStudioPage.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/log/log.md
+
+358. 2026-04-13 describe-table: dash 전용 매핑 테이블 컬럼 조회(_resolve에서 validate_table_identifier)
+Purpose: `GET /api/list-tables`는 main·dash 매핑을 병합해 테이블명을 보여주지만, `POST /api/describe-table` 내부 `_resolve_project_table_db_type`가 `validate_table_name`(메인 DB 물리 존재 필수)을 쓰면 dash_db에만 있는 테이블이 400으로 떨어지고, 프론트는 catch 후 컬럼 빈 배열로 표시했다.
+
+Changes:
+
+- `query_studio_server/router.py`: `_resolve_project_table_db_type`에서 `validate_table_name` → `validate_table_identifier`, 엔드포인트 목록 주석 보강
+
+Changed files: Backend/query_studio_server/router.py, docs/log/log.md
 
 357. 2026-04-13 헤더 작업 프로젝트 목록: 활성화 직후 갱신·비활성/ purge 시 항상 notify
 Purpose: (1) `participatingProjectsNonce` 증가 후에도 이전 `GET /api/projects` 응답이 늦게 도착하면 `setItems`가 구목록으로 덮어써 활성화 직후 드롭다운이 비는 현상. (2) 비활성화·purge 시 `notifyParticipatingProjectsChanged`가 현재 작업 프로젝트일 때만 호출되어 다른 프로젝트를 비활성/삭제해도 헤더 목록이 남는 경우.
