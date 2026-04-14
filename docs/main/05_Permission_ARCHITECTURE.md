@@ -7,19 +7,20 @@
 
 ## 프로젝트 API `require_permission` 검증 흐름 (한눈에)
 
-구현 기준: `Backend/auth_server/deps.py` — `get_access_payload`, `Backend/auth_server/permissions.py` — `require_permission`.
+구현 기준: `Backend/auth_server/deps.py` — `require_active_access`(JWT·`session_log` 바인딩·활성·미잠금), `Backend/auth_server/permissions.py` — `require_permission`.
 
 ```
 HTTP 요청 도착
 │
 ▼
 ┌─────────────────────────────────────────┐
-│  STEP 1: get_access_payload             │
-│  Authorization → "Bearer " 제거 후 JWT │
-│  HS256 + 비밀키 검증, exp 필수           │
-│  typ == "access" 확인                   │
+│  STEP 1: require_active_access (deps)   │
+│  Bearer JWT: HS256·exp·typ=access        │
+│  user_info: 활성·미잠금(403)             │
+│  session_log: access_token_encrypt =     │
+│    SHA256(Bearer 원문), refresh 만료 시 401 │
 ├─────────────────────────────────────────┤
-│  실패 시: 401 Unauthorized              │
+│  실패 시: 401 / 403                     │
 └──────────────┬──────────────────────────┘
                │ payload = { user_id, project_info_id?, typ, exp, … }
                ▼
@@ -76,7 +77,7 @@ HTTP 요청 도착
 
 | 상황 | 결과 |
 |------|------|
-| `require_permission()` — 권한 인자 없이 호출 (`needed == ()`) | `for n in needed`가 **0번** → **항상 통과** (유효 access JWT + `project_info_id` 있음). |
+| `require_permission()` — 권한 인자 없이 호출 (`needed == ()`) | `for n in needed`가 **0번** → **항상 통과** (`require_active_access` 통과: JWT·세션 바인딩·활성 + `project_info_id` 있음). |
 | ETL 전담 계정(구 `etl_manager` 등) / `canon_user_dvsn → ""` | 조직등급과 무관하게 STEP5·6만 적용. 멤버십·`pmssn`이 없으면 유효 권한 0개 → `needed`가 하나라도 있으면 **403**. |
 | DB에 없는 `user_id`(행 없음) | `get_user_dvsn_lower` 등에서 빈 값 처리. 멤버십 없으면 유효 권한 0개 → `needed` 있으면 **403**. |
 | 프로젝트 참여자인데 역할에 없는 권한 요청 | STEP5에 없으면 STEP6에서 **403**. `feature_flags`로 꺼진 기능도 STEP4에서 제외되어 **403**. |

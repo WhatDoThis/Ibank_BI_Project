@@ -105,12 +105,12 @@
 
 ### 4.1 Depends·`require_*` 인벤토리 (재스캔 기준)
 
-`permissions.require_permission` / `require_etl_infrastructure` / `deps.require_active_access` / `admin_server.deps.*` / `get_access_payload` 가 바뀌면 아래 **등록 라우터 전부**와 `auth_server/permissions.py`·`auth_server/deps.py`·`admin_server/deps.py` 를 다시 대조한다. (`etl_server/router.py` 가 `router_file` 을 include 하므로 배치 API 포함.)
+`permissions.require_permission` / `require_etl_infrastructure` / `deps.require_active_access` / `deps.require_access_session_bound` / `admin_server.deps.*` / (레거시) `get_access_payload` 가 바뀌면 아래 **등록 라우터 전부**와 `auth_server/permissions.py`·`auth_server/deps.py`·`admin_server/deps.py` 를 다시 대조한다. (`etl_server/router.py` 가 `router_file` 을 include 하므로 배치 API 포함.)
 
 | 등록 소스 (`main.py`) | HTTP prefix | 라우터 단 `dependencies` (`main`) | 엔드포인트별 Depends(요약) |
 |----------------------|-------------|-----------------------------------|-----------------------------|
 | `health_router` | `/`, `/health`, `/api`, `/api/` | 없음 | `get_db`: `/health` 만 |
-| `auth_router` | `/api/auth` | 없음 | 공개: signup·create-org·login·verify-login·refresh·`/invite/validate` (`get_system_db`). `get_access_payload`: logout. `require_active_access`: `/me`, PATCH `/me`, `/me/password`, `/me/login-history` |
+| `auth_router` | `/api/auth` | 없음 | 공개: signup·create-org·login·verify-login·refresh·`/invite/validate` (`get_system_db`). `require_access_session_bound`: logout. `require_active_access`: `/me`, PATCH `/me`, `/me/password`, `/me/login-history` |
 | `project_router` | `/api/projects` | 없음 | 전 엔드포인트 `require_active_access` |
 | `notification_router` | `/api/notifications` | 없음 | 전 엔드포인트 `require_active_access` |
 | `admin_router` | `/api/admin` | 없음 | `require_org_admin`, `require_super_admin`, `require_project_admin_or_operator_participant` (엔드포인트별) |
@@ -192,7 +192,7 @@
 |------|------|
 | `router.py` | HTTP 엔드포인트 |
 | `service.py` | 로그인·토큰·사용자 |
-| `deps.py` | `require_active_access` |
+| `deps.py` | `require_active_access`, `require_access_session_bound`, `get_access_payload`(레거시·라우터 미사용) |
 | `permissions.py` | `require_permission`, `require_etl_infrastructure` |
 | `security.py` | 암호·JWT |
 | `email_service.py` | SMTP |
@@ -214,7 +214,7 @@
 | POST | `/api/auth/login` | `auth_login` | `service.login_send_code` |
 | POST | `/api/auth/verify-login` | `auth_verify_login` | `service.verify_login_complete` |
 | POST | `/api/auth/refresh` | `auth_refresh` | `service.refresh_session_tokens` |
-| POST | `/api/auth/logout` | `auth_logout` | `service.logout_one_session` (`get_access_payload`) |
+| POST | `/api/auth/logout` | `auth_logout` | `service.logout_one_session` (`require_access_session_bound`) |
 | GET | `/api/auth/me` | `auth_me` | `service.get_user_profile` + `permissions.get_effective_permission_ids_for_me` (`require_active_access`) |
 | PATCH | `/api/auth/me` | `auth_patch_me` | `service.update_user_nickname` |
 | PATCH | `/api/auth/me/password` | `auth_password` | `service.change_password` |
@@ -246,7 +246,7 @@
 **프론트 `AuthContext`**  
 - `shared/api/authClient.js`의 `getMe()` 응답 전체를 `me`에 보관. 라우트 가드(`ProjectFeatureRoute` 등)는 **`me.permissions`** 스냅샷을 사용한다.  
 - **동기화**: 어드민에서 **현재 JWT의 프로젝트**에 대해 `feature_flags` 등을 PATCH한 뒤에는 `AdminProjectsPage` 등에서 이미 **`refreshMe()`**를 호출해 `/me`를 다시 받는다. 다른 화면에서 플래그만 바뀐 경우에도 동일하게 **`refreshMe()`**가 필요하다.  
-- **JWT 클레임을 바꿀 때**(예: `security.py` payload 키 추가/제거): `decode_token_payload` 소비처·`deps.get_access_payload`·토큰을 파싱하는 모든 경로와, 토큰에 의존하는 FE(있을 경우)를 전수 점검한다.
+- **JWT 클레임을 바꿀 때**(예: `security.py` payload 키 추가/제거): `decode_token_payload` 소비처·`_parse_bearer_access_token`/`require_active_access`/`require_access_session_bound`·토큰을 파싱하는 모든 경로와, 토큰에 의존하는 FE(있을 경우)를 전수 점검한다.
 
 ### 이 섹션 전용 체크리스트
 

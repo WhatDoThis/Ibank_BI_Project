@@ -2,6 +2,7 @@
  * app/layout/ProjectHeaderSelect.jsx (헤더 작업 프로젝트 선택)
  * ==============================================
  * GET /api/projects 목록: participatingProjectsNonce·projectContextNonce·pathname 변경 시 재조회. POST select 후 refreshMe.
+ * 이전 요청이 늦게 와서 최신 목록을 덮어쓰지 않도록 effect cleanup(cancelled)로 무시한다.
  *
  * [Main Functions]
  * ===========
@@ -14,7 +15,7 @@
  * - app/auth/AuthContext (refreshMe)
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
@@ -37,21 +38,25 @@ export function ProjectHeaderSelect() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await getProjects()
-      setItems(Array.isArray(data?.items) ? data.items : [])
-    } catch {
-      setItems([])
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    load()
-  }, [load, participatingProjectsNonce, projectContextNonce, location.pathname])
+    let cancelled = false
+    setLoading(true)
+    ;(async () => {
+      try {
+        const data = await getProjects()
+        if (cancelled) return
+        setItems(Array.isArray(data?.items) ? data.items : [])
+      } catch {
+        if (cancelled) return
+        setItems([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [participatingProjectsNonce, projectContextNonce, location.pathname])
 
   const tokenPid = currentTokenProjectId()
   const pidInList = items.some((row) => String(row.project_info_id) === tokenPid)

@@ -296,7 +296,7 @@ ETL 자격 계정 (sa_dev 또는 etl_yn='Y') 로그인 상태
 │  /api/etl/* 전체에 Depends(require_etl_infrastructure) │
 │                                                    │
 │  [require_etl_infrastructure]                      │
-│  ├─ get_access_payload → JWT 검증                   │
+│  ├─ require_active_access → JWT·세션·활성·잠금      │
 │  ├─ user_info 조회 → user_dvsn, etl_yn              │
 │  ├─ sa_dev → 통과                                    │
 │  ├─ etl_yn='Y' → 통과                               │
@@ -499,7 +499,7 @@ U          │ 불가
 
 ```
 GET /api/auth/me
-├─ get_access_payload → JWT 검증
+├─ require_active_access → JWT·세션 바인딩·활성·잠금
 ├─ get_user_profile → user_info + dptmt_info JOIN
 ├─ project_info_id가 JWT에 있으면
 │  └─ get_effective_permission_ids_for_me
@@ -541,11 +541,12 @@ HTTP 요청 → /api/admin/*
 │
 ▼
 ┌─────────────────────────────────────────┐
-│  STEP A: get_access_payload             │
+│  STEP A: require_active_access          │
 │  Backend/auth_server/deps.py            │
-│  Bearer JWT 검증 · typ=access · exp     │
+│  Bearer JWT · 세션(access_token_encrypt) │
+│  · 활성·미잠금                           │
 ├─────────────────────────────────────────┤
-│  실패 → 401                              │
+│  실패 → 401 / 403                        │
 └──────────────┬──────────────────────────┘
                ▼
 ┌─────────────────────────────────────────┐

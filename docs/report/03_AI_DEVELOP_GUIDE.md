@@ -185,7 +185,7 @@ flowchart LR
 
 ## 9. 인증·인가 (현행 구현)
 
-- **애플리케이션 레벨**: **`/api/auth/*`** — 로그인(1·2단계)·리프레시·세션(`session_log`)·access JWT(`Backend.auth_server.security`, `deps.get_access_payload`). 프론트는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 refresh 1회 재시도.
+- **애플리케이션 레벨**: **`/api/auth/*`** — 로그인(1·2단계)·리프레시·세션(`session_log`)·access JWT(`Backend.auth_server.security`, `deps.require_active_access` / 로그아웃만 `require_access_session_bound`). 프론트는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 refresh 1회 재시도.
 - **프로젝트·권한**: 쿼리 스튜디오·캠페인 대시보드 등은 **`require_permission(*ids)`** — JWT `project_info_id`·`project_ptcpnt_info`·`pmssn_master.pmssn_list`(상세명 정규화). **ETL** 전역은 **`require_etl_infrastructure`** (`sa_dev` 또는 `etl_yn=Y`, 레거시 `user_dvsn=etl_manager` 예외). 조직 역할 캐논은 **`Backend.core.user_dvsn_codes`**. 표·흐름도는 **05_Permission_ARCHITECTURE.md**.
 - **운영**: TLS·Nginx 프록시·IP 제한은 **docs/report/DEPLOY_SERVER.md** 등과 병행 가능. 앱 인증이 이미 있으므로 “인증 없는 공개 API” 전제는 **레거시 문서 구절과 혼동하지 말 것**.
 

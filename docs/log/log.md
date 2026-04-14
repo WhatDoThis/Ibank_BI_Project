@@ -1,6 +1,13 @@
 # Log
 
 ## Log Index
+357. 2026-04-13 헤더 작업 프로젝트 목록: 활성화 직후 갱신·비활성/ purge 시 항상 notify
+356. 2026-04-13 docs/main/03_API_GUIDE §2.3.3: 리프레시 정책·거절 순서를 ASCII 흐름도로 정리
+355. 2026-04-13 docs/main/03_API_GUIDE: 리프레시 7일·슬라이딩·refresh 거절·즉시 무효화 요약(§2.3.3)
+354. 2026-04-13 문서: 액세스–세션 바인딩·logout Depends(로그 352·353) 반영
+353. 2026-04-13 auth/logout: require_access_session_bound(비활성·잠금도 세션 종료)
+352. 2026-04-13 액세스 토큰 세션 바인딩(session_log.access_token_encrypt 일치)
+351. 2026-04-13 docs/main/03_API_GUIDE: 흐름도 소제목 `한글 (코드 식별자)`·도식 표기 안내
 350. 2026-04-13 docs/main/03_API_GUIDE: 읽기 순서 §3 admin·§4 project(마운트 순서는 §1.1 유지)
 349. 2026-04-13 프로젝트 활성화 후 헤더 작업 프로젝트 목록 갱신
 348. 2026-04-13 프로젝트 모달: 페이지 기능 끄면 테이블 매핑 채널 비활성·저장 시 미적용
@@ -353,6 +360,79 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+357. 2026-04-13 헤더 작업 프로젝트 목록: 활성화 직후 갱신·비활성/ purge 시 항상 notify
+Purpose: (1) `participatingProjectsNonce` 증가 후에도 이전 `GET /api/projects` 응답이 늦게 도착하면 `setItems`가 구목록으로 덮어써 활성화 직후 드롭다운이 비는 현상. (2) 비활성화·purge 시 `notifyParticipatingProjectsChanged`가 현재 작업 프로젝트일 때만 호출되어 다른 프로젝트를 비활성/삭제해도 헤더 목록이 남는 경우.
+
+Changes:
+
+- `ProjectHeaderSelect.jsx`: 목록 로드 effect에 cleanup(`cancelled`)로 무효 응답 무시
+- `AdminProjectsPage.jsx`: `handleDeactivate`·`confirmPurgeFromDialog`에서 성공 시 항상 `notifyParticipatingProjectsChanged` (현재 프로젝트 분기에서는 중복 제거)
+
+Changed files: Frontend/react-app/src/app/layout/ProjectHeaderSelect.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+356. 2026-04-13 docs/main/03_API_GUIDE §2.3.3: 리프레시 정책·거절 순서를 ASCII 흐름도로 정리
+Purpose: §2.3.3을 목록·표 대신 문서 전반과 동일한 ASCII 도식으로 읽히게 한다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md`: 슬라이딩·`refresh_session_tokens` 분기·보호 API·즉시 끊김·project select 흐름도
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+355. 2026-04-13 docs/main/03_API_GUIDE: 리프레시 7일·슬라이딩·refresh 거절·즉시 무효화 요약(§2.3.3)
+Purpose: JWT·`session_log` 만료 정책과 `refresh_session_tokens` 거절 순서를 한 곳에 요약한다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md`: §2.3.3 확장 — 기본 30분/7일, 슬라이딩, refresh API 거절 5단계, 보호 API의 `refresh_exprtn_dtm` 401, 로그아웃·비번·정지·삭제 즉시 끊김 표
+- `docs/main/02_BACKEND_GUIDE.md`: §1.1에서 §2.3.3 교차 참조 한 줄
+- `docs/main/04_DB_ARCHITECTURE.md`: `session_log` 주석에 §2.3.3 교차 참조
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+354. 2026-04-13 문서: 액세스–세션 바인딩·logout Depends(로그 352·353) 반영
+Purpose: 코드 변경(352·353)과 보고·메인 문서의 서술을 맞춘다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md`: §2.1·§2.3·§2.3.1·deps 표·logout 행 — `require_active_access` 세션 바인딩, logout `require_access_session_bound`
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §4.1·§7.1·§7.2·auth `deps.py` 행
+- `docs/main/02_BACKEND_GUIDE.md`: §1.1 인증·세션 바인딩 한 줄
+- `docs/main/05_Permission_ARCHITECTURE.md`: STEP 1을 `require_active_access` 기준으로 갱신
+- `docs/main/06_CUSTOMER_JOURNEY.md`: ETL·마이페이지·어드민 진입 도식
+- `docs/report/03_AI_DEVELOP_GUIDE.md`: §9 인증 문구
+
+Changed files: docs/main/03_API_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/main/02_BACKEND_GUIDE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/log/log.md
+
+353. 2026-04-13 auth/logout: require_access_session_bound(비활성·잠금도 세션 종료)
+Purpose: 세션 바인딩 도입 후 `auth_logout`이 `require_active_access`이면 비활성·잠금 계정이 로그아웃 API를 호출하지 못하는 회귀를 제거한다.
+
+Changes:
+
+- `auth_server/router.py`: `POST /logout` → `Depends(require_access_session_bound)` (JWT+세션 해시만 검사)
+
+Changed files: Backend/auth_server/router.py, docs/log/log.md
+
+352. 2026-04-13 액세스 토큰 세션 바인딩(session_log.access_token_encrypt 일치)
+Purpose: 리프레시 회전 후에도 이전 액세스 JWT가 만료 전이면 API가 열리는 문제. `require_active_access`에서 Bearer 원문 SHA-256을 `session_log.access_token_encrypt`와 비교하고, `refresh_exprtn_dtm` 만료 시에도 거절. 보호 API·어드민은 `require_active_access`, 로그아웃은 세션 바인딩만(`require_access_session_bound`).
+
+Changes:
+
+- `auth_server/deps.py`: `_parse_bearer_access_token`, `_hash_access_token_raw`, `require_access_session_bound`, `require_active_access`
+- `admin_server/deps.py`: `get_authenticated_user_row` payload → `require_active_access`
+
+Changed files: Backend/auth_server/deps.py, Backend/admin_server/deps.py, docs/log/log.md
+
+351. 2026-04-13 docs/main/03_API_GUIDE: 흐름도 소제목 `한글 (코드 식별자)`·도식 표기 안내
+Purpose: ASCII 흐름도마다 읽기 쉬운 한 줄 소제목을 두고, 문서 상단에 표기 규칙을 명시한다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md`: §1 기동·로깅·DB, §2 로그인·권한, §3 admin 상세(A~J·정지 개요), §4 project, §5 캠페인, §6.1 알림·insert_notification 다이어그램 등 소제목 보강
+- `docs/log/log.md`: 본 항목
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
 
 350. 2026-04-13 docs/main/03_API_GUIDE: 읽기 순서 §3 admin·§4 project(마운트 순서는 §1.1 유지)
 Purpose: 문서 본문에서 조직·관리(admin)를 프로젝트(project)보다 먼저 읽도록 절 순서를 맞춘다. `api_server/main.py`의 `include_router` 순서(project → notification → admin)는 변경하지 않으며, 구성 원칙 문단과 §2 교차 참조만 갱신한다.

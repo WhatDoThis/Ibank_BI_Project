@@ -14,7 +14,7 @@ access JWT 후 user_info에서 user_dvsn 조회·비활성·잠금 거절(403).
 [Dependencies]
 =========
 - fastapi Depends HTTPException
-- Backend.auth_server.deps.get_access_payload, Backend.core.dependencies.get_system_db
+- Backend.auth_server.deps.require_active_access, Backend.core.dependencies.get_system_db
 - Backend.core.user_dvsn_codes (canon_user_dvsn, ORG_* 집합)
 """
 
@@ -22,7 +22,7 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, Request
 
-from Backend.auth_server.deps import get_access_payload
+from Backend.auth_server.deps import require_active_access
 from Backend.core.dependencies import get_system_db
 from Backend.core.user_dvsn_codes import (
     ORG_ADMIN_DVSN,
@@ -37,7 +37,7 @@ _MSG_BAD_DVSN = "허용되지 않은 조직 역할(user_dvsn)입니다."
 
 # 1.
 def get_authenticated_user_row(
-    payload: dict = Depends(get_access_payload),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_system_db),
 ) -> dict[str, Any]:
     uid = int(payload["user_id"])

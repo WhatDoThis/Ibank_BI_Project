@@ -196,6 +196,7 @@ update_dtm               timestamp       NOT NULL      갱신일시
 
 ※ 강제 로그아웃 = refresh_exprtn_dtm을 NOW()로 UPDATE
 ※ 슬라이딩: 리프레시 시 새 토큰 발급 + 기존 행 UPDATE
+※ API 거절 순서·에러 문구·즉시 무효화(비번·정지 등) 요약은 **03_API_GUIDE.md §2.3.3**
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

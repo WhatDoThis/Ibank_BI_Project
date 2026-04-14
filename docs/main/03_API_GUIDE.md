@@ -4,6 +4,8 @@
 **구성 원칙**: 백엔드 **동작 단위(호스트 앱 → auth → admin → project → 대시보드 등)** 로 큰 절을 나누고, **라우터 마운트 순서**는 §1.1과 같다(auth 다음 project·notification·admin). **§3·§4**는 조직 관리 → 프로젝트 선택 흐름을 읽기 쉽게 admin을 project보다 앞에 둔다. **각 절에서는 흐름도 바로 아래에 그 흐름에 쓰이는 모듈·함수 표**를 둔다. (위에서 아래로 읽으면 API 한 줄의 원인을 같은 화면에서 따라갈 수 있게 한다.)
 디렉터리 트리·실행 방식·패키지 목록은 **02_BACKEND_GUIDE.md**, DB 스키마는 **04_DB_ARCHITECTURE.md**, 권한 모델은 **05_Permission_ARCHITECTURE.md**, AI 작업 분해는 **docs/report/03_AI_DEVELOP_GUIDE.md**를 병행한다.
 
+**도식(ASCII) 표기**: 각 흐름도 박스·주요 단계는 **`한글 단계명 (함수·Depends·엔드포인트 등 코드 식별자)`** 한 줄을 소제목으로 둔다. 괄호 안은 저장소 코드와 동일한 이름이다.
+
 ---
 
 ## 문서 구성 (읽는 순서)
@@ -28,6 +30,7 @@
 │
 ▼
 ┌─────────────────────────────────────────────┐
+│  설정 로드 (config.json·Env)                   │
 │  config.json 로드                             │
 │  ├─ main_db (비즈니스 데이터)                  │
 │  ├─ system_db (인증·프로젝트·권한)             │
@@ -36,6 +39,7 @@
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
+│  DB 연결 풀 (core/db.py)                      │
 │  core/db.py — 4개 연결 풀 초기화              │
 │  ├─ _MAIN_DB_POOL (main_db)                  │
 │  ├─ _SYSTEM_DB_POOL (system_db)              │
@@ -45,6 +49,7 @@
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
+│  앱·라우터 조립 (FastAPI·main.py)              │
 │  FastAPI app 생성                              │
 │  ├─ CORS 미들웨어 (allow_origins=["*"])       │
 │  ├─ lifespan → ETL scheduler 기동             │
@@ -64,6 +69,7 @@
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
+│  HTTP 수신 대기 (uvicorn.run)                 │
 │  uvicorn.run(host, port)                      │
 │  → HTTP 요청 수신 대기                        │
 └─────────────────────────────────────────────┘
@@ -105,6 +111,7 @@ python main.py (직접 실행)
 │
 ▼
 ┌──────────────────────────────────────────┐
+│  루트 로깅 구성 (configure_root_logging)    │
 │  configure_root_logging()                 │
 │  core/logging_setup.py                    │
 │  ├─ 루트에 달린 핸들러 제거 후 재구성       │
@@ -115,6 +122,7 @@ python main.py (직접 실행)
 └──────────┬───────────────────────────────┘
            ▼
 ┌──────────────────────────────────────────┐
+│  기동 마무리 (__main__: UTF-8·uvicorn)      │
 │  Windows: stdout/stderr UTF-8 래핑       │
 │  config 로드 → uvicorn.run              │
 └──────────────────────────────────────────┘
@@ -133,6 +141,7 @@ python main.py (직접 실행)
 
 ```
 ┌─────────────────────────────────────────────────────┐
+│  설정 블록 (config.json — main·system·etl·dash)       │
 │                    config.json                       │
 │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐ │
 │  │ main_db  │ │system_db │ │ etl_db │ │ dash_db  │ │
@@ -259,6 +268,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 │     { email, password }                                │
 │                                                        ▼
 │                              ┌──────────────────────────────┐
+│                              │  1단계 로그인 (login_send_code) │
 │                              │  router → login_send_code     │
 │                              │    ├─ user_info 조회          │
 │                              │    ├─ verify_password(bcrypt) │
@@ -275,6 +285,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 │     { pre_auth_token, code }                           │
 │                                                        ▼
 │                              ┌──────────────────────────────┐
+│                              │  2단계 OTP 완료 (verify_login_complete) │
 │                              │  verify_login_complete        │
 │                              │  ├─ decode_pre_auth_payload   │
 │                              │  ├─ verify_otp_code           │
@@ -294,9 +305,13 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 ├─ 3. 보호 API (Bearer access_token) ───────────────────┐
 │                                                        ▼
 │     ┌────────────────────────────────────────────────────┐
+│     │  보호 API 공통 (require_active_access)               │
 │     │  대부분: require_active_access                      │
-│     │  ├─ get_access_payload (typ=access, JWT 검증)       │
-│     │  └─ ensure_user_active_not_locked (system_db → 403) │
+│     │  ├─ JWT(typ=access)·exp·서명 (_parse_bearer…)       │
+│     │  ├─ ensure_user_active_not_locked (system_db → 403) │
+│     │  └─ 세션 바인딩 (_assert_access_session_bound)     │
+│     │      · session_log.access_token_encrypt = SHA256(Bearer원문) │
+│     │      · refresh_exprtn_dtm 미만료                   │
 │     │                                                      │
 │     │  분기:                                               │
 │     │  ├─ /api/admin/* → get_authenticated_user_row        │
@@ -308,6 +323,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 ├─ 4. POST /api/auth/refresh ────────────────────────────┐
 │                                                        ▼
 │                              ┌──────────────────────────────┐
+│                              │  토큰 갱신 (refresh_session_tokens) │
 │                              │  refresh_session_tokens       │
 │                              │  ├─ refresh JWT·session_log    │
 │                              │  ├─ _fetch_dptmt_id_or_raise_ │
@@ -317,9 +333,10 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 │                              └──────────────────────────────┘
 │
 └─ 5. POST /api/auth/logout ───────────────────────────┐
-       (Depends: get_access_payload 만 — 정지 계정도 로그아웃) │
+       (Depends: require_access_session_bound — JWT+세션만, 비활성·잠금도 로그아웃 가능) │
                                                         ▼
                                ┌──────────────────────────────┐
+                               │  로그아웃 (logout_one_session) │
                                │  session_log.refresh_exprtn_  │
                                │  dtm = NOW()                  │
                                └──────────────────────────────┘
@@ -391,10 +408,11 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 ### 2.3 권한 검증 분기 (어드민 vs 프로젝트 기능)
 
 ```
+(흐름 개요: Depends 체인 — require_access_session_bound / require_active_access / require_* )
 HTTP 요청
 │
 ├─ POST /api/auth/logout
-│  └─ get_access_payload (JWT만, 정지·잠금 계정도 세션 종료 가능)
+│  └─ require_access_session_bound (JWT+세션 바인딩만 — 비활성·잠금 계정도 세션 종료 가능)
 │
 ├─ POST /api/auth/refresh
 │  └─ 서비스 레이어에서 session + _fetch_dptmt_id_or_raise_inactive_locked
@@ -403,9 +421,9 @@ HTTP 요청
    │
    ▼
    require_active_access
-   = get_access_payload + ensure_user_active_not_locked → 403
+   = JWT 검증 + ensure_user_active_not_locked + _assert_access_session_bound → 401/403
         │
-        ├─ /api/admin/*     → get_authenticated_user_row → 역할·부서·프로젝트 Depends
+        ├─ /api/admin/*     → get_authenticated_user_row(= Depends(require_active_access) 후 user_dvsn 조회) → 역할·부서·프로젝트 Depends
         │
         ├─ /api/etl/*       → require_etl_infrastructure
         │                      (내부적으로 require_active_access)
@@ -417,33 +435,49 @@ HTTP 요청
                                    (활성 프로젝트 · pmssn_list ∩ feature_flags)
 ```
 
-#### 2.3.1 비활성·잠금 계정과 `require_active_access`
+#### 2.3.1 액세스 JWT·세션 바인딩·`require_active_access`
+
+리프레시로 access가 회전된 뒤에도 **이전 access JWT**가 만료 전이면 API가 열리는 문제를 막기 위해, 보호 API는 **Bearer 원문**을 SHA-256 hex 한 뒤 **`session_log.access_token_encrypt`** 와 비교한다(`security.hash_token` 과 동일 알고리즘). 또 **`refresh_exprtn_dtm`** 이 지난 세션은 401으로 거절한다.
 
 ```
-get_access_payload
-  → JWT(typ=access)·exp·서명만 검증
+_parse_bearer_access_token
+  → JWT(typ=access)·exp·서명 검증 → (원문 토큰, payload)
+
+_assert_access_session_bound(conn, token, payload)
+  → session_log_id·user_id로 session_log 행 조회
+  → refresh_exprtn_dtm 경과 시 401
+  → access_token_encrypt == SHA256(token 원문) 아니면 401
 
 ensure_user_active_not_locked
-  → system_db에서 user_active_yn=Y, user_lock_yn≠Y 아니면 403
+  → system_db user_info: user_active_yn=Y, user_lock_yn≠Y 아니면 403
+
+require_access_session_bound
+  = parse + _assert_access_session_bound (비활성·잠금 검사 없음 — 로그아웃용)
 
 require_active_access
-  = 위 두 단계 (대부분 보호 API의 Depends)
+  = parse + ensure_user_active_not_locked + _assert_access_session_bound
+
+get_access_payload
+  → JWT만 검증(세션 미검증). 라우터 Depends에는 **사용하지 않음**(레거시·테스트용 참고).
 
 적용 예:
 ┌──────────────────────────────────────────────────┐
-│  require_active_access 사용                       │
+│  활성·미잠금 + 세션 바인딩 (require_active_access)  │
 │  ├─ GET/PATCH /api/auth/me                        │
 │  ├─ PATCH /api/auth/me/password                   │
 │  ├─ GET /api/auth/me/login-history                │
 │  ├─ require_permission (쿼리·대시보드·위젯)       │
 │  ├─ require_etl_infrastructure (/api/etl/*)       │
-│  └─ admin_server get_authenticated_user_row       │
+│  ├─ admin_server get_authenticated_user_row       │
+│  │   (payload = Depends(require_active_access))   │
+│  └─ project·notification 등 동일 패턴              │
 └──────────────────────────────────────────────────┘
 
-get_access_payload 만 (JWT만, 정지도 허용)
-├─ POST /api/auth/logout
-└─ POST /api/auth/refresh 는 엔드포인트 Depends는 유지하되,
-   본문 처리에서 별도 비활성·잠금 검사
+require_access_session_bound 만
+└─ POST /api/auth/logout (비활성·잠금도 세션 종료 허용)
+
+POST /api/auth/refresh
+└─ 엔드포인트 Depends는 별도·본문에서 session + 비활성·잠금 검사
 ```
 
 #### 2.3.2 `require_permission`과 `project.feature_flags`
@@ -453,6 +487,7 @@ require_permission("dashboard") 등
 │
 ▼
 ┌──────────────────────────────────────────────────┐
+│  프로젝트 기능 권한 (compute_effective_project_permission_ids) │
 │  compute_effective_project_permission_ids         │
 │                                                    │
 │  ① is_project_active?                             │
@@ -475,26 +510,110 @@ require_permission("dashboard") 등
 `sa_dev`·`sa`·`a`·`o`·`u` 구분 없이 동일 규칙(②③④)으로 유효 권한을 계산한다.
 ```
 
-#### 2.3.3 refresh·프로젝트 select·비활성·잠금
+#### 2.3.3 리프레시·만료·슬라이딩·프로젝트 select
+
+**기본값** (`core/auth_config.py`): `get_jwt_access_expire_minutes()` → 30분, `get_jwt_refresh_expire_days()` → 7일.
 
 ```
-POST /api/auth/refresh
+N일·슬라이딩 의미 (create_refresh_token · session_log UPDATE)
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  refresh_session_tokens                           │
-│  ├─ session_log·refresh JWT 검증                  │
-│  ├─ _fetch_dptmt_id_or_raise_inactive_locked      │
-│  │   ├─ user_active_yn ≠ Y → 거부                 │
-│  │   └─ user_lock_yn = Y → 거부                   │
-│  └─ 통과 시에만 새 access·refresh 발급            │
+│  발급 시각 + N일 (`get_jwt_refresh_expire_days`)   │
+│  ├─ refresh JWT 의 exp                           │
+│  └─ session_log.refresh_exprtn_dtm (동일 만료 시각) │
+└──────────────────────┬───────────────────────────┘
+                       ▼
+              POST /api/auth/refresh 성공할 때마다
+                       │
+                       ▼
+┌──────────────────────────────────────────────────┐
+│  JWT exp 와 refresh_exprtn_dtm 을 둘 다 다시 N일 뒤로 │
+│  (슬라이딩 — refresh_session_tokens 내 UPDATE)    │
 └──────────────────────────────────────────────────┘
 
-POST /api/projects/{id}/select  (rotate)
+※ “7일 미사용” = 브라우저 on/off 가 아니라, N일 안에 유효한 갱신이 없어
+   JWT·DB 만료가 함께 도래한 경우. (갱신 API 미호출 = 시간만 흐름)
+```
+
+```
+POST /api/auth/refresh (refresh_session_tokens)
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  rotate_session_tokens_with_project               │
+│  decode_token_payload(refresh, "refresh")        │
+│  (security — 서명·typ·exp 등)                    │
+└──────────────────────┬───────────────────────────┘
+                       │ 실패(PyJWTError 래핑)
+                       ▼
+                  ValueError
+                  "유효하지 않은 refresh 토큰입니다."
+                       │ 성공
+                       ▼
+┌──────────────────────────────────────────────────┐
+│  session_log 행 존재 · session_create_user_id     │
+│    = JWT user_id ?                                │
+└──────────────────────┬───────────────────────────┘
+                       │ 아니오
+                       ▼
+                  "세션을 찾을 수 없습니다."
+                       │ 예
+                       ▼
+┌──────────────────────────────────────────────────┐
+│  refresh_exprtn_dtm 있음 · now 이전 아님 ?        │
+└──────────────────────┬───────────────────────────┘
+                       │ 만료/NULL
+                       ▼
+                  "세션이 만료되었습니다. 다시 로그인하세요."
+                       │ 유효
+                       ▼
+┌──────────────────────────────────────────────────┐
+│  hash(refresh 문자열) = refresh_token_encrypt ?   │
+└──────────────────────┬───────────────────────────┘
+                       │ 불일치
+                       ▼
+                  "세션이 무효화되었습니다."
+                       │ 일치
+                       ▼
+┌──────────────────────────────────────────────────┐
+│  _fetch_dptmt_id_or_raise_inactive_locked        │
+│  (user 없음 / 비활성 / 잠금 → 각 ValueError)       │
+└──────────────────────┬───────────────────────────┘
+                       │ 통과
+                       ▼
+┌──────────────────────────────────────────────────┐
+│  create_access_token · create_refresh_token       │
+│  session_log UPDATE (해시·access/refresh 만료)     │
+└──────────────────────────────────────────────────┘
+```
+
+```
+보호 API (require_active_access → _assert_access_session_bound)
+│
+▼
+┌──────────────────────────────────────────────────┐
+│  refresh_exprtn_dtm < now ?                      │
+└──────────────────────┬───────────────────────────┘
+                       │ 예 (로그아웃으로 NOW() 찍힌 경우 포함)
+                       ▼
+                  401 — 액세스 JWT exp 가 남아 있어도 거절 가능
+```
+
+```
+즉시 끊김 — N일과 무관 (refresh_exprtn_dtm = NOW() 등)
+│
+├─ 로그아웃 (logout_one_session) — 해당 세션만
+├─ 비밀번호 변경 (change_password → invalidate_all_sessions)
+├─ 어드민 정지 (suspend_user → invalidate_all_sessions)
+└─ 비활성 사용자 삭제 (delete_inactive_user → invalidate_all_sessions …)
+```
+
+```
+POST /api/projects/{id}/select (rotate_session_tokens_with_project)
+│
+▼
+┌──────────────────────────────────────────────────┐
+│  작업 프로젝트 전환 (rotate_session_tokens_with_project) │
 │  ├─ is_project_active (active_yn=Y)              │
 │  ├─ _fetch_dptmt_id_or_raise_inactive_locked      │
 │  └─ 멤버십·세션 검증 후 토큰 재발급               │
@@ -508,6 +627,7 @@ PATCH /api/admin/users/{id}/suspend
 │
 ▼
 ┌──────────────────────────────────────────────────┐
+│  사용자 정지 (suspend_user)                        │
 │  suspend_user                                     │
 │  ├─ ownership_guards (409 가능)                   │
 │  ├─ user_active_yn = 'N'                          │
@@ -528,9 +648,10 @@ PATCH /api/admin/users/{id}/suspend
 
 | 함수 | 기능 |
 |------|------|
-| `get_access_payload` | Bearer → access JWT payload 추출 (`typ=access`) |
+| `get_access_payload` | Bearer → access JWT payload만 추출 (`typ=access`) — **세션 미검증**. 라우터 Depends 비사용 |
 | `ensure_user_active_not_locked` | `system_db`에서 `user_active_yn`·`user_lock_yn` 검사 → 비활성·잠금 시 403 |
-| `require_active_access` | JWT 검증 + 활성·미잠금 (`get_access_payload` + `ensure_user_active_not_locked`) |
+| `require_access_session_bound` | JWT + `session_log` 바인딩(`access_token_encrypt`·`refresh_exprtn_dtm`) — **로그아웃** |
+| `require_active_access` | JWT + 활성·미잠금 + 세션 바인딩 (`_parse_bearer` → `ensure_user_active_not_locked` → `_assert_access_session_bound`) |
 
 #### `auth_server/permissions.py`
 
@@ -558,7 +679,7 @@ PATCH /api/admin/users/{id}/suspend
 | `POST /api/auth/login` | 1단계 로그인 |
 | `POST /api/auth/verify-login` | 2단계 OTP 검증 |
 | `POST /api/auth/refresh` | 토큰 리프레시 (서비스에서 비활성·잠금 검사) |
-| `POST /api/auth/logout` | 세션 만료 (`get_access_payload` — 정지 계정도 로그아웃 가능) |
+| `POST /api/auth/logout` | 세션 만료 (`require_access_session_bound` — 비활성·잠금도 로그아웃 가능) |
 | `GET /api/auth/me` | 프로필+권한 (`require_active_access`) |
 | `PATCH /api/auth/me` | 닉네임 (`require_active_access`) |
 | `PATCH /api/auth/me/password` | 비밀번호 (`require_active_access`) |
@@ -598,11 +719,12 @@ POST /api/admin/projects
 │
 ▼
 ┌──────────────────────────────────────────────────┐
+│  조직 관리자만 (require_org_admin)                 │
 │  Depends: require_org_admin (sa_dev·sa·a)         │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  [create_project_full] — 단일 트랜잭션            │
+│  프로젝트 생성 트랜잭션 (create_project_full)       │
 │                                                    │
 │  ① project_info INSERT                             │
 │     (name, dscrtn, dptmt, creator, feature_flags)  │
@@ -652,7 +774,7 @@ POST /api/admin/projects/{id}/members
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  [add_member]                                      │
+│  멤버 추가 (add_member)                             │
 │  ├─ 프로젝트 소유·pmssn 검증                       │
 │  ├─ 본인 추가 불가                                  │
 │  ├─ 이미 멤버 / 이미 초대 대기 중 확인              │
@@ -680,23 +802,24 @@ PATCH /api/admin/users/{id}/suspend  또는  DELETE /api/admin/users/{id}
 │
 ▼
 ┌──────────────────────────────────────────────────┐
+│  ①② 사전 검증 (라우터·권한)                         │
 │  ① 대상 존재 + 부서 트리 검증                      │
 │  ② 역할 제한 검증 (a→o·u만, sa→a·o·u만 등)       │
 │                                                    │
-│  ③ _evaluate_ownership_target_or_raise             │
+│  ③ 소유 평가·정지 모드 (_evaluate_ownership_target_or_raise) │
 │     (for_suspend=True)                             │
 │     │                                              │
-│     ├─ _collect_system_owned_for_guard             │
+│     ├─ system 메타 소유 스캔 (_collect_system_owned_for_guard) │
 │     │   ├─ 생성 프로젝트 (project_create_user_id) │
 │     │   ├─ 커스텀 pmssn (user_id)                  │
 │     │   ├─ table_master (create_user_id)           │
 │     │   ├─ 등록 부서 (dptmt_create_user_id)        │
 │     │   └─ 초대자 참여 행 (invite_user_id≠자기)    │
 │     │                                              │
-│     ├─ _collect_etl_flat_for_guard                 │
+│     ├─ ETL 자산 스캔 (_collect_etl_flat_for_guard) │
 │     │   (etl_db에서 create_user_id 기준 스캔)      │
 │     │                                              │
-│     └─ build_ownership_violation_payload            │
+│     └─ 409 페이로드·차단 여부 (build_ownership_violation_payload) │
 │        ├─ for_suspend=True → 모든 소유 blocking    │
 │        ├─ project_invite_rows도 blocking에 포함     │
 │        │                                            │
@@ -708,7 +831,8 @@ PATCH /api/admin/users/{id}/suspend  또는  DELETE /api/admin/users/{id}
 │        │                                            │
 │        └─ changeable=true → 계속 진행               │
 │                                                    │
-│  ④ suspend: user_active_yn='N' + 세션 무효          │
+│  ④ 정지·삭제 실행 (suspend_user / delete_inactive_user) │
+│     suspend: user_active_yn='N' + 세션 무효          │
 │     delete: 연관 행 정리 + user_info DELETE          │
 └──────────────────────────────────────────────────┘
 ```
@@ -721,6 +845,7 @@ body: { dptmt_info_id?, user_dvsn?, etl_yn?, project_assignments? }
 │
 ▼
 ┌──────────────────────────────────────────────────┐
+│  일괄 변경 (update_user_management)                 │
 │  ① 대상 존재 + 역할 관리 가능 검증                 │
 │                                                    │
 │  ② 목표 상태 결정                                   │
@@ -754,7 +879,7 @@ POST /api/admin/users/transfer-ownership
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  [transfer_resource_ownership]                     │
+│  소유 이관 (transfer_resource_ownership)           │
 │  ├─ from·to 존재·부서 검증                         │
 │  ├─ table_master 소유자 확인                        │
 │  ├─ _table_master_recipient_eligible               │
@@ -784,6 +909,7 @@ POST /api/admin/users/transfer-ownership
 
 이관 후보 검색 범위:
 ┌──────────────────────────────────┐
+│  수직 부서 트리 (WITH RECURSIVE)   │
 │  WITH RECURSIVE                   │
 │  down: 3 → 하위 전부              │
 │  up: 3 → 2 → 1 (조상까지)        │
@@ -802,6 +928,7 @@ body: { use_yn: "N", migrate_users_to_dptmt_info_id: 2 }
 │
 ▼
 ┌──────────────────────────────────────────────────┐
+│  부서 비활성·이관 (_assert_actor_can_manage_department ~) │
 │  ① _assert_actor_can_manage_department              │
 │     (sa_dev 통과 / sa는 본인 부서 불가)            │
 │                                                    │
@@ -831,7 +958,7 @@ DELETE /api/admin/projects/{id}/purge
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  [purge_inactive_project]                          │
+│  비활성 프로젝트 물리 삭제 (purge_inactive_project) │
 │  ├─ active_yn = 'Y' → 거부 (먼저 비활성화)       │
 │                                                    │
 │  정리 순서 (단일 트랜잭션):                         │
@@ -855,7 +982,7 @@ GET /api/admin/projects/{id}/members
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  [list_members]                                    │
+│  멤버·초대 목록 (list_members)                      │
 │                                                    │
 │  ① 확정 멤버 (project_ptcpnt_info)                  │
 │     items: [{                                       │
@@ -885,7 +1012,8 @@ GET /api/admin/projects/{id}/members
 ```
 관리자: 사용자 정지 시도
 │
-├─ 1. GET /api/admin/users/{id}/work-assets
+├─ 1. 자산 조회 (get_user_work_assets)
+│     GET /api/admin/users/{id}/work-assets
 │     │
 │     ▼
 │     get_user_work_assets
@@ -899,7 +1027,8 @@ GET /api/admin/projects/{id}/members
 │         ├─ etl_storage_connections
 │         └─ batch_folder_connections / batch_jobs
 │
-├─ 2. 자산이 있으면 → 이관 먼저
+├─ 2. 이관 (transfer_resource_ownership)
+│     자산이 있으면 → 이관 먼저
 │     │
 │     ├─ GET /api/admin/users/ownership-transfer-targets
 │     │   → 수직 부서 트리·역할에 맞는 후보 목록
@@ -914,7 +1043,8 @@ GET /api/admin/projects/{id}/members
 │        ├─ table_master → create_user_id UPDATE
 │        └─ etl_* → ETL `create_user_id` UPDATE
 │
-└─ 3. 이관 완료 후 정지
+└─ 3. 정지 (suspend_user)
+      이관 완료 후 정지
       PATCH /api/admin/users/{id}/suspend
       │
       ▼
@@ -1105,6 +1235,7 @@ GET /api/admin/projects/{id}/members
 │  │
 │  ▼
 │  ┌──────────────────────────────────────────┐
+│  │  JWT 재발급 (select_project_tokens·rotate_session_tokens_with_project) │
 │  │  service.select_project_tokens            │
 │  │  → auth_service.rotate_session_tokens_    │
 │  │    with_project                           │
@@ -1133,6 +1264,7 @@ GET /api/admin/projects/{id}/members
 │  │
 │  ▼
 │  ┌──────────────────────────────────────────────────┐
+│  │  초대 수락 (accept_project_invite)                 │
 │  │  [accept_project_invite]                          │
 │  │  ① notification_info 조회 + 본인 확인              │
 │  │  ② noti_content JSON 파싱                          │
@@ -1156,6 +1288,7 @@ GET /api/admin/projects/{id}/members
    │
    ▼
    ┌──────────────────────────────────────────────────┐
+   │  초대 거절 (reject_project_invite)                 │
    │  [reject_project_invite]                          │
    │  ① notification_info 조회 + 본인 확인              │
    │  ② noti_content JSON 파싱                          │
@@ -1197,7 +1330,7 @@ GET /api/admin/projects/{id}/members
 ```
 프론트: 캠페인 대시보드 화면
 │
-├─ 1. 테이블 후보 조회
+├─ 1. 테이블 후보 (get_aggregatable_tables)
 │     GET /api/campaign-dashboard/tables
 │     │
 │     ▼
@@ -1211,7 +1344,7 @@ GET /api/admin/projects/{id}/members
 │     • **번들(권장)**: `GET /api/campaign-dashboard/page` — summary·trend_multi·member_summary·hourly를 동일 앵커로 한 번에
 │     • **개별 GET**: 아래 단계별 호출
 │
-├─ 2a. 집계 데이터 조회
+├─ 2a. 집계·KPI (get_dashboard_data)
 │     GET /api/campaign-dashboard/summary
 │     │
 │     ▼
@@ -1227,7 +1360,7 @@ GET /api/admin/projects/{id}/members
 │        ├─ 전체 KPI (발송·성공·오픈·클릭 합계/비율)
 │        └─ 채널별 분포 (send/success/open/click)
 │
-└─ 3. 차트 데이터 조회
+└─ 3. 일별 추이 (get_chart_data)
       GET /api/campaign-dashboard/trend
       │
       ▼
@@ -1332,7 +1465,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 │
 ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 1: require_permission("dashboard")         │
+│  STEP 1: 대시보드 권한 (require_permission("dashboard")) │
 │  ① JWT → user_id, project_info_id                │
 │  ② 계정 활성·잠금 검사                            │
 │  ③ 프로젝트 active_yn 검사                        │
@@ -1342,36 +1475,36 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 2: GET /api/campaign-dashboard/tables       │
+│  STEP 2: 테이블 후보 (GET /tables → get_aggregatable_tables) │
 │  ① get_aggregatable_tables(project_info_id)       │
 │  ② *_star_1 만 필터 → 테이블 드롭다운             │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 3: 사용자가 테이블 + 기간 선택              │
+│  STEP 3: UI 입력 (table_id·기간·period)           │
 │  → table_id, target_date/end_date, period 등      │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 4: _assert_campaign_table                   │
+│  STEP 4: 프로젝트 매핑 검사 (_assert_campaign_table) │
 │  ① is_table_allowed_for_project_dashboard         │
 │  ② 미매핑 → 403                                   │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 5: _require_star_fact_table (팩트 기반 API) │
+│  STEP 5: Star 팩트 테이블 강제 (_require_star_fact_table) │
 │  ① *_star_1 접미사 확인                           │
 │  ② validate_dashboard_data_table_name             │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 6: 기간 계산                                │
+│  STEP 6: 기간·전기간 (campaign_period.calc_* )   │
 │  campaign_period.calc_summary_date_range          │
 │  campaign_period.calc_previous_range (전기간 등) │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 7: 엔드포인트별 분기                        │
+│  STEP 7: 엔드포인트별 집계·SQL 분기                │
 │                                                   │
 │  /summary            → dashboard_service            │
 │  │                     get_dashboard_data ×2 (현재/전기) │
@@ -1392,7 +1525,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 8: 응답                                     │
+│  STEP 8: JSON 응답·에러 매핑                       │
 │  • JSON (kpi, rows, data, date_range, period …)   │
 │  • member-summary: 행 없음 → 404 + error 메시지   │
 │  • ValueError 등 → 400, 예외 → 500 (JSON error)   │
@@ -1403,16 +1536,19 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ```
   ┌─ 인증·인가 ──────────────────────────┐
+  │  단계1 (require_permission("dashboard")) │
   │  require_permission("dashboard")     │
   │  JWT + 활성 + 프로젝트 + feature_flags│
   └──────────────┬───────────────────────┘
                  ▼
   ┌─ 테이블 격리 ────────────────────────┐
+  │  단계2 (_assert_campaign_table)        │
   │  _assert_campaign_table                │
   │  project 대시보드 매핑 화이트리스트     │
   └──────────────┬───────────────────────┘
                  ▼
   ┌─ 테이블명 안전성 ───────────────────┐
+  │  단계3 (_require_star_fact_table)     │
   │  _require_star_fact_table            │
   │  validate_dashboard_data_table_name  │
   │  *_star_1 접미사 강제                │
@@ -1464,7 +1600,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 │
 ▼
 ┌──────────────────────────────────────────────┐
-│  STEP 1: require_active_access               │
+│  STEP 1: 세션·계정 (require_active_access)    │
 │  auth_server/deps.py                         │
 │  ① Bearer JWT 검증 (typ=access, exp)         │
 │  ② system_db → user_active_yn, user_lock_yn  │
@@ -1474,7 +1610,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 └──────────────┬───────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────┐
-│  STEP 2: 엔드포인트 분기                      │
+│  STEP 2: 라우팅 (list_notifications 등)     │
 │                                              │
 │  GET  /api/notifications     → list_notifications │
 │  GET  /unread-count          → count_unread  │
@@ -1483,14 +1619,14 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 └──────────────┬───────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────┐
-│  STEP 3: service 함수 실행                    │
+│  STEP 3: DB 갱신 (notification_service)       │
 │  ① system_db.notification_info 직접 조회/갱신 │
 │  ② WHERE user_id = 본인 (타인 알림 접근 불가) │
 │  ③ 갱신 시 commit, 실패 시 rollback           │
 └──────────────┬───────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────┐
-│  STEP 4: 응답                                 │
+│  STEP 4: HTTP 응답                            │
 │  • list     → { items: [...] }               │
 │  • count    → { count: N }                   │
 │  • read-all → { updated: N }                 │
@@ -1503,12 +1639,14 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ```
 ┌─────────────────────────────┐
+│  호출 원 (admin_server)       │
 │  admin_server               │
 │  • 초대 발송                 │──┐
 │  • 정지/활성화 통보          │  │
 │  • 역할 변경 통보            │  │
 ├─────────────────────────────┤  │    ┌───────────────────────────┐
-│  project_server             │  ├──▶ │  insert_notification()    │
+│  호출 원 (project_server)    │  ├──▶ │  핵심 (insert_notification) │
+│  project_server             │  │    │  insert_notification()    │
 │  • 프로젝트 초대             │  │    │  notification_info INSERT │
 │  • 초대 수락/거절 결과 통보  │──┘    │  → PK 반환               │
 └─────────────────────────────┘       └───────────────────────────┘

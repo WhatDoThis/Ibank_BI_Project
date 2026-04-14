@@ -21,7 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from Backend.auth_server import permissions, schemas, service
-from Backend.auth_server.deps import get_access_payload, require_active_access
+from Backend.auth_server.deps import require_access_session_bound, require_active_access
 from Backend.core.dependencies import get_system_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -112,7 +112,7 @@ def auth_refresh(body: schemas.RefreshBody, conn=Depends(get_system_db)):
 
 
 @router.post("/logout")
-def auth_logout(payload: dict = Depends(get_access_payload), conn=Depends(get_system_db)):
+def auth_logout(payload: dict = Depends(require_access_session_bound), conn=Depends(get_system_db)):
     sid = payload.get("session_log_id")
     uid = payload.get("user_id")
     if sid is None or uid is None:

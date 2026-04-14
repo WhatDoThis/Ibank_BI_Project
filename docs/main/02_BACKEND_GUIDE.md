@@ -13,7 +13,7 @@
 - **PostgreSQL** 연동: **메인 DB**(쿼리 스튜디오·execute-query 물리 테이블), **시스템 DB**(`ibank_system_data` — ETL 메타·`user_info`·부서·프로젝트·`pmssn_master`·매핑 등, **04_DB_ARCHITECTURE.md**), **dash_db**(캠페인 대시보드 Star·집계 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. **lifespan**에서 ETL **폴더/DB 배치 스케줄러**(APScheduler) 기동. ETL **Job 큐 워커**(`queue_worker`)는 `/api/etl` 등에서 pending Job이 등록될 때 **최초 1회** 백그라운드 기동(pending → running, **동시 최대 3건**, `MAX_CONCURRENT`).
-- **인증·인가**: **`/api/auth/*`** 로그인·토큰·세션. 보호 API는 **`Authorization: Bearer`** access JWT. 쿼리 스튜디오·대시보드 등은 **`Backend.auth_server.permissions.require_permission`**(JWT `project_info_id`·멤버·`pmssn_list`). 상세는 **05_Permission_ARCHITECTURE.md**.
+- **인증·인가**: **`/api/auth/*`** 로그인·토큰·세션. 보호 API는 **`Authorization: Bearer`** access JWT에 더해 **`session_log.access_token_encrypt`**(Bearer 원문 SHA-256) 일치·**`refresh_exprtn_dtm`** 미만료를 **`require_active_access`**에서 검사한다. **`POST /api/auth/logout`** 만 **`require_access_session_bound`**(JWT+세션만, 비활성·잠금도 허용). 리프레시 **7일 슬라이딩**·`POST /api/auth/refresh` 거절 조건·즉시 세션 끊김은 **03_API_GUIDE.md §2.3.3**. 쿼리 스튜디오·대시보드 등은 **`Backend.auth_server.permissions.require_permission`**(JWT `project_info_id`·멤버·`pmssn_list`). 상세는 **03_API_GUIDE.md §2.3**, **05_Permission_ARCHITECTURE.md**.
 - **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **docs/report/03_AI_DEVELOP_GUIDE.md §10**.
 
 ### 1.2 기술 스택
