@@ -548,10 +548,10 @@ export default function WidgetboardPage() {
   const loadTables = useCallback(async () => {
     setTablesLoading(true)
     try {
-      const data = await listTables()
+      const data = await listTables({ mappingUsage: 'widgetboard' })
       const list = data?.tables || []
       const raw = Array.isArray(list) ? list : []
-      /** listTables = 현재 작업 프로젝트에 매핑된 테이블 전체(main/dash, query_studio /api/list-tables) */
+      /** listTables(mappingUsage:widgetboard) = table_project_mapping 위젯보드 채널 매핑 */
       setTables(raw)
     } catch (e) {
       console.warn('listTables failed', e)
@@ -599,7 +599,7 @@ export default function WidgetboardPage() {
           return
         }
         const dr = { start: cfg?.dateStart, end: cfg?.dateEnd }
-        const descRes = await describeTable(tableName)
+        const descRes = await describeTable(tableName, { mappingUsage: 'widgetboard' })
         const columns = descRes?.columns || []
         const dateCols = getDateColumns(columns)
         const dateCol = (cfg?.dateColumn && columns.some((c) => c.name === cfg.dateColumn) ? cfg.dateColumn : null) || dateCols[0]

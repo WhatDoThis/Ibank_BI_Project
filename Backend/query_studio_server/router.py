@@ -21,8 +21,8 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Endpoints]
 ===========
-11. list_tables: GET /api/list-tables (현재 프로젝트에 매핑된 허용 테이블)
-12. describe_table: POST /api/describe-table (테이블 구조)
+11. list_tables: GET /api/list-tables?mapping_usage=query_studio|widgetboard (채널별 매핑)
+12. describe_table: POST /api/describe-table (mapping_usage 동일, main/dash 매핑 연결별 존재 확인)
 13. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
 14. save_column_labels: POST /api/column-labels (라벨 저장)
 15. table_relationships: GET /api/table-relationships (mode=fk|all, JWT project_info_id 필수)
@@ -36,7 +36,8 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Dependencies]
 =========
-- Backend.core.db, Backend.core.sql_safety, Backend.core.dependencies, Backend.auth_server.permissions.require_permission
+- Backend.core.db, Backend.core.sql_safety, Backend.core.dependencies(get_db·get_config·get_system_db)
+- Backend.auth_server.deps.require_active_access, Backend.auth_server.permissions(require_permission, compute_effective_project_permission_ids, get_user_dvsn_lower, is_project_active)
 - require_query_read_perm / require_query_execute_perm: 테스트·오버라이드용 공통 Depends 대상
 - Backend.query_studio_server.schemas, pluralize, join_path, join_metrics, relationship_inference, peak_guard
 - fastapi, psycopg2, psycopg2.extras.RealDictCursor, requests
@@ -64,8 +65,14 @@ from Backend.core import db
 from Backend.core.sql_safety import contains_dangerous_sql as _core_contains_dangerous_sql
 from Backend.query_studio_server import peak_guard
 from Backend.query_studio_server.relationship_inference import infer_relationships
-from Backend.auth_server.permissions import require_permission
-from Backend.core.dependencies import get_db, get_config
+from Backend.auth_server.deps import require_active_access
+from Backend.auth_server.permissions import (
+    compute_effective_project_permission_ids,
+    get_user_dvsn_lower,
+    is_project_active,
+    require_permission,
+)
+from Backend.core.dependencies import get_db, get_config, get_system_db
 from Backend.query_studio_server.join_path import determine_join_order, validate_join_order
 from Backend.query_studio_server.join_metrics import join_accuracy_score
 from Backend.query_studio_server.schemas import (
@@ -81,6 +88,40 @@ from Backend.query_studio_server.schemas import (
 
 require_query_read_perm = require_permission("query.read")
 require_query_execute_perm = require_permission("query.execute")
+
+_MSG_MAPPING_LIST_FEATURE_OFF = "이 프로젝트에서 사용할 수 없는 기능입니다."
+_MSG_MAPPING_LIST_INACTIVE = "비활성화된 프로젝트입니다. 홈에서 다른 프로젝트를 선택하세요."
+
+
+def _normalize_mapping_usage(raw: str) -> str:
+    mu = (raw or "query_studio").strip().lower()
+    if mu not in ("query_studio", "widgetboard"):
+        raise HTTPException(
+            status_code=400,
+            detail="mapping_usage는 query_studio 또는 widgetboard 여야 합니다.",
+        )
+    return mu
+
+
+def _assert_mapping_list_perm(mapping_usage: str, payload: dict, conn) -> str:
+    """list-tables·describe-table 공통: 채널별로 query.read 또는 widgetboard 권한 검사."""
+    mu = _normalize_mapping_usage(mapping_usage)
+    raw_pid = payload.get("project_info_id")
+    if raw_pid is None:
+        raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+    project_info_id = int(raw_pid)
+    user_id = int(payload["user_id"])
+    raw_dvsn = get_user_dvsn_lower(conn, user_id)
+    eff = compute_effective_project_permission_ids(
+        conn, user_id, project_info_id, raw_dvsn
+    )
+    eff_set = set(eff)
+    need = "query.read" if mu == "query_studio" else "widgetboard"
+    if need not in eff_set:
+        if not is_project_active(conn, project_info_id):
+            raise HTTPException(status_code=403, detail=_MSG_MAPPING_LIST_INACTIVE)
+        raise HTTPException(status_code=403, detail=_MSG_MAPPING_LIST_FEATURE_OFF)
+    return mu
 
 # 프로젝트 루트: Backend/query_studio_server/router.py → 3단계 상위
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -549,20 +590,30 @@ def _peak_guard_503_busy():
 
 
 # 10a.
-def _resolve_project_table_db_type(project_info_id: int, table_name: str) -> str:
+def _resolve_project_table_db_type(
+    project_info_id: int,
+    table_name: str,
+    *,
+    for_widgetboard: bool = False,
+) -> str:
     """프로젝트 매핑 기준 table_name의 db_type(main|dash) 결정. 동명이인 경우 main 우선."""
     t = db.validate_table_name(table_name)
+    kw: dict = (
+        {"usage_widgetboard": True}
+        if for_widgetboard
+        else {"usage_query_studio": True}
+    )
     main_set = db.get_allowed_tables(
         project_info_id=int(project_info_id),
         db_type="main",
-        usage_query_studio=True,
+        **kw,
     )
     if t in main_set:
         return "main"
     dash_set = db.get_allowed_tables(
         project_info_id=int(project_info_id),
         db_type="dash",
-        usage_query_studio=True,
+        **kw,
     )
     if t in dash_set:
         return "dash"
@@ -572,25 +623,36 @@ def _resolve_project_table_db_type(project_info_id: int, table_name: str) -> str
 # 10.
 @router.get("/list-tables")
 def list_tables(
-    _perm: dict = Depends(require_query_read_perm),
+    mapping_usage: str = Query(
+        "query_studio",
+        description="query_studio(쿼리 스튜디오 매핑) | widgetboard(위젯보드 매핑)",
+    ),
+    payload: dict = Depends(require_active_access),
     conn=Depends(get_db),
+    sconn=Depends(get_system_db),
 ):
     try:
-        project_info_id = _perm.get("project_info_id")
+        mu = _assert_mapping_list_perm(mapping_usage, payload, sconn)
+        project_info_id = payload.get("project_info_id")
         if project_info_id is None:
             raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
 
+        filt: dict = (
+            {"usage_widgetboard": True}
+            if mu == "widgetboard"
+            else {"usage_query_studio": True}
+        )
         allowed_rows_main = db.get_allowed_tables(
             project_info_id=int(project_info_id),
             db_type="main",
             include_meta=True,
-            usage_query_studio=True,
+            **filt,
         )
         allowed_rows_dash = db.get_allowed_tables(
             project_info_id=int(project_info_id),
             db_type="dash",
             include_meta=True,
-            usage_query_studio=True,
+            **filt,
         )
         # 동명이인(main/dash 모두 존재)인 경우 기존 query_studio 호환을 위해 main 우선 노출.
         allowed_map = {row["table_name"]: row for row in allowed_rows_dash}
@@ -602,7 +664,7 @@ def list_tables(
 
         schema = db.get_table_schema()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        uid = _perm.get("user_id")
+        uid = payload.get("user_id")
         pid = int(project_info_id)
         user_labels = (
             _load_user_project_labels(int(uid), pid)
@@ -645,28 +707,35 @@ def list_tables(
 @router.post("/describe-table")
 def describe_table(
     body: DescribeTableRequest,
-    _perm: dict = Depends(require_query_read_perm),
+    payload: dict = Depends(require_active_access),
+    sconn=Depends(get_system_db),
     conn=Depends(get_db),
 ):
     conn_target = None
     cur = None
     should_close_conn_target = False
     try:
-        table_name = db.validate_table_name(body.table_name)
-        uid = _perm.get("user_id")
-        pid = _perm.get("project_info_id")
+        mu = _assert_mapping_list_perm(body.mapping_usage, payload, sconn)
+        for_wb = mu == "widgetboard"
+        pid = payload.get("project_info_id")
+        if pid is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        table_name = db.validate_table_identifier(body.table_name)
+        uid = payload.get("user_id")
         user_labels = (
             _load_user_project_labels(int(uid), int(pid))
             if uid is not None and pid is not None
             else _empty_user_labels()
         )
         file_labels = _load_labels_file()
-        if pid is None:
-            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
-        db_type = _resolve_project_table_db_type(int(pid), table_name)
+        db_type = _resolve_project_table_db_type(
+            int(pid), table_name, for_widgetboard=for_wb
+        )
         schema = db.get_table_schema() if db_type == "main" else db.get_dash_table_schema()
         conn_target = conn if db_type == "main" else db.get_db_connection_dash()
         should_close_conn_target = db_type == "dash"
+        if not db._table_exists(conn_target, schema, table_name):
+            raise ValueError(f"테이블을 찾을 수 없습니다: {table_name}")
         cur = conn_target.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """

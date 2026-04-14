@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+346. 2026-04-13 위젯·describe-table: dash 전용 테이블도 스키마 조회·저장 가능
+345. 2026-04-13 list-tables/describe-table mapping_usage(widgetboard)·위젯보드 FE 정합
+344. 2026-04-13 어드민 프로젝트 모달: 테이블 매핑을 페이지 선택 위로·안내 문구
 343. 2026-04-13 DB 연결 끊김 시 safe_rollback(auth·get_system_db)
 342. 2026-04-13 table_project_mapping 채널 컬럼: 런타임 ALTER 제거·DDL은 운영 수동
 341. 2026-04-13 프로젝트 테이블 매핑: 쿼리스튜디오·위젯보드 채널 분리·admin table_mappings·위젯 허용 필터
@@ -347,6 +350,38 @@
 
 ## Log Body
 
+346. 2026-04-13 위젯·describe-table: dash 전용 테이블도 스키마 조회·저장 가능
+Purpose: `validate_table_name`이 메인 DB만 확인해 dash 매핑 테이블에서 `describe-table` 400·위젯 저장 실패가 났다. 식별자 패턴 검증 후 매핑으로 결정한 연결에서 `_table_exists`로 확인하도록 통일한다.
+
+Changes:
+
+- `core/db.py`: `validate_table_identifier` 추가
+- `query_studio_server/router.py`: `describe_table`에서 위 흐름 + 대상 연결에서 존재 확인
+- `widget_board_server/service.py`: `_allowed_saved_table` 동일 정책(main·dash 동시 매핑 시 main 우선)
+
+Changed files: Backend/core/db.py, Backend/query_studio_server/router.py, Backend/widget_board_server/service.py, docs/log/log.md
+
+345. 2026-04-13 list-tables/describe-table mapping_usage(widgetboard)·위젯보드 FE 정합
+Purpose: 어드민 `table_mappings`의 위젯보드 채널만 켠 테이블이 위젯보드 UI에 나타나도록, `/api/list-tables`·`/api/describe-table`가 `use_widgetboard_yn` 매핑을 볼 수 있게 한다. 권한은 `widgetboard`(또는 기본 `query_studio` 시 `query.read`).
+
+Changes:
+
+- `query_studio_server/router.py`: `mapping_usage` 쿼리·바디, `_assert_mapping_list_perm`, `_resolve_project_table_db_type(for_widgetboard=)`
+- `query_studio_server/schemas.py`: `DescribeTableRequest.mapping_usage`
+- `shared/api/queryStudioTableApi.js`: `listTables`·`describeTable` opts
+- `widgetboard` `WidgetboardPage`·`WidgetDataWizardModal`: `mappingUsage: 'widgetboard'`
+
+Changed files: Backend/query_studio_server/router.py, schemas.py, Frontend/react-app/src/shared/api/queryStudioTableApi.js, packages/widgetboard/WidgetboardPage.jsx, packages/widgetboard/components/WidgetDataWizardModal.jsx, docs/log/log.md
+
+344. 2026-04-13 어드민 프로젝트 모달: 테이블 매핑을 페이지 선택 위로·안내 문구
+Purpose: 쿼리 스튜디오를 끄면 테이블 매핑이 없어진 것처럼 보이는 혼동을 줄인다. 매핑 블록을「프로젝트 페이지 선택」보다 위에 두고, 플래그와 무관함을 문구로 명시한다.
+
+Changes:
+
+- `AdminProjectsPage.jsx`: 섹션 순서(역할 다음 → 테이블 매핑 → 페이지 선택 → …), `ap__hint` 안내
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
 343. 2026-04-13 DB 연결 끊김 시 safe_rollback(auth·get_system_db)
 Purpose: PostgreSQL이 연결을 먼저 끊은 뒤 `conn.rollback()`을 호출하면 `InterfaceError: connection already closed`가 이중으로 난다. `db.safe_rollback`으로 정리하고 원인(OperationalError)은 그대로 전달한다.
 
@@ -380,6 +415,7 @@ Changes:
 - `widget_board_server` `_allowed_saved_table`에 `usage_widgetboard=True`
 - `AdminProjectsPage` 테이블 매핑 섹션 상시·이중 체크박스·`table_mappings` 전송, `adminClient` JSDoc
 - `docs/main/04_DB_ARCHITECTURE.md` 매핑 컬럼 설명 보강
+- (후속 345) 위젯보드: `GET /api/list-tables?mapping_usage=widgetboard`, `describe-table` 바디 `mapping_usage` — FE `queryStudioTableApi`·위젯보드 패키지 연동
 
 Changed files: Backend/admin_server/schemas.py, service_projects.py, router.py, service_tables.py, Backend/query_studio_server/router.py, Backend/widget_board_server/service.py, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, admin-pages.css, shared/api/adminClient.js, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
 

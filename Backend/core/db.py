@@ -32,7 +32,8 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 21. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
 22. is_table_allowed_for_project_dashboard: *_star_1|2 는 dash_db 물리 존재 시 매핑 없이 허용, 그 외 기존 매핑 규칙
 23. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
-24. validate_table_name: 이름 패턴·스키마 내 실제 존재 여부 검증
+24. validate_table_name: 이름 패턴·메인 DB 스키마 내 실제 존재 여부 검증
+24a. validate_table_identifier: 이름 패턴만 검증(메인/대시 물리 존재는 호출부에서 해당 연결·스키마로 확인)
 25. validate_column_name: 컬럼명 허용 패턴 검증
 
 [Package Usage]
@@ -54,7 +55,8 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 15. is_new_dash_physical_table: Backend/core/dashboard_service.py, Backend/core/db.py 내부(get_table_columns_with_types·validate_dashboard_data_table_name)
 16. validate_dashboard_data_table_name: Backend/core/dashboard_service.py, Backend/campaign_dash_server/router.py
 17. format_value: Backend/query_studio_server/router.py
-18. validate_table_name: Backend/query_studio_server/router.py, Backend/core/dashboard_service.py
+18. validate_table_name: Backend/core/dashboard_service.py 등(메인 물리 테이블 검증)
+18a. validate_table_identifier: Backend/query_studio_server/router.py(describe_table), Backend/widget_board_server/service.py(_allowed_saved_table)
 19. validate_column_name: Backend/query_studio_server/router.py
 
 [Dependencies]
@@ -857,6 +859,17 @@ def validate_table_name(table_name):
     finally:
         conn.close()
     return table_name
+
+
+# 23a.
+def validate_table_identifier(table_name):
+    """테이블 식별자 패턴만 검증. 물리 존재 여부는 메인/대시 각 연결에서 별도 확인."""
+    if not table_name or not str(table_name).strip():
+        raise ValueError('테이블 이름이 필요합니다')
+    t = str(table_name).strip()
+    if not re.match(r'^[a-zA-Z0-9_]+$', t):
+        raise ValueError(f'잘못된 테이블 이름: {t}')
+    return t
 
 
 # 24.

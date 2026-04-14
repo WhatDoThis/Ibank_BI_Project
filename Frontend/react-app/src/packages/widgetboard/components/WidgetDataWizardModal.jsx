@@ -1,7 +1,7 @@
 /**
  * packages/widgetboard/components/WidgetDataWizardModal.jsx (데이터 위젯 생성 마법사)
  * ==================================================================================
- * 제목·테이블(프로젝트 매핑 목록)·기간·날짜 컬럼·지표(metric)·단일 일자 시 차원(dimension) → data_config 반영.
+ * 제목·테이블(/api/list-tables 위젯보드 채널 매핑)·기간·날짜 컬럼·지표(metric)·단일 일자 시 차원(dimension) → data_config 반영.
  *
  * [Main Functions]
  * ===========
@@ -88,7 +88,7 @@ export function WidgetDataWizardModal({
     }
     setDescLoading(true)
     try {
-      const res = await describeTable(name)
+      const res = await describeTable(name, { mappingUsage: 'widgetboard' })
       const all = res?.columns || []
       setColumnMeta(all)
       const dateCols = all.filter((c) => isDateType(c?.type))

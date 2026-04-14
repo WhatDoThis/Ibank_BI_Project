@@ -6,7 +6,9 @@
  *
  * [Main Functions]
  * ===========
- * - listTables, describeTable, executeQuery
+ * - listTables(opts?: { mappingUsage?: 'query_studio'|'widgetboard' })
+ * - describeTable(tableName, opts?: { mappingUsage?: 'query_studio'|'widgetboard' })
+ * - executeQuery
  *
  * [Dependencies]
  * =========
@@ -16,13 +18,20 @@
 import { request } from '@/shared/api/http.js'
 
 // 1.
-export async function listTables() {
-  return request('GET', '/api/list-tables')
+/** @param {{ mappingUsage?: 'query_studio'|'widgetboard' }} [opts] — 위젯보드는 widgetboard(매핑 채널 일치) */
+export async function listTables(opts = {}) {
+  const mu = opts.mappingUsage === 'widgetboard' ? 'widgetboard' : 'query_studio'
+  const q = mu === 'widgetboard' ? '?mapping_usage=widgetboard' : ''
+  return request('GET', `/api/list-tables${q}`)
 }
 
 // 2.
-export async function describeTable(tableName) {
-  return request('POST', '/api/describe-table', { table_name: tableName })
+export async function describeTable(tableName, opts = {}) {
+  const mu = opts.mappingUsage === 'widgetboard' ? 'widgetboard' : 'query_studio'
+  return request('POST', '/api/describe-table', {
+    table_name: tableName,
+    mapping_usage: mu,
+  })
 }
 
 // 3.

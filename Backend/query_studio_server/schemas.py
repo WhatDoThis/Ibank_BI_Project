@@ -5,7 +5,7 @@ FastAPI POST 엔드포인트 요청 검증용 Pydantic 모델(쿼리 스튜디�
 
 [Pydantic Models]
 ===========
-1. DescribeTableRequest: POST /api/describe-table
+1. DescribeTableRequest: POST /api/describe-table(table_name, mapping_usage query_studio|widgetboard)
 2. ExecuteQueryRequest: POST /api/execute-query
 3. ExplainSqlRequest: POST /api/explain-sql (query/sql)
 4. GetColumnValuesRequest: POST /api/get-column-values
@@ -27,6 +27,10 @@ from pydantic import BaseModel, Field
 # 1.
 class DescribeTableRequest(BaseModel):
     table_name: str = Field(..., description="테이블명")
+    mapping_usage: str = Field(
+        default="query_studio",
+        description="query_studio(기본) | widgetboard — table_project_mapping 채널 플래그와 동일",
+    )
 
 
 # 2.

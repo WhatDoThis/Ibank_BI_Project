@@ -3,7 +3,7 @@
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
  * 생성 성공 시 notifyParticipatingProjectsChanged(헤더 작업 프로젝트 드롭다운 목록). 비활성화·purge: JWT 동일 프로젝트면 refreshMe.
- * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 쿼리스튜디오·위젯보드 채널별 체크·`table_mappings` PATCH/POST.
+ * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 페이지 선택 위에 두며 기능 플래그와 무관·채널별 체크·`table_mappings` PATCH/POST.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
@@ -663,46 +663,10 @@ export default function AdminProjectsPage() {
                 ) : null}
 
                 <div className="ap__create-section">
-                  <div className="ap__create-section-title">프로젝트 페이지 선택</div>
-                  <div className="ap__create-check-row">
-                    <label className="ap__check">
-                      <input
-                        type="checkbox"
-                        checked={enabledPages.dashboard}
-                        onChange={(ev) =>
-                          setEnabledPages((p) => ({ ...p, dashboard: ev.target.checked }))
-                        }
-                        disabled={formBusy || lockPagesTables}
-                      />
-                      캠페인 대시보드
-                    </label>
-                    <label className="ap__check">
-                      <input
-                        type="checkbox"
-                        checked={enabledPages.queryStudio}
-                        onChange={(ev) =>
-                          setEnabledPages((p) => ({ ...p, queryStudio: ev.target.checked }))
-                        }
-                        disabled={formBusy || lockPagesTables}
-                      />
-                      쿼리 스튜디오
-                    </label>
-                    <label className="ap__check">
-                      <input
-                        type="checkbox"
-                        checked={enabledPages.widgetboard}
-                        onChange={(ev) =>
-                          setEnabledPages((p) => ({ ...p, widgetboard: ev.target.checked }))
-                        }
-                        disabled={formBusy || lockPagesTables}
-                      />
-                      위젯보드
-                    </label>
-                  </div>
-                </div>
-
-                <div className="ap__create-section">
                   <div className="ap__create-section-title">테이블 매핑</div>
+                  <p className="ap__hint ap__hint--tight">
+                    쿼리 스튜디오·위젯보드 사용 여부와 관계없이 매핑을 지정합니다. 아래「프로젝트 페이지 선택」에서 기능을 끄더라도 이 섹션은 그대로 둡니다.
+                  </p>
                   <div className="ap__table-pick-head ap__table-pick-head--dual">
                     <label className="ap__check">
                       <input
@@ -762,6 +726,45 @@ export default function AdminProjectsPage() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+
+                <div className="ap__create-section">
+                  <div className="ap__create-section-title">프로젝트 페이지 선택</div>
+                  <div className="ap__create-check-row">
+                    <label className="ap__check">
+                      <input
+                        type="checkbox"
+                        checked={enabledPages.dashboard}
+                        onChange={(ev) =>
+                          setEnabledPages((p) => ({ ...p, dashboard: ev.target.checked }))
+                        }
+                        disabled={formBusy || lockPagesTables}
+                      />
+                      캠페인 대시보드
+                    </label>
+                    <label className="ap__check">
+                      <input
+                        type="checkbox"
+                        checked={enabledPages.queryStudio}
+                        onChange={(ev) =>
+                          setEnabledPages((p) => ({ ...p, queryStudio: ev.target.checked }))
+                        }
+                        disabled={formBusy || lockPagesTables}
+                      />
+                      쿼리 스튜디오
+                    </label>
+                    <label className="ap__check">
+                      <input
+                        type="checkbox"
+                        checked={enabledPages.widgetboard}
+                        onChange={(ev) =>
+                          setEnabledPages((p) => ({ ...p, widgetboard: ev.target.checked }))
+                        }
+                        disabled={formBusy || lockPagesTables}
+                      />
+                      위젯보드
+                    </label>
                   </div>
                 </div>
 
