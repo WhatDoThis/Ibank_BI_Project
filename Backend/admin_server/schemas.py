@@ -6,7 +6,7 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 [Classes]
 ===========
 - InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(project_invite·dptmt_creator), UserManageUpdateBody(etl_yn 선택)
-- RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectFeatureFlags, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
+- RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectFeatureFlags, TableMappingEntry, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 
@@ -85,12 +85,26 @@ class ProjectFeatureFlags(BaseModel):
     widget: bool = Field(True, description="위젯보드")
 
 
+class TableMappingEntry(BaseModel):
+    """프로젝트별 table_master 매핑 — 쿼리 스튜디오·위젯보드 노출을 독립 설정."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    table_master_id: int = Field(..., ge=1)
+    use_query_studio: bool = Field(True, description="쿼리 스튜디오 허용")
+    use_widgetboard: bool = Field(True, description="위젯보드(saved_table 등) 허용")
+
+
 class ProjectCreateBody(BaseModel):
     project_name: str = Field(..., min_length=1, max_length=20)
     project_dscrtn: str | None = Field(None, max_length=100)
     feature_flags: ProjectFeatureFlags | None = Field(
         default=None,
         description="생략 시 DB 기본(세 기능 모두 true)",
+    )
+    table_mappings: list[TableMappingEntry] | None = Field(
+        default=None,
+        description="전달 시 table_master_ids 대신 채널별 플래그로 동기화. 생략 시 table_master_ids(양쪽 Y) 레거시",
     )
     table_master_ids: list[int] = Field(default_factory=list)
     creator_pmssn_master_id: int = Field(..., ge=1)
@@ -108,7 +122,11 @@ class ProjectUpdateBody(BaseModel):
     )
     table_master_ids: list[int] | None = Field(
         default=None,
-        description="전달 시 해당 집합으로 table_project_mapping 동기화(운영자 o는 변경 불가)",
+        description="전달 시 해당 집합으로 매핑 동기화(채널 양쪽 Y). table_mappings와 동시 전달 시 table_mappings 우선",
+    )
+    table_mappings: list[TableMappingEntry] | None = Field(
+        default=None,
+        description="채널별 플래그로 table_project_mapping 동기화(운영자 o는 변경 불가)",
     )
 
 

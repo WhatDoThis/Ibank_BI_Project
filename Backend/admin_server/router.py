@@ -688,6 +688,11 @@ def admin_projects_create(
     conn=Depends(get_system_db),
 ):
     try:
+        tm_dump = (
+            [m.model_dump() for m in body.table_mappings]
+            if body.table_mappings is not None
+            else None
+        )
         out = service_projects.create_project_full(
             conn,
             int(actor["user_id"]),
@@ -700,6 +705,7 @@ def admin_projects_create(
             [m.model_dump() for m in body.members],
             [x.model_dump() for x in body.external_invites],
             body.feature_flags.model_dump() if body.feature_flags is not None else None,
+            table_mappings=tm_dump,
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -714,6 +720,11 @@ def admin_projects_patch(
     conn=Depends(get_system_db),
 ):
     try:
+        tm_patch = (
+            [m.model_dump() for m in body.table_mappings]
+            if body.table_mappings is not None
+            else None
+        )
         service_projects.update_project(
             conn,
             int(actor["dptmt_info_id"]),
@@ -725,7 +736,10 @@ def admin_projects_patch(
             feature_flags=body.feature_flags.model_dump()
             if body.feature_flags is not None
             else None,
-            table_master_ids=body.table_master_ids,
+            table_master_ids=body.table_master_ids
+            if body.table_mappings is None
+            else None,
+            table_mappings=tm_patch,
         )
     except ValueError as e:
         raise _ve(e) from e

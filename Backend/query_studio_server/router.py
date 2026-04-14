@@ -552,10 +552,18 @@ def _peak_guard_503_busy():
 def _resolve_project_table_db_type(project_info_id: int, table_name: str) -> str:
     """프로젝트 매핑 기준 table_name의 db_type(main|dash) 결정. 동명이인 경우 main 우선."""
     t = db.validate_table_name(table_name)
-    main_set = db.get_allowed_tables(project_info_id=int(project_info_id), db_type="main")
+    main_set = db.get_allowed_tables(
+        project_info_id=int(project_info_id),
+        db_type="main",
+        usage_query_studio=True,
+    )
     if t in main_set:
         return "main"
-    dash_set = db.get_allowed_tables(project_info_id=int(project_info_id), db_type="dash")
+    dash_set = db.get_allowed_tables(
+        project_info_id=int(project_info_id),
+        db_type="dash",
+        usage_query_studio=True,
+    )
     if t in dash_set:
         return "dash"
     raise ValueError("프로젝트에 매핑되지 않은 테이블입니다.")
@@ -576,11 +584,13 @@ def list_tables(
             project_info_id=int(project_info_id),
             db_type="main",
             include_meta=True,
+            usage_query_studio=True,
         )
         allowed_rows_dash = db.get_allowed_tables(
             project_info_id=int(project_info_id),
             db_type="dash",
             include_meta=True,
+            usage_query_studio=True,
         )
         # 동명이인(main/dash 모두 존재)인 경우 기존 query_studio 호환을 위해 main 우선 노출.
         allowed_map = {row["table_name"]: row for row in allowed_rows_dash}
@@ -915,7 +925,7 @@ def _upsert_table_master_and_mapping(
     table_label: str | None = None,
     table_dscrtn: str | None = None,
 ) -> None:
-    """전사 table_master(db_type, table_name) upsert 후 현재 프로젝트에 table_project_mapping을 연결한다."""
+    """전사 table_master upsert 후 table_project_mapping 연결. QS 경로이므로 use_query_studio_yn=Y 고정."""
     conn = db.get_db_connection_system_core()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
@@ -958,12 +968,38 @@ def _upsert_table_master_and_mapping(
         row = cur.fetchone()
         table_master_id = int(row["table_master_id"])
         cur.execute(
+            "SELECT feature_flags FROM project_info WHERE project_info_id = %s",
+            (int(project_info_id),),
+        )
+        ff_row = cur.fetchone()
+        ff_raw = ff_row.get("feature_flags") if ff_row else None
+        if isinstance(ff_raw, str):
+            try:
+                ff = json.loads(ff_raw)
+            except json.JSONDecodeError:
+                ff = {}
+        elif isinstance(ff_raw, dict):
+            ff = ff_raw
+        else:
+            ff = {}
+        q_on = bool(ff.get("query", True))
+        w_on = bool(ff.get("widget", True))
+        wb_auto = q_on and w_on
+        wb_yn = "Y" if wb_auto else "N"
+        cur.execute(
             """
-            INSERT INTO table_project_mapping (project_info_id, table_master_id, create_dtm)
-            VALUES (%s, %s, NOW())
-            ON CONFLICT (project_info_id, table_master_id) DO NOTHING
+            INSERT INTO table_project_mapping (
+                project_info_id, table_master_id, create_dtm,
+                use_query_studio_yn, use_widgetboard_yn
+            ) VALUES (%s, %s, NOW(), 'Y', %s)
+            ON CONFLICT (project_info_id, table_master_id) DO UPDATE SET
+                use_query_studio_yn = 'Y',
+                use_widgetboard_yn = CASE
+                    WHEN %s THEN 'Y'
+                    ELSE table_project_mapping.use_widgetboard_yn
+                END
             """,
-            (int(project_info_id), table_master_id),
+            (int(project_info_id), table_master_id, wb_yn, wb_auto),
         )
         conn.commit()
     except Exception:

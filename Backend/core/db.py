@@ -7,14 +7,16 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 [Main Functions / Classes]
 ===========
 1. _PooledConnection: 풀에서 빌린 연결 래퍼 (close 시 putconn)
+1a. safe_rollback: 서버 연결 종료 후에도 InterfaceError 없이 트랜잭션 정리 시도
 2. get_main_db_config: config.backend.main_db 에서 메인 DB dict (필수 블록, system_db 와 동일 키 구조)
 3. get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict 반환
 4. get_etl_db_config: config.backend.etl_db 우선, 없으면 system_db fallback으로 ETL DB dict 반환
 5. get_system_table_schema: ETL 스키마 우선(backend.etl_db.table_schema), 없으면 system_db.table_schema fallback
 6. get_system_table_schema_core: 비ETL 시스템 기능용 system_db.table_schema 고정 반환
-7. get_allowed_tables_by_project: project_info_id + db_type 기반 허용 테이블 조회(table_project_mapping+table_master)
-8. get_allowed_tables: project_info_id 필수, get_allowed_tables_by_project 위임(db_type·include_meta)
-8a. get_merged_allowed_table_names_for_project: list-tables와 동일 병합(dash+main 메타, 동명이인 시 main 우선) 후 정렬된 테이블명
+7. list_dash_schema_table_names: dash_db 스키마 BASE TABLE 목록(대시보드 후보 스캔)
+8. get_allowed_tables_by_project: project_info_id + db_type + 선택적 QS/위젯 플래그 필터(table_project_mapping)
+9. get_allowed_tables: get_allowed_tables_by_project 위임
+9a. get_merged_allowed_table_names_for_project: list-tables 병합(main 우선), usage_query_studio 필터 지원
 9. get_table_schema: backend.main_db.table_schema(비면 public; main_db 필수)
 10. _table_exists, _query_table_columns, _query_primary_key_columns: 내부 공통 SQL 헬퍼 (conn 인자로 커넥션 1회 사용)
 11. get_table_columns_with_types: 컬럼명·data_type 목록 (대시보드 필수 컬럼 검증용)
@@ -28,7 +30,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 19. get_dash_db_config / get_dash_table_schema / get_db_connection_dash: 뉴 대시보드 전용 dash_db(ibank_dash_data 등) 연결
 20. is_new_dash_physical_table: ibank_1·ibank_1_0~4·ibank_*_star_1|2 여부 (dash_db 집계·Star JSONB 테이블)
 21. validate_dashboard_data_table_name: 대시보드 API용 테이블명 — 뉴 대시보드 물리 테이블이면 허용 목록 없이 검증, 그 외는 validate_table_name
-22. is_table_allowed_for_project_dashboard: 프로젝트·table_master·매핑 기준 대시보드 테이블 허용 여부(M1-8)
+22. is_table_allowed_for_project_dashboard: *_star_1|2 는 dash_db 물리 존재 시 매핑 없이 허용, 그 외 기존 매핑 규칙
 23. format_value: JSON 직렬화용 값 포맷 (datetime/date/decimal 등)
 24. validate_table_name: 이름 패턴·스키마 내 실제 존재 여부 검증
 25. validate_column_name: 컬럼명 허용 패턴 검증
@@ -85,7 +87,6 @@ _dash_pool_lock = threading.Lock()
 # 뉴 대시보드 물리 테이블: ibank_1(집계), ibank_1_0~ibank_1_4(서브), ibank_*_star_1|2(JSONB 집약). backend.dash_db.
 _NEW_DASH_PHYSICAL_TABLE_RE = re.compile(r"^ibank_1(_[0-4])?$|^ibank_[a-z0-9_]+_star_[12]$")
 
-
 # 1.
 class _PooledConnection:
     """풀에서 빌린 연결. close() 시 실제 TCP 종료 대신 putconn()으로 풀에 반환. 기존 conn.close() 호출 패턴과 호환."""
@@ -127,6 +128,24 @@ class _PooledConnection:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
+
+
+# 1a.
+def safe_rollback(conn) -> None:
+    """
+    트랜잭션 정리용 rollback.
+    서버가 연결을 끊은 뒤에는 rollback()이 InterfaceError·OperationalError를 낼 수 있어 무시한다.
+    """
+    if conn is None:
+        return
+    try:
+        closed = getattr(conn, "closed", None)
+        if closed is not None and closed != 0:
+            return
+        conn.rollback()
+    except Exception:
+        pass
+
 
 try:
     from Env import config
@@ -338,23 +357,57 @@ def _normalize_db_type(db_type: str | None) -> str:
     return norm
 
 
-def get_allowed_tables_by_project(
-    project_info_id: int,
-    db_type: str = "main",
-    include_meta: bool = False,
-) -> set[str] | list[dict[str, Any]]:
-    """
-    프로젝트 기반 허용 테이블 조회.
-    system_db의 table_project_mapping + table_master를 조인한다.
-    db_type 인자는 main 또는 dash 만 허용(table_master 정책).
-    include_meta=True면 [{table_name, table_label, table_dscrtn, db_type}] 반환.
-    """
-    norm_db_type = _normalize_db_type(db_type)
-    conn = get_db_connection_system_core()
+# 5b.
+def list_dash_schema_table_names() -> list[str]:
+    """dash_db 스키마의 BASE TABLE 이름 목록(정렬). 캠페인 대시보드 후보 테이블 스캔용."""
+    schema = get_dash_table_schema()
+    conn = get_db_connection_dash()
     cur = conn.cursor()
     try:
         cur.execute(
             """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+            """,
+            (schema,),
+        )
+        return [str(r["table_name"]) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+# 6.
+def get_allowed_tables_by_project(
+    project_info_id: int,
+    db_type: str = "main",
+    include_meta: bool = False,
+    *,
+    usage_query_studio: bool | None = None,
+    usage_widgetboard: bool | None = None,
+) -> set[str] | list[dict[str, Any]]:
+    """
+    프로젝트 기반 허용 테이블 조회.
+    system_db의 table_project_mapping + table_master를 조인한다.
+    usage_query_studio=True 이면 use_query_studio_yn='Y' 인 매핑만, usage_widgetboard=True 이면 위젯 플래그만 필터.
+    """
+    norm_db_type = _normalize_db_type(db_type)
+    extra_sql = ""
+    if usage_query_studio is True:
+        extra_sql += (
+            " AND UPPER(COALESCE(NULLIF(TRIM(mp.use_query_studio_yn), ''), 'Y')) = 'Y'"
+        )
+    if usage_widgetboard is True:
+        extra_sql += (
+            " AND UPPER(COALESCE(NULLIF(TRIM(mp.use_widgetboard_yn), ''), 'Y')) = 'Y'"
+        )
+    conn = get_db_connection_system_core()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
             SELECT
                 m.table_name,
                 m.table_label,
@@ -365,6 +418,7 @@ def get_allowed_tables_by_project(
               ON mp.table_master_id = m.table_master_id
             WHERE mp.project_info_id = %s
               AND LOWER(TRIM(COALESCE(m.db_type, ''))) = %s
+            {extra_sql}
             ORDER BY m.table_name
             """,
             (int(project_info_id), norm_db_type),
@@ -378,40 +432,53 @@ def get_allowed_tables_by_project(
         conn.close()
 
 
+# 6a.
 def get_allowed_tables(
     project_info_id: int,
     db_type: str = "main",
     include_meta: bool = False,
+    *,
+    usage_query_studio: bool | None = None,
+    usage_widgetboard: bool | None = None,
 ) -> set[str] | list[dict[str, Any]]:
-    """
-    허용 테이블 조회. project_info_id 필수.
-    system_db의 table_project_mapping + table_master 조인 결과(get_allowed_tables_by_project).
-    include_meta=True면 [{table_name, table_label, table_dscrtn, db_type}] 반환.
-    """
+    """허용 테이블 조회. project_info_id 필수."""
     norm_db_type = _normalize_db_type(db_type)
     return get_allowed_tables_by_project(
         project_info_id=int(project_info_id),
         db_type=norm_db_type,
         include_meta=include_meta,
+        usage_query_studio=usage_query_studio,
+        usage_widgetboard=usage_widgetboard,
     )
 
 
-# 5a.
-def get_merged_allowed_table_names_for_project(project_info_id: int) -> list[str]:
+# 6b.
+def get_merged_allowed_table_names_for_project(
+    project_info_id: int,
+    *,
+    usage_query_studio: bool | None = True,
+) -> list[str]:
     """
-    query_studio list-tables와 동일: dash(db_type) 허용 행을 먼저 맵에 넣고 main 행으로 덮어 동명이인 시 main 우선.
-    반환 테이블명은 정렬되어 호출 간 순서가 안정적이다.
+    query_studio list-tables와 동일: dash 허용 행을 먼저 맵에 넣고 main 행으로 덮어 동명이인 시 main 우선.
+    usage_query_studio=True(기본)이면 쿼리 스튜디오용 매핑만 포함한다.
     """
     pid = int(project_info_id)
-    allowed_rows_main = get_allowed_tables_by_project(pid, db_type="main", include_meta=True)
-    allowed_rows_dash = get_allowed_tables_by_project(pid, db_type="dash", include_meta=True)
+    kw: dict[str, Any] = {}
+    if usage_query_studio is True:
+        kw["usage_query_studio"] = True
+    allowed_rows_main = get_allowed_tables_by_project(
+        pid, db_type="main", include_meta=True, **kw
+    )
+    allowed_rows_dash = get_allowed_tables_by_project(
+        pid, db_type="dash", include_meta=True, **kw
+    )
     allowed_map: dict[str, Any] = {row["table_name"]: row for row in allowed_rows_dash}
     for row in allowed_rows_main:
         allowed_map[row["table_name"]] = row
     return sorted(allowed_map.keys())
 
 
-# 6.
+# 6c.
 def get_table_schema():
     """
     리포트·허용 테이블 조회용 스키마명.
@@ -518,7 +585,11 @@ def get_table_columns_with_types(table_name):
 # 11.
 def get_all_tables_columns_with_types(table_names, project_info_id: int):
     """여러 테이블의 컬럼명·데이터타입을 한 번에 조회. { table_name: [{ column_name, data_type }, ...] }. project_info_id 병합 허용 집합과 교집합."""
-    allowed = set(get_merged_allowed_table_names_for_project(int(project_info_id)))
+    allowed = set(
+        get_merged_allowed_table_names_for_project(
+            int(project_info_id), usage_query_studio=True
+        )
+    )
     raw_names = [t for t in (table_names or []) if t in allowed]
     main_names = [t for t in raw_names if not is_new_dash_physical_table(t)]
     dash_names = [t for t in raw_names if is_new_dash_physical_table(t)]
@@ -708,14 +779,40 @@ def validate_dashboard_data_table_name(table_name):
 # 21.
 def is_table_allowed_for_project_dashboard(project_info_id: int, table_id: str) -> bool:
     """
-    대시보드 API용 테이블명이 현재 프로젝트의 table_master·table_project_mapping에 허용되는지.
-    main / dash 매핑에 정확히 포함되거나, dash에 집계 본표(ibank_n)만 있을 때
-    서브 테이블 ibank_n_0~ibank_n_4만 추가 허용(문서 17 M1-8·뉴 대시보드 서브 패턴).
-    dash_db 물리명 `*_star_1|2` 는 table_master 에서 db_type=dash 로 등록하는 것을 전제로 한다.
+    캠페인 대시보드용 table_id 허용.
+    `*_star_1` 팩트는 dash_db에 물리 테이블이 있으면 table_project_mapping 없이 허용한다.
+    `*_star_2` 는 동일 접두 `*_star_1` 이 위 규칙으로 허용되면 허용.
+    그 외는 기존처럼 main/dash 매핑 및 ibank_n_0~4 서브 패턴을 따른다.
     """
+    _ = int(project_info_id)  # JWT 프로젝트 스코프 유지(향후 프로젝트별 dash 분리 시 사용)
     name = str(table_id or "").strip()
     if not name:
         return False
+    if name.endswith("_star_1") and is_new_dash_physical_table(name):
+        try:
+            validate_dashboard_data_table_name(name)
+            schema = get_dash_table_schema()
+            conn = get_db_connection_dash()
+            try:
+                if _table_exists(conn, schema, name):
+                    return True
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    if name.endswith("_star_2") and is_new_dash_physical_table(name):
+        try:
+            validate_dashboard_data_table_name(name)
+            partner = name[: -len("_star_2")] + "_star_1"
+            schema = get_dash_table_schema()
+            conn = get_db_connection_dash()
+            try:
+                if _table_exists(conn, schema, name) and _table_exists(conn, schema, partner):
+                    return True
+            finally:
+                conn.close()
+        except Exception:
+            pass
     main_s = get_allowed_tables_by_project(int(project_info_id), "main")
     dash_s = get_allowed_tables_by_project(int(project_info_id), "dash")
     if name in main_s or name in dash_s:
@@ -723,7 +820,6 @@ def is_table_allowed_for_project_dashboard(project_info_id: int, table_id: str) 
     m = re.match(r"^(ibank_\d+)_[0-4]$", name)
     if m and m.group(1) in dash_s:
         return True
-    # 캠페인: 회원 스냅샷 *_star_2 는 동일 접두의 *_star_1 이 dash 매핑에 있으면 허용
     if name.endswith("_star_2"):
         partner = name[: -len("_star_2")] + "_star_1"
         if partner in dash_s:

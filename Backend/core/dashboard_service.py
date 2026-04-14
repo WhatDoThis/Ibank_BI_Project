@@ -6,7 +6,7 @@ Backend.core.dashboard_service (대시보드 비즈니스 로직)
 [Main Functions]
 ===========
 1. get_required_columns: DASHBOARD_REQUIRED_COLUMNS 기반 필수 컬럼 목록 (API·안내용)
-2. get_aggregatable_tables: 프로젝트별 table_master·매핑(main∪dash) 후보만 대상으로 필수 컬럼·타입 검사
+2. get_aggregatable_tables: dash_db 스키마의 `*_star_1` 물리 테이블을 매핑 없이 스캔·필수 컬럼·타입 검사
 3. _full_table_name: table_id → schema.table
 4. _build_group_by_clause: group_by 설정 → GROUP BY 절
 5. _build_where_clause: campaign/workflow/channel 필터 → WHERE 절
@@ -78,15 +78,22 @@ def get_required_columns():
 
 # 2.
 def get_aggregatable_tables(project_info_id: int):
-    """table_project_mapping·table_master 기준 main∪dash 후보만 두고, 필수 컬럼·타입을 만족하는 테이블만 반환."""
-    main_s = db.get_allowed_tables_by_project(int(project_info_id), "main")
-    dash_s = db.get_allowed_tables_by_project(int(project_info_id), "dash")
-    all_candidates = sorted(main_s | dash_s)
+    """
+    캠페인 대시보드 집계 가능 테이블 목록.
+    dash_db 스키마에서 `*_star_1` 패턴·is_new_dash_physical_table 인 물리 테이블을 매핑과 무관하게 후보로 두고,
+    DASHBOARD_REQUIRED_COLUMNS 를 만족하는 것만 반환한다.
+    """
+    _ = int(project_info_id)
     required_count = len(DASHBOARD_REQUIRED_COLUMNS)
-    result = []
-    for table_name in all_candidates:
+    result: list[str] = []
+    for table_name in db.list_dash_schema_table_names():
+        t = str(table_name).strip()
+        if not t.endswith("_star_1"):
+            continue
+        if not db.is_new_dash_physical_table(t):
+            continue
         try:
-            rows = db.get_table_columns_with_types(table_name)
+            rows = db.get_table_columns_with_types(t)
             col_map = {}
             for r in rows:
                 cname = (r.get("column_name") or "").strip().lower()
@@ -102,15 +109,15 @@ def get_aggregatable_tables(project_info_id: int):
                     ok = False
                     break
                 actual = col_map[key]
-                allowed_lower = [t.lower() for t in allowed_types]
+                allowed_lower = [x.lower() for x in allowed_types]
                 if actual not in allowed_lower:
                     ok = False
                     break
             if ok:
-                result.append(table_name)
+                result.append(t)
         except Exception:
             continue
-    return result
+    return sorted(result)
 
 
 # 3.

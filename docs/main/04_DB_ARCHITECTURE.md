@@ -383,6 +383,8 @@ table_project_mapping_id serial          PK            매핑 고유번호
 project_info_id          int4            FK→project    프로젝트
 table_master_id          int4            FK→table_mst  테이블 마스터
 create_dtm               timestamp       NOT NULL      매핑일시
+use_query_studio_yn      varchar(1)      NOT NULL 기본 Y  쿼리 스튜디오 노출(운영에서 DDL 수동 적용)
+use_widgetboard_yn       varchar(1)      NOT NULL 기본 Y  위젯보드(saved_table 등) 노출
 
 UNIQUE 제약: (project_info_id, table_master_id)
 

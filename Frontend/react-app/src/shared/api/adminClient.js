@@ -188,7 +188,7 @@ export async function getAdminProjects() {
   return request('GET', '/api/admin/projects')
 }
 
-/** @returns {Promise<{ items?: Array<{ table_master_id: number, db_type?: string, table_name?: string, table_label?: string }> }>} */
+/** @returns {Promise<{ items?: Array<{ table_master_id: number, db_type?: string, table_name?: string, table_label?: string, use_query_studio?: boolean, use_widgetboard?: boolean }> }>} */
 export async function getAdminProjectTables(projectInfoId) {
   return request('GET', `/api/admin/projects/${projectInfoId}/tables`)
 }
@@ -198,6 +198,7 @@ export async function getAdminProjectTables(projectInfoId) {
  *   project_name: string,
  *   project_dscrtn?: string|null,
  *   feature_flags?: { query?: boolean, dash?: boolean, widget?: boolean }|null,
+ *   table_mappings?: { table_master_id: number, use_query_studio?: boolean, use_widgetboard?: boolean }[],
  *   table_master_ids?: number[],
  *   creator_pmssn_master_id: number,
  *   members?: { user_id: number, pmssn_master_id: number }[],
@@ -214,6 +215,7 @@ export async function postAdminProject(body) {
  *   project_dscrtn?: string|null,
  *   active_yn?: string|null,
  *   feature_flags?: { query?: boolean, dash?: boolean, widget?: boolean }|null,
+ *   table_mappings?: { table_master_id: number, use_query_studio?: boolean, use_widgetboard?: boolean }[]|null,
  *   table_master_ids?: number[]|null,
  * }} body
  */

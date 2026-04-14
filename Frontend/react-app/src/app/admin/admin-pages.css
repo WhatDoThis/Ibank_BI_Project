@@ -465,6 +465,13 @@
   margin-bottom: 6px;
 }
 
+.ap__table-pick-head--dual {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+}
+
 .ap__table-pick-body,
 .ap__member-pick-body {
   max-height: 240px;

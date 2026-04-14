@@ -7,7 +7,7 @@ DB 연결·설정을 라우트에 주입. Depends(get_db), Depends(get_config)�
 ===========
 1. get_db: 요청당 메인 DB 연결(yield), 응답 후 close
 2. get_config: config.backend 반환
-3. get_system_db: 요청당 system_db 고정 연결(yield) — auth·project·notification·admin
+3. get_system_db: 요청당 system_db 고정 연결(yield) — 예외 시 db.safe_rollback 후 close
 
 [Package Usage]
 ===========
@@ -58,7 +58,7 @@ def get_system_db() -> Generator:
     try:
         yield conn
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         conn.close()

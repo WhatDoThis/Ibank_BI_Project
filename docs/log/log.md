@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+343. 2026-04-13 DB 연결 끊김 시 safe_rollback(auth·get_system_db)
+342. 2026-04-13 table_project_mapping 채널 컬럼: 런타임 ALTER 제거·DDL은 운영 수동
+341. 2026-04-13 프로젝트 테이블 매핑: 쿼리스튜디오·위젯보드 채널 분리·admin table_mappings·위젯 허용 필터
 340. 2026-04-13 문서 정합: 21 인벤토리·02 디렉터리·03 API 가이드(캠페인 /page·campaign_period·peak_guard·invite_expiry)
 339. 2026-04-13 캠페인 대시보드: 기간 정합(campaign_period)·GET /page 번들·프론트 단일 조회
 338. 2026-04-13 문서 21 후속: health `/api` 인덱스·§10·§6·Phase C compileall
@@ -343,6 +346,42 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+343. 2026-04-13 DB 연결 끊김 시 safe_rollback(auth·get_system_db)
+Purpose: PostgreSQL이 연결을 먼저 끊은 뒤 `conn.rollback()`을 호출하면 `InterfaceError: connection already closed`가 이중으로 난다. `db.safe_rollback`으로 정리하고 원인(OperationalError)은 그대로 전달한다.
+
+Changes:
+
+- `Backend/core/db.py`: `safe_rollback(conn)`
+- `Backend/core/dependencies.py`: `get_system_db` 예외 경로
+- `Backend/auth_server/service.py`: 기존 `conn.rollback()` 전부 치환
+
+Changed files: Backend/core/db.py, Backend/core/dependencies.py, Backend/auth_server/service.py, docs/log/log.md
+
+342. 2026-04-13 table_project_mapping 채널 컬럼: 런타임 ALTER 제거·DDL은 운영 수동
+Purpose: `ensure_table_mapping_usage_columns()` 및 호출부를 제거하고, 컬럼 추가는 DB에서 직접 실행하도록 한다.
+
+Changes:
+
+- `Backend/core/db.py`: 함수·전역 플래그 삭제, `get_allowed_tables_by_project`에서 호출 제거
+- `admin_server/service_projects.py`, `service_tables.py`, `query_studio_server/router.py`: ensure 호출 제거·불필요 import 정리
+- `docs/main/04_DB_ARCHITECTURE.md`: 컬럼 설명을 수동 DDL 전제로 수정
+
+Changed files: Backend/core/db.py, Backend/admin_server/service_projects.py, service_tables.py, Backend/query_studio_server/router.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+341. 2026-04-13 프로젝트 테이블 매핑: 쿼리스튜디오·위젯보드 채널 분리·admin table_mappings·위젯 허용 필터
+Purpose: 프로젝트 생성/수정 시 테이블 매핑을 기능 플래그와 무관하게 항상 노출하고, QS·위젯보드별 매핑을 저장한다. QS에서 새 테이블 저장 시 프로젝트에 query+widget이 모두 켜져 있으면 위젯 플래그 자동 Y 유지. 위젯보드 saved_table은 use_widgetboard_yn 매핑만 허용.
+
+Changes:
+
+- `table_project_mapping` 채널 동기화: `service_projects._sync_project_table_mappings_with_usage`, 생성·PATCH `table_mappings` 우선, 레거시 `table_master_ids`는 양쪽 Y
+- `admin_server/schemas` TableMappingEntry, `list_project_tables`에 use_query_studio·use_widgetboard 반환, `add_project_table_mapping` INSERT에 플래그 컬럼
+- `query_studio_server` save-query-as-table 매핑 upsert(플래그·feature_flags 연동)
+- `widget_board_server` `_allowed_saved_table`에 `usage_widgetboard=True`
+- `AdminProjectsPage` 테이블 매핑 섹션 상시·이중 체크박스·`table_mappings` 전송, `adminClient` JSDoc
+- `docs/main/04_DB_ARCHITECTURE.md` 매핑 컬럼 설명 보강
+
+Changed files: Backend/admin_server/schemas.py, service_projects.py, router.py, service_tables.py, Backend/query_studio_server/router.py, Backend/widget_board_server/service.py, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, admin-pages.css, shared/api/adminClient.js, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
 
 340. 2026-04-13 문서 정합: 21 인벤토리·02 디렉터리·03 API 가이드(캠페인 /page·campaign_period·peak_guard·invite_expiry)
 Purpose: 코드에 반영된 신규·분리 모듈을 리팩터 인벤토리(21)·백엔드 가이드(02)·API 가이드(03)에 동기화한다.

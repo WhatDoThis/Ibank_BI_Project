@@ -5,7 +5,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 
 [Main Functions]
 ===========
-1. create_project_full — 단일 트랜잭션: project_info·…·타부서 알림(project_invite JSON, invite_expires_at)
+1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / purge_inactive_project(비활성만·참여·매핑·알림·초대 참조 정리 후 DELETE)
 4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member / update_member_role
@@ -63,9 +63,23 @@ def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
     return out
 
 
-def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: list[int]) -> None:
-    """매핑 집합을 요청 목록과 일치시킨다(없는 table_master는 검증 후 추가, 목록 밖은 삭제)."""
-    ids = list(dict.fromkeys(int(x) for x in table_master_ids if x is not None))
+def _sync_project_table_mappings_with_usage(
+    cur, project_info_id: int, entries: list[dict[str, Any]]
+) -> None:
+    """table_project_mapping 을 엔트리와 일치시킨다. 둘 다 N이면 해당 행은 제외(미매핑)."""
+    normalized: list[tuple[int, str, str]] = []
+    seen: set[int] = set()
+    for raw in entries:
+        tmid = int(raw["table_master_id"])
+        if tmid in seen:
+            continue
+        seen.add(tmid)
+        qs = bool(raw.get("use_query_studio", True))
+        wb = bool(raw.get("use_widgetboard", True))
+        if not qs and not wb:
+            continue
+        normalized.append((tmid, "Y" if qs else "N", "Y" if wb else "N"))
+    ids = [x[0] for x in normalized]
     for tmid in ids:
         cur.execute(
             "SELECT 1 FROM table_master WHERE table_master_id = %s",
@@ -88,18 +102,33 @@ def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: li
         """,
         (int(project_info_id), *ids),
     )
-    for tmid in ids:
+    for tmid, qyn, wyn in normalized:
         cur.execute(
             """
-            INSERT INTO table_project_mapping (project_info_id, table_master_id, create_dtm)
-            SELECT %s, %s, NOW()
-            WHERE NOT EXISTS (
-                SELECT 1 FROM table_project_mapping
-                WHERE project_info_id = %s AND table_master_id = %s
-            )
+            INSERT INTO table_project_mapping (
+                project_info_id, table_master_id, create_dtm,
+                use_query_studio_yn, use_widgetboard_yn
+            ) VALUES (%s, %s, NOW(), %s, %s)
+            ON CONFLICT (project_info_id, table_master_id) DO UPDATE SET
+                use_query_studio_yn = EXCLUDED.use_query_studio_yn,
+                use_widgetboard_yn = EXCLUDED.use_widgetboard_yn
             """,
-            (int(project_info_id), tmid, int(project_info_id), tmid),
+            (int(project_info_id), tmid, qyn, wyn),
         )
+
+
+def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: list[int]) -> None:
+    """레거시: 나열된 table_master 는 쿼리 스튜디오·위젯보드 모두 Y."""
+    ids = list(dict.fromkeys(int(x) for x in table_master_ids if x is not None))
+    entries: list[dict[str, Any]] = [
+        {
+            "table_master_id": i,
+            "use_query_studio": True,
+            "use_widgetboard": True,
+        }
+        for i in ids
+    ]
+    _sync_project_table_mappings_with_usage(cur, project_info_id, entries)
 
 
 def _user_in_actor_dept_scope(cur, actor_dptmt_id: int, target_user_id: int) -> bool:
@@ -309,6 +338,7 @@ def create_project_full(
     members: list[dict[str, Any]] | None,
     external_invites: list[dict[str, Any]] | None,
     feature_flags: dict[str, Any] | None = None,
+    table_mappings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     프로젝트 생성 + 테이블 매핑 + 부서 내 멤버 + 타부서 알림 초대를 단일 트랜잭션으로 처리한다.
@@ -352,24 +382,30 @@ def create_project_full(
             (actor_user_id, actor_user_id, pid, int(creator_pmssn_master_id)),
         )
 
-        for tmid in tid_list:
-            cur.execute(
-                "SELECT 1 FROM table_master WHERE table_master_id = %s",
-                (tmid,),
-            )
-            if not cur.fetchone():
-                raise ValueError(f"테이블 마스터를 찾을 수 없습니다. (table_master_id={tmid})")
-            cur.execute(
-                """
-                INSERT INTO table_project_mapping (project_info_id, table_master_id, create_dtm)
-                SELECT %s, %s, NOW()
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM table_project_mapping
-                    WHERE project_info_id = %s AND table_master_id = %s
+        if table_mappings is not None:
+            _sync_project_table_mappings_with_usage(cur, pid, list(table_mappings))
+        else:
+            for tmid in tid_list:
+                cur.execute(
+                    "SELECT 1 FROM table_master WHERE table_master_id = %s",
+                    (tmid,),
                 )
-                """,
-                (pid, tmid, pid, tmid),
-            )
+                if not cur.fetchone():
+                    raise ValueError(
+                        f"테이블 마스터를 찾을 수 없습니다. (table_master_id={tmid})"
+                    )
+                cur.execute(
+                    """
+                    INSERT INTO table_project_mapping (
+                        project_info_id, table_master_id, create_dtm,
+                        use_query_studio_yn, use_widgetboard_yn
+                    ) VALUES (%s, %s, NOW(), 'Y', 'Y')
+                    ON CONFLICT (project_info_id, table_master_id) DO UPDATE SET
+                        use_query_studio_yn = 'Y',
+                        use_widgetboard_yn = 'Y'
+                    """,
+                    (pid, tmid),
+                )
 
         members_added = 0
         seen_u: set[int] = {int(actor_user_id)}
@@ -505,6 +541,7 @@ def update_project(
     actor_dvsn: str | None = None,
     feature_flags: dict[str, Any] | None = None,
     table_master_ids: list[int] | None = None,
+    table_mappings: list[dict[str, Any]] | None = None,
 ) -> None:
     cur = conn.cursor()
     try:
@@ -516,7 +553,11 @@ def update_project(
         ad = (actor_dvsn or "").strip().lower()
         if ad == "o" and active_yn is not None:
             raise ValueError("프로젝트 운영자는 활성 여부를 변경할 수 없습니다.")
-        if ad == "o" and (feature_flags is not None or table_master_ids is not None):
+        if ad == "o" and (
+            feature_flags is not None
+            or table_master_ids is not None
+            or table_mappings is not None
+        ):
             raise ValueError(
                 "프로젝트 운영자는 기능 플래그·테이블 매핑을 변경할 수 없습니다."
             )
@@ -542,11 +583,19 @@ def update_project(
                 f"UPDATE project_info SET {', '.join(sets)} WHERE project_info_id = %s",
                 params,
             )
-        elif feature_flags is None and table_master_ids is None:
+        elif (
+            feature_flags is None
+            and table_master_ids is None
+            and table_mappings is None
+        ):
             conn.commit()
             return
 
-        if table_master_ids is not None:
+        if table_mappings is not None:
+            _sync_project_table_mappings_with_usage(
+                cur, project_info_id, list(table_mappings)
+            )
+        elif table_master_ids is not None:
             _sync_project_table_mappings(cur, project_info_id, list(table_master_ids))
 
         conn.commit()

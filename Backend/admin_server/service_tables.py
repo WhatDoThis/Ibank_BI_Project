@@ -7,8 +7,8 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 ===========
 1. list_table_master(project_create 정렬: dash 우선·update_dtm·table_name)
 2. update_table_master
-3. list_project_tables
-4. add_project_table_mapping
+3. list_project_tables(use_query_studio·use_widgetboard bool)
+4. add_project_table_mapping(양 채널 Y 기본)
 5. delete_project_table_mapping
 
 [Endpoints/Classes/Functions]
@@ -28,6 +28,9 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 from __future__ import annotations
 
 from typing import Any
+
+def _mapping_yn_to_bool(v: Any) -> bool:
+    return str(v or "").strip().upper() != "N"
 
 
 def _normalize_db_type(db_type: str | None) -> str | None:
@@ -170,7 +173,8 @@ def list_project_tables(
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
         sql = """
             SELECT m.table_master_id, m.db_type, m.table_name, m.table_label, m.table_dscrtn,
-                   m.create_user_id, mp.table_project_mapping_id, mp.create_dtm AS mapping_create_dtm
+                   m.create_user_id, mp.table_project_mapping_id, mp.create_dtm AS mapping_create_dtm,
+                   mp.use_query_studio_yn, mp.use_widgetboard_yn
             FROM table_project_mapping mp
             JOIN table_master m ON m.table_master_id = mp.table_master_id
             WHERE mp.project_info_id = %s
@@ -181,7 +185,13 @@ def list_project_tables(
             params.append(dbt)
         sql += " ORDER BY m.db_type, m.table_name"
         cur.execute(sql, tuple(params))
-        return [dict(r) for r in cur.fetchall()]
+        out: list[dict[str, Any]] = []
+        for r in cur.fetchall():
+            d = dict(r)
+            d["use_query_studio"] = _mapping_yn_to_bool(d.pop("use_query_studio_yn", None))
+            d["use_widgetboard"] = _mapping_yn_to_bool(d.pop("use_widgetboard_yn", None))
+            out.append(d)
+        return out
     finally:
         cur.close()
 
@@ -216,8 +226,10 @@ def add_project_table_mapping(
 
         cur.execute(
             """
-            INSERT INTO table_project_mapping (project_info_id, table_master_id, create_dtm)
-            VALUES (%s, %s, NOW())
+            INSERT INTO table_project_mapping (
+                project_info_id, table_master_id, create_dtm,
+                use_query_studio_yn, use_widgetboard_yn
+            ) VALUES (%s, %s, NOW(), 'Y', 'Y')
             """,
             (project_info_id, table_master_id),
         )

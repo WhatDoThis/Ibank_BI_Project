@@ -22,7 +22,7 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 [Dependencies]
 =========
 - Backend.admin_server.service_projects.validate_invite_user_project
-- Backend.auth_server.security, Backend.core.auth_config
+- Backend.auth_server.security, Backend.core.auth_config, Backend.core.db.safe_rollback
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ import jwt
 
 from Backend.admin_server import service_projects as admin_projects
 from Backend.auth_server import email_service, permissions as auth_permissions, security
-from Backend.core import auth_config
+from Backend.core import auth_config, db
 
 _log = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def signup_with_invite(conn, invite_code: str, email: str, password: str, nickna
         conn.commit()
         return uid
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -202,7 +202,7 @@ def create_org_and_user(conn, org_name: str, email: str, password: str, nickname
         conn.commit()
         return uid
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -251,7 +251,7 @@ def login_send_code(
     except ValueError:
         raise
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -391,10 +391,10 @@ def verify_login_complete(
         insert_login_log(conn, user_id, client_ip, "Y", user_agent or "")
         conn.commit()
     except ValueError:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -460,10 +460,10 @@ def refresh_session_tokens(conn, refresh_token_str: str) -> dict[str, Any]:
         )
         conn.commit()
     except ValueError:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -536,10 +536,10 @@ def rotate_session_tokens_with_project(
         )
         conn.commit()
     except ValueError:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -565,7 +565,7 @@ def logout_one_session(conn, session_log_id: int, user_id: int) -> None:
         )
         conn.commit()
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -585,7 +585,7 @@ def invalidate_all_sessions(conn, user_id: int, *, do_commit: bool = True) -> No
         if do_commit:
             conn.commit()
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -626,7 +626,7 @@ def update_user_nickname(conn, user_id: int, nickname: str | None) -> None:
         )
         conn.commit()
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()
@@ -648,10 +648,10 @@ def change_password(conn, user_id: int, current_password: str, new_password: str
         )
         conn.commit()
     except ValueError:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     except Exception:
-        conn.rollback()
+        db.safe_rollback(conn)
         raise
     finally:
         cur.close()

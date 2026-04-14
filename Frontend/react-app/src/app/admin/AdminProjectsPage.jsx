@@ -3,7 +3,7 @@
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
  * 생성 성공 시 notifyParticipatingProjectsChanged(헤더 작업 프로젝트 드롭다운 목록). 비활성화·purge: JWT 동일 프로젝트면 refreshMe.
- * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). feature_flags·PATCH 후 현재 선택 프로젝트면 refreshMe.
+ * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 쿼리스튜디오·위젯보드 채널별 체크·`table_mappings` PATCH/POST.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
@@ -83,7 +83,8 @@ export default function AdminProjectsPage() {
     queryStudio: true,
     widgetboard: true,
   })
-  const [selectedTableIds, setSelectedTableIds] = useState(() => new Set())
+  /** @type {Record<number, { qs: boolean, wb: boolean }>} */
+  const [tableUsageById, setTableUsageById] = useState({})
   const [creatorPmssnId, setCreatorPmssnId] = useState(null)
   const [roles, setRoles] = useState([])
   const [tableMasterList, setTableMasterList] = useState([])
@@ -117,7 +118,7 @@ export default function AdminProjectsPage() {
     setCName('')
     setCDesc('')
     setEnabledPages({ dashboard: true, queryStudio: true, widgetboard: true })
-    setSelectedTableIds(new Set())
+    setTableUsageById({})
     setCreatorPmssnId(null)
     setRoles([])
     setTableMasterList([])
@@ -145,6 +146,12 @@ export default function AdminProjectsPage() {
       const titems = Array.isArray(tt?.items) ? tt.items : []
       setRoles(ritems)
       setTableMasterList(titems)
+      const usageInit = {}
+      for (const t of titems) {
+        const id = t.table_master_id
+        if (id != null) usageInit[id] = { qs: false, wb: false }
+      }
+      setTableUsageById(usageInit)
       setDeptMemberRows(
         users.map((u) => ({
           ...u,
@@ -174,7 +181,16 @@ export default function AdminProjectsPage() {
         const pt = await getAdminProjectTables(pid)
         const mapped = Array.isArray(pt?.items) ? pt.items : []
         setTableMasterList(mapped)
-        setSelectedTableIds(new Set(mapped.map((t) => t.table_master_id).filter(Boolean)))
+        const usageOp = {}
+        for (const t of mapped) {
+          const id = t.table_master_id
+          if (id == null) continue
+          usageOp[id] = {
+            qs: t.use_query_studio !== false,
+            wb: t.use_widgetboard !== false,
+          }
+        }
+        setTableUsageById(usageOp)
       } else {
         const [tt, pt] = await Promise.all([
           getAdminTablesForProjectCreate(),
@@ -183,7 +199,18 @@ export default function AdminProjectsPage() {
         const titems = Array.isArray(tt?.items) ? tt.items : []
         const mapped = Array.isArray(pt?.items) ? pt.items : []
         setTableMasterList(titems)
-        setSelectedTableIds(new Set(mapped.map((t) => t.table_master_id).filter(Boolean)))
+        const mappedById = new Map(mapped.map((m) => [m.table_master_id, m]))
+        const usageSa = {}
+        for (const t of titems) {
+          const id = t.table_master_id
+          if (id == null) continue
+          const m = mappedById.get(id)
+          usageSa[id] = {
+            qs: m ? m.use_query_studio !== false : false,
+            wb: m ? m.use_widgetboard !== false : false,
+          }
+        }
+        setTableUsageById(usageSa)
       }
     } catch (err) {
       setError(err?.message || '모달 데이터를 불러오지 못했습니다.')
@@ -198,21 +225,43 @@ export default function AdminProjectsPage() {
     setProjectDialog(null)
   }
 
-  function toggleTableId(id) {
-    setSelectedTableIds((prev) => {
-      const n = new Set(prev)
-      if (n.has(id)) n.delete(id)
-      else n.add(id)
-      return n
+  function buildTableMappingsPayload() {
+    const out = []
+    for (const t of tableMasterList) {
+      const id = t.table_master_id
+      if (id == null) continue
+      const usage = tableUsageById[id] || { qs: false, wb: false }
+      if (usage.qs || usage.wb) {
+        out.push({
+          table_master_id: id,
+          use_query_studio: usage.qs,
+          use_widgetboard: usage.wb,
+        })
+      }
+    }
+    return out
+  }
+
+  function toggleTableChannel(id, channel) {
+    setTableUsageById((prev) => {
+      const cur = prev[id] || { qs: false, wb: false }
+      const next = channel === 'qs' ? { ...cur, qs: !cur.qs } : { ...cur, wb: !cur.wb }
+      return { ...prev, [id]: next }
     })
   }
 
-  function selectAllTables(checked) {
-    if (!checked) {
-      setSelectedTableIds(new Set())
-      return
-    }
-    setSelectedTableIds(new Set(tableMasterList.map((t) => t.table_master_id)))
+  function selectAllTableChannel(channel, checked) {
+    setTableUsageById((prev) => {
+      const next = { ...prev }
+      for (const t of tableMasterList) {
+        const id = t.table_master_id
+        if (id == null) continue
+        const cur = next[id] || { qs: false, wb: false }
+        next[id] =
+          channel === 'qs' ? { ...cur, qs: checked } : { ...cur, wb: checked }
+      }
+      return next
+    })
   }
 
   function setDeptRowChecked(uid, checked) {
@@ -320,11 +369,32 @@ export default function AdminProjectsPage() {
       setError('타부서 초대 대상에게 역할을 선택하세요.')
       return
     }
-    if (enabledPages.queryStudio && selectedTableIds.size === 0) {
-      if (!confirmCrud('쿼리 스튜디오를 켠 상태인데 매핑된 테이블이 없습니다. 그대로 생성할까요?')) {
+    const tableMaps = buildTableMappingsPayload()
+    if (
+      enabledPages.queryStudio &&
+      !tableMaps.some((x) => x.use_query_studio)
+    ) {
+      if (
+        !confirmCrud(
+          '쿼리 스튜디오를 켠 상태인데 쿼리 스튜디오용 매핑이 없습니다. 그대로 생성할까요?',
+        )
+      ) {
         return
       }
-    } else if (!confirmCrud('새 프로젝트를 생성할까요?')) {
+    }
+    if (
+      enabledPages.widgetboard &&
+      !tableMaps.some((x) => x.use_widgetboard)
+    ) {
+      if (
+        !confirmCrud(
+          '위젯보드를 켠 상태인데 위젯보드용 매핑이 없습니다. 그대로 생성할까요?',
+        )
+      ) {
+        return
+      }
+    }
+    if (!confirmCrud('새 프로젝트를 생성할까요?')) {
       return
     }
     setError('')
@@ -338,7 +408,8 @@ export default function AdminProjectsPage() {
           dash: enabledPages.dashboard,
           widget: enabledPages.widgetboard,
         },
-        table_master_ids: [...selectedTableIds],
+        table_mappings: tableMaps,
+        table_master_ids: [],
         creator_pmssn_master_id: Number(creatorPmssnId),
         members,
         external_invites: extPayload,
@@ -367,11 +438,32 @@ export default function AdminProjectsPage() {
       setError('설명은 100자 이내입니다.')
       return
     }
-    if (enabledPages.queryStudio && selectedTableIds.size === 0) {
-      if (!confirmCrud('쿼리 스튜디오를 켠 상태인데 매핑된 테이블이 없습니다. 그대로 저장할까요?')) {
+    const tableMapsEdit = buildTableMappingsPayload()
+    if (
+      enabledPages.queryStudio &&
+      !tableMapsEdit.some((x) => x.use_query_studio)
+    ) {
+      if (
+        !confirmCrud(
+          '쿼리 스튜디오를 켠 상태인데 쿼리 스튜디오용 매핑이 없습니다. 그대로 저장할까요?',
+        )
+      ) {
         return
       }
-    } else if (!confirmCrud('프로젝트 정보를 수정할까요?')) {
+    }
+    if (
+      enabledPages.widgetboard &&
+      !tableMapsEdit.some((x) => x.use_widgetboard)
+    ) {
+      if (
+        !confirmCrud(
+          '위젯보드를 켠 상태인데 위젯보드용 매핑이 없습니다. 그대로 저장할까요?',
+        )
+      ) {
+        return
+      }
+    }
+    if (!confirmCrud('프로젝트 정보를 수정할까요?')) {
       return
     }
     const body = {
@@ -384,7 +476,8 @@ export default function AdminProjectsPage() {
         dash: enabledPages.dashboard,
         widget: enabledPages.widgetboard,
       }
-      body.table_master_ids = [...selectedTableIds]
+      body.table_mappings = tableMapsEdit
+      body.table_master_ids = []
     }
     setError('')
     setFormBusy(true)
@@ -608,54 +701,69 @@ export default function AdminProjectsPage() {
                   </div>
                 </div>
 
-                {enabledPages.queryStudio ? (
-                  <div className="ap__create-section">
-                    <div className="ap__create-section-title">테이블 매핑 (쿼리 스튜디오)</div>
-                    <div className="ap__table-pick-head">
-                      <label className="ap__check">
-                        <input
-                          type="checkbox"
-                          onChange={(ev) => selectAllTables(ev.target.checked)}
-                          disabled={formBusy || lockPagesTables || tableMasterList.length === 0}
-                        />
-                        전체 선택
-                      </label>
-                    </div>
-                    <div className="ap__table-pick-body">
-                      <table className="ap__table ap__table--compact">
-                        <thead>
-                          <tr>
-                            <th>DB</th>
-                            <th>테이블명</th>
-                            <th>라벨</th>
-                            <th>선택</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tableMasterList.map((t) => {
-                            const id = t.table_master_id
-                            const on = selectedTableIds.has(id)
-                            return (
-                              <tr key={String(id)}>
-                                <td>{t.db_type || '—'}</td>
-                                <td className="ap__mono">{t.table_name || '—'}</td>
-                                <td>{t.table_label || '—'}</td>
-                                <td>
-                                  <input
-                                    type="checkbox"
-                                    checked={on}
-                                    onChange={() => toggleTableId(id)}
-                                    disabled={formBusy || lockPagesTables}
-                                  />
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                <div className="ap__create-section">
+                  <div className="ap__create-section-title">테이블 매핑</div>
+                  <div className="ap__table-pick-head ap__table-pick-head--dual">
+                    <label className="ap__check">
+                      <input
+                        type="checkbox"
+                        onChange={(ev) => selectAllTableChannel('qs', ev.target.checked)}
+                        disabled={formBusy || lockPagesTables || tableMasterList.length === 0}
+                      />
+                      쿼리스튜디오 전체
+                    </label>
+                    <label className="ap__check">
+                      <input
+                        type="checkbox"
+                        onChange={(ev) => selectAllTableChannel('wb', ev.target.checked)}
+                        disabled={formBusy || lockPagesTables || tableMasterList.length === 0}
+                      />
+                      위젯보드 전체
+                    </label>
                   </div>
-                ) : null}
+                  <div className="ap__table-pick-body">
+                    <table className="ap__table ap__table--compact">
+                      <thead>
+                        <tr>
+                          <th>DB</th>
+                          <th>테이블명</th>
+                          <th>라벨</th>
+                          <th>쿼리스튜디오</th>
+                          <th>위젯보드</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tableMasterList.map((t) => {
+                          const id = t.table_master_id
+                          const u = tableUsageById[id] || { qs: false, wb: false }
+                          return (
+                            <tr key={String(id)}>
+                              <td>{t.db_type || '—'}</td>
+                              <td className="ap__mono">{t.table_name || '—'}</td>
+                              <td>{t.table_label || '—'}</td>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={u.qs}
+                                  onChange={() => toggleTableChannel(id, 'qs')}
+                                  disabled={formBusy || lockPagesTables}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={u.wb}
+                                  onChange={() => toggleTableChannel(id, 'wb')}
+                                  disabled={formBusy || lockPagesTables}
+                                />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
 
                 {isCreate ? (
                 <div className="ap__create-section">
