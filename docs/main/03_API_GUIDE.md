@@ -1207,7 +1207,11 @@ GET /api/admin/projects/{id}/members
 │        (DASHBOARD_REQUIRED_COLUMNS 11개)
 │        → 통과한 테이블만 반환
 │
-├─ 2. 집계 데이터 조회
+├─ 2. 집계·추이·회원·시간대 (택1)
+│     • **번들(권장)**: `GET /api/campaign-dashboard/page` — summary·trend_multi·member_summary·hourly를 동일 앵커로 한 번에
+│     • **개별 GET**: 아래 단계별 호출
+│
+├─ 2a. 집계 데이터 조회
 │     GET /api/campaign-dashboard/summary
 │     │
 │     ▼
@@ -1263,6 +1267,7 @@ GET /api/admin/projects/{id}/members
 | 메서드 | 경로 | 핵심 | 의존성 |
 |--------|------|------|--------|
 | `GET` | `/api/campaign-dashboard/tables` | `get_aggregatable_tables` 후 **`*_star_1` 접미사만** 드롭다운용 `{ tables: [{id,name}] }` | `require_permission("dashboard")` |
+| `GET` | `/api/campaign-dashboard/page` | SPA용 **번들**: 동일 `table_id`·기간 앵커로 `summary`·`trend_multi`·`member_summary`·`hourly`(success/open/click)를 한 응답에 포함 — `trend_days`·`trend_count`·`trend_by_channel` 쿼리 지원 | 위와 동일 + `table_id`·`target_date`·`period` 등 |
 | `GET` | `/api/campaign-dashboard/summary` | KPI 집계 + 전기간 대비 **변동률**(`_calc_change_pct`) 병합 | 위와 동일 + `table_id`·`target_date`·`period` |
 | `GET` | `/api/campaign-dashboard/trend` | 단일 지표 **일별** 추이, `days`(1~365)·`metric`, `end_date` — `dashboard_service.get_chart_data` | 위와 동일 |
 | `GET` | `/api/campaign-dashboard/trend-multi` | **복수 기간** 추이(`daily`/`weekly`/`monthly`, `count`·`days`, `by_channel`) — 라우터 내 SQL | 위와 동일 |
@@ -1272,6 +1277,10 @@ GET /api/admin/projects/{id}/members
 
 공통 쿼리 파라미터(일부 엔드포인트): `table_id`(필수), `target_date`/`end_date`(선택·미지정 시 오늘), `period` = `daily` \| `weekly` \| `monthly`.
 
+#### 기간·추이 창 공통 모듈
+
+**`campaign_dash_server/campaign_period.py`** (라우터가 import): `calc_summary_date_range`, `calc_previous_range`, `fact_inclusive_end_date`, `trend_multi_window_start` — summary·member·hourly·trend-multi·`/page` 가 동일 규칙으로 기간을 맞춘다.
+
 #### 라우터 모듈 내부 함수 정리
 
 | 함수 | 한 줄 설명 |
@@ -1280,8 +1289,6 @@ GET /api/admin/projects/{id}/members
 | `_require_star_fact_table` | `*_star_1` 접미사 + **`db.validate_dashboard_data_table_name`** |
 | `_member_table_id_from_fact` | `_star_1` → 동일 접두의 **`_star_2`** 회원 테이블명(검증 포함) |
 | `_quoted_table` | **`db.get_dash_table_schema()`** 기준 `"schema"."table"` 인용 |
-| `_calc_date_range` | `target_date` + `period` → `[start, end]` (ISO) |
-| `_calc_previous_range` | 현재 범위의 **직전 동일 길이** 기간 |
 | `_calc_change_pct` | `(cur - prev) / prev × 100`, `prev` 없거나 0이면 `None` |
 | `_jsonb_as_dict` | JSONB / str / None → dict 안전 변환 |
 | `_clamp_date_to_range` | 날짜를 `[start, end]` 안으로 클램핑 |
@@ -1359,8 +1366,8 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
                ▼
 ┌──────────────────────────────────────────────────┐
 │  STEP 6: 기간 계산                                │
-│  _calc_date_range → [start, end]                  │
-│  _calc_previous_range → 전기간 (summary 등)       │
+│  campaign_period.calc_summary_date_range          │
+│  campaign_period.calc_previous_range (전기간 등) │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐

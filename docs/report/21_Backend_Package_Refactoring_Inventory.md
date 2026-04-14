@@ -138,6 +138,7 @@
 | `dashboard_service.py` | 캠페인 대시보드 집계 |
 | `sql_safety.py` | 금지 SQL (`query_studio`·`widget_board` 공유) |
 | `user_dvsn_codes.py` | 부서/역할 코드 |
+| `invite_expiry.py` | `noti_content` 등의 `invite_expires_at`(UTC ISO) 만료 판별 — 프로젝트·위젯보드·어드민 초대 UI 공유 |
 
 ### 5.2 `db.py` 함수 인벤토리(요약)
 
@@ -387,19 +388,22 @@
 
 ## 11. `Backend/campaign_dash_server`
 
-**이 섹션에서 할 일**: 단일 `router.py`와 `core/dashboard_service`·`core/db` 경계를 정리한다.
+**이 섹션에서 할 일**: `router.py`·**기간 해석 모듈**·`core/dashboard_service`·`core/db` 경계를 정리한다.
 
 | 파일 | 내용 |
 |------|------|
-| `router.py` | `GET /api/campaign-dashboard/*` |
+| `router.py` | `GET /api/campaign-dashboard/*` — **`GET /page`** 는 summary·trend_multi·member·hourly를 동일 `table_id`/기간 앵커로 **한 번에** 반환(SPA 단일 조회) |
+| `campaign_period.py` | `calc_summary_date_range`, `calc_previous_range`, `fact_inclusive_end_date`, `trend_multi_window_start` — 라우터·집계 기간·추이 창 공통 |
 | (외부) | `core/dashboard_service.py`, `core/db.py` |
 
 ### 연관 경로
 
-`Frontend/.../campaign_dashboard`, `03_API_GUIDE.md` §5.3
+`Frontend/.../campaign_dashboard`(`campaignDashboardClient.js`·`CampaignDashboardPage.jsx`), `03_API_GUIDE.md` §5.3
 
 ### 이 섹션 전용 체크리스트
 
+- [x] 기간 계산은 `campaign_period` 단일 모듈로 통일(2026-04-13 코드·로그 339)
+- [x] `GET /page` 번들과 개별 GET 엔드포인트의 **동일 앵커·period** 정합 — FE가 `/page` 우선 사용 시 네트워크·일관성 확인
 - [ ] 라우터 헬퍼 분리 시 엔드포인트·권한·`_require_star_fact_table` 순서 유지
 
 ---
@@ -411,6 +415,7 @@
 | 파일 | 역할 |
 |------|------|
 | `router.py` | 대부분의 HTTP |
+| `peak_guard.py` | 선택 설정 **`backend.query_studio_peak_guard`** — 관계 전체 **TTL 캐시**, 무거운 관계 계산 **동시 상한**, 사용자당 **분당 한도**(슬라이딩 60초). 적용 대상: `GET /api/table-relationships?mode=all`, `POST /api/join-order`, `POST /api/execute-query`. 한도 초과 **429**(`Retry-After`)·동시 상한 대기 초과 **503** 가능 |
 | `relationship_inference.py`, `join_path.py`, `join_metrics.py`, `pluralize.py` | 추론·JOIN |
 | `schemas.py` | 요청 모델 |
 
@@ -420,12 +425,13 @@
 
 ### 연관 경로
 
-`shared/api/queryStudioTableApi.js`, `packages/query_studio`, `core/sql_safety.py`, `core/db.py`
+`shared/api/queryStudioTableApi.js`, `packages/query_studio`, `core/sql_safety.py`, `core/db.py`, `Env/config/config.json.example`(`query_studio_peak_guard`), `docs/main/02_BACKEND_GUIDE.md` §3
 
 ### 이 섹션 전용 체크리스트
 
 - [x] `_perm["project_info_id"]` 를 관계·JOIN·order 전 경로에 전달
-- [x] ~~`analysis_store` / `allowlist_analysis`~~ 제거됨(관계는 매 요청 계산)
+- [x] ~~`analysis_store` / `allowlist_analysis`~~ 제거됨(관계는 매 요청 계산; `mode=all`은 `peak_guard` TTL 캐시로 완화)
+- [x] `peak_guard` 활성 시 429/503·`Retry-After` — FE·가이드(`03_API_GUIDE` 「6. 기타 패키지」`query_studio_server` 항)와 재시도 UX 정합(설정 켠 환경에서만 스모크)
 
 ---
 
@@ -512,8 +518,8 @@ Get-ChildItem -Path Backend\core -Filter *.py -Recurse | ForEach-Object {
 
 1. 로그인·refresh·로그아웃  
 2. 프로젝트 목록·select·비활성 403  
-3. 쿼리 스튜디오: list-tables·describe·execute·(해당 시) join-order  
-4. 캠페인 대시보드: tables·summary·trend  
+3. 쿼리 스튜디오: list-tables·describe·execute·(해당 시) join-order·**`table-relationships?mode=all`** — `query_studio_peak_guard` 켠 경우 분당 한도·429/503  
+4. 캠페인 대시보드: **`GET /page`**(또는 tables·summary·trend 등 개별 경로)  
 5. 위젯 보드: 목록·캔버스·데이터·초대  
 6. 어드민: 사용자·프로젝트·매핑 각 1건  
 7. 알림: 목록·읽음·unread-count  
@@ -533,3 +539,4 @@ Get-ChildItem -Path Backend\core -Filter *.py -Recurse | ForEach-Object {
 - 2026-04-13: §3·§13 위젯보드 `share_scope`·config 키 정합, `02_BACKEND_GUIDE` §3.2.3·`03_API_GUIDE` §6.2 갱신, Phase D 일부 [x].
 - 2026-04-13: §4.1 `require_*`·Depends 전수 인벤토리(`main` 등록 라우터·ETL batch 포함), §3 글로벌 체크 `require_*` 항목 [x].
 - 2026-04-13: §6 `health.py` `/api` 인덱스를 `main.py` 마운트 기준으로 갱신, §10 프로젝트 `select`→`refreshMe` 코드 대조 [x], Phase C `compileall` 확인 반영.
+- 2026-04-13: §5 `invite_expiry.py`, §11 `campaign_period.py`·`GET /page`, §12 `peak_guard.py`·체크리스트·§17 스모크 보강. `03_API_GUIDE` §5.3·`02_BACKEND_GUIDE` §2 트리 정합.

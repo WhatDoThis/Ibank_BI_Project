@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+340. 2026-04-13 문서 정합: 21 인벤토리·02 디렉터리·03 API 가이드(캠페인 /page·campaign_period·peak_guard·invite_expiry)
 339. 2026-04-13 캠페인 대시보드: 기간 정합(campaign_period)·GET /page 번들·프론트 단일 조회
 338. 2026-04-13 문서 21 후속: health `/api` 인덱스·§10·§6·Phase C compileall
 337. 2026-04-13 사이드바 브랜드(메인 아이콘) 클릭 시 홈 이동
@@ -342,6 +343,17 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+340. 2026-04-13 문서 정합: 21 인벤토리·02 디렉터리·03 API 가이드(캠페인 /page·campaign_period·peak_guard·invite_expiry)
+Purpose: 코드에 반영된 신규·분리 모듈을 리팩터 인벤토리(21)·백엔드 가이드(02)·API 가이드(03)에 동기화한다.
+
+Changes:
+
+- `docs/report/21_Backend_Package_Refactoring_Inventory.md`: §5 `invite_expiry.py`, §11 `campaign_period`·`/page`, §12 `peak_guard`·체크리스트·§17 스모크·§18 이력
+- `docs/main/02_BACKEND_GUIDE.md`: core 트리 `invite_expiry.py`, `campaign_dash_server`에 `campaign_period.py`·`/page` 명시
+- `docs/main/03_API_GUIDE.md`: §5.1 흐름에 `/page` 번들 분기, §5.3 `GET /page` 표·`campaign_period` 절, 흐름도 STEP 6 명칭 정합(구 `_calc_date_range` 제거)
+
+Changed files: docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/log/log.md
 
 339. 2026-04-13 캠페인 대시보드: 기간 정합(campaign_period)·GET /page 번들·프론트 단일 조회
 Purpose: 월/주 단위에서 trend-multi 상한을 summary·hourly와 동일하게 맞추고, SPA는 /page 한 번으로 데이터를 로드한다.

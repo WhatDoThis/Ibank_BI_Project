@@ -43,7 +43,8 @@ Backend/
 │   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
 │   ├── auth_config.py             # JWT·SMTP·get_app_url (인증·초대 메일)
 │   ├── logging_setup.py           # 루트 로거 포맷: asctime / [LEVEL] message
-│   └── dashboard_service.py       # 대시보드 집계 비즈니스 로직 (campaign_dash_server 등)
+│   ├── dashboard_service.py       # 대시보드 집계 비즈니스 로직 (campaign_dash_server 등)
+│   └── invite_expiry.py           # 초대 JSON `invite_expires_at`(UTC ISO) 만료 판별 — 프로젝트·위젯보드·어드민 목록 공유
 │
 ├── query_studio_server/           # 쿼리 스튜디오 API (prefix /api, etl_server와 동급 패키지)
 │   ├── router.py                  # list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats
@@ -84,7 +85,8 @@ Backend/
 │   └── transform_upsert_verification.py
 │
 ├── campaign_dash_server/          # 캠페인 대시보드 API (/api/campaign-dashboard)
-│   └── router.py                  # summary, trend, trend-multi, tables, member-summary, delivery-demographics, hourly — Star 테이블(ibank_*_star_1/2)
+│   ├── router.py                  # GET …/page(번들), summary, trend, trend-multi, tables, member-summary, delivery-demographics, hourly — Star 테이블(ibank_*_star_1/2)
+│   └── campaign_period.py         # 기간·전기간·팩트 상한일·trend-multi 창 — 라우터와 공통 해석
 │
 └── widget_board_server/           # 위젯 보드 (/api/widget-boards)
     ├── router.py, service.py, schemas.py
