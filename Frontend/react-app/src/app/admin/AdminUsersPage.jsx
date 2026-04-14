@@ -3,7 +3,7 @@
  * ===========================================
  * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator).
  * 본인 행: 이메일 옆「본인」배지. 활성: 목록·변경·정지. 비활성: 활성·삭제만(본인은 활성만·비활성화 시 호버 안내). 작업물 패널은 활성이면서 목록을 연 경우만 표시. 삭제 409 시 모달은 안내만(목록 열기 없음).
- * 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글.
+ * 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글. 프로젝트 참여는 표(프로젝트명+권한배지 한 줄·부서명 우측 정렬·선택) + project_department_display·행 그룹 구분.
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
  * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
  * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
@@ -51,6 +51,13 @@ function formatDtm(v) {
   } catch {
     return String(v)
   }
+}
+
+/** GET change-options projects[].project_department_display (없으면 대시) */
+function projectChangeDeptLabel(p) {
+  const v = p?.project_department_display
+  if (v != null && String(v).trim() !== '') return String(v).trim()
+  return '—'
 }
 
 function isActive(row) {
@@ -1094,6 +1101,7 @@ export default function AdminUsersPage() {
               <p className="admin-users__hint">불러오는 중…</p>
             ) : (
               <>
+                <div className="admin-users__change-form-stack">
                 <label className="admin-users__field">
                   부서
                   <select
@@ -1154,58 +1162,103 @@ export default function AdminUsersPage() {
                 )}
                 <div className="admin-users__field">
                   프로젝트 참여
-                  <div className="admin-users__panel-scroll admin-users__panel-scroll--change">
+                  <div className="admin-users__panel-scroll admin-users__panel-scroll--change admin-users__proj-table-wrap">
                     {(changeCtx.options?.projects || []).length ? (
-                      (changeCtx.options?.projects || []).map((p) => {
-                        const pid = Number(p.project_info_id)
-                        const selected = (changeForm.project_info_ids || []).includes(pid)
-                        const assignable = String(p.assignable_by_actor || 'N').toUpperCase() === 'Y'
-                        const disabled = !assignable && !selected
-                        const selectedRoleId = Number(changeForm.project_roles?.[pid] || 0)
-                        const selectedRoleName =
-                          (p.role_options || []).find((r) => Number(r.pmssn_master_id) === selectedRoleId)?.pmssn_name ||
-                          (selected ? p.pmssn_name || '권한 미선택' : '')
-                        return (
-                          <div key={String(pid)} className="admin-users__proj-item">
-                            <label className="admin-users__check admin-users__proj-check">
-                              <input
-                                type="checkbox"
-                                checked={selected}
-                                disabled={disabled}
-                                onChange={(e) => toggleProjectSelection(pid, e.target.checked)}
-                              />
-                              <span className="admin-users__proj-name">{p.project_name || pid}</span>
-                              {selected ? (
-                                <span className="admin-users__proj-role-badge">{selectedRoleName}</span>
-                              ) : null}
-                              {!assignable ? <span className="admin-users__hint"> (타부서 추가 불가)</span> : null}
-                            </label>
-                            {selected ? (
-                              <div className="admin-users__proj-role-row">
-                                <select
-                                  className="admin-users__select"
-                                  value={selectedRoleId ? String(selectedRoleId) : ''}
-                                  onChange={(e) => changeProjectRole(pid, e.target.value)}
-                                  disabled={!assignable}
+                      <table className="admin-users__proj-table">
+                        <thead>
+                          <tr>
+                            <th scope="col" className="admin-users__proj-th admin-users__proj-th--name">
+                              프로젝트명
+                            </th>
+                            <th scope="col" className="admin-users__proj-th admin-users__proj-th--dept">
+                              부서명
+                            </th>
+                            <th scope="col" className="admin-users__proj-th admin-users__proj-th--sel">
+                              선택
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(changeCtx.options?.projects || []).map((p, projIdx) => {
+                            const pid = Number(p.project_info_id)
+                            const selected = (changeForm.project_info_ids || []).includes(pid)
+                            const assignable = String(p.assignable_by_actor || 'N').toUpperCase() === 'Y'
+                            const disabled = !assignable && !selected
+                            const selectedRoleId = Number(changeForm.project_roles?.[pid] || 0)
+                            const selectedRoleName =
+                              (p.role_options || []).find((r) => Number(r.pmssn_master_id) === selectedRoleId)
+                                ?.pmssn_name || (selected ? p.pmssn_name || '권한 미선택' : '')
+                            const rowGroupStart = projIdx > 0 ? ' admin-users__proj-tr--group-start' : ''
+                            const rowGroupEndMain = !selected ? ' admin-users__proj-tr--group-end' : ''
+                            return (
+                              <Fragment key={String(pid)}>
+                                <tr
+                                  className={`admin-users__proj-tr${rowGroupStart}${rowGroupEndMain}`}
                                 >
-                                  <option value="">— 권한 선택 —</option>
-                                  {(p.role_options || []).map((r) => (
-                                    <option key={String(r.pmssn_master_id)} value={String(r.pmssn_master_id)}>
-                                      {r.pmssn_name || r.pmssn_master_id}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            ) : null}
-                          </div>
-                        )
-                      })
+                                  <td className="admin-users__proj-td admin-users__proj-td--name">
+                                    <div className="admin-users__proj-name-row">
+                                      <span className="admin-users__proj-name-text">{p.project_name || pid}</span>
+                                      {selected ? (
+                                        <span className="admin-users__proj-role-badge">{selectedRoleName}</span>
+                                      ) : null}
+                                    </div>
+                                    {!assignable ? (
+                                      <div className="admin-users__proj-name-meta">
+                                        <span className="admin-users__hint admin-users__proj-hint-inline">
+                                          (타부서 추가 불가)
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                  <td className="admin-users__proj-td admin-users__proj-td--dept">
+                                    {projectChangeDeptLabel(p)}
+                                  </td>
+                                  <td className="admin-users__proj-td admin-users__proj-td--sel">
+                                    <label className="admin-users__proj-sel-label">
+                                      <input
+                                        type="checkbox"
+                                        checked={selected}
+                                        disabled={disabled}
+                                        onChange={(e) => toggleProjectSelection(pid, e.target.checked)}
+                                        aria-label={`${p.project_name || pid} 참여 선택`}
+                                      />
+                                    </label>
+                                  </td>
+                                </tr>
+                                {selected ? (
+                                  <tr className="admin-users__proj-role-tr admin-users__proj-tr--group-end">
+                                    <td colSpan={3} className="admin-users__proj-td admin-users__proj-td--role">
+                                      <div className="admin-users__proj-role-inner">
+                                        <span className="admin-users__proj-role-caption">프로젝트 권한</span>
+                                        <select
+                                          className="admin-users__select admin-users__select--proj-role"
+                                          value={selectedRoleId ? String(selectedRoleId) : ''}
+                                          onChange={(e) => changeProjectRole(pid, e.target.value)}
+                                          disabled={!assignable}
+                                        >
+                                          <option value="">— 권한 선택 —</option>
+                                          {(p.role_options || []).map((r) => (
+                                            <option key={String(r.pmssn_master_id)} value={String(r.pmssn_master_id)}>
+                                              {r.pmssn_name || r.pmssn_master_id}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </Fragment>
+                            )
+                          })}
+                        </tbody>
+                      </table>
                     ) : (
                       <p className="admin-users__empty">참여 가능한 프로젝트가 없습니다.</p>
                     )}
                   </div>
                 </div>
-                <div className="admin-users__modal-actions">
+                </div>
+                <div className="admin-users__modal-actions admin-users__modal-actions--change">
                   <button
                     type="button"
                     className="ibank-btn-toolbar ibank-btn-toolbar--secondary"

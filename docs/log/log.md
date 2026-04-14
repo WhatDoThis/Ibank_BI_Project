@@ -1,6 +1,11 @@
 # Log
 
 ## Log Index
+371. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 높이 41vh로 재조정(이전 축소 완화)
+370. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 세로 높이 축소(모달 본문 스크롤 완화)
+369. 2026-04-14 사용자 변경 모달: 섹션 간격·폭 확대·프로젝트 표 컬럼·배지 한 줄·프로젝트 세트 구분
+368. 2026-04-14 admin-users.css: 사용자 변경 프로젝트 목록형 레거시 클래스 제거·role-badge 위치 정리
+367. 2026-04-14 헤더 작업 프로젝트 커스텀 드롭다운·사용자 변경 모달 프로젝트 표(부서 컬럼·change-options)
 366. 2026-04-14 쿼리 스튜디오: 빈 테이블 목록 안내를 DB 연결·테이블 매핑 상황별로 분기
 365. 2026-04-13 위젯보드 목록 생성·수정: 설명 입력 고정 높이·스크롤·1000자 제한·DB 잘림 한글 안내
 364. 2026-04-13 admin PATCH 프로젝트: table_master 조회 행 RealDict 대응(db_type_norm·KeyError:0 수정)
@@ -369,6 +374,54 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+371. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 높이 41vh로 재조정(이전 축소 완화)
+Purpose: `min(220px, 32vh)`는 과도해 52vh 대비 40~43vh대로 완만히 조정(`max-height: 41vh`, `min-height: 130px`).
+
+Changes:
+
+- `admin-users.css`: `.admin-users__panel-scroll--change`
+
+Changed files: Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+370. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 세로 높이 축소(모달 본문 스크롤 완화)
+Purpose: `panel-scroll--change`가 52vh로 커 모달에 세로 스크롤이 생기는 경우가 많아 `max-height`를 `min(220px, 32vh)`·`min-height` 100px로 조정해 취소/변경 버튼이 같은 화면에 오도록 함.
+
+Changes:
+
+- `admin-users.css`: `.admin-users__panel-scroll--change`
+
+Changed files: Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+369. 2026-04-14 사용자 변경 모달: 섹션 간격·폭 확대·프로젝트 표 컬럼·배지 한 줄·프로젝트 세트 구분
+Purpose: 부서/역할/프로젝트 참여 사이 여백, 모달 가로 폭 확대, 프로젝트명 열 확장·부서명 우측 정렬, 권한 배지를 프로젝트명과 동일 행에 배치, 프로젝트+권한 블록 간 시각적 구분 강화.
+
+Changes:
+
+- `AdminUsersPage.jsx`: `admin-users__change-form-stack`, 프로젝트 행 `proj-name-row`·`proj-tr--group-start`/`--group-end`
+- `admin-users.css`: 모달 780px, stack gap, 컬럼 비율·부서 우측 정렬, 그룹 구분선·그림자
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, admin-users.css, docs/log/log.md
+
+368. 2026-04-14 admin-users.css: 사용자 변경 프로젝트 목록형 레거시 클래스 제거·role-badge 위치 정리
+Purpose: 표 UI 전환 후 미사용 `.admin-users__proj-item`·`__proj-check`·`__proj-name`·`__proj-role-row` 제거, 사용 중인 `__proj-role-badge`는 프로젝트 표 블록 근처로 이동.
+
+Changes:
+
+- `admin-users.css`: 위 클래스 정리
+
+Changed files: Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+367. 2026-04-14 헤더 작업 프로젝트 커스텀 드롭다운·사용자 변경 모달 프로젝트 표(부서 컬럼·change-options)
+Purpose: 네이티브 select는 옵션 목록 스타일이 불가해 헤더를 브랜드 톤 커스텀 리스트로 교체하고, 사용자 변경 모달의 프로젝트 참여를 표 형태(프로젝트명·부서명·선택)로 스크롤 가능하게 정리. 부서명은 프로젝트 소속 부서 트리에 따라 `이름(-)` 또는 `상위(하위)`로 API에서 내려줌.
+
+Changes:
+
+- `service_users.py`: `_enrich_change_option_projects_department_display`, `get_user_change_options`의 `projects[]`에 `project_department_display` 추가
+- `ProjectHeaderSelect.jsx` / `project-header-select.css`: 커스텀 드롭다운·옵션 패널·스크롤바 스타일
+- `AdminUsersPage.jsx` / `admin-users.css`: 프로젝트 참여 테이블·열 헤더·권한 행·모달 폭
+
+Changed files: Backend/admin_server/service_users.py, Frontend/react-app/src/app/layout/ProjectHeaderSelect.jsx, project-header-select.css, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, admin-users.css, docs/log/log.md
 
 366. 2026-04-14 쿼리 스튜디오: 빈 테이블 목록 안내를 DB 연결·테이블 매핑 상황별로 분기
 Purpose: 매핑 미설정으로 목록이 비어 있을 때 `config.json` 안내는 부적절하므로, health 기준으로 연결 정상이면 테이블 매핑 확인을, 연결 실패면 DB 연결 확인을 안내한다.

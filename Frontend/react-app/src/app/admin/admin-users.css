@@ -1,5 +1,5 @@
 /**
- * app/admin/admin-users.css — AdminUsersPage 전용 (작업물 카테고리·ETL 대/중분류·전체이관·이관 모달·연쇄 이관 상세 줄 등)
+ * app/admin/admin-users.css — AdminUsersPage 전용 (작업물 카테고리·ETL 대/중분류·전체이관·이관 모달·연쇄 이관 상세 줄·사용자 변경 모달 change-form-stack·프로젝트 표 등)
  * 행 액션(.admin-users__actions button): shared-ui `.ibank-btn-table` 호버 톤과 정합
  * 본인 배지(이메일 옆)·비활성 액션 버튼 래퍼(title 툴팁, pointer-events로 호버 수신)
  * 409 소유 차단 패널(ownership-block·group·list)
@@ -294,8 +294,19 @@
 }
 
 .admin-users__modal--change {
-  max-width: 520px;
+  max-width: 780px;
   max-height: 95vh;
+}
+
+.admin-users__change-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 4px;
+}
+
+.admin-users__modal-actions--change {
+  margin-top: 20px;
 }
 
 .admin-users__modal-title {
@@ -368,8 +379,212 @@
 }
 
 .admin-users__panel-scroll--change {
-  max-height: 52vh;
-  min-height: 180px;
+  /* 기존 52vh 대비 완만히 축소(40~43vh대): 모달 본문 스크롤 완화 + 목록 가독성 균형 */
+  max-height: 41vh;
+  min-height: 130px;
+}
+
+/* 사용자 변경 모달 — 프로젝트 참여 표(스타벅스 톤·세로 스크롤) */
+.admin-users__proj-table-wrap {
+  padding: 0;
+  background: linear-gradient(180deg, #fbfcfb 0%, #ffffff 40%);
+  border: 1px solid rgba(0, 112, 74, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.admin-users__proj-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  table-layout: fixed;
+}
+
+.admin-users__proj-th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 10px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--color-action-primary-hover, #005237);
+  background: linear-gradient(180deg, #e8f4ef 0%, #dceee6 100%);
+  border-bottom: 2px solid rgba(0, 112, 74, 0.28);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+.admin-users__proj-th--name {
+  width: 54%;
+}
+
+.admin-users__proj-th--dept {
+  width: 30%;
+  text-align: right;
+  padding-right: 14px;
+}
+
+.admin-users__proj-th--sel {
+  width: 16%;
+  text-align: center;
+}
+
+.admin-users__proj-tr {
+  border-bottom: none;
+}
+
+.admin-users__proj-tr:not(.admin-users__proj-role-tr):hover td {
+  background: rgba(232, 244, 239, 0.35);
+}
+
+.admin-users__proj-td {
+  padding: 10px 10px;
+  vertical-align: middle;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.admin-users__proj-td--name {
+  font-weight: 500;
+}
+
+.admin-users__proj-td--dept {
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+  text-align: right;
+  padding-right: 14px;
+}
+
+.admin-users__proj-td--sel {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.admin-users__proj-sel-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  cursor: pointer;
+}
+
+.admin-users__proj-sel-label input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--color-action-primary, #00704a);
+  cursor: pointer;
+}
+
+.admin-users__proj-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.admin-users__proj-name-text {
+  min-width: 0;
+  flex: 0 1 auto;
+  line-height: 1.35;
+}
+
+.admin-users__proj-name-meta {
+  margin-top: 6px;
+}
+
+.admin-users__proj-hint-inline {
+  font-size: 0.8rem;
+}
+
+.admin-users__proj-tr--group-start td {
+  border-top: 2px solid rgba(0, 112, 74, 0.2);
+  padding-top: 16px;
+  box-shadow: inset 0 8px 8px -8px rgba(0, 82, 55, 0.08);
+}
+
+.admin-users__proj-tr:not(.admin-users__proj-role-tr) + .admin-users__proj-role-tr td {
+  border-top: 1px dashed rgba(0, 112, 74, 0.12);
+}
+
+.admin-users__proj-tr--group-end:not(.admin-users__proj-role-tr) td {
+  border-bottom: 2px solid rgba(0, 112, 74, 0.18);
+  padding-bottom: 14px;
+}
+
+.admin-users__proj-role-tr.admin-users__proj-tr--group-end .admin-users__proj-td--role {
+  border-bottom: 3px solid rgba(0, 112, 74, 0.16);
+  padding-bottom: 16px;
+  box-shadow: 0 6px 12px -8px rgba(0, 60, 40, 0.12);
+}
+
+.admin-users__proj-role-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(0, 112, 74, 0.35);
+  color: var(--color-action-primary-hover);
+  background: var(--primary-light);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.admin-users__proj-role-tr .admin-users__proj-td--role {
+  padding: 8px 10px 12px;
+  background: rgba(248, 251, 249, 0.98);
+  border-bottom: none;
+}
+
+.admin-users__proj-role-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 8px 10px 10px;
+  margin: 0 0 4px;
+  border-radius: var(--radius-btn-sm, 6px);
+  border: 1px solid rgba(0, 112, 74, 0.14);
+  background: #fff;
+}
+
+.admin-users__proj-role-caption {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-action-primary-hover, #005237);
+}
+
+.admin-users__select--proj-role {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 100%;
+  border-color: rgba(0, 112, 74, 0.22);
+}
+
+.admin-users__panel-scroll--change.admin-users__proj-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.admin-users__panel-scroll--change.admin-users__proj-table-wrap::-webkit-scrollbar {
+  width: var(--scrollbar-size, 8px);
+}
+
+.admin-users__panel-scroll--change.admin-users__proj-table-wrap::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 4px;
+}
+
+.admin-users__panel-scroll--change.admin-users__proj-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+.admin-users__panel-scroll--change.admin-users__proj-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 .admin-users__empty {
@@ -384,39 +599,6 @@
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--color-text, #1a1a1a);
-}
-
-.admin-users__proj-item {
-  padding: 6px 2px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.admin-users__proj-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-}
-
-.admin-users__proj-name {
-  flex: 1;
-}
-
-.admin-users__proj-role-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(0, 112, 74, 0.35);
-  color: var(--color-action-primary-hover);
-  background: var(--primary-light);
-  font-size: 0.76rem;
-  white-space: nowrap;
-}
-
-.admin-users__proj-role-row {
-  margin-top: 8px;
-  margin-left: 22px;
 }
 
 .admin-users__work-section {

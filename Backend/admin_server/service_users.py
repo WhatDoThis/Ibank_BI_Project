@@ -24,7 +24,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
 13. transfer_resource_ownership — project·project_invite(project_ptcpnt_info)·pmssn_master·table_master·dptmt_creator·ETL 메타 이관
 14. ownership_guards 연동 — 정지·삭제 시 project_invite_rows 포함(초대자 이관 전 NOT NULL)·그 외 목표 역할·ETL 매트릭스(409)
-15. get_user_change_options / update_user_management — 부서·역할·ETL·프로젝트 참여 변경(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·역할 u 시 etl_yn N)
+15. get_user_change_options / update_user_management — 부서·역할·ETL·프로젝트 참여 변경·projects[].project_department_display(소속 부서: 최상위 이름(-), 하위 상위(자기))(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·역할 u 시 etl_yn N)
 
 [Dependencies]
 =========
@@ -3199,6 +3199,66 @@ def _assert_pmssn_allowed_for_project(cur, project_info_id: int, pmssn_master_id
     raise ValueError("해당 프로젝트에 부여할 수 없는 권한입니다.")
 
 
+def _enrich_change_option_projects_department_display(
+    conn,
+    project_rows: list[dict[str, Any]],
+) -> None:
+    """change-options의 projects 행에 project_department_display 부여(최상위 부서: 이름(-), 하위: 상위(자기))."""
+    ids: set[int] = set()
+    for r in project_rows:
+        did = r.get("dptmt_info_id")
+        if did is None:
+            continue
+        try:
+            ids.add(int(did))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        for r in project_rows:
+            r["project_department_display"] = "—"
+        return
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT d.dptmt_info_id,
+                   d.dptmt_name,
+                   d.parent_dptmt_info_id,
+                   pd.dptmt_name AS parent_dptmt_name
+            FROM dptmt_info d
+            LEFT JOIN dptmt_info pd ON pd.dptmt_info_id = d.parent_dptmt_info_id
+            WHERE d.dptmt_info_id = ANY(%s)
+            """,
+            (list(ids),),
+        )
+        by_id: dict[int, dict[str, Any]] = {
+            int(row["dptmt_info_id"]): dict(row) for row in cur.fetchall()
+        }
+    finally:
+        cur.close()
+    for r in project_rows:
+        did = r.get("dptmt_info_id")
+        if did is None:
+            r["project_department_display"] = "—"
+            continue
+        try:
+            ikey = int(did)
+        except (TypeError, ValueError):
+            r["project_department_display"] = "—"
+            continue
+        info = by_id.get(ikey)
+        if not info:
+            r["project_department_display"] = "—"
+            continue
+        dname = (info.get("dptmt_name") or "").strip() or "—"
+        parent_id = info.get("parent_dptmt_info_id")
+        if parent_id is None:
+            r["project_department_display"] = f"{dname}(-)"
+        else:
+            pname = (info.get("parent_dptmt_name") or "").strip() or "—"
+            r["project_department_display"] = f"{pname}({dname})"
+
+
 def get_user_change_options(
     conn,
     actor_dptmt: int,
@@ -3267,6 +3327,7 @@ def get_user_change_options(
         else:
             proj_by_id[pid]["pmssn_master_id"] = r.get("pmssn_master_id")
             proj_by_id[pid]["pmssn_name"] = r.get("pmssn_name")
+    _enrich_change_option_projects_department_display(conn, list(proj_by_id.values()))
     cur2 = conn.cursor()
     try:
         for pid, obj in proj_by_id.items():
