@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+372. 2026-04-14 이관 대상 선택 모달: 폭 800px·emph 안내 줄바꿈·문구 정리
 371. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 높이 41vh로 재조정(이전 축소 완화)
 370. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 세로 높이 축소(모달 본문 스크롤 완화)
 369. 2026-04-14 사용자 변경 모달: 섹션 간격·폭 확대·프로젝트 표 컬럼·배지 한 줄·프로젝트 세트 구분
@@ -374,6 +375,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+372. 2026-04-14 이관 대상 선택 모달: 폭 800px·emph 안내 줄바꿈·문구 정리
+Purpose: 이관 모달 가로 확대, bulk 안내에서 「수신 후보 목록은…」부터 블록 줄바꿈, 일반 안내·기본 조건 문장 표현 다듬기.
+
+Changes:
+
+- `admin-users.css`: `modal--transfer` max-width 800px, `modal-hint-break` 스타일
+- `AdminUsersPage.jsx`: emph 본문 span·부서원/소유자 문구·기본 조건 문자열
+
+Changed files: Frontend/react-app/src/app/admin/admin-users.css, AdminUsersPage.jsx, docs/log/log.md
 
 371. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 높이 41vh로 재조정(이전 축소 완화)
 Purpose: `min(220px, 32vh)`는 과도해 52vh 대비 40~43vh대로 완만히 조정(`max-height: 41vh`, `min-height: 130px`).

@@ -290,7 +290,7 @@
 }
 
 .admin-users__modal--transfer {
-  max-width: 400px;
+  max-width: 800px;
 }
 
 .admin-users__modal--change {
@@ -329,6 +329,11 @@
   padding: 8px 10px;
   border-radius: var(--radius-card);
   border-left: 3px solid rgba(0, 112, 74, 0.4);
+}
+
+.admin-users__modal-hint--emph .admin-users__modal-hint-break {
+  display: block;
+  margin-top: 0.35em;
 }
 
 .admin-users__modal-actions {

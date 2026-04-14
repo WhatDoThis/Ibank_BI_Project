@@ -1295,8 +1295,10 @@ export default function AdminUsersPage() {
                   <>
                     <strong>「{transferCtx.categoryTitle || 'ETL'}」</strong> 범위의 ETL 등록 건만{' '}
                     {transferCtx.bulkItems.length}건 이관합니다. 수신 조건은 모두{' '}
-                    <strong>ETL 관리자(활성·etl_yn 또는 SA_DEV·관리 범위)</strong>로 동일합니다. 수신 후보 목록은{' '}
-                    <strong>첫 번째 항목</strong> 기준으로 조회됩니다.
+                    <strong>ETL 관리자(활성·etl_yn 또는 SA_DEV·관리 범위)</strong>로 동일합니다.
+                    <span className="admin-users__modal-hint-break">
+                      수신 후보 목록은 <strong>첫 번째 항목</strong> 기준으로 조회됩니다.
+                    </span>
                     {transferCtx.categoryTitle === 'ETL' ? (
                       <>
                         {' '}
@@ -1313,14 +1315,16 @@ export default function AdminUsersPage() {
                   <>
                     <strong>「{transferCtx.categoryTitle || '이 카테고리'}」</strong> 안의 이관 가능 항목{' '}
                     {transferCtx.bulkItems.length}건만 이관합니다. 위·아래 다른 섹션은 <strong>포함되지 않습니다</strong>.
-                    수신 후보 목록은 <strong>첫 번째 항목</strong> 기준으로 조회됩니다. 테이블 마스터 등은 항목별 수신
-                    조건이 달라 동일 수신자로 일부만 성공할 수 있습니다.
+                    <span className="admin-users__modal-hint-break">
+                      수신 후보 목록은 <strong>첫 번째 항목</strong> 기준으로 조회됩니다. 테이블 마스터 등은 항목별 수신
+                      조건이 달라 동일 수신자로 일부만 성공할 수 있습니다.
+                    </span>
                   </>
                 )}
               </p>
             ) : null}
             <p className="admin-users__modal-hint">
-              아래 목록은 서버에서 이관 수신이 가능한 사용자만 골라 보여 줍니다. 부서원 전체가 아닙니다. 원 소유자는 제외됩니다.
+              아래 목록은 서버에서 이관 수신이 가능한 사용자만 골라 보여 줍니다. 부서원 전체가 아니며, 원 소유자는 제외됩니다.
             </p>
             <p className="admin-users__modal-hint">
               {transferCtx.etlInfra
@@ -1329,7 +1333,7 @@ export default function AdminUsersPage() {
                   ? '조건: 매핑 프로젝트에서 query.execute(저장 테이블과 동일) 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
                   : transferCtx.resourceType === 'dptmt_creator'
                     ? '조건: 해당 부서와 동일 부서 트리(상·하위) 소속·활성·부서 추가 가능 역할(SA 또는 SA_DEV)·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
-                    : '조건: 동일 부서·활성·SA_DEV·SA·A 역할·관리 범위 내.'}
+                    : '조건: 동일 부서 + 활성·SA_DEV·SA·A 역할이 관리 범위 내.'}
             </p>
             {transferErr ? <p className="admin-users__error">{transferErr}</p> : null}
             {transferLoading ? (
@@ -1456,7 +1460,7 @@ export default function AdminUsersPage() {
                                 disabled={listDisabled}
                                 onClick={() => toggleWorkPanel(uid)}
                               >
-                                {expanded ? '목록 닫기' : '목록'}
+                                {expanded ? '닫기' : '목록'}
                               </button>
                               {actionDisabled ? (
                                 <span
