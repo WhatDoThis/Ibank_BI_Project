@@ -5,17 +5,14 @@
  *
  * [Main Functions]
  * 1. todayStr
- * 2. loadData: 주간 시 weeklySnapshotTargetDate 보정 후 getCampaignDashboard* 호출
+ * 2. loadData: 주간 시 weeklySnapshotTargetDate 보정 후 getCampaignDashboardPage 번들 1회 호출
  * 3. projectContextNonce: 테이블 목록 재조회 후 tableListRevision 증가 — 동일 tableId라도 JWT 프로젝트별 집계 재실행
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import {
   getCampaignDashboardTables,
-  getCampaignDashboardSummary,
-  getCampaignDashboardTrendMulti,
-  getCampaignDashboardMemberSummary,
-  getCampaignDashboardHourly,
+  getCampaignDashboardPage,
 } from '@/packages/campaign_dashboard/api/campaignDashboardClient.js'
 import './campaign-dashboard.css'
 import { weeklySnapshotTargetDate } from './components/dateUtils.js'
@@ -88,41 +85,27 @@ export default function CampaignDashboardPage() {
     setError(null)
     const apiTargetDate = period === 'weekly' ? weeklySnapshotTargetDate(targetDate) : targetDate
     try {
-      const [summary, trendMulti] = await Promise.all([
-        getCampaignDashboardSummary(tableId, apiTargetDate, period),
-        getCampaignDashboardTrendMulti(tableId, {
-          endDate: apiTargetDate,
-          period,
-          days: 10,
-          count: 10,
-          byChannel: true,
-        }),
-      ])
-      setSummaryData(summary)
-      setTrendMultiData(trendMulti)
+      const bundle = await getCampaignDashboardPage(tableId, {
+        targetDate: apiTargetDate,
+        period,
+        trendDays: 10,
+        trendCount: 10,
+        trendByChannel: true,
+      })
+      setSummaryData(bundle.summary ?? null)
+      setTrendMultiData(bundle.trend_multi ?? null)
+      setMemberData(bundle.member_summary ?? null)
+      setHourlySuccess(bundle.hourly?.success ?? null)
+      setHourlyOpen(bundle.hourly?.open ?? null)
+      setHourlyClick(bundle.hourly?.click ?? null)
+      if (!bundle.member_summary) console.warn('member-summary: 데이터 없음')
+      if (!bundle.hourly?.success?.data?.length) console.warn('hourly success: 데이터 없음', bundle.hourly?.success)
+      if (!bundle.hourly?.open?.data?.length) console.warn('hourly open: 데이터 없음', bundle.hourly?.open)
+      if (!bundle.hourly?.click?.data?.length) console.warn('hourly click: 데이터 없음', bundle.hourly?.click)
     } catch (e) {
       setError(e.message || '캠페인 데이터 조회 실패')
       setSummaryData(null)
       setTrendMultiData(null)
-    }
-    try {
-      const [member, hSuccess, hOpen, hClick] = await Promise.all([
-        getCampaignDashboardMemberSummary(tableId, { targetDate: apiTargetDate, period }),
-        getCampaignDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'success' }),
-        getCampaignDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'open' }),
-        getCampaignDashboardHourly(tableId, { targetDate: apiTargetDate, period, metric: 'click' }),
-      ])
-      setMemberData(member)
-      setHourlySuccess(hSuccess)
-      setHourlyOpen(hOpen)
-      setHourlyClick(hClick)
-      // 데이터 확인 로그
-      if (!member) console.warn('member-summary: 데이터 없음')
-      if (!hSuccess?.data?.length) console.warn('hourly success: 데이터 없음', hSuccess)
-      if (!hOpen?.data?.length) console.warn('hourly open: 데이터 없음', hOpen)
-      if (!hClick?.data?.length) console.warn('hourly click: 데이터 없음', hClick)
-    } catch (e) {
-      console.error('신규 섹션 데이터 로딩 실패:', e.message, e)
       setMemberData(null)
       setHourlySuccess(null)
       setHourlyOpen(null)
@@ -156,6 +139,7 @@ export default function CampaignDashboardPage() {
   const kpi = summaryData?.kpi ?? null
   const aggregatedData = summaryData?.aggregated_data ?? []
   const dateRangeActual = summaryData?.date_range_actual ?? null
+  const chartEndDate = period === 'weekly' ? weeklySnapshotTargetDate(targetDate) : targetDate
 
   return (
     <>
@@ -254,7 +238,7 @@ export default function CampaignDashboardPage() {
                   data={trendMultiData?.rows ?? []}
                   byChannel={trendMultiData?.by_channel ?? false}
                   period={period}
-                  endDate={targetDate}
+                  endDate={chartEndDate}
                   days={10}
                   count={10}
                 />

@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+339. 2026-04-13 캠페인 대시보드: 기간 정합(campaign_period)·GET /page 번들·프론트 단일 조회
 338. 2026-04-13 문서 21 후속: health `/api` 인덱스·§10·§6·Phase C compileall
 337. 2026-04-13 사이드바 브랜드(메인 아이콘) 클릭 시 홈 이동
 336. 2026-04-13 캠페인 대시보드: 헤더 그리드 열 배치(grid-column) 수정
@@ -341,6 +342,18 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+339. 2026-04-13 캠페인 대시보드: 기간 정합(campaign_period)·GET /page 번들·프론트 단일 조회
+Purpose: 월/주 단위에서 trend-multi 상한을 summary·hourly와 동일하게 맞추고, SPA는 /page 한 번으로 데이터를 로드한다.
+
+Changes:
+
+- `Backend/campaign_dash_server/campaign_period.py`: calc_summary_date_range, calc_previous_range, fact_inclusive_end_date, trend_multi_window_start
+- `router.py`: 공통 헬퍼(_campaign_summary_result, _trend_multi_execute, _member_summary_payload_optional, _hourly_payload_dict), GET /api/campaign-dashboard/page 번들
+- trend-multi WHERE 상한을 fact_inclusive_end_date(주=일요일, 월=말일)로 통일
+- `getCampaignDashboardPage`, `CampaignDashboardPage` 단일 호출·주간 추이 `endDate`를 weekly 스냅샷과 정렬
+
+Changed files: Backend/campaign_dash_server/campaign_period.py, Backend/campaign_dash_server/router.py, Frontend/react-app/src/packages/campaign_dashboard/api/campaignDashboardClient.js, Frontend/react-app/src/packages/campaign_dashboard/CampaignDashboardPage.jsx, docs/log/log.md
 
 338. 2026-04-13 문서 21 후속: health `/api` 인덱스·§10·§6·Phase C compileall
 Purpose: 미체크 항목 정리. `GET /api` 안내가 쿼리 스튜디오·캠페인 대시보드만 나열해 `main.py` 표면과 어긋남. §10은 FE에 이미 구현됨.

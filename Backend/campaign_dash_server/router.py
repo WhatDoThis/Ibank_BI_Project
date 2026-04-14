@@ -6,18 +6,20 @@ table_id는 프로젝트별 table_master + table_project_mapping(main/dash/star)
 
 [Main Functions]
 ================
-1. _calc_date_range / _calc_previous_range / _calc_change_pct
-2. _require_star_fact_table / _member_table_id_from_fact / _quoted_table
-3. _assert_campaign_table — perm·is_table_allowed_for_project_dashboard
-4. _jsonb_as_dict, _snapshot_*, _row_date_iso, delivery/hourly JSONB 빌더
-5. GET 엔드포인트 — require_permission("dashboard"), table_id 검사
+1. campaign_period: calc_summary_date_range, calc_previous_range, fact_inclusive_end_date, trend_multi_window_start
+2. _calc_change_pct, _campaign_summary_result, _trend_multi_execute, _member_summary_payload, _hourly_payload
+3. _require_star_fact_table / _member_table_id_from_fact / _quoted_table
+4. _assert_campaign_table — perm·is_table_allowed_for_project_dashboard
+5. _jsonb_as_dict, _snapshot_*, _row_date_iso, delivery/hourly JSONB 빌더
+6. GET 엔드포인트 — require_permission("dashboard"), table_id 검사
 
 [Endpoints]
 ===========
-GET /api/campaign-dashboard/member-summary, delivery-demographics, hourly, summary, trend, trend-multi, tables
+GET /api/campaign-dashboard/page(번들), member-summary, delivery-demographics, hourly, summary, trend, trend-multi, tables
 
 [Dependencies]
 ==============
+- Backend.campaign_dash_server.campaign_period (기간·추이 창 공통)
 - Backend.core.dashboard_service, Backend.core.db
 - Backend.auth_server.permissions.require_permission
 - datetime, calendar, fastapi, json
@@ -35,6 +37,12 @@ from fastapi.responses import JSONResponse
 from Backend.auth_server.permissions import require_permission
 from Backend.core import dashboard_service, db
 from Backend.core.dashboard_service import CHANNEL_MAPPING
+from Backend.campaign_dash_server.campaign_period import (
+    calc_previous_range,
+    calc_summary_date_range,
+    fact_inclusive_end_date,
+    trend_multi_window_start,
+)
 
 router = APIRouter(prefix="/api/campaign-dashboard", tags=["campaign-dashboard"])
 
@@ -63,40 +71,39 @@ _HOURLY_JSON_COL = {
 
 
 # 1.
-def _calc_date_range(target_date: str, period: str) -> list:
-    dt = datetime.strptime(target_date, "%Y-%m-%d").date()
-    if period == "weekly":
-        start = dt - timedelta(days=dt.weekday())
-        end = start + timedelta(days=6)
-        return [start.isoformat(), end.isoformat()]
-    if period == "monthly":
-        start = dt.replace(day=1)
-        last_day = calendar.monthrange(dt.year, dt.month)[1]
-        end = dt.replace(day=last_day)
-        return [start.isoformat(), end.isoformat()]
-    return [target_date, target_date]
-
-
-# 2.
-def _calc_previous_range(date_range: list, period: str) -> list:
-    start = datetime.strptime(date_range[0], "%Y-%m-%d").date()
-    end = datetime.strptime(date_range[1], "%Y-%m-%d").date()
-    if period == "monthly":
-        prev_end = start - timedelta(days=1)
-        return [prev_end.replace(day=1).isoformat(), prev_end.isoformat()]
-    if period == "weekly":
-        delta = (end - start).days + 1
-        prev_end = start - timedelta(days=1)
-        return [(prev_end - timedelta(days=delta - 1)).isoformat(), prev_end.isoformat()]
-    prev = start - timedelta(days=1)
-    return [prev.isoformat(), prev.isoformat()]
-
-
-# 3.
 def _calc_change_pct(current, previous):
     if previous is None or previous == 0:
         return None
     return round((current - previous) / previous * 100, 2)
+
+
+# 1a.
+def _campaign_summary_result(fact_id: str, target_date: str, period: str) -> dict:
+    """summary 엔드포인트와 동일 본문(dict). KPI·aggregated_data·증감률 포함."""
+    date_range = calc_summary_date_range(target_date, period)
+    group_by = {"campaign": True, "date": True, "workflow": True, "channel": True}
+    req = {
+        "table_id": fact_id,
+        "date_range": date_range,
+        "campaign_ids": None,
+        "workflow_ids": None,
+        "channels": None,
+        "group_by": group_by,
+    }
+    result = dashboard_service.get_dashboard_data(req)
+    kpi = result["kpi"]
+    req_prev = {**req, "date_range": calc_previous_range(date_range, period)}
+    kpi_prev = dashboard_service.get_dashboard_data(req_prev)["kpi"]
+    for key, prev_key in [
+        ("send_change_pct", "total_send"),
+        ("success_change_pct", "total_success"),
+        ("open_change_pct", "total_open"),
+        ("click_change_pct", "total_click"),
+    ]:
+        kpi[key] = _calc_change_pct(kpi[prev_key], kpi_prev[prev_key])
+    result["period"] = period
+    result["date_range_actual"] = date_range
+    return result
 
 
 # 4.
@@ -230,6 +237,175 @@ def _build_hourly_select(json_col: str, prefix: str) -> str:
     return ", ".join(parts)
 
 
+# 9a.
+def _member_summary_payload_optional(fact_id: str, target_date: str, period: str) -> Optional[dict]:
+    """회원 스냅샷 dict 또는 데이터 없음 시 None (/page 번들용)."""
+    date_range = calc_summary_date_range(target_date, period)
+    prev_range = calc_previous_range(date_range, period)
+    member_name = _member_table_id_from_fact(fact_id)
+    full_table = _quoted_table(member_name)
+    date_col = "base_date"
+
+    curr_end = _snapshot_end_clamped(date_range, target_date)
+    prev_end = _snapshot_prev_end_clamped(prev_range, target_date, period)
+    prev_query_end = prev_range[1] if period in ("weekly", "monthly") else prev_end
+
+    query = f"""
+        SELECT * FROM {full_table}
+        WHERE {date_col} >= %s AND {date_col} <= %s
+        ORDER BY {date_col} DESC
+        LIMIT 1
+    """
+    query_prev = f"""
+        SELECT * FROM {full_table}
+        WHERE {date_col} >= %s AND {date_col} <= %s
+        ORDER BY {date_col} DESC
+        LIMIT 1
+    """
+
+    conn = db.get_db_connection_dash()
+    cur = conn.cursor()
+    try:
+        cur.execute(query, (date_range[0], curr_end))
+        row = cur.fetchone()
+        cur.execute(query_prev, (prev_range[0], prev_query_end))
+        prev_row = cur.fetchone()
+        if prev_row is None and period in ("weekly", "monthly"):
+            fb = f"""
+                SELECT * FROM {full_table}
+                WHERE {date_col} < %s
+                ORDER BY {date_col} DESC
+                LIMIT 1
+            """
+            cur.execute(fb, (date_range[0],))
+            prev_row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row:
+        logging.getLogger(__name__).warning(
+            "campaign_dash_router member_summary_no_data table=%s range=%s", full_table, date_range
+        )
+        return None
+
+    total = row.get("total_recipients") or 0
+    target = row.get("target_recipients") or 0
+    increased = row.get("increased_count") or 0
+    decreased = row.get("decreased_count") or 0
+
+    prev_total = (prev_row.get("total_recipients") or 0) if prev_row else None
+    prev_target = (prev_row.get("target_recipients") or 0) if prev_row else None
+    prev_increased = (prev_row.get("increased_count") or 0) if prev_row else None
+    prev_decreased = (prev_row.get("decreased_count") or 0) if prev_row else None
+
+    churn_rate = round((decreased / total) * 100, 2) if total > 0 else 0
+    inflow_share_pct = round((increased / total) * 100, 2) if total > 0 else 0.0
+    member_net_flow_count = None
+    member_net_flow_pct = None
+    if prev_row is not None and prev_total is not None:
+        pt = prev_total or 0
+        member_net_flow_count = int(total - pt)
+        member_net_flow_pct = _calc_change_pct(total, pt)
+
+    gc = _jsonb_as_dict(row.get("gender_count"))
+    ac = _jsonb_as_dict(row.get("age_count"))
+    gr = _jsonb_as_dict(row.get("grade_count"))
+    oi = _jsonb_as_dict(row.get("opt_in_count"))
+
+    return {
+        "date_range": date_range,
+        "period": period,
+        "snapshot_date": _row_date_iso(row, date_col),
+        "prev_snapshot_date": _row_date_iso(prev_row, date_col),
+        "total_recipients": total,
+        "total_recipients_change_pct": _calc_change_pct(total, prev_total),
+        "target_recipients": target,
+        "target_recipients_change_pct": _calc_change_pct(target, prev_target),
+        "increased_count": increased,
+        "decreased_count": decreased,
+        "increased_change_pct": _calc_change_pct(increased, prev_increased),
+        "decreased_change_pct": _calc_change_pct(decreased, prev_decreased),
+        "inflow_share_pct": inflow_share_pct,
+        "churn_rate": churn_rate,
+        "member_net_flow_count": member_net_flow_count,
+        "member_net_flow_pct": member_net_flow_pct,
+        "gender": {
+            "male": int(gc.get("male") or 0),
+            "female": int(gc.get("female") or 0),
+        },
+        "age": [
+            {"group": AGE_LABELS[i], "count": int(ac.get(AGE_COLS[i]) or 0)}
+            for i in range(len(AGE_COLS))
+        ],
+        "grade": [
+            {"grade": GRADE_LABELS[i], "count": int(gr.get(GRADE_JSON_KEYS[i]) or 0)}
+            for i in range(len(GRADE_JSON_KEYS))
+        ],
+        "opt_in": {
+            "email": int(oi.get("email") or 0),
+            "sms": int(oi.get("sms") or 0),
+            "kakao": 0,
+            "push": int(oi.get("push") or 0),
+        },
+    }
+
+
+# 9b.
+def _hourly_payload_dict(fact_id: str, target_date: str, period: str, metric: str, by_channel: bool) -> dict:
+    """hourly 엔드포인트와 동일 본문(dict)."""
+    json_col, prefix = _HOURLY_JSON_COL[metric]
+    date_range = calc_summary_date_range(target_date, period)
+    full_table = _quoted_table(fact_id)
+    date_col = "delivery_date"
+
+    hour_sums = _build_hourly_select(json_col, prefix)
+    channel_select = ", delivery_channel" if by_channel else ""
+    channel_group = " GROUP BY delivery_channel" if by_channel else ""
+
+    query = f"""
+        SELECT {hour_sums}{channel_select}
+        FROM {full_table}
+        WHERE {date_col} >= %s AND {date_col} <= %s
+        {channel_group}
+    """
+
+    conn = db.get_db_connection_dash()
+    cur = conn.cursor()
+    try:
+        cur.execute(query, (date_range[0], date_range[1]))
+        raw_rows = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+    def row_to_hours(r):
+        return [
+            {"hour": f"{h}-{h+1}", "count": r.get(f"{prefix}_{h}_{h+1}") or 0}
+            for h in range(24)
+        ]
+
+    if by_channel:
+        results = []
+        for r in raw_rows:
+            ch_code = r.get("delivery_channel")
+            results.append({
+                "channel_code": ch_code,
+                "channel": CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})"),
+                "hours": row_to_hours(r),
+            })
+        data = results
+    else:
+        data = row_to_hours(raw_rows[0]) if raw_rows else []
+    return {
+        "metric": metric,
+        "data": data,
+        "by_channel": by_channel,
+        "date_range": date_range,
+        "period": period,
+    }
+
+
 # 10.
 @router.get("/member-summary")
 def member_summary(
@@ -246,116 +422,10 @@ def member_summary(
         if period not in ("daily", "weekly", "monthly"):
             period = "daily"
 
-        date_range = _calc_date_range(target_date, period)
-        prev_range = _calc_previous_range(date_range, period)
-        member_name = _member_table_id_from_fact(fact_id)
-        full_table = _quoted_table(member_name)
-        date_col = "base_date"
-
-        curr_end = _snapshot_end_clamped(date_range, target_date)
-        prev_end = _snapshot_prev_end_clamped(prev_range, target_date, period)
-        prev_query_end = prev_range[1] if period in ("weekly", "monthly") else prev_end
-
-        query = f"""
-            SELECT * FROM {full_table}
-            WHERE {date_col} >= %s AND {date_col} <= %s
-            ORDER BY {date_col} DESC
-            LIMIT 1
-        """
-        query_prev = f"""
-            SELECT * FROM {full_table}
-            WHERE {date_col} >= %s AND {date_col} <= %s
-            ORDER BY {date_col} DESC
-            LIMIT 1
-        """
-
-        conn = db.get_db_connection_dash()
-        cur = conn.cursor()
-        try:
-            cur.execute(query, (date_range[0], curr_end))
-            row = cur.fetchone()
-            cur.execute(query_prev, (prev_range[0], prev_query_end))
-            prev_row = cur.fetchone()
-            if prev_row is None and period in ("weekly", "monthly"):
-                fb = f"""
-                    SELECT * FROM {full_table}
-                    WHERE {date_col} < %s
-                    ORDER BY {date_col} DESC
-                    LIMIT 1
-                """
-                cur.execute(fb, (date_range[0],))
-                prev_row = cur.fetchone()
-        finally:
-            cur.close()
-            conn.close()
-
-        if not row:
-            logging.getLogger(__name__).warning(
-                "campaign_dash_router member_summary_no_data table=%s range=%s", full_table, date_range
-            )
+        payload = _member_summary_payload_optional(fact_id, target_date, period)
+        if not payload:
             return JSONResponse(status_code=404, content={"error": "해당 기간 데이터 없음"})
-
-        total = row.get("total_recipients") or 0
-        target = row.get("target_recipients") or 0
-        increased = row.get("increased_count") or 0
-        decreased = row.get("decreased_count") or 0
-
-        prev_total = (prev_row.get("total_recipients") or 0) if prev_row else None
-        prev_target = (prev_row.get("target_recipients") or 0) if prev_row else None
-        prev_increased = (prev_row.get("increased_count") or 0) if prev_row else None
-        prev_decreased = (prev_row.get("decreased_count") or 0) if prev_row else None
-
-        churn_rate = round((decreased / total) * 100, 2) if total > 0 else 0
-        inflow_share_pct = round((increased / total) * 100, 2) if total > 0 else 0.0
-        member_net_flow_count = None
-        member_net_flow_pct = None
-        if prev_row is not None and prev_total is not None:
-            pt = prev_total or 0
-            member_net_flow_count = int(total - pt)
-            member_net_flow_pct = _calc_change_pct(total, pt)
-
-        gc = _jsonb_as_dict(row.get("gender_count"))
-        ac = _jsonb_as_dict(row.get("age_count"))
-        gr = _jsonb_as_dict(row.get("grade_count"))
-        oi = _jsonb_as_dict(row.get("opt_in_count"))
-
-        result = {
-            "date_range": date_range,
-            "period": period,
-            "snapshot_date": _row_date_iso(row, date_col),
-            "prev_snapshot_date": _row_date_iso(prev_row, date_col),
-            "total_recipients": total,
-            "total_recipients_change_pct": _calc_change_pct(total, prev_total),
-            "target_recipients": target,
-            "target_recipients_change_pct": _calc_change_pct(target, prev_target),
-            "increased_count": increased,
-            "decreased_count": decreased,
-            "increased_change_pct": _calc_change_pct(increased, prev_increased),
-            "decreased_change_pct": _calc_change_pct(decreased, prev_decreased),
-            "inflow_share_pct": inflow_share_pct,
-            "churn_rate": churn_rate,
-            "member_net_flow_count": member_net_flow_count,
-            "member_net_flow_pct": member_net_flow_pct,
-            "gender": {
-                "male": int(gc.get("male") or 0),
-                "female": int(gc.get("female") or 0),
-            },
-            "age": [
-                {"group": AGE_LABELS[i], "count": int(ac.get(AGE_COLS[i]) or 0)}
-                for i in range(len(AGE_COLS))
-            ],
-            "grade": [
-                {"grade": GRADE_LABELS[i], "count": int(gr.get(GRADE_JSON_KEYS[i]) or 0)}
-                for i in range(len(GRADE_JSON_KEYS))
-            ],
-            "opt_in": {
-                "email": int(oi.get("email") or 0),
-                "sms": int(oi.get("sms") or 0),
-                "kakao": 0,
-                "push": int(oi.get("push") or 0),
-            },
-        }
-        return result
+        return payload
     except HTTPException:
         raise
     except ValueError as e:
@@ -381,7 +451,7 @@ def delivery_demographics(
         if period not in ("daily", "weekly", "monthly"):
             period = "daily"
 
-        date_range = _calc_date_range(target_date, period)
+        date_range = calc_summary_date_range(target_date, period)
         full_table = _quoted_table(fact_id)
         date_col = "delivery_date"
         sums = _build_delivery_demographics_select()
@@ -466,56 +536,7 @@ def hourly(
         if metric not in _HOURLY_JSON_COL:
             return JSONResponse(status_code=400, content={"error": "metric은 success|open|click 중 하나"})
 
-        json_col, prefix = _HOURLY_JSON_COL[metric]
-        date_range = _calc_date_range(target_date, period)
-        full_table = _quoted_table(fact_id)
-        date_col = "delivery_date"
-
-        hour_sums = _build_hourly_select(json_col, prefix)
-        channel_select = ", delivery_channel" if by_channel else ""
-        channel_group = " GROUP BY delivery_channel" if by_channel else ""
-
-        query = f"""
-            SELECT {hour_sums}{channel_select}
-            FROM {full_table}
-            WHERE {date_col} >= %s AND {date_col} <= %s
-            {channel_group}
-        """
-
-        conn = db.get_db_connection_dash()
-        cur = conn.cursor()
-        try:
-            cur.execute(query, (date_range[0], date_range[1]))
-            raw_rows = cur.fetchall()
-        finally:
-            cur.close()
-            conn.close()
-
-        def row_to_hours(r):
-            return [
-                {"hour": f"{h}-{h+1}", "count": r.get(f"{prefix}_{h}_{h+1}") or 0}
-                for h in range(24)
-            ]
-
-        if by_channel:
-            results = []
-            for r in raw_rows:
-                ch_code = r.get("delivery_channel")
-                results.append({
-                    "channel_code": ch_code,
-                    "channel": CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})"),
-                    "hours": row_to_hours(r),
-                })
-            data = results
-        else:
-            data = row_to_hours(raw_rows[0]) if raw_rows else []
-        return {
-            "metric": metric,
-            "data": data,
-            "by_channel": by_channel,
-            "date_range": date_range,
-            "period": period,
-        }
+        return _hourly_payload_dict(fact_id, target_date, period, metric, by_channel)
     except HTTPException:
         raise
     except ValueError as e:
@@ -539,30 +560,54 @@ def summary(
             target_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
             period = "daily"
-        date_range = _calc_date_range(target_date, period)
-        group_by = {"campaign": True, "date": True, "workflow": True, "channel": True}
-        req = {
-            "table_id": fact_id,
-            "date_range": date_range,
-            "campaign_ids": None,
-            "workflow_ids": None,
-            "channels": None,
-            "group_by": group_by,
+        return _campaign_summary_result(fact_id, target_date, period)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# 13a.
+@router.get("/page")
+def campaign_dashboard_page(
+    table_id: str = Query(..., description="팩트 테이블 ID (예: ibank_1_star_1)"),
+    target_date: Optional[str] = Query(None, description="기준 일자 YYYY-MM-DD"),
+    period: str = Query("daily", description="daily | weekly | monthly"),
+    trend_days: int = Query(10, ge=1, le=365, description="일간 추이 최근 N일"),
+    trend_count: int = Query(10, ge=1, le=52, description="주간/월간 추이 버킷 개수"),
+    trend_by_channel: bool = Query(True, description="추이 채널별 분리"),
+    perm: dict = Depends(require_permission("dashboard")),
+):
+    """캠페인 대시보드 SPA용 번들: summary·trend_multi·member·hourly를 동일 anchor/period로 한 번에 반환."""
+    try:
+        _assert_campaign_table(perm, table_id)
+        fact_id = _require_star_fact_table(table_id)
+        if not target_date:
+            target_date = date.today().isoformat()
+        if period not in ("daily", "weekly", "monthly"):
+            period = "daily"
+
+        summary = _campaign_summary_result(fact_id, target_date, period)
+        trend_multi = _trend_multi_execute(
+            fact_id, target_date, period, trend_days, trend_count, trend_by_channel
+        )
+        member_summary = _member_summary_payload_optional(fact_id, target_date, period)
+        hourly = {
+            "success": _hourly_payload_dict(fact_id, target_date, period, "success", False),
+            "open": _hourly_payload_dict(fact_id, target_date, period, "open", False),
+            "click": _hourly_payload_dict(fact_id, target_date, period, "click", False),
         }
-        result = dashboard_service.get_dashboard_data(req)
-        kpi = result["kpi"]
-        req_prev = {**req, "date_range": _calc_previous_range(date_range, period)}
-        kpi_prev = dashboard_service.get_dashboard_data(req_prev)["kpi"]
-        for key, prev_key in [
-            ("send_change_pct", "total_send"),
-            ("success_change_pct", "total_success"),
-            ("open_change_pct", "total_open"),
-            ("click_change_pct", "total_click"),
-        ]:
-            kpi[key] = _calc_change_pct(kpi[prev_key], kpi_prev[prev_key])
-        result["period"] = period
-        result["date_range_actual"] = date_range
-        return result
+        return {
+            "anchor_date": target_date,
+            "period": period,
+            "date_range_actual": summary.get("date_range_actual"),
+            "summary": summary,
+            "trend_multi": trend_multi,
+            "member_summary": member_summary,
+            "hourly": hourly,
+        }
     except HTTPException:
         raise
     except ValueError as e:
@@ -606,36 +651,6 @@ def trend(
 
 
 # 15.
-def _week_start(dt):
-    return dt - timedelta(days=dt.weekday())
-
-
-# 16.
-def _month_start(dt):
-    return dt.replace(day=1)
-
-
-# 17.
-def _trend_multi_range(end_dt, period, days, count):
-    if period == "monthly":
-        start_dt = _month_start(end_dt)
-        for _ in range(count - 1):
-            start_dt = (start_dt.replace(day=1) - timedelta(days=1)).replace(day=1)
-        date_expr = "to_char(date_trunc('month', delivery_date)::date, 'YYYY-MM-DD')"
-        group_expr = "date_trunc('month', delivery_date)"
-    elif period == "weekly":
-        end_week_monday = _week_start(end_dt)
-        start_dt = end_week_monday - timedelta(weeks=count - 1)
-        date_expr = "to_char(date_trunc('week', delivery_date)::date, 'YYYY-MM-DD')"
-        group_expr = "date_trunc('week', delivery_date)"
-    else:
-        start_dt = end_dt - timedelta(days=days - 1)
-        date_expr = "to_char(delivery_date, 'YYYY-MM-DD')"
-        group_expr = "delivery_date"
-    return start_dt, date_expr, group_expr
-
-
-# 18.
 def _build_trend_multi_query(full_table, date_expr, group_expr, by_channel):
     channel_select = ", delivery_channel" if by_channel else ""
     channel_group = ", delivery_channel" if by_channel else ""
@@ -653,7 +668,49 @@ def _build_trend_multi_query(full_table, date_expr, group_expr, by_channel):
     """
 
 
-# 19.
+# 16.
+def _trend_multi_execute(
+    fact_id: str,
+    end_date_str: str,
+    period: str,
+    days: int,
+    count: int,
+    by_channel: bool,
+) -> dict:
+    """trend-multi 응답 본문. 팩트 상한은 fact_inclusive_end_date로 summary·hourly와 정합."""
+    query_end_dt = fact_inclusive_end_date(end_date_str, period)
+    start_dt, date_expr, group_expr = trend_multi_window_start(query_end_dt, period, days, count)
+    table_name = db.validate_dashboard_data_table_name(fact_id)
+    schema = db.get_dash_table_schema()
+    full_table = f'"{schema}"."{table_name}"'
+    query = _build_trend_multi_query(full_table, date_expr, group_expr, by_channel)
+    params = (start_dt.isoformat(), query_end_dt.isoformat())
+    conn = db.get_db_connection_dash()
+    cur = conn.cursor()
+    try:
+        cur.execute(query, params)
+        raw_rows = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+    rows = []
+    for r in raw_rows:
+        row = {
+            "date": r["date"],
+            "total_count": r["total_count"],
+            "success_count": r["success_count"],
+            "open_count": r["open_count"],
+            "click_count": r["click_count"],
+        }
+        if by_channel:
+            ch_code = r.get("delivery_channel")
+            row["channel_code"] = ch_code
+            row["channel"] = CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})")
+        rows.append(row)
+    return {"rows": rows, "by_channel": by_channel, "period": period}
+
+
+# 17.
 @router.get("/trend-multi")
 def trend_multi(
     table_id: str = Query(..., description="팩트 테이블 ID"),
@@ -671,39 +728,7 @@ def trend_multi(
             end_date = date.today().isoformat()
         if period not in ("daily", "weekly", "monthly"):
             period = "daily"
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-        table_name = db.validate_dashboard_data_table_name(fact_id)
-        schema = db.get_dash_table_schema()
-        full_table = f'"{schema}"."{table_name}"'
-
-        start_dt, date_expr, group_expr = _trend_multi_range(end_dt, period, days, count)
-        query = _build_trend_multi_query(full_table, date_expr, group_expr, by_channel)
-        params = (start_dt.isoformat(), end_dt.isoformat())
-
-        conn = db.get_db_connection_dash()
-        cur = conn.cursor()
-        try:
-            cur.execute(query, params)
-            raw_rows = cur.fetchall()
-        finally:
-            cur.close()
-            conn.close()
-
-        rows = []
-        for r in raw_rows:
-            row = {
-                "date": r["date"],
-                "total_count": r["total_count"],
-                "success_count": r["success_count"],
-                "open_count": r["open_count"],
-                "click_count": r["click_count"],
-            }
-            if by_channel:
-                ch_code = r.get("delivery_channel")
-                row["channel_code"] = ch_code
-                row["channel"] = CHANNEL_MAPPING.get(ch_code, f"Unknown({ch_code})")
-            rows.append(row)
-        return {"rows": rows, "by_channel": by_channel, "period": period}
+        return _trend_multi_execute(fact_id, end_date, period, days, count, by_channel)
     except HTTPException:
         raise
     except ValueError as e:
@@ -712,7 +737,7 @@ def trend_multi(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-# 20.
+# 18.
 @router.get("/tables")
 def campaign_dashboard_tables(perm: dict = Depends(require_permission("dashboard"))):
     try:

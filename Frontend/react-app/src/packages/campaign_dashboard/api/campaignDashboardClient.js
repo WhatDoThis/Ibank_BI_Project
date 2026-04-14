@@ -3,6 +3,11 @@
  * ======================================================================
  * /api/campaign-dashboard/* — ibank_*_star_1 팩트 테이블.
  *
+ * [Main Functions]
+ * ===========
+ * - getCampaignDashboardPage: SPA 번들(summary·trend_multi·member·hourly)
+ * - getCampaignDashboardSummary 등 개별 엔드포인트(호환·타 화면용)
+ *
  * [Dependencies]
  * =========
  * - shared/api/http (fetchOkJson)
@@ -12,6 +17,24 @@ import { fetchOkJson } from '@/shared/api/http.js'
 
 export async function getCampaignDashboardTables() {
   return fetchOkJson('/api/campaign-dashboard/tables', '캠페인 대시보드 테이블 목록 조회 실패')
+}
+
+export async function getCampaignDashboardPage(
+  tableId,
+  {
+    targetDate = null,
+    period = 'daily',
+    trendDays = 10,
+    trendCount = 10,
+    trendByChannel = true,
+  } = {},
+) {
+  const params = new URLSearchParams({ table_id: tableId, period })
+  if (targetDate) params.set('target_date', targetDate)
+  params.set('trend_days', String(trendDays))
+  params.set('trend_count', String(trendCount))
+  if (trendByChannel) params.set('trend_by_channel', 'true')
+  return fetchOkJson(`/api/campaign-dashboard/page?${params}`, '캠페인 대시보드 페이지 번들 조회 실패')
 }
 
 export async function getCampaignDashboardSummary(tableId, targetDate = null, period = 'daily') {
