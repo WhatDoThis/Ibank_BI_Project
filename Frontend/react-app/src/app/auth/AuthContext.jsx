@@ -1,7 +1,7 @@
 /**
  * app/auth/AuthContext.jsx (인증 컨텍스트)
  * ================================
- * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. project_info_id 변경(null↔값 포함) 시 projectContextNonce 증가.
+ * /api/auth/me 로 프로필 로드·refreshMe(갱신 후 프로필 반환)·logout. /me 응답에 access_token·refresh_token이 있으면(무효 작업 프로젝트 정리 시) setTokens. project_info_id 변경 시 projectContextNonce 증가.
  * notifyParticipatingProjectsChanged: GET /api/projects(헤더 드롭다운 등) 목록 재로드용 nonce.
  * S5/S6·마이페이지(S7) 공용.
  *
@@ -25,7 +25,7 @@ import {
 } from 'react'
 
 import { getMe, postLogout } from '@/shared/api/authClient.js'
-import { clearTokens, getAccessToken } from '@/shared/auth/tokenStorage.js'
+import { clearTokens, getAccessToken, setTokens } from '@/shared/auth/tokenStorage.js'
 
 const AuthContext = createContext(null)
 
@@ -50,15 +50,22 @@ export function AuthProvider({ children }) {
     const prevPid = meRef.current?.project_info_id
     try {
       const data = await getMe()
-      setMe(data)
-      const nextPid = data?.project_info_id
-      if (
-        data &&
-        String(prevPid ?? '') !== String(nextPid ?? '')
-      ) {
+      if (data?.access_token && data?.refresh_token) {
+        setTokens(data.access_token, data.refresh_token)
+      }
+      const {
+        access_token: _at,
+        refresh_token: _rt,
+        expires_in: _ei,
+        token_type: _tt,
+        ...profile
+      } = data || {}
+      setMe(profile)
+      const nextPid = profile?.project_info_id
+      if (profile && String(prevPid ?? '') !== String(nextPid ?? '')) {
         setProjectContextNonce((n) => n + 1)
       }
-      return data
+      return profile
     } catch (e) {
       setMe(null)
       if (e?.status === 401) clearTokens()

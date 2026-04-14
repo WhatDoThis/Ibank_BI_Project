@@ -7,7 +7,7 @@ Backend.admin_server.router (/api/admin)
 ===========
 1. users, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, transfer-ownership, users/{id}/change-options|management(409), users/{id}/suspend|activate|DELETE(비활성만·409)
 2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
-3. projects CRUD·DELETE purge(비활성 물리 삭제), projects/{id}/members(items+pending_invites)·projects/{id}/invites/{nid} DELETE(초대 취소)
+3. projects CRUD·GET purge-preview·DELETE purge(비활성 물리 삭제·위젯보드 연쇄), projects/{id}/members·invites
 4. table master 조회/수정, project table mapping 관리
 5. invite-codes, org, org/departments GET/POST/PATCH/DELETE (SA_DEV 전체·루트/하위 / SA 트리·하위만)
 
@@ -760,13 +760,28 @@ def admin_projects_delete(
     return {"message": "프로젝트가 비활성화되었습니다."}
 
 
+@router.get("/projects/{project_info_id}/purge-preview")
+def admin_projects_purge_preview(
+    project_info_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    """비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 요약."""
+    try:
+        return service_projects.get_inactive_project_purge_preview(
+            conn, int(actor["dptmt_info_id"]), project_info_id
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+
+
 @router.delete("/projects/{project_info_id}/purge")
 def admin_projects_purge(
     project_info_id: int,
     actor: dict = Depends(require_org_admin),
     conn=Depends(get_system_db),
 ):
-    """비활성(active_yn≠Y) 프로젝트만 DB에서 제거. 참여·테이블 매핑·관련 알림·가입 대기 초대 참조를 선행 정리한다."""
+    """비활성(active_yn≠Y) 프로젝트만 DB에서 제거. 위젯보드·참여·테이블 매핑·관련 알림·초대 참조를 선행 정리한다."""
     try:
         service_projects.purge_inactive_project(
             conn, int(actor["dptmt_info_id"]), project_info_id

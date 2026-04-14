@@ -10,8 +10,9 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 3. create_org_and_user: 부서+슈퍼어드민 트랜잭션(validate_password_strength)
 4. login_send_code: 1단계 비번 검증·OTP 저장·pre_auth 발급
 5. verify_login_complete: 2단계·OTP 후 활성·잠금 재확인·세션·토큰
-6. refresh_session_tokens: 슬라이딩 리프레시·비활성·잠금 시 거절
+6. refresh_session_tokens: 슬라이딩 리프레시·비활성·잠금 시 거절(JWT의 project_info_id가 비활성·비참여면 클레임 제거)
 7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급(active_yn=Y·참여자 검증)
+7a. rotate_session_tokens_clear_project: 작업 프로젝트 클레임 제거 후 토큰·session_log 갱신
 8. logout_one_session: 세션 1건 만료
 9. invalidate_all_sessions: 유저 전체 세션 만료(do_commit=False 시 호출부에서 commit)
 10. get_user_profile: 마이페이지용
@@ -416,6 +417,11 @@ def refresh_session_tokens(conn, refresh_token_str: str) -> dict[str, Any]:
     session_log_id = int(payload["session_log_id"])
     raw_proj = payload.get("project_info_id")
     proj_claim = int(raw_proj) if raw_proj is not None else None
+    if proj_claim is not None:
+        if not auth_permissions.is_project_active(conn, proj_claim):
+            proj_claim = None
+        elif not auth_permissions.is_project_participant(conn, user_id, proj_claim):
+            proj_claim = None
     cur = conn.cursor()
     try:
         cur.execute(
@@ -516,6 +522,69 @@ def rotate_session_tokens_with_project(
         refresh_t, refresh_exp = security.create_refresh_token(
             user_id, session_log_id, project_info_id
         )
+        cur.execute(
+            """
+            UPDATE session_log SET
+                access_token_encrypt = %s,
+                refresh_token_encrypt = %s,
+                access_exprtn_dtm = %s,
+                refresh_exprtn_dtm = %s,
+                update_dtm = NOW()
+            WHERE session_log_id = %s
+            """,
+            (
+                security.hash_token(access_t),
+                security.hash_token(refresh_t),
+                access_exp,
+                refresh_exp,
+                session_log_id,
+            ),
+        )
+        conn.commit()
+    except ValueError:
+        db.safe_rollback(conn)
+        raise
+    except Exception:
+        db.safe_rollback(conn)
+        raise
+    finally:
+        cur.close()
+    exp_sec = auth_config.get_jwt_access_expire_minutes() * 60
+    return {
+        "access_token": access_t,
+        "refresh_token": refresh_t,
+        "token_type": "bearer",
+        "expires_in": exp_sec,
+    }
+
+
+# 7a.
+def rotate_session_tokens_clear_project(
+    conn,
+    user_id: int,
+    session_log_id: int,
+) -> dict[str, Any]:
+    """JWT·세션에서 project_info_id 클레임을 제거하고 토큰을 재발급한다(비활성 프로젝트 등)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT session_log_id, session_create_user_id, refresh_exprtn_dtm
+            FROM session_log WHERE session_log_id = %s
+            """,
+            (session_log_id,),
+        )
+        srow = cur.fetchone()
+        if not srow or int(srow["session_create_user_id"]) != user_id:
+            raise ValueError("세션을 찾을 수 없습니다.")
+        rex = srow.get("refresh_exprtn_dtm")
+        if rex is None or rex < datetime.now():
+            raise ValueError("세션이 만료되었습니다. 다시 로그인하세요.")
+        dptmt_id = _fetch_dptmt_id_or_raise_inactive_locked(conn, user_id)
+        access_t, access_exp = security.create_access_token(
+            user_id, dptmt_id, session_log_id, None
+        )
+        refresh_t, refresh_exp = security.create_refresh_token(user_id, session_log_id)
         cur.execute(
             """
             UPDATE session_log SET

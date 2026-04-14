@@ -2,15 +2,15 @@
  * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성 모달·수정·비활성)
  * ==========================================================
  * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
- * 생성 성공 시 notifyParticipatingProjectsChanged(헤더 작업 프로젝트 드롭다운 목록). 비활성화·purge: JWT 동일 프로젝트면 refreshMe.
- * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 페이지 선택 위에 두며 기능 플래그와 무관·채널별 체크·`table_mappings` PATCH/POST.
+ * 생성 성공 시 notifyParticipatingProjectsChanged. 비활성화·purge: 현재 작업 프로젝트면 refreshMe(/me가 토큰에서 project 제거)·notifyParticipatingProjectsChanged 후 홈(/)으로 이동.
+ * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은「프로젝트 페이지 선택」과 연동: 쿼리 스튜디오·위젯보드 끄면 해당 열 비활성·체크 해제·API에는 해당 채널 N(미포함 시 행 제거).
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
  * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
  * ===========
- * - AdminProjectsPage
+ * - AdminProjectsPage — 비활성 프로젝트 삭제 시 purge-preview 모달·위젯보드 연쇄 삭제 안내
  *
  * [Dependencies]
  * =========
@@ -18,10 +18,11 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import {
   deleteAdminProject,
+  getAdminProjectPurgePreview,
   purgeAdminProject,
   getAdminProjects,
   getAdminProjectTables,
@@ -63,6 +64,7 @@ function featureFlagsToUiState(flags) {
 }
 
 export default function AdminProjectsPage() {
+  const navigate = useNavigate()
   const { me, refreshMe, notifyParticipatingProjectsChanged } = useAuth()
   const isOrgAdmin = canAccessOrgAdmin(me)
   const isOperator = (me?.user_dvsn || '').trim().toLowerCase() === 'o'
@@ -71,6 +73,8 @@ export default function AdminProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
+  /** @type {null | { phase: 'loading'|'ready'|'error', projectInfoId: number, preview?: object, error?: string, executing?: boolean }} */
+  const [purgeDialog, setPurgeDialog] = useState(null)
 
   const [cName, setCName] = useState('')
   const [cDesc, setCDesc] = useState('')
@@ -231,11 +235,13 @@ export default function AdminProjectsPage() {
       const id = t.table_master_id
       if (id == null) continue
       const usage = tableUsageById[id] || { qs: false, wb: false }
-      if (usage.qs || usage.wb) {
+      const qsOn = Boolean(usage.qs && enabledPages.queryStudio)
+      const wbOn = Boolean(usage.wb && enabledPages.widgetboard)
+      if (qsOn || wbOn) {
         out.push({
           table_master_id: id,
-          use_query_studio: usage.qs,
-          use_widgetboard: usage.wb,
+          use_query_studio: qsOn,
+          use_widgetboard: wbOn,
         })
       }
     }
@@ -243,6 +249,8 @@ export default function AdminProjectsPage() {
   }
 
   function toggleTableChannel(id, channel) {
+    if (channel === 'qs' && !enabledPages.queryStudio) return
+    if (channel === 'wb' && !enabledPages.widgetboard) return
     setTableUsageById((prev) => {
       const cur = prev[id] || { qs: false, wb: false }
       const next = channel === 'qs' ? { ...cur, qs: !cur.qs } : { ...cur, wb: !cur.wb }
@@ -251,6 +259,8 @@ export default function AdminProjectsPage() {
   }
 
   function selectAllTableChannel(channel, checked) {
+    if (channel === 'qs' && !enabledPages.queryStudio) return
+    if (channel === 'wb' && !enabledPages.widgetboard) return
     setTableUsageById((prev) => {
       const next = { ...prev }
       for (const t of tableMasterList) {
@@ -517,6 +527,8 @@ export default function AdminProjectsPage() {
       const sel = me?.project_info_id
       if (sel != null && Number(sel) === Number(projectInfoId)) {
         await refreshMe()
+        notifyParticipatingProjectsChanged()
+        navigate('/')
       }
       await load()
     } catch (e) {
@@ -544,25 +556,54 @@ export default function AdminProjectsPage() {
     }
   }
 
-  async function handlePurgeProject(projectInfoId) {
-    if (
-      !confirmCrud(
-        '비활성 프로젝트를 DB에서 완전히 삭제할까요? 멤버·테이블 매핑·관련 알림이 함께 제거되며 되돌릴 수 없습니다.',
-      )
-    ) {
-      return
+  async function openPurgeDialog(projectInfoId) {
+    setError('')
+    setPurgeDialog({
+      phase: 'loading',
+      projectInfoId,
+      preview: null,
+      error: '',
+      executing: false,
+    })
+    try {
+      const preview = await getAdminProjectPurgePreview(projectInfoId)
+      setPurgeDialog({
+        phase: 'ready',
+        projectInfoId,
+        preview,
+        error: '',
+        executing: false,
+      })
+    } catch (e) {
+      setPurgeDialog({
+        phase: 'error',
+        projectInfoId,
+        preview: null,
+        error: e?.message || '미리보기를 불러오지 못했습니다.',
+        executing: false,
+      })
     }
+  }
+
+  async function confirmPurgeFromDialog() {
+    if (purgeDialog?.phase !== 'ready' || purgeDialog.executing) return
+    const projectInfoId = purgeDialog.projectInfoId
+    setPurgeDialog((d) => (d ? { ...d, executing: true } : d))
     setBusyId(projectInfoId)
     setError('')
     try {
       await purgeAdminProject(projectInfoId)
+      setPurgeDialog(null)
       const sel = me?.project_info_id
       if (sel != null && Number(sel) === Number(projectInfoId)) {
         await refreshMe()
+        notifyParticipatingProjectsChanged()
+        navigate('/')
       }
       await load()
     } catch (e) {
       setError(e?.message || '삭제 실패')
+      setPurgeDialog(null)
     } finally {
       setBusyId(null)
     }
@@ -665,14 +706,19 @@ export default function AdminProjectsPage() {
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">테이블 매핑</div>
                   <p className="ap__hint ap__hint--tight">
-                    쿼리 스튜디오·위젯보드 사용 여부와 관계없이 매핑을 지정합니다. 아래「프로젝트 페이지 선택」에서 기능을 끄더라도 이 섹션은 그대로 둡니다.
+                    「프로젝트 페이지 선택」에서 쿼리 스튜디오·위젯보드를 끄면 해당 열은 비활성화되고(체크는 꺼진 것처럼 보임), 저장 시 해당 채널은 DB에 적용되지 않습니다. 기능을 다시 켜면 이전에 켜 둔 매핑 선택이 그대로 보입니다.
                   </p>
                   <div className="ap__table-pick-head ap__table-pick-head--dual">
                     <label className="ap__check">
                       <input
                         type="checkbox"
                         onChange={(ev) => selectAllTableChannel('qs', ev.target.checked)}
-                        disabled={formBusy || lockPagesTables || tableMasterList.length === 0}
+                        disabled={
+                          formBusy ||
+                          lockPagesTables ||
+                          tableMasterList.length === 0 ||
+                          !enabledPages.queryStudio
+                        }
                       />
                       쿼리스튜디오 전체
                     </label>
@@ -680,7 +726,12 @@ export default function AdminProjectsPage() {
                       <input
                         type="checkbox"
                         onChange={(ev) => selectAllTableChannel('wb', ev.target.checked)}
-                        disabled={formBusy || lockPagesTables || tableMasterList.length === 0}
+                        disabled={
+                          formBusy ||
+                          lockPagesTables ||
+                          tableMasterList.length === 0 ||
+                          !enabledPages.widgetboard
+                        }
                       />
                       위젯보드 전체
                     </label>
@@ -708,17 +759,21 @@ export default function AdminProjectsPage() {
                               <td>
                                 <input
                                   type="checkbox"
-                                  checked={u.qs}
+                                  checked={Boolean(enabledPages.queryStudio && u.qs)}
                                   onChange={() => toggleTableChannel(id, 'qs')}
-                                  disabled={formBusy || lockPagesTables}
+                                  disabled={
+                                    formBusy || lockPagesTables || !enabledPages.queryStudio
+                                  }
                                 />
                               </td>
                               <td>
                                 <input
                                   type="checkbox"
-                                  checked={u.wb}
+                                  checked={Boolean(enabledPages.widgetboard && u.wb)}
                                   onChange={() => toggleTableChannel(id, 'wb')}
-                                  disabled={formBusy || lockPagesTables}
+                                  disabled={
+                                    formBusy || lockPagesTables || !enabledPages.widgetboard
+                                  }
                                 />
                               </td>
                             </tr>
@@ -953,6 +1008,96 @@ export default function AdminProjectsPage() {
         </div>
       ) : null}
 
+      {purgeDialog ? (
+        <div className="ap__modal-overlay" role="presentation">
+          <div className="ap__modal ap__modal--create" role="dialog" aria-modal="true">
+            <div className="ap__create-head">
+              <h3>프로젝트 DB 완전 삭제</h3>
+              <button
+                type="button"
+                className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                disabled={Boolean(purgeDialog.executing)}
+                onClick={() => setPurgeDialog(null)}
+              >
+                닫기
+              </button>
+            </div>
+            {purgeDialog.phase === 'loading' ? (
+              <p className="ap__hint ap__modal-form">연결 데이터를 불러오는 중…</p>
+            ) : null}
+            {purgeDialog.phase === 'error' ? (
+              <div className="ap__modal-form">
+                <p className="ap__error">{purgeDialog.error}</p>
+                <div className="ap__row ap__modal-actions">
+                  <button type="button" className="ibank-btn-toolbar" onClick={() => setPurgeDialog(null)}>
+                    확인
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {purgeDialog.phase === 'ready' && purgeDialog.preview ? (
+              <div className="ap__modal-form">
+                <p className="ap__hint">
+                  「<strong>{purgeDialog.preview.project_name || '프로젝트'}</strong>」와 아래 데이터가 함께 삭제됩니다. 되돌릴 수
+                  없습니다.
+                </p>
+                <p className="ap__hint">
+                  합계: 위젯 보드 <strong>{purgeDialog.preview.totals?.widget_boards ?? 0}</strong>개 · 위젯(DB 행){' '}
+                  <strong>{purgeDialog.preview.totals?.widget_item_rows ?? 0}</strong>건 · 공유(DB 행){' '}
+                  <strong>{purgeDialog.preview.totals?.widget_board_share_rows ?? 0}</strong>건
+                </p>
+                {Array.isArray(purgeDialog.preview.widget_boards) &&
+                purgeDialog.preview.widget_boards.length > 0 ? (
+                  <div className="ap__table-wrap ap__table-wrap--nested">
+                    <table className="ap__table">
+                      <thead>
+                        <tr>
+                          <th>보드</th>
+                          <th>상태</th>
+                          <th>위젯 행</th>
+                          <th>공유 행</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {purgeDialog.preview.widget_boards.map((b) => (
+                          <tr key={b.widget_board_id}>
+                            <td>{b.board_name || `보드 ${b.widget_board_id}`}</td>
+                            <td>{(b.board_active_yn || '').toUpperCase() === 'Y' ? '활성' : '비활성'}</td>
+                            <td>{b.widget_item_rows ?? 0}</td>
+                            <td>{b.share_rows ?? 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="ap__hint">연결된 위젯 보드가 없습니다.</p>
+                )}
+                <p className="ap__hint">멤버·테이블 매핑·프로젝트 초대 알림도 함께 제거됩니다.</p>
+                <div className="ap__row ap__modal-actions">
+                  <button
+                    type="button"
+                    className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+                    disabled={Boolean(purgeDialog.executing)}
+                    onClick={() => setPurgeDialog(null)}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    className="ibank-btn-toolbar ibank-btn-table--danger"
+                    disabled={Boolean(purgeDialog.executing)}
+                    onClick={() => confirmPurgeFromDialog()}
+                  >
+                    {purgeDialog.executing ? '삭제 중…' : '완전 삭제 실행'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {loading ? (
         <p className="ap__hint">불러오는 중…</p>
       ) : (
@@ -1045,8 +1190,8 @@ export default function AdminProjectsPage() {
                             <button
                               type="button"
                               className="ibank-btn-table ibank-btn-table--danger"
-                              disabled={busyId != null}
-                              onClick={() => handlePurgeProject(pid)}
+                              disabled={busyId != null || purgeDialog != null}
+                              onClick={() => openPurgeDialog(pid)}
                             >
                               삭제
                             </button>

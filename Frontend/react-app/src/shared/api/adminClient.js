@@ -9,7 +9,7 @@
  * - getAdminOrg, patchAdminOrg, getAdminOrgDepartments, postAdminOrgDepartment, patchAdminOrgDepartment, deleteAdminOrgDepartment
  * - getAdminRoles, postAdminRole, putAdminRole, deleteAdminRole
  * - getAdminRolePermissionOptions, getAdminRoleUsages, getAdminRoleProjectParticipants, getAdminRoleUserUsages
- * - getAdminProjects, getAdminProjectTables, postAdminProject, patchAdminProject, deleteAdminProject(비활성화), purgeAdminProject(DB삭제)
+ * - getAdminProjects, getAdminProjectTables, postAdminProject, patchAdminProject, deleteAdminProject(비활성화), getAdminProjectPurgePreview, purgeAdminProject(DB삭제)
  * - getAdminProjectMembers({items,pending_invites}), deleteAdminProjectInvite, postAdminProjectMember, patchAdminProjectMember, deleteAdminProjectMember
  * - getAdminUsersSearch
  * - getAdminInviteDepartments, getAdminInviteProjects, getAdminInviteRoles, postAdminInvite
@@ -228,7 +228,12 @@ export async function deleteAdminProject(projectInfoId) {
   return request('DELETE', `/api/admin/projects/${projectInfoId}`)
 }
 
-/** 비활성 프로젝트만 물리 삭제(참여·매핑·관련 알림·초대 참조 정리) */
+/** 비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 요약 */
+export async function getAdminProjectPurgePreview(projectInfoId) {
+  return request('GET', `/api/admin/projects/${projectInfoId}/purge-preview`)
+}
+
+/** 비활성 프로젝트만 물리 삭제(위젯보드 연쇄·참여·매핑·알림·초대 참조 정리) */
 export async function purgeAdminProject(projectInfoId) {
   return request('DELETE', `/api/admin/projects/${projectInfoId}/purge`)
 }

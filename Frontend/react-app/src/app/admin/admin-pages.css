@@ -171,6 +171,12 @@
   background: #fff;
 }
 
+.ap__table-wrap--nested {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+
 .ap__table {
   width: max-content;
   min-width: 100%;

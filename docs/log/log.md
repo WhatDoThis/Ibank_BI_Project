@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+348. 2026-04-13 프로젝트 모달: 페이지 기능 끄면 테이블 매핑 채널 비활성·저장 시 미적용
+347. 2026-04-13 프로젝트 비활성/삭제 UX·purge 위젯보드 연쇄·위젯 삭제/건수 정합
 346. 2026-04-13 위젯·describe-table: dash 전용 테이블도 스키마 조회·저장 가능
 345. 2026-04-13 list-tables/describe-table mapping_usage(widgetboard)·위젯보드 FE 정합
 344. 2026-04-13 어드민 프로젝트 모달: 테이블 매핑을 페이지 선택 위로·안내 문구
@@ -349,6 +351,29 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+348. 2026-04-13 프로젝트 모달: 페이지 기능 끄면 테이블 매핑 채널 비활성·저장 시 미적용
+Purpose: 쿼리 스튜디오·위젯보드 페이지를 끈 뒤에도 테이블 매핑 체크가 그대로여서 DB에 채널 Y로 남을 수 있었다. 기능이 꺼지면 해당 열·전체 선택 비활성, `table_mappings`는 `기능 ON && 체크`로만 전송한다.
+
+Changes:
+
+- `AdminProjectsPage.jsx`: `buildTableMappingsPayload`·체크 표시·힌트·`toggleTableChannel`/`selectAllTableChannel` 가드
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+347. 2026-04-13 프로젝트 비활성/삭제 UX·purge 위젯보드 연쇄·위젯 삭제/건수 정합
+Purpose: (1) 비활성/삭제한 프로젝트가 JWT에 남아 헤더 드롭다운이 빈 값처럼 보이던 문제 — `/me`·refresh 시 무효 `project_info_id` 제거 토큰 재발급, 어드민에서 현재 프로젝트면 홈 이동·참여 목록 nonce. (2) purge 시 `widget_board` FK 충돌 — 보드별 알림 정리 후 widget_item·share·board 삭제, 삭제 전 `GET purge-preview`·모달. (3) 위젯 단건 삭제가 soft-only라 완전 삭제 확인 건수와 불일치 — 목록 `widget_item_count`는 활성 행만, 삭제 API는 `DELETE`.
+
+Changes:
+
+- `auth_server/service.py`: `refresh_session_tokens`에서 비활성·비참여 프로젝트 클레임 제거, `rotate_session_tokens_clear_project`
+- `auth_server/router.py`: `GET /me` 무효 프로젝트 시 토큰 재발급·응답 `project_info_id` null
+- `AuthContext.jsx`: `/me` 응답 토큰 있으면 `setTokens`, `me`에는 프로필만
+- `AdminProjectsPage.jsx`·`adminClient.js`·`admin-pages.css`: purge 미리보기 모달, 홈 리다이렉트
+- `admin_server/service_projects.py`·`router.py`: `get_inactive_project_purge_preview`, purge 위젯보드 연쇄
+- `widget_board_server/service.py`: `list_boards` 위젯 수 `active_yn=Y`, `delete_widget` 물리 삭제
+
+Changed files: Backend/auth_server/service.py, router.py, Backend/admin_server/service_projects.py, router.py, Backend/widget_board_server/service.py, Frontend/react-app/src/app/auth/AuthContext.jsx, app/admin/AdminProjectsPage.jsx, app/admin/admin-pages.css, shared/api/adminClient.js, docs/log/log.md
 
 346. 2026-04-13 위젯·describe-table: dash 전용 테이블도 스키마 조회·저장 가능
 Purpose: `validate_table_name`이 메인 DB만 확인해 dash 매핑 테이블에서 `describe-table` 400·위젯 저장 실패가 났다. 식별자 패턴 검증 후 매핑으로 결정한 연결에서 `_table_exists`로 확인하도록 통일한다.

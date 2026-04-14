@@ -11,7 +11,7 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True)` 로 
 2. create_board
 3. get_board_detail — 보드 + 위젯 + can_edit(소유자·초대(widget_board_share) 편집)
 4. patch_board / delete_board (비활성 보드만 물리 삭제: 위젯·공유·관련 알림 후 widget_board)
-5. add_widget(create_user_id 저장) / patch_widget / delete_widget
+5. add_widget(create_user_id 저장) / patch_widget / delete_widget(행 물리 DELETE — soft 남김 없음)
 6. patch_layout
 7. upsert_share / delete_share(제외 시 create_user_id 소유자 이관)
 8. list_board_participants / list_invite_candidates / send_invite_notifications(알림 초대)
@@ -314,6 +314,7 @@ def list_boards(conn, user_id: int, project_id: int) -> list[dict]:
                     SELECT COUNT(*)::int
                     FROM widget_item wi
                     WHERE wi.widget_board_id = wb.widget_board_id
+                      AND UPPER(TRIM(COALESCE(wi.active_yn, 'Y'))) = 'Y'
                 ) AS widget_item_count,
                 (
                     SELECT COUNT(*)::int
@@ -686,7 +687,7 @@ def delete_widget(conn, user_id: int, project_id: int, board_id: int, widget_id:
     try:
         cur.execute(
             """
-            UPDATE widget_item SET active_yn = 'N', update_dtm = NOW()
+            DELETE FROM widget_item
             WHERE widget_item_id = %s AND widget_board_id = %s
             """,
             (widget_id, board_id),

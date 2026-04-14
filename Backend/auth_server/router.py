@@ -6,7 +6,7 @@ Backend.auth_server.router (/api/auth)
 [Endpoints]
 ===========
 1. POST /api/auth/signup, create-org, login, verify-login, refresh, logout
-2. GET/PATCH /api/auth/me(permissions·etl_yn·SA/A 자동 권한 병합), PATCH password, GET login-history
+2. GET/PATCH /api/auth/me — JWT의 project_info_id가 비활성·탈퇴 시 토큰 재발급·project_info_id null·permissions 빈 배열
 3. GET /api/auth/invite/validate
 
 [Dependencies]
@@ -135,18 +135,38 @@ def auth_me(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     perm_ids: list[str] = []
-    raw_pid = payload.get("project_info_id")
-    if raw_pid is not None:
+    effective_pid = payload.get("project_info_id")
+    extra_tokens: dict | None = None
+    if effective_pid is not None:
+        try:
+            pid = int(effective_pid)
+        except (TypeError, ValueError):
+            effective_pid = None
+        else:
+            sid_raw = payload.get("session_log_id")
+            must_clear = not permissions.is_project_active(
+                conn, pid
+            ) or not permissions.is_project_participant(conn, uid, pid)
+            if must_clear and sid_raw is not None:
+                extra_tokens = service.rotate_session_tokens_clear_project(
+                    conn, uid, int(sid_raw)
+                )
+                effective_pid = None
+            elif must_clear:
+                effective_pid = None
+            else:
+                effective_pid = pid
+    if effective_pid is not None:
         try:
             perm_ids = permissions.get_effective_permission_ids_for_me(
                 conn,
                 uid,
-                int(raw_pid),
+                int(effective_pid),
                 prof.get("user_dvsn"),
             )
         except Exception:
             perm_ids = []
-    return {
+    out = {
         "user_id": prof["user_id"],
         "email": prof["user_email"],
         "nickname": prof.get("user_nickname"),
@@ -154,9 +174,15 @@ def auth_me(
         "etl_yn": prof.get("etl_yn") or "N",
         "dptmt_info_id": prof.get("dptmt_info_id"),
         "dptmt_name": prof.get("dptmt_name"),
-        "project_info_id": payload.get("project_info_id"),
+        "project_info_id": effective_pid,
         "permissions": perm_ids,
     }
+    if extra_tokens:
+        out["access_token"] = extra_tokens["access_token"]
+        out["refresh_token"] = extra_tokens["refresh_token"]
+        out["expires_in"] = extra_tokens["expires_in"]
+        out["token_type"] = extra_tokens["token_type"]
+    return out
 
 
 @router.patch("/me")

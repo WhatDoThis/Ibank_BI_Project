@@ -7,7 +7,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 ===========
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
-3. update_project / deactivate_project / purge_inactive_project(비활성만·참여·매핑·알림·초대 참조 정리 후 DELETE)
+3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE)
 4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member / update_member_role
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
@@ -35,6 +35,7 @@ from Backend.core.invite_expiry import invite_expired_from_payload
 from Backend.notification_server.service import (
     delete_notification_by_id_in_txn,
     delete_project_invite_notifications_for_project_in_txn,
+    delete_widget_board_notifications_for_board_in_txn,
     fetch_notification_by_id,
     fetch_pending_project_invite_rows_for_project,
     insert_notification,
@@ -638,11 +639,65 @@ def _purge_run_optional_sql(cur, sql: str, params: tuple[Any, ...]) -> None:
         cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_project_opt")
 
 
+def get_inactive_project_purge_preview(
+    conn, dptmt_info_id: int, project_info_id: int
+) -> dict[str, Any]:
+    """비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 요약( purge_inactive_project 와 동일 소유·상태 검증)."""
+    cur = conn.cursor()
+    pid = int(project_info_id)
+    did = int(dptmt_info_id)
+    try:
+        cur.execute(
+            """
+            SELECT project_info_id, dptmt_info_id, project_name,
+                   UPPER(TRIM(COALESCE(active_yn, 'Y'))) AS ay
+            FROM project_info WHERE project_info_id = %s
+            """,
+            (pid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("프로젝트를 찾을 수 없습니다.")
+        if int(row["dptmt_info_id"]) != did:
+            raise ValueError("다른 부서의 프로젝트입니다.")
+        if (row.get("ay") or "") == "Y":
+            raise ValueError("활성 프로젝트는 미리보기할 수 없습니다. 먼저 비활성화하세요.")
+        cur.execute(
+            """
+            SELECT wb.widget_board_id, wb.board_name,
+                   UPPER(TRIM(COALESCE(wb.active_yn, 'Y'))) AS board_active_yn,
+                   (SELECT COUNT(*)::int FROM widget_item wi
+                    WHERE wi.widget_board_id = wb.widget_board_id) AS widget_item_rows,
+                   (SELECT COUNT(*)::int FROM widget_board_share sh
+                    WHERE sh.widget_board_id = wb.widget_board_id) AS share_rows
+            FROM widget_board wb
+            WHERE wb.project_info_id = %s
+            ORDER BY wb.widget_board_id
+            """,
+            (pid,),
+        )
+        boards = [dict(r) for r in cur.fetchall()]
+        tw = sum(int(b.get("widget_item_rows") or 0) for b in boards)
+        ts = sum(int(b.get("share_rows") or 0) for b in boards)
+        return {
+            "project_info_id": pid,
+            "project_name": row.get("project_name"),
+            "widget_boards": boards,
+            "totals": {
+                "widget_boards": len(boards),
+                "widget_item_rows": tw,
+                "widget_board_share_rows": ts,
+            },
+        }
+    finally:
+        cur.close()
+
+
 def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
     """`active_yn`이 Y가 아닌 프로젝트만 물리 삭제. 단일 트랜잭션에서 선행 정리 후 `project_info` DELETE.
 
-    순서: project_invite 알림 → user_info·email_invite 초대 프로젝트 쌍 NULL → table_project_mapping →
-    project_ptcpnt_info → project_info
+    순서: project_invite 알림 → user_info·email_invite 초대 프로젝트 쌍 NULL → 위젯보드(알림·위젯·공유·보드) →
+    table_project_mapping → project_ptcpnt_info → project_info
     """
     cur = conn.cursor()
     pid = int(project_info_id)
@@ -693,6 +748,35 @@ def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> No
             """,
             (pid,),
         )
+
+        cur.execute(
+            "SELECT widget_board_id FROM widget_board WHERE project_info_id = %s ORDER BY widget_board_id",
+            (pid,),
+        )
+        for wb_row in cur.fetchall():
+            bid = int(wb_row["widget_board_id"])
+            try:
+                cur.execute("SAVEPOINT sp_admin_purge_wb_notif")
+                delete_widget_board_notifications_for_board_in_txn(conn, bid)
+                cur.execute("RELEASE SAVEPOINT sp_admin_purge_wb_notif")
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_wb_notif")
+
+        cur.execute(
+            """
+            DELETE FROM widget_item wi USING widget_board wb
+            WHERE wi.widget_board_id = wb.widget_board_id AND wb.project_info_id = %s
+            """,
+            (pid,),
+        )
+        cur.execute(
+            """
+            DELETE FROM widget_board_share sh USING widget_board wb
+            WHERE sh.widget_board_id = wb.widget_board_id AND wb.project_info_id = %s
+            """,
+            (pid,),
+        )
+        cur.execute("DELETE FROM widget_board WHERE project_info_id = %s", (pid,))
 
         cur.execute(
             "DELETE FROM table_project_mapping WHERE project_info_id = %s",
