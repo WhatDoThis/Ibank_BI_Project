@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+402. 2026-04-15 docs/main/07: 위젯보드 캔버스 절 추가·§11.2~11.5·부록 보강(313행 이후만)
+401. 2026-04-15 admin-pages: ap__label--inline-select 라벨 줄바꿈 방지(nowrap)
+400. 2026-04-15 admin-pages: create 섹션 셀렉트(sm)+툴바 버튼 정렬·높이·셀렉트 폭(ap__create-section-tools)
 399. 2026-04-15 프로젝트 멤버: 본인 재참여(모달·API)·멤버 추가 목록에서 본인 제외 제거
 398. 2026-04-15 권한 사용현황「권한」드릴다운: 사용자별 목록 API에 ptcpnt_user_id 포함(저장 버튼)
 397. 2026-04-15 홈: 프로젝트 카드 버튼(`home__project-btn`) 상하 패딩 확대
@@ -402,6 +405,34 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+402. 2026-04-15 docs/main/07: 위젯보드 캔버스 절 추가·§11.2~11.5·부록 보강(313행 이후만)
+Purpose: 사용자 기능 설명서에 목록 이후 캔버스 동작을 넣고, 권한·프로젝트·멤버·부서 관리 설명을 앞선 절 톤에 맞춰 확장.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: `### 위젯 보드 캔버스` 신설(상단·팔레트·격자·위젯 조작·기간·데이터), 11.2~11.5 항목 보강, 부록 FAQ 2행
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+401. 2026-04-15 admin-pages: ap__label--inline-select 라벨 줄바꿈 방지(nowrap)
+Purpose: `프로젝트 권한` 등 라벨 문구가 좁은 폭에서 한 글자씩 줄바꿈됨.
+
+Changes:
+
+- `.ap__create-section-tools .ap__label--inline-select`: `white-space: nowrap`, `flex-wrap: nowrap`
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+400. 2026-04-15 admin-pages: create 섹션 셀렉트(sm)+툴바 버튼 정렬·높이·셀렉트 폭(ap__create-section-tools)
+Purpose: `ap__create-section`에서 `ap__row`(align flex-end)로 셀렉트와 `ibank-btn-toolbar` 베이스라인이 어긋남·셀렉트 폭이 좁음.
+
+Changes:
+
+- `admin-pages.css`: `.ap__create-section-tools`, `.ap__label--inline-select`, 섹션 내 `.ap__select--sm`(min-width 260px·min-height 38px·패딩·1px 테두리·radius)·동행 툴바 min-height
+- `AdminProjectMembersPage.jsx`: 본인 참여 추가 행에 위 클래스 적용(인라인 스타일 제거)
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, docs/log/log.md
 
 399. 2026-04-15 프로젝트 멤버: 본인 재참여(모달·API)·멤버 추가 목록에서 본인 제외 제거
 Purpose: 조직관리자(a)가 멤버에서 본인을 제거한 뒤「멤버 추가」에서 부서 트리·타부서 검색에 본인이 나오지 않고, API가 본인 추가를 거절함.

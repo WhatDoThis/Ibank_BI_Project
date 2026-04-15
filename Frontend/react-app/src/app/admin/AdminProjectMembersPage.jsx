@@ -12,7 +12,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), app/auth/AuthContext.jsx
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), app/auth/AuthContext.jsx, admin-pages.css(ap__create-section-tools)
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -505,15 +505,9 @@ export default function AdminProjectMembersPage() {
                     <p className="ap__hint" style={{ marginTop: 0 }}>
                       멤버 목록에서 본인을 제외한 경우, 부서 트리에서 선택하거나 여기서 권한을 고른 뒤 바로 추가할 수 있습니다.
                     </p>
-                    <div
-                      className="ap__row"
-                      style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}
-                    >
-                      <label
-                        className="ap__label"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, margin: 0 }}
-                      >
-                        프로젝트 권한
+                    <div className="ap__create-section-tools">
+                      <label className="ap__label ap__label--inline-select">
+                        권한
                         <select
                           className="ap__select ap__select--sm"
                           value={selfAddRoleId}

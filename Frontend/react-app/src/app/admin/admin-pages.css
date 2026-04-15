@@ -4,6 +4,7 @@
  * ap__table: 반응형 clamp 폰트·nowrap·ap__cell-clip(말줄임); td.ap__mono는 줄바꿈 예외
  * ap__table--projects: 프로젝트 목록(프로젝트명·설명 열 말줄임 폭)
  * ap__member-add-block / ap__member-add-inline: 멤버 추가 인풋·검색 한 줄. ap__select--table-in-cell: 권한 셀렉트
+ * ap__create-section-tools: create 섹션 내 ap__select--sm + ibank-btn-toolbar 한 줄(높이·베이스라인·셀렉트 폭)
  * ap__table .ap__select: 테이블 본문과 동일 clamp 폰트(inherit), ap__modal--usage max-width 800px
  * ap__modal--usage: flex 세로·max-width 800px·min-height, ap__usage-wrap·테이블 width 100%로 본문이 모달 폭 채움
  * ap__th-actions: 작업 열 min-width 250px. ap__usage-table·ap__cell-actions--usage-nav: 사용현황 이동 버튼 한 줄
@@ -522,6 +523,43 @@
 .ap__create-section-title {
   font-weight: 600;
   margin-bottom: 8px;
+}
+
+/* create 섹션: 작은 셀렉트 + 툴바 버튼 — ap__row(flex-end) 대신 중앙 정렬·동일 시각 높이 */
+.ap__create-section-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.ap__create-section-tools .ap__label--inline-select {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ap__create-section-tools .ap__select.ap__select--sm {
+  min-width: 260px;
+  width: min(100%, 340px);
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  min-height: 38px;
+  box-sizing: border-box;
+  border-width: 1px;
+  border-radius: var(--radius-btn-lg);
+}
+
+.ap__create-section-tools .ibank-btn-toolbar {
+  min-height: 38px;
+  box-sizing: border-box;
 }
 
 .ap__create-check-row {
