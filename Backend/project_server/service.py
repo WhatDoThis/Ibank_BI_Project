@@ -7,7 +7,7 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
 ===========
 1. list_projects_for_user: 참여 프로젝트 목록
 2. select_project_tokens: 세션 유지하며 JWT에 project_info_id 반영
-3. accept_project_invite: `_parse_project_invite_payload` 검증 후 멤버 등록·알림 처리
+3. accept_project_invite: `_parse_project_invite_payload` 검증 후 멤버 등록·초대 알림 DELETE(잔존 시 제거 후 초대중 오표시 방지)·알림 처리
 4. reject_project_invite: 동일 검증 후 알림 삭제·초대자 알림
 
 [Dependencies]
@@ -15,8 +15,7 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
 - Backend.auth_server.service (rotate_session_tokens_with_project)
 - Backend.admin_server.service_projects._assert_pmssn_for_project
 - Backend.notification_server.service (insert_notification, fetch_notification_by_id,
-  mark_notification_read_in_txn, delete_notification_by_id_in_txn,
-  notify_inviter_project_invite_resolved)
+  delete_notification_by_id_in_txn, notify_inviter_project_invite_resolved)
 - Backend.core.invite_expiry.invite_expired_from_payload
 """
 
@@ -32,7 +31,6 @@ from Backend.notification_server.service import (
     delete_notification_by_id_in_txn,
     fetch_notification_by_id,
     insert_notification,
-    mark_notification_read_in_txn,
     notify_inviter_project_invite_resolved,
 )
 
@@ -165,18 +163,19 @@ def accept_project_invite(
             """,
             (user_id, inv_uid, pid, mid),
         )
-        mark_notification_read_in_txn(
-            conn, int(user_id), int(notification_info_id)
-        )
+        nid = int(notification_info_id)
         notify_inviter_project_invite_resolved(
             conn,
             inv_uid,
             pid,
             user_id,
-            int(notification_info_id),
+            nid,
             True,
             autocommit=False,
         )
+        if delete_notification_by_id_in_txn(conn, nid) == 0:
+            conn.rollback()
+            raise ValueError("초대 알림을 삭제하지 못했습니다.")
         pname_join = (prow.get("project_name") if prow else None) or ""
         pn_display = (str(pname_join).strip() or "프로젝트")[:80]
         title_self = (f"'{pn_display}' 프로젝트 참여가 완료되었습니다")[:200]

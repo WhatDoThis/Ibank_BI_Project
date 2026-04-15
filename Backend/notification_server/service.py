@@ -11,7 +11,7 @@ Backend.notification_server.service (알림 CRUD)
 1. list_notifications / count_unread
 2. mark_read_one / mark_read_all(API용 commit 포함)
 3. fetch_notification_by_id / mark_notification_read_in_txn / delete_notification_by_id_in_txn
-4. delete_notifications_for_user_in_txn / delete_project_invite_notifications_for_project_in_txn
+4. delete_notifications_for_user_in_txn / delete_project_invite_notifications_for_project_in_txn / delete_project_invite_notifications_for_user_project_in_txn
 5. fetch_pending_project_invite_rows_for_project / pending_project_invite_exists_for_user_project
 6. user_has_pending_widget_board_invite / delete_widget_board_notifications_for_board_in_txn
 7. user_display_label_for_notification — 알림 제목용 닉네임·이메일 라벨(COALESCE)
@@ -194,6 +194,28 @@ def delete_project_invite_notifications_for_project_in_txn(
         cur.close()
 
 
+def delete_project_invite_notifications_for_user_project_in_txn(
+    conn, project_info_id: int, invitee_user_id: int
+) -> int:
+    """특정 사용자·프로젝트에 남은 project_invite 알림 삭제(멤버 제거 시 잔존 초대행 정리)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            DELETE FROM notification_info
+            WHERE noti_type = 'project_invite'
+              AND user_id = %s
+              AND COALESCE(noti_content::text, '') <> ''
+              AND NULLIF(TRIM(noti_content::json->>'project_info_id'), '') IS NOT NULL
+              AND (noti_content::json->>'project_info_id')::int = %s
+            """,
+            (int(invitee_user_id), int(project_info_id)),
+        )
+        return int(cur.rowcount)
+    finally:
+        cur.close()
+
+
 def fetch_pending_project_invite_rows_for_project(
     conn, project_info_id: int
 ) -> list[dict[str, Any]]:
@@ -206,13 +228,16 @@ def fetch_pending_project_invite_rows_for_project(
             FROM notification_info n
             INNER JOIN user_info u ON u.user_id = n.user_id
             WHERE n.noti_type = 'project_invite'
+              AND COALESCE(n.noti_content::text, '') <> ''
+              AND NULLIF(TRIM(noti_content::json->>'project_info_id'), '') IS NOT NULL
+              AND (noti_content::json->>'project_info_id')::int = %s
               AND NOT EXISTS (
                 SELECT 1 FROM project_ptcpnt_info pp
                 WHERE pp.project_info_id = %s AND pp.ptcpnt_user_id = n.user_id
               )
             ORDER BY n.create_dtm
             """,
-            (int(project_info_id),),
+            (int(project_info_id), int(project_info_id)),
         )
         return [dict(r) for r in cur.fetchall()]
     finally:

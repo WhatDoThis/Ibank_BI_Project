@@ -8,7 +8,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시; 매핑은 main table_master만)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE)
-4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member / update_member_role
+4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member(잔존 project_invite 정리) / update_member_role
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
@@ -35,6 +35,7 @@ from Backend.core.invite_expiry import invite_expired_from_payload
 from Backend.notification_server.service import (
     delete_notification_by_id_in_txn,
     delete_project_invite_notifications_for_project_in_txn,
+    delete_project_invite_notifications_for_user_project_in_txn,
     delete_widget_board_notifications_for_board_in_txn,
     fetch_notification_by_id,
     fetch_pending_project_invite_rows_for_project,
@@ -1315,6 +1316,9 @@ def remove_member(
         if cur.rowcount == 0:
             conn.rollback()
             raise ValueError("멤버를 찾을 수 없습니다.")
+        delete_project_invite_notifications_for_user_project_in_txn(
+            conn, int(project_info_id), int(ptcpnt_user_id)
+        )
         _notify_project_member_removed_pair(
             conn,
             cur,

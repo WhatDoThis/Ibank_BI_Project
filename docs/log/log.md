@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+373. 2026-04-14 프로젝트 멤버 제거 후 초대중 오표시: 수락 시 초대 알림 삭제·제거 시 정리·pending 조회 SQL
 372. 2026-04-14 이관 대상 선택 모달: 폭 800px·emph 안내 줄바꿈·문구 정리
 371. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 높이 41vh로 재조정(이전 축소 완화)
 370. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 세로 높이 축소(모달 본문 스크롤 완화)
@@ -375,6 +376,17 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+373. 2026-04-14 프로젝트 멤버 제거 후 초대중 오표시: 수락 시 초대 알림 삭제·제거 시 정리·pending 조회 SQL
+Purpose: 초대 수락 시 `project_invite` 행을 읽음만 하고 남겨 두면, 멤버 DELETE 후 `fetch_pending`의 NOT EXISTS 조건으로 동일 알림이 다시 노출됨. 수락 시 거절과 같이 알림 DELETE, 멤버 제거 시 해당 사용자·프로젝트 초대 행 추가 삭제, pending SQL에 `noti_content.project_info_id` 일치 조건.
+
+Changes:
+
+- `notification_server/service.py`: `delete_project_invite_notifications_for_user_project_in_txn`, `fetch_pending_project_invite_rows_for_project` WHERE 보강
+- `project_server/service.py`: `accept_project_invite`에서 `delete_notification_by_id_in_txn`로 대체
+- `admin_server/service_projects.py`: `remove_member`에서 초대 알림 정리 호출
+
+Changed files: Backend/notification_server/service.py, Backend/project_server/service.py, Backend/admin_server/service_projects.py, docs/log/log.md
 
 372. 2026-04-14 이관 대상 선택 모달: 폭 800px·emph 안내 줄바꿈·문구 정리
 Purpose: 이관 모달 가로 확대, bulk 안내에서 「수신 후보 목록은…」부터 블록 줄바꿈, 일반 안내·기본 조건 문장 표현 다듬기.
