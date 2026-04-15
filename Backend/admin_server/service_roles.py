@@ -10,7 +10,7 @@ pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 �
 2. list_permission_options_for_dept
 3. list_role_usages(user_department_display)
 4. list_role_project_participants(user_department_display)
-5. list_user_role_usages(user_department_display)
+5. list_user_role_usages(user_department_display·ptcpnt_user_id 반환)
 6. create_custom_role
 7. update_custom_role
 8. delete_custom_role
@@ -240,6 +240,7 @@ def list_user_role_usages(conn, dptmt_info_id: int, user_id: int) -> list[dict[s
             SELECT
                 p.project_info_id,
                 p.project_name,
+                pp.ptcpnt_user_id,
                 pm.pmssn_master_id,
                 pm.pmssn_name,
                 u.dptmt_info_id AS user_dptmt_info_id,

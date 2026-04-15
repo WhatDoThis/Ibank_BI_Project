@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+398. 2026-04-15 권한 사용현황「권한」드릴다운: 사용자별 목록 API에 ptcpnt_user_id 포함(저장 버튼)
+397. 2026-04-15 홈: 프로젝트 카드 버튼(`home__project-btn`) 상하 패딩 확대
 396. 2026-04-15 홈: 빠른 액세스 제목 하단 구분선 제거(quick-access)
 395. 2026-04-15 홈: 빠른 액세스 제목 크기·목록 상단 구분(패딩·border)
 394. 2026-04-15 홈: 프로젝트 목록 2열·카드 제목·역할·설명 말줄임(home.css)
@@ -399,6 +401,21 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+398. 2026-04-15 권한 사용현황「권한」드릴다운: 사용자별 목록 API에 ptcpnt_user_id 포함(저장 버튼)
+Purpose: `GET /api/admin/roles/users/{user_id}/usages`가 `ptcpnt_user_id`를 내려주지 않아 `AdminRolesPage`의 `handleSaveParticipantRole`가 조용히 return — 사용현황 모달에서「권한」→ 수정→저장(`ibank-btn-table--primary`)이 동작하지 않음.
+
+Changes:
+
+- `list_user_role_usages` SELECT에 `pp.ptcpnt_user_id` 추가
+- `UserRoleUsageRow` 스키마에 동일 필드 반영
+
+Changed files: Backend/admin_server/service_roles.py, Backend/admin_server/schemas.py, docs/log/log.md
+
+397. 2026-04-15 홈: 프로젝트 카드 버튼(`home__project-btn`) 상하 패딩 확대
+Purpose: `이 프로젝트로 작업` 버튼 세로 터치·시각 여유 — `padding` 상하 8px→11px.
+
+Changed files: Frontend/react-app/src/app/home/home.css, docs/log/log.md
 
 396. 2026-04-15 홈: 빠른 액세스 제목 하단 구분선 제거(quick-access)
 Purpose: `.home__section-title` 공통 `border-bottom`이「빠른 액세스」제목 아래 줄로 보여 `home__section-title--quick-access`에서 제거.

@@ -160,6 +160,7 @@ class RoleUsageListResponse(BaseModel):
 class UserRoleUsageRow(BaseModel):
     project_info_id: int
     project_name: str
+    ptcpnt_user_id: int
     pmssn_master_id: int
     pmssn_name: str
 
