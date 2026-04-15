@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황 드릴다운. 생성자 열은 이메일 셀 패턴(본인만 배지).
+ * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황 드릴다운(사용자 부서 열). 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
  * ===========
@@ -87,6 +87,7 @@ function normalizeUsageRows(data) {
     project_name: row?.project_name || '-',
     ptcpnt_user_id: row?.ptcpnt_user_id,
     user_name: row?.user_name || row?.user_nickname || row?.user_email || '-',
+    user_department_display: row?.user_department_display ?? '—',
     pmssn_master_id: row?.pmssn_master_id,
     pmssn_name: row?.pmssn_name || '-',
   }))
@@ -731,6 +732,7 @@ export default function AdminRolesPage() {
                     <tr>
                       <th>프로젝트명</th>
                       <th>사용자명</th>
+                      <th>사용자 부서</th>
                       <th className="ap__th-actions">작업</th>
                     </tr>
                   </thead>
@@ -766,6 +768,7 @@ export default function AdminRolesPage() {
                               row.user_name
                             )}
                           </td>
+                          <td className="ap__td-muted">{row.user_department_display || '—'}</td>
                           <td>
                             {usageView === 'usage' ? (
                               '-'
@@ -831,7 +834,7 @@ export default function AdminRolesPage() {
                     })}
                     {usageRows.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="ap__hint">
+                        <td colSpan={4} className="ap__hint">
                           데이터가 없습니다.
                         </td>
                       </tr>

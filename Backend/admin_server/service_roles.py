@@ -8,9 +8,9 @@ pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 �
 ===========
 1. list_roles_for_dept(생성자 FK user_info JOIN·creator_email·집계 MAX)
 2. list_permission_options_for_dept
-3. list_role_usages
-4. list_role_project_participants
-5. list_user_role_usages
+3. list_role_usages(user_department_display)
+4. list_role_project_participants(user_department_display)
+5. list_user_role_usages(user_department_display)
 6. create_custom_role
 7. update_custom_role
 8. delete_custom_role
@@ -23,6 +23,31 @@ pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 �
 from __future__ import annotations
 
 from typing import Any
+
+
+def _user_department_display_from_join(
+    dptmt_id: Any,
+    dptmt_name: Any,
+    parent_dptmt_id: Any,
+    parent_dptmt_name: Any,
+) -> str:
+    """dptmt_info 기준: 최상위 부서는 이름(-), 하위는 상위(자기)."""
+    if dptmt_id is None:
+        return "—"
+    dname = str(dptmt_name or "").strip() or "—"
+    if parent_dptmt_id is None:
+        return f"{dname}(-)"
+    pname = str(parent_dptmt_name or "").strip() or "—"
+    return f"{pname}({dname})"
+
+
+def _attach_user_department_display(row: dict[str, Any]) -> None:
+    row["user_department_display"] = _user_department_display_from_join(
+        row.pop("user_dptmt_info_id", None),
+        row.pop("user_dptmt_name", None),
+        row.pop("user_parent_dptmt_info_id", None),
+        row.pop("user_parent_dptmt_name", None),
+    )
 
 
 # 1.
@@ -121,12 +146,18 @@ def list_role_usages(conn, dptmt_info_id: int, pmssn_master_id: int) -> list[dic
                 p.project_name,
                 pp.ptcpnt_user_id,
                 u.user_nickname,
-                u.user_email
+                u.user_email,
+                u.dptmt_info_id AS user_dptmt_info_id,
+                ud.dptmt_name AS user_dptmt_name,
+                ud.parent_dptmt_info_id AS user_parent_dptmt_info_id,
+                upd.dptmt_name AS user_parent_dptmt_name
             FROM project_ptcpnt_info pp
             JOIN project_info p
               ON p.project_info_id = pp.project_info_id
             JOIN user_info u
               ON u.user_id = pp.ptcpnt_user_id
+            LEFT JOIN dptmt_info ud ON ud.dptmt_info_id = u.dptmt_info_id
+            LEFT JOIN dptmt_info upd ON upd.dptmt_info_id = ud.parent_dptmt_info_id
             WHERE pp.pmssn_master_id = %s
               AND p.dptmt_info_id = %s
             ORDER BY
@@ -136,7 +167,10 @@ def list_role_usages(conn, dptmt_info_id: int, pmssn_master_id: int) -> list[dic
             """,
             (pmssn_master_id, dptmt_info_id),
         )
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+        for d in rows:
+            _attach_user_department_display(d)
+        return rows
     finally:
         cur.close()
 
@@ -169,12 +203,18 @@ def list_role_project_participants(
                 p.project_name,
                 pp.ptcpnt_user_id,
                 u.user_nickname,
-                u.user_email
+                u.user_email,
+                u.dptmt_info_id AS user_dptmt_info_id,
+                ud.dptmt_name AS user_dptmt_name,
+                ud.parent_dptmt_info_id AS user_parent_dptmt_info_id,
+                upd.dptmt_name AS user_parent_dptmt_name
             FROM project_ptcpnt_info pp
             JOIN project_info p
               ON p.project_info_id = pp.project_info_id
             JOIN user_info u
               ON u.user_id = pp.ptcpnt_user_id
+            LEFT JOIN dptmt_info ud ON ud.dptmt_info_id = u.dptmt_info_id
+            LEFT JOIN dptmt_info upd ON upd.dptmt_info_id = ud.parent_dptmt_info_id
             WHERE pp.pmssn_master_id = %s
               AND pp.project_info_id = %s
             ORDER BY
@@ -183,7 +223,10 @@ def list_role_project_participants(
             """,
             (pmssn_master_id, project_info_id),
         )
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+        for d in rows:
+            _attach_user_department_display(d)
+        return rows
     finally:
         cur.close()
 
@@ -198,12 +241,19 @@ def list_user_role_usages(conn, dptmt_info_id: int, user_id: int) -> list[dict[s
                 p.project_info_id,
                 p.project_name,
                 pm.pmssn_master_id,
-                pm.pmssn_name
+                pm.pmssn_name,
+                u.dptmt_info_id AS user_dptmt_info_id,
+                ud.dptmt_name AS user_dptmt_name,
+                ud.parent_dptmt_info_id AS user_parent_dptmt_info_id,
+                upd.dptmt_name AS user_parent_dptmt_name
             FROM project_ptcpnt_info pp
             JOIN project_info p
               ON p.project_info_id = pp.project_info_id
             JOIN pmssn_master pm
               ON pm.pmssn_master_id = pp.pmssn_master_id
+            JOIN user_info u ON u.user_id = pp.ptcpnt_user_id
+            LEFT JOIN dptmt_info ud ON ud.dptmt_info_id = u.dptmt_info_id
+            LEFT JOIN dptmt_info upd ON upd.dptmt_info_id = ud.parent_dptmt_info_id
             WHERE pp.ptcpnt_user_id = %s
               AND p.dptmt_info_id = %s
               AND (
@@ -217,7 +267,10 @@ def list_user_role_usages(conn, dptmt_info_id: int, user_id: int) -> list[dict[s
             """,
             (user_id, dptmt_info_id, dptmt_info_id),
         )
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+        for d in rows:
+            _attach_user_department_display(d)
+        return rows
     finally:
         cur.close()
 

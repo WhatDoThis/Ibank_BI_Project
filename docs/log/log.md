@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+374. 2026-04-14 권한 사용목록·프로젝트 멤버 목록: 사용자 부서(user_department_display) 열·API
 373. 2026-04-14 프로젝트 멤버 제거 후 초대중 오표시: 수락 시 초대 알림 삭제·제거 시 정리·pending 조회 SQL
 372. 2026-04-14 이관 대상 선택 모달: 폭 800px·emph 안내 줄바꿈·문구 정리
 371. 2026-04-14 사용자 변경 모달: 프로젝트 참여 패널 높이 41vh로 재조정(이전 축소 완화)
@@ -376,6 +377,18 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+374. 2026-04-14 권한 사용목록·프로젝트 멤버 목록: 사용자 부서(user_department_display) 열·API
+Purpose: 역할 사용현황 모달·프로젝트 멤버 테이블에 소속 부서 표기(최상위 `이름(-)`, 하위 `상위(자기)`). `service_roles` usages·`list_members`·pending 초대 조회에 JOIN·필드 추가.
+
+Changes:
+
+- `service_roles.py`: `_user_department_display_from_join`·`_attach_user_department_display`, list_role_usages 등 SELECT 보강
+- `service_projects.py`: list_members·pending에 `user_department_display`
+- `notification_server/service.py`: fetch_pending SELECT에 dptmt JOIN
+- `AdminRolesPage.jsx`·`AdminProjectMembersPage.jsx`: 테이블 열
+
+Changed files: Backend/admin_server/service_roles.py, service_projects.py, notification_server/service.py, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, AdminProjectMembersPage.jsx, docs/log/log.md
 
 373. 2026-04-14 프로젝트 멤버 제거 후 초대중 오표시: 수락 시 초대 알림 삭제·제거 시 정리·pending 조회 SQL
 Purpose: 초대 수락 시 `project_invite` 행을 읽음만 하고 남겨 두면, 멤버 DELETE 후 `fetch_pending`의 NOT EXISTS 조건으로 동일 알림이 다시 노출됨. 수락 시 거절과 같이 알림 DELETE, 멤버 제거 시 해당 사용자·프로젝트 초대 행 추가 삭제, pending SQL에 `noti_content.project_info_id` 일치 조건.

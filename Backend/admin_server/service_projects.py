@@ -8,7 +8,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시; 매핑은 main table_master만)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE)
-4. list_members(소속 부서 또는 타부서 참여 o) · cancel_project_invite / add_member / remove_member(잔존 project_invite 정리) / update_member_role
+4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member / remove_member(잔존 project_invite 정리) / update_member_role
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
@@ -31,6 +31,10 @@ import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json
 
+from Backend.admin_server.service_roles import (
+    _attach_user_department_display,
+    _user_department_display_from_join,
+)
 from Backend.core.invite_expiry import invite_expired_from_payload
 from Backend.notification_server.service import (
     delete_notification_by_id_in_txn,
@@ -903,12 +907,19 @@ def _list_pending_project_invites(
         if iuid is not None and iuid > 0:
             ie, ink = _inviter_labels(iuid)
         exp_raw = payload.get("invite_expires_at")
+        udd = _user_department_display_from_join(
+            row.get("user_dptmt_info_id"),
+            row.get("user_dptmt_name"),
+            row.get("user_parent_dptmt_info_id"),
+            row.get("user_parent_dptmt_name"),
+        )
         out.append(
             {
                 "notification_info_id": int(row["notification_info_id"]),
                 "ptcpnt_user_id": int(row["user_id"]),
                 "user_email": row.get("user_email"),
                 "user_nickname": row.get("user_nickname"),
+                "user_department_display": udd,
                 "pmssn_master_id": mid,
                 "role_name": role_name,
                 "create_dtm": row.get("create_dtm"),
@@ -943,11 +954,17 @@ def list_members(
                    p.pmssn_master_id, m.pmssn_name AS role_name, p.create_dtm,
                    p.invite_user_id,
                    iu.user_email AS invite_user_email,
-                   iu.user_nickname AS invite_user_nickname
+                   iu.user_nickname AS invite_user_nickname,
+                   u.dptmt_info_id AS user_dptmt_info_id,
+                   ud.dptmt_name AS user_dptmt_name,
+                   ud.parent_dptmt_info_id AS user_parent_dptmt_info_id,
+                   upd.dptmt_name AS user_parent_dptmt_name
             FROM project_ptcpnt_info p
             JOIN user_info u ON u.user_id = p.ptcpnt_user_id
             JOIN pmssn_master m ON m.pmssn_master_id = p.pmssn_master_id
             LEFT JOIN user_info iu ON iu.user_id = p.invite_user_id
+            LEFT JOIN dptmt_info ud ON ud.dptmt_info_id = u.dptmt_info_id
+            LEFT JOIN dptmt_info upd ON upd.dptmt_info_id = ud.parent_dptmt_info_id
             WHERE p.project_info_id = %s
             ORDER BY u.user_email
             """,
@@ -956,6 +973,7 @@ def list_members(
         items = [dict(r) for r in cur.fetchall()]
         for d in items:
             d["membership_status"] = "active"
+            _attach_user_department_display(d)
         pending = _list_pending_project_invites(conn, cur, pid)
         return {"items": items, "pending_invites": pending}
     except ValueError:

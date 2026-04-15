@@ -224,9 +224,15 @@ def fetch_pending_project_invite_rows_for_project(
         cur.execute(
             """
             SELECT n.notification_info_id, n.user_id, n.create_dtm, n.noti_content,
-                   u.user_email, u.user_nickname
+                   u.user_email, u.user_nickname,
+                   u.dptmt_info_id AS user_dptmt_info_id,
+                   d.dptmt_name AS user_dptmt_name,
+                   d.parent_dptmt_info_id AS user_parent_dptmt_info_id,
+                   pd.dptmt_name AS user_parent_dptmt_name
             FROM notification_info n
             INNER JOIN user_info u ON u.user_id = n.user_id
+            LEFT JOIN dptmt_info d ON d.dptmt_info_id = u.dptmt_info_id
+            LEFT JOIN dptmt_info pd ON pd.dptmt_info_id = d.parent_dptmt_info_id
             WHERE n.noti_type = 'project_invite'
               AND COALESCE(n.noti_content::text, '') <> ''
               AND NULLIF(TRIM(noti_content::json->>'project_info_id'), '') IS NOT NULL

@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminProjectMembersPage.jsx (프로젝트 멤버)
  * =============================================
- * GET members: items(참여) + pending_invites(미수락 타부서 알림). POST/PATCH/DELETE members.
+ * GET members: items(참여) + pending_invites(미수락 타부서 알림), user_department_display. POST/PATCH/DELETE members.
  * 상단「멤버 추가」: 프로젝트 생성 모달과 같은 ap__modal--create-wide·부서 내 테이블 + 타부서 검색 초대.
  * API: 부서 트리 소속은 즉시 추가(outcome member_added), 타부서는 project_invite 알림(outcome invite_sent).
  * pending 행: 초대중·초대 취소. 활성 행: 권한 편집·제거.
@@ -684,6 +684,7 @@ export default function AdminProjectMembersPage() {
               <tr>
                 <th>이메일</th>
                 <th>닉네임</th>
+                <th>사용자 부서</th>
                 <th>상태</th>
                 <th>초대자</th>
                 <th>일시</th>
@@ -700,6 +701,7 @@ export default function AdminProjectMembersPage() {
                   <tr key={`pend-${nid}`} className="ap__tr--pending-invite">
                     <td>{m.user_email || '—'}</td>
                     <td>{m.user_nickname || '—'}</td>
+                    <td className="ap__td-muted">{m.user_department_display ?? '—'}</td>
                     <td>
                       <span className="ap__status-badge ap__status-badge--pending">
                         초대중
@@ -749,6 +751,7 @@ export default function AdminProjectMembersPage() {
                   <tr key={String(m.project_ptcpnt_info_id || `${uid}-${m.pmssn_master_id}`)}>
                     <td>{m.user_email}</td>
                     <td>{m.user_nickname || '—'}</td>
+                    <td className="ap__td-muted">{m.user_department_display ?? '—'}</td>
                     <td>
                       <span className="ap__status-badge ap__status-badge--active">
                         참여
