@@ -10,8 +10,9 @@ Backend.admin_server.service_users (유저·초대·부서)
 1b. list_users_for_admin_ui(sa_dev 전역·부서명/정렬·ETL 목록용)
 1c. list_users_dept_tree_for_project_create(프로젝트 생성 모달·본인 제외·부서 트리·정렬)
 2. search_users_by_email (operator 시 동일 부서만; 전역 검색 시 exclude_dptmt_zero 로 개발부서 0번 제외)
-3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, UndefinedColumn 시 DDL 안내)
+3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, 초대 메일에 부서·역할·프로젝트 권한 명시, UndefinedColumn 시 DDL 안내)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
+3c. _invite_org_role_label_ko / _fetch_invite_email_labels (초대 메일 본문용 부서·프로젝트·권한 템플릿명)
 4. suspend_user(세션 무효) / activate_user / delete_inactive_user(비활성만·소유 가드·연관 행 정리 후 user_info DELETE)
 5. set_user_dvsn_admin_user (a/sa/sa_dev·a·o·u 부여)
 6. set_user_etl_flag (sa·sa_dev·etl_yn, N 시 ETL 등록 건 검사)
@@ -67,6 +68,14 @@ _INVITE_TARGETS_BY_ACTOR: dict[str, tuple[str, ...]] = {
     "sa_dev": ("sa", "a", "o", "u"),
     "sa": ("sa", "a", "o", "u"),
     "a": ("a", "o", "u"),
+}
+
+# 초대 메일 본문용 invite_target_dvsn 한글 표기
+_INVITE_DVSN_LABEL_KO: dict[str, str] = {
+    "sa": "슈퍼관리자 (SA)",
+    "a": "관리자 (A)",
+    "o": "오퍼레이터 (O)",
+    "u": "일반 사용자 (U)",
 }
 
 # 프로젝트·부서 커스텀 역할 생성자 이관 허용 수신자(05 문서: 프로젝트/역할 생성 가능 역할)
@@ -1088,6 +1097,55 @@ def _validate_invite_target_for_actor(actor_dvsn: str, invite_target_dvsn: str) 
     return td
 
 
+def _invite_org_role_label_ko(dvsn: str) -> str:
+    key = (dvsn or "").strip().lower()
+    return _INVITE_DVSN_LABEL_KO.get(key) or key or "—"
+
+
+def _fetch_invite_email_labels(
+    conn,
+    dptmt_id: int,
+    proj_id: int | None,
+    pmssn_id: int | None,
+) -> tuple[str, str | None, str | None]:
+    """초대 메일용: 부서 표시명, 프로젝트명(있을 때), 권한 템플릿명(있을 때)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(COALESCE(dptmt_name, '')), ''), '부서') AS dn
+            FROM dptmt_info WHERE dptmt_info_id = %s
+            """,
+            (int(dptmt_id),),
+        )
+        row = cur.fetchone()
+        dept_name = (row or {}).get("dn") or "부서"
+        proj_name: str | None = None
+        pmssn_name: str | None = None
+        if proj_id is not None and pmssn_id is not None:
+            cur.execute(
+                """
+                SELECT COALESCE(NULLIF(TRIM(COALESCE(project_name, '')), ''), '(이름 없음)') AS pn
+                FROM project_info WHERE project_info_id = %s
+                """,
+                (int(proj_id),),
+            )
+            pr = cur.fetchone()
+            proj_name = (pr or {}).get("pn")
+            cur.execute(
+                """
+                SELECT COALESCE(NULLIF(TRIM(COALESCE(pmssn_name, '')), ''), '(역할명 없음)') AS mn
+                FROM pmssn_master WHERE pmssn_master_id = %s
+                """,
+                (int(pmssn_id),),
+            )
+            mr = cur.fetchone()
+            pmssn_name = (mr or {}).get("mn")
+        return str(dept_name), proj_name, pmssn_name
+    finally:
+        cur.close()
+
+
 # 3.
 def invite_user_by_email(
     conn,
@@ -1198,8 +1256,17 @@ def invite_user_by_email(
         )
     else:
         url = f"{base.rstrip('/')}/signup?code={code}"
+        dept_label, proj_label, pmssn_label = _fetch_invite_email_labels(conn, dptmt_id, proj_id, pmssn_id)
         try:
-            email_service.send_invite_email(email_n, url)
+            email_service.send_invite_email(
+                email_n,
+                url,
+                department_name=dept_label,
+                org_role_ko=_invite_org_role_label_ko(target_role),
+                include_etl_y=(etl_store == "Y"),
+                project_name=proj_label,
+                project_permission_name=pmssn_label,
+            )
         except Exception:
             pass
 

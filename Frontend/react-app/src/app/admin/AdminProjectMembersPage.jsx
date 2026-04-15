@@ -12,7 +12,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, app/auth/AuthContext.jsx
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), app/auth/AuthContext.jsx
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -30,6 +30,7 @@ import {
   postAdminProjectMember,
 } from '@/shared/api/adminClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
+import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 
 import './admin-pages.css'
@@ -498,7 +499,7 @@ export default function AdminProjectMembersPage() {
                             >
                               <td className="ap__mono">{r.user_email || '—'}</td>
                               <td>{r.user_nickname || '—'}</td>
-                              <td>{(r.user_dvsn || '').toUpperCase()}</td>
+                              <td>{formatUserDvsnDisplay(r.user_dvsn)}</td>
                               <td>
                                 <select
                                   className="ap__select ap__select--sm"

@@ -8,7 +8,7 @@
 
 **DB 적용 현황**: `ibank_system_data`(public)에 본 장의 10개 테이블·FK·시드·보조 인덱스가 **이미 반영된 상태**다. ETL 메타 테이블과 동일 DB에 공존하며, 테이블·시퀀스 소유자는 앱 계정(`ibankbi`)으로 맞춰 두었다. **전체 DDL 스크립트는 본 문서에 수록하지 않는다**(저장소·운영 DB가 단일 기준).
 
-**DB·권한 한눈에 보기**: **`docs/main/04_DB_ARCHITECTURE.md`**, **`05_Permission_ARCHITECTURE.md`**, **`06_CUSTOMER_JOURNEY.md`** — 부서 트리, 전사 공통 `table_master`/ETL, 6단계 역할·고객 여정.
+**DB·권한 한눈에 보기**: **`docs/main/04_DB_ARCHITECTURE.md`**, **`05_Permission_ARCHITECTURE.md`**, **`06_CUSTOMER_JOURNEY.md`** — 부서 트리, 전사 공통 `table_master`/ETL, `user_dvsn` 5코드·고객 여정.
 
 ---
 
@@ -54,7 +54,7 @@
 | | user_email | varchar(200) NOT NULL UNIQUE | 이메일 (로그인 계정) |
 | | pswd_hash | varchar(255) | 비밀번호 해시 (bcrypt) |
 | | user_active_yn | varchar(1) | 활성화 여부 |
-| | user_dvsn | varchar(30) | 조직 역할 5단계 (`sa_dev` / `super_admin` / `admin` / `operator` / `user`) |
+| | user_dvsn | varchar(30) | 조직 역할 5코드: `sa_dev`(개발SA)·`sa`(슈퍼어드민)·`a`(어드민)·`o`(오퍼레이터)·`u`(일반) |
 | | etl_yn | varchar(1) | ETL 관리자 자격 `Y`/`N` (기본 `N`, `user_dvsn`과 독립) |
 | | auth_yn | varchar(1) | 인증 여부 |
 | | scnd_auth_token | varchar(500) | 2차 인증 코드 해시 (로그인 2차 인증) |
@@ -74,7 +74,7 @@
 | | create_dtm | timestamp | 생성일시 |
 | | update_dtm | timestamp | 수정일시 |
 
-**역할·자격 (요약)**: `user_dvsn` 5단계(`sa_dev`·`super_admin`·`admin`·`operator`·`user`). ETL 관리자 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_Permission_ARCHITECTURE.md` (v3)**.
+**역할·자격 (요약)**: `user_dvsn` 5코드(`sa_dev`·`sa`·`a`·`o`·`u`). ETL 관리자 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_Permission_ARCHITECTURE.md`**.
 
 **`scnd_auth_token` / `scnd_auth_expire_dtm`**: 로그인 2차 인증. 로그인 시 6자리 코드 생성 → 해싱하여 저장 → 이메일 발송 → 유저 입력 → 검증 통과 시 토큰 발급. 인증 완료 후 컬럼은 NULL로 초기화.
 
@@ -374,8 +374,8 @@ pmssn_master.pmssn_list(TEXT[]) ↔ pmssn_master_detail.pmssn_detail_name
 
 본 절의 구(舊) 3단계 표는 사용하지 않는다.
 
-- 역할 체계는 **SA_DEV / SA / E / A / O / U (6단계)** 를 따른다.
-- 상세 권한은 **`docs/main/05_Permission_ARCHITECTURE.md` §2~§9** 를 단일 기준으로 한다.
+- 역할 체계는 **`user_dvsn` 5코드(SA_DEV·SA·A·O·U)** 를 따른다.
+- 상세 권한은 **`docs/main/05_Permission_ARCHITECTURE.md`** 를 단일 기준으로 한다.
 
 ---
 
@@ -395,7 +395,7 @@ pmssn_master.pmssn_list(TEXT[]) ↔ pmssn_master_detail.pmssn_detail_name
 **`create-org` DB 트랜잭션 (순환 FK 해소)** — 반드시 아래 순서로 **한 트랜잭션**에서 수행한다. 순서를 바꾸면 FK 위반이다.
 
 1. `dptmt_info` INSERT — `dptmt_create_user_id = NULL`(DDL상 NULL 허용).
-2. `user_info` INSERT — `dptmt_info_id` = 방금 생성한 부서 PK, `user_dvsn = super_admin`, `user_active_yn = Y` 등.
+2. `user_info` INSERT — `dptmt_info_id` = 방금 생성한 부서 PK, `user_dvsn = 'sa'`(슈퍼어드민·최초 조직 소유), `user_active_yn = Y` 등.
 3. `dptmt_info` UPDATE — 동일 행의 `dptmt_create_user_id` = 방금 생성한 `user_id`.
 4. `COMMIT`.
 
@@ -486,8 +486,8 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 
 1. JWT → `user_id` + `project_info_id`.
 2. `project_ptcpnt_info` → `pmssn_master_id`.
-3. `pmssn_master` → `pmssn_list` (TEXT[]).
-4. 요청 API에 필요한 권한이 배열에 포함하는지 → 통과/거부.
+3. `pmssn_master` → `pmssn_list` (TEXT[]) → 권한 ID 정규화.
+4. `project_info.active_yn`·`feature_flags`와 교집합 후, 요청에 선언된 권한이 모두 포함되는지 판정(`permissions.py` — **`docs/main/05`**).
 
 ### 4.2.1 프로젝트 미선택 상태 (`project_info_id` 없음)
 
@@ -503,7 +503,7 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 | query.execute | `/query-studio` | POST `execute-query`, `query-stats`, `explain-sql`, `save-query-as-table` |
 | dashboard | `/dashboard` (프론트), `/campaign-dashboard` → `/dashboard` 리다이렉트 | `/api/campaign-dashboard/*` 만 등록 (legacy·뉴·마케팅 대시보드 라우터는 main 미포함) |
 | widgetboard | `/widgetboard` | 전용 API 없음 (내부에서 쿼리 스튜디오·대시보드 API 호출 시 해당 권한도 필요) |
-| etl | `/etl` | 프로젝트 `pmssn` 기반이 아님. `require_etl_infrastructure`(`sa_dev` 또는 `etl_yn=Y`)로 `/api/etl/*`, `/api/etl/batch/*` 보호 |
+| etl | `/etl` | 프로젝트 `pmssn`과 무관. `require_etl_infrastructure` — `sa_dev`·`etl_yn=Y`·DB 원문 `etl_manager`(레거시) |
 | admin | `/admin/*` | `/api/admin/*` |
 
 ### 4.4 확장
@@ -520,7 +520,7 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 |------|------|------|
 | 로그인 | `/login` | 이메일+비밀번호 → `pre_auth_token` 수신 → 2차 인증코드 입력(§2.2) |
 | 회원가입 | `/signup?code={초대코드}` | 초대 URL 진입, 이메일 고정, 비밀번호·이름 입력 |
-| 부서 만들기 | `/create-org` | 초대 없이 직접 부서 생성 + 가입 |
+| 부서 만들기(SPA) | _(미제공)_ | 웹 공개 화면은 두지 않음. 최초 조직·계정은 DB 시드 등으로 준비하고, 필요 시 운영에서 `POST /api/auth/create-org`(§2.1)만 호출 |
 | 권한 없음 | `/unauthorized` | 접근 불가 안내 |
 
 ### 5.2 메인 페이지 (`/`)
@@ -535,8 +535,8 @@ project_ptcpnt_info (프로젝트 안에서 유저에게 역할 부여)
 | 대시보드 / 뉴 / 캠페인 / 마케팅 | dashboard |
 | 위젯보드 | widgetboard |
 | ETL 관리자 | `sa_dev` 또는 `etl_yn=Y` — 프로젝트 `pmssn`과 무관 |
-| 유저 관리 | `user_dvsn` = admin 이상 (`sa_dev` 포함) |
-| 부서 관리 | `user_dvsn` = super_admin 또는 `sa_dev` |
+| 유저 관리 | `require_org_admin` — `user_dvsn`이 `sa_dev`·`sa`·`a` |
+| 부서 관리 | `/admin/org` 본설정·하위 부서 CRUD: `require_super_admin` — `sa_dev`·`sa`. `GET /org/departments` 트리는 동일 역할만 실데이터, 그 외는 빈 `items` |
 
 `etl_yn=Y` 이어도 프로젝트 참여가 0건일 수 있다. 이 경우 상단 "내 프로젝트"는 빈 상태로 표시하고, 하단 "ETL 관리자" 카드(홈 ETL 진입)를 기본 진입점으로 사용할 수 있다.
 
@@ -669,7 +669,7 @@ Backend/
 
 ```
 packages/
-├── auth/                     # Login, Signup, CreateOrg, Unauthorized, authClient, useAuth
+├── auth/                     # Login, Signup, Unauthorized, authClient, useAuth
 ├── main/                     # MainPage, ProjectCards, QuickAccessGrid
 ├── mypage/
 ├── admin/
@@ -784,7 +784,7 @@ shared/components/
 |--------|------|
 | **ETL API 진입** | `Backend.auth_server.permissions.require_etl_infrastructure` — **`sa_dev` 또는 `etl_yn=Y`**. **프로젝트 선택·`pmssn` 불필요**. |
 | **ETL 메타 데이터** | **부서 스코프 없음**(전사 단일 풀). 목록·생성·수정 시 클라이언트가 보낸 `dptmt_info_id` 를 쓰지 않는다. |
-| **쿼리 스튜디오·대시보드** | `require_permission` — v3 매트릭스: `etl_manager` 역할 차단 없음. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 `query.read` 등 자동 허용(**`docs/main/05`**). |
+| **쿼리 스튜디오·대시보드** | `require_permission`: JWT `project_info_id` + `project_ptcpnt_info`→`pmssn_master.pmssn_list` 정규화 ∩ `project_info.feature_flags`. 조직 역할(`user_dvsn`)은 권한을 **늘리지 않음**(**`docs/main/05`**). |
 | **리포트 테이블 목록** | `project_info_id`(JWT) + **`table_project_mapping`·`table_master`** — 프로젝트 미선택 시 §4.2.1과 동일 403. |
 
 **우선순위·실행 순서 (코드)**:
@@ -875,7 +875,7 @@ shared/components/
 
 - **ETL API**: `Backend.auth_server.permissions.require_etl_infrastructure` — `sa_dev` 또는 `etl_yn=Y`. JWT에 `project_info_id` **불필요**.
 - **스키마**: `etl_connections`, `etl_tables`, `etl_storage_connections`, `batch_folder_connections`, **`table_master`** 에서 **`dptmt_info_id` 제거**(과거 §13.1 DDL을 적용했다면 §13.1에서 DROP).
-- **리포트·대시보드**: `require_permission`. `sa_dev`·`super_admin`·`admin` 은 참여 프로젝트에서 프로젝트 기능 ID 자동 허용(**§10.4**, **05 v3**).
+- **리포트·대시보드**: `require_permission` — 멤버십·역할(`pmssn_list`)·프로젝트 기능 플래그 교집합만 유효(**§10.4**, **`docs/main/05`**).
 
 #### 13.0.1 운영 물리명·초기화 시 유의 (2026-03 반영)
 

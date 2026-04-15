@@ -1,6 +1,6 @@
 /**
  * project-header-select.css — 헤더 작업 프로젝트 커스텀 드롭다운(ProtectedLayout)
- * 트리거·옵션 패널·스크롤바: 브랜드 그린 톤(design-tokens)
+ * 트리거·옵션 패널·스크롤바: 브랜드 그린 톤(design-tokens). `.phs__combo` min-width 200px.
  */
 
 .phs {
@@ -54,7 +54,7 @@
 
 .phs__combo {
   position: relative;
-  min-width: 140px;
+  min-width: 200px;
   max-width: min(260px, 30vw);
 }
 

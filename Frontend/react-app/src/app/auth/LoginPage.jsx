@@ -1,7 +1,7 @@
 /**
  * app/auth/LoginPage.jsx (이메일·비밀번호·2차 인증코드 로그인)
  * ===================================================
- * POST /api/auth/login → verify-login. 하단 링크·플래시(signup·create-org·비밀번호 변경 후 재로그인). 성공 시 refreshMe 후 `/` 이동.
+ * POST /api/auth/login → verify-login. 하단 링크(가입)·플래시(가입 완료·비밀번호 변경 후 재로그인 등). 성공 시 refreshMe 후 `/` 이동.
  *
  * [Main Functions]
  * ===========
@@ -30,8 +30,6 @@ export default function LoginPage() {
     flash = '비밀번호가 변경되어 모든 세션이 종료되었습니다. 다시 로그인해 주세요.'
   } else if (st?.signupOk) {
     flash = '가입이 완료되었습니다. 로그인해 주세요.'
-  } else if (st?.createOrgOk) {
-    flash = '부서와 계정이 생성되었습니다. 로그인해 주세요.'
   }
   const [step, setStep] = useState('email')
   const [email, setEmail] = useState('')
@@ -151,8 +149,6 @@ export default function LoginPage() {
         )}
         <p className="login-page__links">
           <Link to="/signup">초대 코드로 가입</Link>
-          {' · '}
-          <Link to="/create-org">부서 새로 만들기</Link>
         </p>
       </div>
     </div>

@@ -17,7 +17,6 @@ import CampaignDashboardPage from '@/packages/campaign_dashboard'
 
 import LoginPage from '@/app/auth/LoginPage.jsx'
 import SignupPage from '@/app/auth/SignupPage.jsx'
-import CreateOrgPage from '@/app/auth/CreateOrgPage.jsx'
 import HomePage from '@/app/home/HomePage.jsx'
 import MyPage from '@/app/mypage/MyPage.jsx'
 import AdminUsersPage from '@/app/admin/AdminUsersPage.jsx'
@@ -38,7 +37,6 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
-      <Route path="/create-org" element={<CreateOrgPage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/mypage" element={<MyPage />} />

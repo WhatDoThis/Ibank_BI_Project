@@ -1,7 +1,7 @@
 /**
  * app/home/HomePage.jsx (프로젝트 선택 + §5.2 빠른 액세스)
  * =================================================
- * GET /api/projects, select. 빠른 액세스: homeAccess·etlAccess·adminAccess(역할·프로젝트·운영자).
+ * GET /api/projects, select. 빠른 액세스: homeAccess·etlAccess·adminAccess(역할·프로젝트·운영자). 작업 프로젝트 전환은 헤더 드롭다운과 동일 API(`postSelectProject`)를 쓰므로 홈의「이전에 선택…」버튼은 제거됨. 프로젝트 목록: `home__list` 2열(880px 미만 1열)·카드 내부 3열 그리드·제목·역할 pill·설명 말줄임(2줄)·좁은 화면 버튼 전폭. `빠른 액세스` h2는 `home__section-title--quick-access`(제목 크기·목록과 구분선).
  *
  * [Main Functions]
  * ===========
@@ -71,11 +71,6 @@ export default function HomePage() {
     }
   }
 
-  async function handleContinueApp() {
-    const prof = await refreshMe()
-    navigate(pickDefaultProjectPath(prof || me), { replace: true })
-  }
-
   const hasProject = hasProjectClaim(getAccessToken())
   const showQuery = hasProject && canAccessQueryStudio(me)
   const showDash = hasProject && canAccessDashboard(me)
@@ -91,14 +86,6 @@ export default function HomePage() {
     <div className="home">
       <PageHeader description="작업할 프로젝트를 선택하세요. 선택 후 리포트·대시보드 등에서 해당 프로젝트 권한이 적용됩니다." />
 
-      {hasProject ? (
-        <div className="home__continue">
-          <button type="button" onClick={() => handleContinueApp()}>
-            이전에 선택한 프로젝트로 계속
-          </button>
-        </div>
-      ) : null}
-
       {error ? <p className="home__error">{error}</p> : null}
 
       {items.length === 0 ? (
@@ -107,35 +94,48 @@ export default function HomePage() {
         <ul className="home__list">
           {items.map((row) => (
             <li key={row.project_info_id} className="home__project">
-              <div>
-                <strong>{row.project_name}</strong>
+              <div className="home__project-icon" aria-hidden="true" title="프로젝트">
+                <svg viewBox="0 0 24 24" width="22" height="22" focusable="false">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                  />
+                </svg>
+              </div>
+              <div className="home__project-body">
+                <strong className="home__project-name">{row.project_name}</strong>
                 {row.role_name ? (
-                  <span style={{ marginLeft: 8, color: '#666', fontSize: '0.9rem' }}>
-                    ({row.role_name})
-                  </span>
-                ) : null}
-                {row.project_dscrtn ? (
-                  <div style={{ fontSize: '0.875rem', color: '#555', marginTop: 6 }}>
-                    {row.project_dscrtn}
+                  <div className="home__project-role">
+                    <span className="home__project-role-label">부여된 권한</span>
+                    <span className="home__project-role-value">{row.role_name}</span>
                   </div>
                 ) : null}
+                {row.project_dscrtn ? (
+                  <p className="home__project-desc">{row.project_dscrtn}</p>
+                ) : null}
               </div>
-              <button
-                type="button"
-                className="home__project-btn"
-                disabled={busyId != null}
-                onClick={() => handleOpen(row.project_info_id)}
-              >
-                {busyId === row.project_info_id ? '선택 중…' : '이 프로젝트로 작업'}
-              </button>
+              <div className="home__project-actions">
+                <button
+                  type="button"
+                  className="home__project-btn"
+                  disabled={busyId != null}
+                  onClick={() => handleOpen(row.project_info_id)}
+                >
+                  {busyId === row.project_info_id ? '선택 중…' : '이 프로젝트로 작업'}
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       )}
 
-      <h2 className="home__section-title">빠른 액세스</h2>
+      <h2 className="home__section-title home__section-title--quick-access">빠른 액세스</h2>
       <p className="home__note">
-        프로젝트 기능은 JWT에 프로젝트가 선택된 뒤, 부여된 권한에 따라 표시됩니다.
+        프로젝트 작업 목록은 프로젝트가 선택된 뒤, 부여된 권한에 따라 표시됩니다.
       </p>
 
       <h3 className="home__section-title" style={{ fontSize: '0.95rem', marginTop: 8 }}>

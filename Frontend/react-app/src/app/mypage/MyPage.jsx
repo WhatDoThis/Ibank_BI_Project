@@ -10,7 +10,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/auth/AuthContext, shared/api/authClient, shared/auth/tokenStorage, shared/utils/crudConfirm
+ * - react-router-dom, app/auth/AuthContext, shared/api/authClient, shared/auth/tokenStorage, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay)
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -23,6 +23,7 @@ import {
 } from '@/shared/api/authClient.js'
 import { clearTokens } from '@/shared/auth/tokenStorage.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
+import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './mypage.css'
@@ -145,7 +146,7 @@ export default function MyPage() {
         </div>
         <div className="mypage__row">
           <strong>역할</strong>
-          <span>{me.user_dvsn || '—'}</span>
+          <span>{formatUserDvsnDisplay(me.user_dvsn)}</span>
         </div>
         <form onSubmit={handleProfileSubmit}>
           <label className="mypage__label">

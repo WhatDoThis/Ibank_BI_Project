@@ -1,218 +1,215 @@
+# 권한·역할 아키텍처 (현행 코드 기준)
 
-# 권한·역할 아키텍처 (최종 v3)
+**용도**: 조직 역할·ETL 자격·프로젝트 권한 템플릿을 **이 문서만**으로 파악 가능하게 정리한다.
 
-**용도**: 조직 역할(`user_info.user_dvsn`)·ETL 관리자 자격(`user_info.etl_yn`)·프로젝트 역할(`pmssn_master`)을 한 문서에서 정의한다. 세부 고객 여정은 **`06_CUSTOMER_JOURNEY.md`**, DB는 **`04_DB_ARCHITECTURE.md`**, 구현 가이드는 **`docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`** 를 본다.
+**참고 문서** (배경·스키마): `06_CUSTOMER_JOURNEY.md` · `04_DB_ARCHITECTURE.md`
 
 ---
 
-## 프로젝트 API `require_permission` 검증 흐름 (한눈에)
+## 0. 한눈에 — 저장 구조·JWT·API 스코프
 
-구현 기준: `Backend/auth_server/deps.py` — `require_active_access`(JWT·`session_log` 바인딩·활성·미잠금), `Backend/auth_server/permissions.py` — `require_permission`.
+### 0.1 DB에서 권한이 붙는 곳
 
 ```
-HTTP 요청 도착
-│
-▼
-┌─────────────────────────────────────────┐
-│  STEP 1: require_active_access (deps)   │
-│  Bearer JWT: HS256·exp·typ=access        │
-│  user_info: 활성·미잠금(403)             │
-│  session_log: access_token_encrypt =     │
-│    SHA256(Bearer 원문), refresh 만료 시 401 │
-├─────────────────────────────────────────┤
-│  실패 시: 401 / 403                     │
-└──────────────┬──────────────────────────┘
-               │ payload = { user_id, project_info_id?, typ, exp, … }
-               ▼
-┌─────────────────────────────────────────┐
-│  STEP 2: 사용자 등급 조회                │
-│  system_db `user_info.user_dvsn` 조회   │
-│  → canon_user_dvsn (허용: sa_dev·sa·a·o·u) │
-│  허용 집합 밖·NULL → "" (정규화 실패)    │
-└──────────────┬──────────────────────────┘
-               ▼
-┌─────────────────────────────────────────┐
-│  STEP 3: 프로젝트 ID 존재 확인            │
-│  payload.project_info_id 가 있는가?      │
-├─────────────────────────────────────────┤
-│  없으면: 403 (detail: 프로젝트 선택 안내) │
-└──────────────┬──────────────────────────┘
-               ▼
-┌─────────────────────────────────────────┐
-│  STEP 3b: project_info.active_yn = Y     │
-│  비활성 프로젝트면 유효 권한 0·API 403   │
-└──────────────┬──────────────────────────┘
-               ▼
-┌─────────────────────────────────────────┐
-│  STEP 4: 프로젝트에서 허용된 UI 기능     │
-│  project_info.feature_flags →            │
-│  query→{query.read,query.execute},       │
-│  dash→dashboard, widget→widgetboard     │
-│  (NULL/컬럼 없음이면 네 가지 전부 허용)   │
-└──────────────┬──────────────────────────┘
-               ▼
-┌─────────────────────────────────────────┐
-│  STEP 5: 참여자 역할 권한                │
-│  project_ptcpnt_info JOIN pmssn_master   │
-│  → pmssn_list → 상세명 정규화            │
-│  → 보유 권한 ID 문자열 집합               │
-└──────────────┬──────────────────────────┘
-               ▼
-┌─────────────────────────────────────────┐
-│  STEP 6: 유효 권한 = STEP5 ∩ STEP4       │
-│  require_permission: needed 각각이       │
-│  유효 권한 집합에 있는지                 │
-├─────────────────────────────────────────┤
-│  하나라도 없으면: 403 Forbidden          │
-│  전부 있으면(또는 needed가 비어 있음): payload 반환 │
-└─────────────────────────────────────────┘
+pmssn_master_detail (권한 정의 1건씩, 시드)
+        ↑
+pmssn_master (역할 템플릿, pmssn_list TEXT[])
+        ↑
+project_ptcpnt_info (프로젝트마다 유저 ↔ 템플릿 PK)
 ```
 
-**참고**
+- **`project_info`**: `active_yn`(비활성 프로젝트면 유효 권한 없음), **`feature_flags`**(JSONB: query·dash·widget ON/OFF → 허용 권한 ID 집합).
 
-- **ETL 관리 API**(`/api/etl/*` 등)는 별도 `require_etl_infrastructure` — 위 흐름과 다르게 `sa_dev` 또는 `etl_yn=Y`(및 레거시 `user_dvsn=etl_manager` 예외)만 본다.
-- DB `user_dvsn`이 `Backend.core.user_dvsn_codes.ALLOWED_USER_DVSN`(`sa_dev`·`sa`·`a`·`o`·`u`)에 없으면 `canon_user_dvsn`이 `""`가 되어 Fast Path ①을 통과하지 못한다. 레거시 문자열이 남아 있으면 동일하게 실패할 수 있으므로 저장 값은 다섯 코드로 통일한다.
+### 0.2 JWT와 두 종류의 가드
 
-### 엣지 케이스 (`require_permission`)
+| 구분 | JWT에 `project_info_id` | 검증 함수 | 비고 |
+|------|-------------------------|------------|------|
+| 쿼리 스튜디오·대시·위젯 등 **프로젝트 업무** | **필수** | `require_permission` | §1 — `pmssn_list` ∩ `feature_flags` |
+| **ETL 인프라** API | 불필요 | `require_etl_infrastructure` | §4 — `sa_dev`·`etl_yn=Y`·DB 원문 `etl_manager`(레거시) |
+| **`/api/admin/*`** | 불필요 | `require_org_admin` 등 | §6 — 조직 역할·부서 트리 별도 규칙 |
 
-| 상황 | 결과 |
+**프로젝트 미선택**으로 `require_permission`이 걸린 API를 호출하면 **403** (예: 프로젝트를 선택해주세요).  
+프로젝트 없이 호출되는 예: `GET/PATCH /api/auth/me*`, `GET /api/projects`, `POST /api/projects/{id}/select`, `GET/PATCH /api/notifications*`, **`/api/admin/*`** 등(라우트별로 `permissions`에서 분리).
+
+### 0.3 권한 ID ↔ 업무 (요약)
+
+| 권한 ID (`pmssn_master_detail` 등) | 대표 |
+|-------------------------------------|------|
+| `query.read` | 쿼리 스튜디오 조회·메타 API |
+| `query.execute` | SQL 실행·통계·저장 등 |
+| `dashboard` | 캠페인 대시보드 등 |
+| `widgetboard` | 위젯보드(다른 API 호출 시에도 동일 권한 필요할 수 있음) |
+
+---
+
+## 1. 프로젝트 보호 API — 권한 판정 (`require_permission`)
+
+**구현 위치**
+
+- `Backend/auth_server/deps.py` — `require_active_access` (액세스 JWT·세션·유저 활성·미잠금)
+- `Backend/auth_server/permissions.py` — `require_permission` · `compute_effective_project_permission_ids`
+
+**판정 순서 (요청 1건 기준)**
+
+1. **액세스 JWT** — Bearer 검증, `session_log`(세션 로그)와 토큰 해시 일치, 리프레시 만료 시 401
+2. **`user_info`(유저)** — 비활성·잠금이면 403
+3. **작업 프로젝트** — JWT에 `project_info_id`(작업 프로젝트 PK) 없으면 403
+4. **`project_info`(프로젝트)** — `active_yn` 비활성 → 유효 권한 없음·403
+5. **기능 스위치** — `feature_flags`(JSON): 쿼리·대시·위젯 ON/OFF → 허용 권한 ID 집합  
+   (NULL·미설정·컬럼 없음이면 쿼리·대시·위젯 전부 허용으로 간주)
+6. **참여 템플릿** — `project_ptcpnt_info`(참여) → `pmssn_master`(권한 템플릿)의 `pmssn_list` → 권한 ID 목록
+7. **교집합** — `유효 권한 = (6) ∩ (5)`  
+   API가 요구하는 권한(`needed`)마다 (7)에 있어야 함.
+
+**중요**: `user_dvsn`(조직 역할)은 **이 교집합을 넓히지 않는다**.  
+SA/A도 **템플릿·기능 스위치에 없으면** 쿼리·대시 등 **그대로 403**.
+
+**특이**
+
+- 요구 권한 목록 `needed`가 **비어 있으면** 7번 루프는 돌지 않아 **통과** (단, 1~3은 이미 만족).
+- **ETL API** (`/api/etl/*` 등)는 별도 `require_etl_infrastructure` —  
+  `sa_dev` 또는 `etl_yn=Y` (DB 원문 `user_dvsn=etl_manager`는 ETL 판별 예외).  
+  프로젝트·`pmssn`과 무관.
+
+---
+
+## 2. 식별자 — 한글 짝
+
+| 코드·컬럼·테이블 | 한글 |
+|------------------|------|
+| `user_info.user_dvsn` | 조직 역할 (DB에는 5코드만 유효) |
+| `user_info.etl_yn` | ETL 관리자 여부 (Y/N) |
+| `pmssn_master` | 권한 템플릿 (시스템 기본·부서 커스텀) |
+| `project_ptcpnt_info` | 프로젝트 참여 (유저 + 템플릿 PK) |
+| `project_info.feature_flags` | 프로젝트별 기능 켜기/끄기 |
+
+---
+
+## 3. 조직 역할 `user_dvsn` (캐논 5종)
+
+| 저장값 | 한글 |
+|--------|------|
+| `sa_dev` | SA_DEV — 시드·전역 운영 |
+| `sa` | SA — 부서 슈퍼관리 |
+| `a` | A — 부서 관리자 |
+| `o` | O — 오퍼레이터 |
+| `u` | U — 일반 사용자 |
+
+**정규화** `canon_user_dvsn` (`user_dvsn_codes.py`): 위 외 값·NULL → 빈 문자열 `""`.
+
+**가입 시** 초대로 줄 수 있는 저장값: `sa`·`a`·`o`·`u` (백엔드 가입 로직).  
+최초 부서·관리자는 **DB 시드·운영 절차** (웹 공개 부서 생성 경로 없음).
+
+---
+
+## 4. ETL 자격 `etl_yn`
+
+| 항목 | 내용 |
 |------|------|
-| `require_permission()` — 권한 인자 없이 호출 (`needed == ()`) | `for n in needed`가 **0번** → **항상 통과** (`require_active_access` 통과: JWT·세션 바인딩·활성 + `project_info_id` 있음). |
-| ETL 전담 계정(구 `etl_manager` 등) / `canon_user_dvsn → ""` | 조직등급과 무관하게 STEP5·6만 적용. 멤버십·`pmssn`이 없으면 유효 권한 0개 → `needed`가 하나라도 있으면 **403**. |
-| DB에 없는 `user_id`(행 없음) | `get_user_dvsn_lower` 등에서 빈 값 처리. 멤버십 없으면 유효 권한 0개 → `needed` 있으면 **403**. |
-| 프로젝트 참여자인데 역할에 없는 권한 요청 | STEP5에 없으면 STEP6에서 **403**. `feature_flags`로 꺼진 기능도 STEP4에서 제외되어 **403**. |
-| `sa_dev`·`sa`·`a` 조직 역할 | 프로젝트 작업 API에서 **자동으로 대시보드·위젯 권한이 붙지 않음**. 해당 기능은 `pmssn_list`에 있고 `feature_flags`가 켜져 있어야 함. |
+| 컬럼 | `user_info.etl_yn` — Y면 전사 ETL API (`require_etl_infrastructure`) |
+| 조직 역할과 관계 | **독립** (`o`+`Y` 등 가능) |
+| 변경 | `PATCH /api/admin/users/{id}/etl-access` — 호출 주체 **`sa`·`sa_dev`** |
 
 ---
 
-## 역할·자격 체계 (5역할 + ETL 플래그)
+## 5. 초대 이메일 (`POST /api/admin/users/invite`)
 
-### 조직 역할 `user_dvsn` (5단계)
+- **호출 가능 주체**: `require_org_admin` → `sa_dev` · `sa` · `a` 만 (O·U는 API 자체 불가).
+- **줄 수 있는 가입 역할** `invite_target_dvsn` (`service_users._INVITE_TARGETS_BY_ACTOR`):
 
-| 코드 (DB·앱) | 약어(문서) | 설명 |
-|--------------|------------|------|
-| `sa_dev` | SA_DEV | 개발자(단일 계정, `dptmt_info_id=0`, 시드·전용) |
-| `sa` | SA | Super Admin(부서 최초 생성 가입 시 `sa` 저장, 부서장) |
-| `a` | A | Admin(부서 관리자) |
-| `o` | O | Operator(프로젝트 운영자) |
-| `u` | U | User(일반 사용자) |
+| 초대 보내는 사람 (`user_dvsn`) | 줄 수 있는 역할 |
+|-------------------------------|----------------|
+| `sa_dev`, `sa` | `sa`, `a`, `o`, `u` |
+| `a` | `a`, `o`, `u` ( **`sa`는 불가** ) |
 
-`user_info.user_dvsn` 및 `canon_user_dvsn` 기준 **유효 값은 위 다섯 가지뿐**이다. 초대 가입 시 허용되는 저장 값은 `sa`·`a`·`o`·`u`(`Backend.auth_server.service._SIGNUP_DVSN_ALLOWED`). 부서 생성 최초 가입은 `sa`. ETL 전담 조직 역할값(`etl_manager`)은 사용하지 않으며, ETL 관리자 접근은 `etl_yn`·`require_etl_infrastructure`로 판별한다.
-
-### ETL 관리자 자격 `etl_yn`
-
-| 컬럼 | 값 | 설명 |
-|------|-----|------|
-| `user_info.etl_yn` | `Y` / `N` (기본 `N`) | 전사 ETL API(`/api/etl/*`) 접근 자격. **조직 역할과 독립** (`a`+`Y`, `o`+`Y` 등 조합 가능). |
-
-**ETL 관리자 접근(백엔드 `require_etl_infrastructure`)**: `user_dvsn = sa_dev` **또는** `etl_yn = 'Y'`. 프로젝트 선택·`pmssn` 불필요.
-
-**ETL 자격 부여**: `PATCH /api/admin/users/{id}/etl-access`(요청 본문 `etl_yn`), 호출 가능 조직 역할은 **`sa`·`sa_dev`**(`require_super_admin`).
+- **부서** `dptmt_info_id`: SA_DEV는 지정 범위 넓음. SA·A는 **본인 부서 트리(본인·하위)** 안만.
+- **ETL 초기값** `invite_etl_yn`: **`sa`·`sa_dev`가 초대할 때만** Y 저장 허용. **`a`가 초대하면 N 고정**.
+- **U + 프로젝트** (선택): `invite_project_info_id` + `invite_pmssn_master_id` 쌍 →  
+  가입 직후 `project_ptcpnt_info` 자동 생성 (해당 부서·프로젝트·템플릿 검증 통과 시).
 
 ---
 
-## 권한 매트릭스 (v3)
+## 6. 어드민 기능 요약 (메뉴·역할)
 
-SA_D = SA_DEV | SA = Super Admin | A = Admin | O = Operator | U = User
+표기: ✓ 항상 · ○ 조건부 · − 불가. **열** = SA_D(`sa_dev`) · SA · A · O · U.
 
-✓ = 항상 가능 | ○ = 조건부 가능 | - = 불가
-
-### 1. 부서 관리
+### 부서 (`/admin/org` 등)
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| 최상위 부서 생성 | ✓ | - | - | - | - |
-| 본인 부서 하위 부서 생성 | - | ✓ | - | - | - |
-| 부서명 수정 | ✓ | ○ | - | - | - |
-| 하위 부서 삭제 | ✓ | ○ | - | - | - |
-| 전체 부서 목록 조회 | ✓ | - | - | - | - |
-| 본인 부서 + 하위 부서 조회 | - | ✓ | - | - | - |
+| 최상위 부서 생성 | ✓ | − | − | − | − |
+| 본인 부서 하위 생성·수정·삭제·조회 | − | ✓ | − | − | − |
+| 전체 부서 목록 | ✓ | − | − | − | − |
 
-※ SA_D: 전체 부서 CRUD. SA: 본인 부서 기준 하위만 생성·수정·삭제·조회.
-
-### 2. 회원 초대 (가입 초대코드 발송)
+### 유저 (`/admin/users`)
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| SA로 초대 | ✓ | ✓ | - | - | - |
-| A로 초대 | ✓ | ✓ | ✓ | - | - |
-| O로 초대 | ✓ | ✓ | - | ✓ | - |
-| U로 초대 | ✓ | ✓ | - | ✓ | - |
+| 전체 유저 조회 | ✓ | − | − | − | − |
+| 동일 부서 유저 조회·정지·활성·강제 로그아웃·`user_dvsn` 변경 | ✓ | ✓ | ○ | − | − |
+| `etl_yn` 변경 | ✓ | ✓ | − | − | − |
 
-※ 초대 대상 `invite_target_dvsn`은 **위 표에서 ✓인 역할만**(백엔드 `_INVITE_TARGETS_BY_ACTOR`와 일치). **부서**: SA_DEV는 임의 부서, SA·A는 본인 `dptmt_info` **트리(본인·하위)** 안에서만 `dptmt_info_id` 지정. **ETL**: 초대 바디 `invite_etl_yn`(가입 시 `user_info.etl_yn` 초기값)은 **`sa`·`sa_dev` 초대만** Y 허용, **`a`는** 폼/요청이 있어도 N 고정. 가입 후에도 `PATCH .../etl-access`로 조정 가능. **U+프로젝트**: `invite_project_info_id`·`invite_pmssn_master_id` 쌍(선택)으로 가입 직후 `project_ptcpnt_info` 자동 등록(해당 부서 소속 프로젝트·권한 템플릿만). O·U: 조직 초대 API 호출 불가(`require_org_admin`).
+**유저 API 백엔드 제한** (`admin_server/service_users.py` 등 — 표와 동일 취지)
 
-### 3. 유저 관리
+- **대상 부서**: `sa_dev`는 전체 유저 조회·처리. `sa`·`a`는 **본인 부서 트리**(본 부서·하위) 안만.
+- **등급(랭크)**: 낮음 → 높음 순 `u`(1), `o`(2), `a`(3), `sa`(4), `sa_dev`(5).  
+  **역할·부서·프로젝트 일괄 변경** 시 대상 `user_dvsn` 랭크가 액터보다 **크면** 불가.
+- **역할로 바꿀 수 있는 값** (`_role_change_allowed_for_actor`):  
+  `sa_dev`·`sa` → `sa`,`a`,`o`,`u` / `a` → `a`,`o`,`u` 만.
+- **정지·활성** (`_assert_suspend_activate_target`):  
+  `a` → 대상 `o`,`u`만 / `sa` → `a`,`o`,`u` ( **`sa`·`sa_dev` 대상은 이 API로 불가** ) / `sa_dev` → **`sa`·`sa_dev` 동급은 정지·활성 불가**.
+- **`etl_yn`**: `sa`·`sa_dev`만 변경. 대상이 **`sa_dev`**이면 `etl_yn` 변경 불가. 역할을 **`u`**로 내리면 `etl_yn`은 **N**으로 맞춤.
+- **소유 자산** (`ownership_guards`): 목표 `user_dvsn`·`etl_yn`과 맞지 않는 프로젝트·권한 템플릿·ETL 메타·부서 생성자 등이 있으면 **409** + 이관 필요.
 
-| | SA_D | SA | A | O | U |
-|--|:----:|:--:|:--:|:--:|:--:|
-| 전체 유저 조회 | ✓ | - | - | - | - |
-| 본인 부서 유저 조회 | ✓ | ✓ | ✓ | - | - |
-| 유저 정지/활성 전환 | ✓ | ✓ | ○ | - | - |
-| 유저 강제 로그아웃 | ✓ | ✓ | ○ | - | - |
-| 유저 role 변경(부서 레벨, `user_dvsn`) | ✓ | ✓ | ○ | - | - |
-| `etl_yn` 변경 | ✓ | ✓ | - | - | - |
-
-※ SA: 본인 부서 전체. A: A 이하(O, U)만 정지·활성·강제로그아웃·role 변경. A는 SA·타 A 변경 불가. `etl_yn`: `sa`·`sa_dev`(백엔드 `require_super_admin`).
-
-### 4. 권한 템플릿(`pmssn_master`) 정의
+### 권한 템플릿 (`pmssn_master`, UI **권한 관리** `/admin/roles`)
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| 시스템 기본 권한 템플릿 CRUD | ✓ | - | - | - | - |
-| 부서 커스텀 권한 템플릿 CRUD | ✓ | ✓ | ○ | - | - |
+| 시스템 기본 템플릿 CRUD | ✓ | − | − | − | − |
+| 부서 커스텀 템플릿 CRUD | ✓ | ✓ | ○ | − | − |
 
-※ A: 본인 부서 커스텀만. UI 메뉴명은 **권한 관리**(`/admin/roles`).
-
-### 5. 프로젝트 관리
+### 프로젝트·멤버 (`/admin/projects` …)
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| 프로젝트 생성 | ✓ | ✓ | ✓ | - | - |
-| 프로젝트 삭제 | ✓ | ✓ | ✓ | - | - |
-| 프로젝트 수정(테이블 매핑) | ✓ | ✓ | ✓ | - | - |
-| 프로젝트 수정(명/설명) | ✓ | ✓ | ✓ | ○ | - |
-| 프로젝트 멤버 초대(기존 유저) | ✓ | ✓ | ✓ | ○ | - |
-| 프로젝트 멤버 강퇴 | ✓ | ✓ | ✓ | ○ | - |
-| 프로젝트 멤버 권한 변경 | ✓ | ✓ | ✓ | ○ | - |
+| 생성·삭제·테이블 매핑 | ✓ | ✓ | ✓ | − | − |
+| 명·설명 수정 | ✓ | ✓ | ✓ | ○ | − |
+| 멤버 초대·강퇴·권한 변경 | ✓ | ✓ | ✓ | ○ | − |
 
-※ SA_D: 전 부서. SA·A: 본인 부서. O: 본인 참여 프로젝트만, 권한 변경은 U만.
+※ SA_D는 전 부서. SA·A는 본 부서. O는 **참여한 프로젝트**만, 권한 변경은 **U 대상** 등 제한.
 
-### 6. ETL 관리 (전사 공통)
+### ETL (`/api/etl/*`)
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| ETL 관리 API 전반 (`/api/etl/*` 등) | ✓ | ○ | ○ | ○ | ○ |
+| ETL API | ✓ | ○ | ○ | ○ | ○ |
 
-※ **○** = `user_dvsn = sa_dev` 이거나 `etl_yn = 'Y'` 인 경우. 그 외에는 ETL API 불가(프로젝트 `pmssn`의 `etl` 권한과 무관).
+※ ○ = `sa_dev` **또는** `etl_yn=Y`.
 
-### 7. 테이블 매핑(프로젝트)
-
-| | SA_D | SA | A | O | U |
-|--|:----:|:--:|:--:|:--:|:--:|
-| table_master 전체 조회 | ✓ | ✓ | ✓ | - | - |
-| 프로젝트↔테이블 매핑/해제 | ✓ | ○ | ○ | - | - |
-
-※ SA·A: 본인 부서 프로젝트 생성·수정 시 매핑. ETL 자격만으로는 프로젝트 어드민 테이블 API가 열리지 않을 수 있음(구현은 `admin_server`·문서 17 준수).
-
-### 8. 프로젝트 내 기능 (권한 기반)
+### 테이블 매핑·카탈로그 (어드민)
 
 | | SA_D | SA | A | O | U |
 |--|:----:|:--:|:--:|:--:|:--:|
-| 쿼리스튜디오·실행·대시보드·위젯보드 | ✓ | ✓ | ✓ | ○ | ○ |
+| `table_master` 조회 등 | ✓ | ✓ | ✓ | − | − |
+| 프로젝트↔테이블 매핑 | ✓ | ○ | ○ | − | − |
 
-※ SA_D·SA·A: 참여 프로젝트에서 보고 기능 자동 부여. O·U: `pmssn_master` 권한. **`etl_yn`과 무관** — ETL 자격이 있어도 프로젝트 미참여·권한 없으면 기능 사용 불가.
+### 프로젝트 **안** 업무 화면 (쿼리·대시·위젯)
 
-### 9. 공통
+- **전원 동일 규칙**: 참여 + `pmssn_list` ∩ `feature_flags`.  
+  **`etl_yn`과 무관.**
 
-| | SA_D | SA | A | O | U |
-|--|:----:|:--:|:--:|:--:|:--:|
-| 마이페이지·알림·로그아웃 | ✓ | ✓ | ✓ | ✓ | ✓ |
+### 공통
+
+- 마이페이지·알림·로그아웃: 로그인한 전원.
 
 ---
 
-## 백엔드 구현 메모 (요약)
+## 7. 구현 파일 (빠른 점프)
 
-- **프로젝트 보호 라우트**: 문서 상단 **`require_permission` 검증 흐름** 참고. 상수 `_PROJECT_FEATURE_IDS`·`_AUTO_PROJECT_ROLES`는 `permissions.py`와 동일.
-- **ETL `/api/etl/*`**: `sa_dev` 또는 `etl_yn='Y'` (`require_etl_infrastructure`). 레거시 `user_dvsn=etl_manager` 행은 마이그레이션으로 정리.
-- **쿼리 스튜디오·대시보드 등 프로젝트 기능**: JWT에 `project_info_id` 필요. **역할 `etl_manager`로 막지 않음.** `sa_dev`·`sa`·`a`(캐논 코드)는 참여 프로젝트에서 `query.read` 등 자동 허용(매트릭스 §8, Fast Path).
-- 상세: `Backend/auth_server/deps.py`, `Backend/auth_server/permissions.py`, `Backend/core/user_dvsn_codes.py`, `Backend/admin_server/router.py` (`/users/{id}/etl-access`), `Backend/api_server/main.py`.
+`deps.py` · `permissions.py` · `user_dvsn_codes.py` ·  
+`admin_server/router.py` · `admin_server/service_users.py` · `admin_server/ownership_guards.py` ·  
+`auth_server/service.py` (가입·`create-org`)
+
+---
+
+**부록**: 시스템 DB **DDL 적용 순서·상용화 섹션 게이트** 등 운영 문서는 `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md` — **권한 판별 규칙은 본 문서(§0~§6)가 기준**이다.

@@ -23,7 +23,6 @@ const AUTH_FREE_PREFIXES = [
   '/api/auth/login',
   '/api/auth/verify-login',
   '/api/auth/signup',
-  '/api/auth/create-org',
   '/api/auth/refresh',
   '/api/auth/invite/validate',
 ]

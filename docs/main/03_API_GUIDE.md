@@ -381,7 +381,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 |------|------|
 | `send_email` | SMTP 발송 (미설정 시 로그 폴백) |
 | `send_login_code_email` | 2차 인증 코드 메일 |
-| `send_invite_email` | 초대 가입 URL 메일 |
+| `send_invite_email` | 초대 가입 URL 메일(본문에 초대 부서·조직 역할·ETL·프로젝트 권한 템플릿 선택 반영) |
 
 #### `auth_server/service.py`
 
@@ -675,7 +675,7 @@ PATCH /api/admin/users/{id}/suspend
 | 엔드포인트 | 기능 |
 |------------|------|
 | `POST /api/auth/signup` | 초대코드 기반 가입 |
-| `POST /api/auth/create-org` | 부서 + sa 생성 |
+| `POST /api/auth/create-org` | 부서 + sa 생성 (SPA `/create-org` 없음·DB 시드 또는 운영 도구 호출) |
 | `POST /api/auth/login` | 1단계 로그인 |
 | `POST /api/auth/verify-login` | 2단계 OTP 검증 |
 | `POST /api/auth/refresh` | 토큰 리프레시 (서비스에서 비활성·잠금 검사) |

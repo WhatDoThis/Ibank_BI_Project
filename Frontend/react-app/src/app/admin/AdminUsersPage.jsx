@@ -17,7 +17,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm
+ * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay)
  * 이메일 초대: 발송 성공 시 모달을 닫은 뒤 `alert`로 완료 안내(기존에는 모달을 즉시 닫아 메시지가 보이지 않음).
  */
 
@@ -39,6 +39,7 @@ import {
   putAdminUserManagement,
 } from '@/shared/api/adminClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
+import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './admin-users.css'
@@ -76,23 +77,14 @@ function hasEtlInfra(row) {
   return e === 'Y'
 }
 
-const ROLE_OPTIONS_SA = [
-  { value: 'sa', label: 'Super Admin (sa)' },
-  { value: 'a', label: 'Admin (a)' },
-  { value: 'o', label: 'Operator (o)' },
-  { value: 'u', label: 'User (u)' },
-]
+const ROLE_VALUES_SA = ['sa', 'a', 'o', 'u']
+const ROLE_VALUES_ADMIN = ['a', 'o', 'u']
 
-const ROLE_OPTIONS_ADMIN = [
-  { value: 'a', label: 'Admin (a)' },
-  { value: 'o', label: 'Operator (o)' },
-  { value: 'u', label: 'User (u)' },
-]
-
+/** 초대 시 선택 가능한 `invite_target_dvsn` 값 목록 (`value`만 사용, 표시는 formatUserDvsnDisplay) */
 function roleChoices(actorDvsn) {
   const d = (actorDvsn || '').toLowerCase()
-  if (d === 'sa_dev' || d === 'sa') return ROLE_OPTIONS_SA
-  if (d === 'a') return ROLE_OPTIONS_ADMIN
+  if (d === 'sa_dev' || d === 'sa') return ROLE_VALUES_SA.map((value) => ({ value }))
+  if (d === 'a') return ROLE_VALUES_ADMIN.map((value) => ({ value }))
   return []
 }
 
@@ -1009,7 +1001,7 @@ export default function AdminUsersPage() {
                   >
                     {roleOpts.map((o) => (
                       <option key={o.value} value={o.value}>
-                        {o.label}
+                        {formatUserDvsnDisplay(o.value)}
                       </option>
                     ))}
                   </select>
@@ -1125,7 +1117,7 @@ export default function AdminUsersPage() {
                   >
                     {(changeCtx.options?.role_options || []).map((r) => (
                       <option key={String(r.value)} value={String(r.value)}>
-                        {r.label || r.value}
+                        {formatUserDvsnDisplay(r.value)}
                       </option>
                     ))}
                   </select>
@@ -1351,7 +1343,7 @@ export default function AdminUsersPage() {
                     >
                       {u.user_email || u.user_id}
                       {u.user_nickname ? ` · ${u.user_nickname}` : ''}
-                      <span className="admin-users__pick-dvsn"> ({u.user_dvsn})</span>
+                      <span className="admin-users__pick-dvsn"> ({formatUserDvsnDisplay(u.user_dvsn)})</span>
                     </button>
                   ))
                 ) : (
@@ -1444,7 +1436,7 @@ export default function AdminUsersPage() {
                         </span>
                       </td>
                       <td>{row.user_nickname || '—'}</td>
-                      <td>{row.user_dvsn || '—'}</td>
+                      <td>{formatUserDvsnDisplay(row.user_dvsn)}</td>
                       <td className="admin-users__cell-center">
                         {hasEtlInfra(row) ? '✓' : '—'}
                       </td>

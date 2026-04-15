@@ -11,7 +11,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom(useSearchParams), shared/api/authClient, shared/utils/crudConfirm, shared/utils/passwordPolicy
+ * - react-router-dom(useSearchParams), shared/api/authClient, shared/utils/crudConfirm, shared/utils/passwordPolicy, shared/utils/userDvsnDisplay(formatUserDvsnDisplay)
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -20,6 +20,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { getInviteValidate, postSignup } from '@/shared/api/authClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 import { getPasswordStrengthError } from '@/shared/utils/passwordPolicy.js'
+import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
 
 import { useAuth } from './AuthContext.jsx'
 import './login.css'
@@ -57,7 +58,13 @@ export default function SignupPage() {
         )
         return
       }
-      const parts = [row.dptmt_name, row.email, row.invite_target_dvsn].filter(Boolean)
+      const parts = [
+        row.dptmt_name,
+        row.email,
+        row.invite_target_dvsn != null && String(row.invite_target_dvsn).trim() !== ''
+          ? formatUserDvsnDisplay(row.invite_target_dvsn)
+          : '',
+      ].filter(Boolean)
       const extra = []
       if (row.invite_etl_yn === 'Y') extra.push('ETL 자격 포함')
       if (row.has_project_attachment) {
@@ -240,8 +247,6 @@ export default function SignupPage() {
         </form>
         <p className="login-page__links">
           <Link to="/login">로그인</Link>
-          {' · '}
-          <Link to="/create-org">부서 새로 만들기</Link>
         </p>
       </div>
     </div>

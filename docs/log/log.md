@@ -1,6 +1,28 @@
 # Log
 
 ## Log Index
+396. 2026-04-15 홈: 빠른 액세스 제목 하단 구분선 제거(quick-access)
+395. 2026-04-15 홈: 빠른 액세스 제목 크기·목록 상단 구분(패딩·border)
+394. 2026-04-15 홈: 프로젝트 목록 2열·카드 제목·역할·설명 말줄임(home.css)
+393. 2026-04-15 UI: ibank-page-lead 폭(62ch 제거)·홈 프로젝트 카드 아이콘·역할 라벨·그리드
+392. 2026-04-15 홈: home__continue 제거(헤더 프로젝트 드롭다운과 중복)·07 §5 정리
+391. 2026-04-15 프론트: user_dvsn UI 표기 매핑(SADEV·S·A·B·C) 공용 utils·관리·마이페이지·가입힌트
+390. 2026-04-15 docs/main/05: §0 한눈에(DB·JWT·권한ID)·유저 API 제한 요약·17 부록만 분리
+389. 2026-04-15 docs/main/05: 권한 아키텍처 현행 코드 기준으로 간결 재작성(한글 짝·초대·require_permission)
+388. 2026-04-15 admin-pages: ap__th-actions·사용현황 작업 열 폭 250px
+387. 2026-04-15 admin-pages: ap__table 내 ap__select 폰트 inherit·사용현황 모달 max-width 800px
+386. 2026-04-15 권한 사용현황 모달: 테이블·래퍼가 모달 폭·세로 채움(flex·width 100%·table-layout)
+385. 2026-04-15 권한 사용현황 모달 750px·작업 열 폭·이동 버튼 라벨(프로젝트/권한) 한 줄
+384. 2026-04-15 권한 관리 사용현황: 프로젝트명·사용자명 링크 제거·작업 열 이동, 모달 min-height 350px
+383. 2026-04-15 docs/main/07: §3~부록 사용자 포맷(주제 한 줄·번호·` - `·만료/조건 소제목) 통일
+382. 2026-04-15 docs/main/07: 로그인 플래시 안내 문구(가입 완료·비밀번호 변경) 구체화
+381. 2026-04-15 docs/main/07: §1·§2 사용자 문안 유지, §3~부록만 포맷 정리·§6 번호 수정
+380. 2026-04-15 PRD·기능설명서: 제품 목적(마케팅 대시보드·마케터 노코드 CRM 리포트) 반영
+379. 2026-04-15 가입 초대 메일: 초대 부서·조직 역할·ETL·프로젝트 권한 템플릿 본문 명시
+378. 2026-04-15 헤더 작업 프로젝트 드롭다운: `.phs__combo` min-width 200px
+377. 2026-04-15 create-org SPA·클라이언트 제거(라우트·페이지·postCreateOrg·AUTH_FREE)
+376. 2026-04-15 로그인·가입 화면: 부서 새로 만들기 링크 제거(SA_DEV DB 시드·초대 흐름)
+375. 2026-04-15 docs/main: 일반 사용자용 기능 설명서 07 추가
 374. 2026-04-14 권한 사용목록·프로젝트 멤버 목록: 사용자 부서(user_department_display) 열·API
 373. 2026-04-14 프로젝트 멤버 제거 후 초대중 오표시: 수락 시 초대 알림 삭제·제거 시 정리·pending 조회 SQL
 372. 2026-04-14 이관 대상 선택 모달: 폭 800px·emph 안내 줄바꿈·문구 정리
@@ -377,6 +399,219 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+396. 2026-04-15 홈: 빠른 액세스 제목 하단 구분선 제거(quick-access)
+Purpose: `.home__section-title` 공통 `border-bottom`이「빠른 액세스」제목 아래 줄로 보여 `home__section-title--quick-access`에서 제거.
+
+Changes:
+
+- `home.css`: `border-bottom: none`, `padding-bottom: 0`
+
+Changed files: Frontend/react-app/src/app/home/home.css, docs/log/log.md
+
+395. 2026-04-15 홈: 빠른 액세스 제목 크기·목록 상단 구분(패딩·border)
+Purpose: `빠른 액세스` h2를 프로젝트 카드 제목과 비슷한 글자 크기로 맞추고, 프로젝트 목록과 사이에 `padding-top`·`border-top`으로 구역 분리.
+
+Changes:
+
+- `HomePage.jsx`: `home__section-title--quick-access` 클래스
+- `home.css`: 해당 스타일·`.home__project-name` 글자 크기 동일(1.125rem)
+
+Changed files: Frontend/react-app/src/app/home/HomePage.jsx, Frontend/react-app/src/app/home/home.css, docs/log/log.md
+
+394. 2026-04-15 홈: 프로젝트 목록 2열·카드 제목·역할·설명 말줄임(home.css)
+Purpose: 카드 가로 과다·중앙 여백 완화를 위해 `.home__list`를 2열 그리드(880px 미만 1열). 프로젝트명·역할 pill·설명은 `ellipsis`/`line-clamp`로 넘침 숨김.
+
+Changes:
+
+- `home.css`: `.home__list` grid 2col·`.home__project` 패딩·말줄임 규칙
+- `HomePage.jsx`: 파일 상단 주석
+- `docs/main/07_USER_FUNCTIONAL_GUIDE.md`: §5 카드 목록 문구
+
+Changed files: Frontend/react-app/src/app/home/home.css, Frontend/react-app/src/app/home/HomePage.jsx, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+393. 2026-04-15 UI: ibank-page-lead 폭(62ch 제거)·홈 프로젝트 카드 아이콘·역할 라벨·그리드
+Purpose: PageHeader 설명이 좁은 `ch` 때문에 불필요하게 두 줄로 갈라지지 않게 전폭 사용. 홈 프로젝트 행은 `space-between` 대신 3열 그리드·폴더 SVG·「프로젝트 권한」+역할 pill·설명으로 중앙 빈 공간 완화.
+
+Changes:
+
+- `styles/app-shell.css`: `.ibank-page-lead` max-width 제거
+- `HomePage.jsx`·`home.css`: 프로젝트 카드 마크업·스타일·560px 이하 버튼 전폭
+
+Changed files: Frontend/react-app/src/styles/app-shell.css, Frontend/react-app/src/app/home/HomePage.jsx, Frontend/react-app/src/app/home/home.css, docs/log/log.md
+
+392. 2026-04-15 홈: home__continue 제거(헤더 프로젝트 드롭다운과 중복)·07 §5 정리
+Purpose: JWT에 작업 프로젝트가 있어도 홈의「이전에 선택한 프로젝트로 계속」은 헤더 드롭다운과 역할이 겹쳐 제거. `home.css` 규칙 삭제. `07_USER_FUNCTIONAL_GUIDE` §5에 헤더 전환 안내.
+
+Changes:
+
+- `HomePage.jsx`·`home.css`: `home__continue`·`handleContinueApp` 제거
+- `docs/main/07_USER_FUNCTIONAL_GUIDE.md`: 해당 소절 삭제·헤더 드롭다운 항목 추가
+
+Changed files: Frontend/react-app/src/app/home/HomePage.jsx, Frontend/react-app/src/app/home/home.css, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+391. 2026-04-15 프론트: user_dvsn UI 표기 매핑(SADEV·S·A·B·C) 공용 utils·관리·마이페이지·가입힌트
+Purpose: API 코드(`sa_dev` 등)는 유지하고 화면 표시만 `formatUserDvsnDisplay`로 통일.
+
+Changes:
+
+- `shared/utils/userDvsnDisplay.js`: 매핑·함수 추가
+- `AdminUsersPage`·`AdminProjectsPage`·`AdminProjectMembersPage`·`MyPage`·`SignupPage`: 표·셀렉트·이관 픽·초대 힌트에 적용
+
+Changed files: Frontend/react-app/src/shared/utils/userDvsnDisplay.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, mypage/MyPage.jsx, auth/SignupPage.jsx, docs/log/log.md
+
+390. 2026-04-15 docs/main/05: §0 한눈에(DB·JWT·권한ID)·유저 API 제한 요약·17 부록만 분리
+Purpose: `05` 단독으로 권한 구조 파악 가능하게 문서 17에 있던 요지(테이블 체인·프로젝트 미선택·권한ID 매핑)를 §0에 요약. 유저 표 각주를 `service_users`·`ownership_guards` 기준으로 치환. 상단 17 참조 제거·말미 부록으로 DDL 순서만 안내.
+
+Changes:
+
+- `docs/main/05_Permission_ARCHITECTURE.md`: §0 추가·§6 유저 제한·§7·부록
+
+Changed files: docs/main/05_Permission_ARCHITECTURE.md, docs/log/log.md
+
+389. 2026-04-15 docs/main/05: 권한 아키텍처 현행 코드 기준으로 간결 재작성(한글 짝·초대·require_permission)
+Purpose: `05_Permission_ARCHITECTURE.md`를 `permissions.py`·`deps.py`·초대 규칙과 일치하도록 압축. ASCII 다이어그램·Fast Path·잘못된 초대 표 제거. 식별자 한글 짝·줄바꿈. 문서 17·00·4.2 등 잔여 구식 역할·자동허용 문구 정합.
+
+Changes:
+
+- `docs/main/05_Permission_ARCHITECTURE.md` 전면 교체
+- `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`: `user_dvsn` 5코드·create-org `sa`·§4.2·§5.2·§10.4·§13.0·ETL 행
+- `docs/main/00_PRD.md`: require_permission 설명에서 Fast Path 제거·05와 정합
+
+Changed files: docs/main/05_Permission_ARCHITECTURE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/main/00_PRD.md, docs/log/log.md
+
+388. 2026-04-15 admin-pages: ap__th-actions·사용현황 작업 열 폭 250px
+Purpose: 작업 열 헤더·셀 최소·고정 폭을 220px에서 250px로 통일(권한 목록·사용현황·프로젝트/멤버 공통 `ap__th-actions`).
+
+Changes:
+
+- `admin-pages.css`: `.ap__th-actions`, `.ap__usage-table th.ap__th-actions`, usage-nav td, 모달 내 고정폭
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+387. 2026-04-15 admin-pages: ap__table 내 ap__select 폰트 inherit·사용현황 모달 max-width 800px
+Purpose: 테이블 행 clamp 폰트와 셀렉트 글자 크기 정렬. `ap__select--sm`·`ap__select--table-in-cell`도 테이블 안에서는 inherit. 사용현황 모달 폭 800px.
+
+Changes:
+
+- `admin-pages.css`: `.ap__table .ap__select`, `--sm` 테이블 오버라이드, `--table-in-cell` font-size/line-height, `.ap__modal--usage` max-width
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+386. 2026-04-15 권한 사용현황 모달: 테이블·래퍼가 모달 폭·세로 채움(flex·width 100%·table-layout)
+Purpose: 모달만 커지고 표가 max-content로 좁게 남던 문제 — `ap__modal--usage` flex 세로·`ap__usage-wrap`·테이블 `width:100%`·`table-layout:fixed`·열 비율, 스크롤은 래퍼에만. 하위 화면 4열(셀렉트)은 고정폭 220px만 요약 행에 적용.
+
+Changes:
+
+- `admin-pages.css`: `.ap__modal--usage`·`.ap__usage-wrap`·`.ap__usage-table`·작업 열·말줄임
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+385. 2026-04-15 권한 사용현황 모달 750px·작업 열 폭·이동 버튼 라벨(프로젝트/권한) 한 줄
+Purpose: 사용현황 모달 폭 확대, 요약 행 작업 열 최소 폭·nowrap으로 `프로젝트`·`권한` 버튼 한 줄 표시.
+
+Changes:
+
+- `admin-pages.css`: `.ap__modal--usage` max-width 750px, `.ap__cell-actions--usage-nav`, `.ap__usage-table` 작업 열/th
+- `AdminRolesPage.jsx`: 버튼 문구 `프로젝트`·`권한`
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, AdminRolesPage.jsx, docs/log/log.md
+
+384. 2026-04-15 권한 관리 사용현황: 프로젝트명·사용자명 링크 제거·작업 열 이동, 모달 min-height 350px
+Purpose: 사용현황 요약 목록에서 이름 링크 대신 일반 텍스트로 표시하고, 프로젝트 참여·사용자 권한 드릴다운은 작업 열 버튼으로 제공. `ap__modal--usage` 최소 높이 확보.
+
+Changes:
+
+- `AdminRolesPage.jsx`: 요약 행 프로젝트명·사용자명 텍스트만, `프로젝트 참여`·`사용자 권한` 버튼
+- `admin-pages.css`: `.ap__modal--usage` min-height 350px, `.ap__cell-actions--usage-nav`
+
+Changed files: Frontend/react-app/src/app/admin/AdminRolesPage.jsx, admin-pages.css, docs/log/log.md
+
+383. 2026-04-15 docs/main/07: §3~부록 사용자 포맷(주제 한 줄·번호·` - `·만료/조건 소제목) 통일
+Purpose: §2·§3 사용자 정리 스타일(대시 주제, 화면 구성 `1.`/`2.`+` - ` 하위, 만료·플래시 별도 `###`)을 §4~부록에 적용. 로그인 2단계 문장 보정, `####` 제거, 비개발자용으로 기술 식별자 제거.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+382. 2026-04-15 docs/main/07: 로그인 플래시 안내 문구(가입 완료·비밀번호 변경) 구체화
+Purpose: §3 로그인의 “안내 문구”가 LoginPage `location.state` 플래시 두 종류임을 명시.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md` 한 문장
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+381. 2026-04-15 docs/main/07: §1·§2 사용자 문안 유지, §3~부록만 포맷 정리·§6 번호 수정
+Purpose: 사용자가 직접 수정한 §1·§2는 건드리지 않고, 회원가입 화면 번호 목록·만료 소제목만 사용자 초안에 맞춤. §3 이하에만 구체 소제목·단락·굵게 최소 스타일 적용. 중복 `## 7` 마이페이지를 `## 6`으로 복구.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+380. 2026-04-15 PRD·기능설명서: 제품 목적(마케팅 대시보드·마케터 노코드 CRM 리포트) 반영
+Purpose: 시스템 목적을 마케팅 대시보드 제공 및 마케터용 노코드 쿼리 빌더 기반 CRM 리포트 조회·집계·생성으로 명시. PRD §1.1과 사용자 기능 설명서 도입·§1 정렬. 역할 표 마크다운 보정.
+
+Changes:
+
+- `00_PRD.md` §1.1 목적 문구 갱신
+- `07_USER_FUNCTIONAL_GUIDE.md` 문서 목적·§1·역할 표
+
+Changed files: docs/main/00_PRD.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+379. 2026-04-15 가입 초대 메일: 초대 부서·조직 역할·ETL·프로젝트 권한 템플릿 본문 명시
+Purpose: 이메일 초대 수신자가 어느 부서·어떤 조직 역할로 가입하는지, U+프로젝트 지정 시 프로젝트·권한 템플릿·ETL 여부를 메일 본문에서 바로 확인.
+
+Changes:
+
+- `email_service.send_invite_email`: 선택 키워드 인자·다줄 본문
+- `service_users.invite_user_by_email`: `_INVITE_DVSN_LABEL_KO`, `_invite_org_role_label_ko`, `_fetch_invite_email_labels`로 dptmt·project·pmssn 조회 후 전달
+- `docs/main/03_API_GUIDE.md`: send_invite_email 설명 한 줄
+
+Changed files: Backend/auth_server/email_service.py, Backend/admin_server/service_users.py, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+378. 2026-04-15 헤더 작업 프로젝트 드롭다운: `.phs__combo` min-width 200px
+Purpose: 헤더 콤보 최소 너비 확대(140px → 200px).
+
+Changes:
+
+- `project-header-select.css`: `.phs__combo` min-width, 파일 상단 주석
+
+Changed files: Frontend/react-app/src/app/layout/project-header-select.css, docs/log/log.md
+
+377. 2026-04-15 create-org SPA·클라이언트 제거(라우트·페이지·postCreateOrg·AUTH_FREE)
+Purpose: 초대·DB 시드만 사용하므로 `/create-org` 라우트·`CreateOrgPage`·`postCreateOrg`·`http.js` AUTH_FREE 항목 제거. `POST /api/auth/create-org`는 백엔드에 유지(운영 도구 호출). 문서 01·07·17 반영.
+
+Changes:
+
+- `routes.jsx`, `authClient.js`, `http.js`, `LoginPage.jsx`(createOrgOk 플래시), `login.css` 상단 주석
+- `CreateOrgPage.jsx` 삭제
+- `docs/main/01_FRONTEND_GUIDE.md`, `07_USER_FUNCTIONAL_GUIDE.md`, `03_API_GUIDE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`
+
+Changed files: Frontend/react-app/src/app/routes.jsx, shared/api/authClient.js, shared/api/http.js, app/auth/LoginPage.jsx, login.css, docs/main/01_FRONTEND_GUIDE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/main/03_API_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/log/log.md (삭제: CreateOrgPage.jsx)
+
+376. 2026-04-15 로그인·가입 화면: 부서 새로 만들기 링크 제거(SA_DEV DB 시드·초대 흐름)
+Purpose: 최초 계정은 DB 시드·이후 초대만 사용하므로 로그인·가입 하단의 `/create-org` 노출을 제거. 라우트·CreateOrgPage·API는 유지.
+
+Changes:
+
+- `LoginPage.jsx`·`SignupPage.jsx`: `부서 새로 만들기` 링크 및 구분자 제거, LoginPage 상단 주석 정리
+
+Changed files: Frontend/react-app/src/app/auth/LoginPage.jsx, SignupPage.jsx, docs/log/log.md
+
+375. 2026-04-15 docs/main: 일반 사용자용 기능 설명서 07 추가
+Purpose: 비개발자·일반 사용자 대상 IBank BI 화면별 기능 안내. 초대 가입·로그인·공통 레이아웃·프로젝트 홈·업무 메뉴·ETL·관리 메뉴를 서술+목록 형식으로 정리하고, 페이지별 SA/A/O/U 역할 추가 안내를 포함. sa_dev·기술 용어 배제, 외부 문서 작성 참고 링크 명시.
+
+Changes:
+
+- 신규 `docs/main/07_USER_FUNCTIONAL_GUIDE.md`
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
 
 374. 2026-04-14 권한 사용목록·프로젝트 멤버 목록: 사용자 부서(user_department_display) 열·API
 Purpose: 역할 사용현황 모달·프로젝트 멤버 테이블에 소속 부서 표기(최상위 `이름(-)`, 하위 `상위(자기)`). `service_roles` usages·`list_members`·pending 초대 조회에 JOIN·필드 추가.

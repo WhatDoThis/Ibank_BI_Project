@@ -10,7 +10,7 @@
 ## 1. 프로젝트 개요
 
 ### 1.1 목적
-SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이터를 조회·집계할 수 있는 **노코드 쿼리 빌더** 및 **정형 대시보드** (스타벅스 CRM 대상).
+**마케팅 대시보드**를 제공하고, **마케터용 노코드 쿼리 빌더**(쿼리 스튜디오)로 **CRM 리포트 데이터**를 조회·집계·생성하는 시스템이다. SQL 없이 화면에서 테이블·조건을 조합해 리포트용 데이터를 만들고, 캠페인·마케팅 성과는 **대시보드**에서 시각화한다(스타벅스 CRM 대상).
 
 ### 1.2 핵심 가치
 - **쿼리 스튜디오(쿼리 빌더)**: 사이드바 테이블/컬럼 → 그리드 드래그, WHERE/ORDER BY/GROUP BY/집계·피벗·HAVING, SQL 자동 생성, 페이지네이션, Claude SQL 해석
@@ -101,7 +101,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 5.1 역할
 - **FastAPI** REST API: **`Backend/api_server/main.py`** 가 `auth`·`project`·`notification`·`admin`·`query_studio_server`·`etl_server`·`campaign_dash_server` 라우터를 한 프로세스에 조립한다. 쿼리 스튜디오·캠페인 대시보드·ETL 등은 **Bearer access JWT**·`require_permission` / `require_etl_infrastructure` 로 보호된다. 위젯보드는 별도 라우터 없이 쿼리 스튜디오 API를 사용한다.
-- **인증·인가**: 로그인·2차 인증·리프레시·세션(`session_log`)·access JWT(`typ=access`, `user_id`·`project_info_id` 등 클레임)은 **`Backend/auth_server`** 및 **`/api/auth/*`**. 프로젝트 기능은 **`Backend/auth_server/permissions.require_permission`**(프로젝트 멤버·`pmssn_master.pmssn_list`)·조직 역할 Fast Path로 판별. ETL 관리자 판별은 **`require_etl_infrastructure`**(`sa_dev` 또는 `etl_yn=Y`). 정책 표는 **05_Permission_ARCHITECTURE.md**, 흐름도·엣지 케이스 동일 문서 상단.
+- **인증·인가**: 로그인·2차 인증·리프레시·세션(`session_log`)·access JWT(`typ=access`, `user_id`·`project_info_id` 등 클레임)은 **`Backend/auth_server`** 및 **`/api/auth/*`**. 프로젝트 기능은 **`Backend/auth_server/permissions.require_permission`**(프로젝트 멤버·`pmssn_master.pmssn_list`·`feature_flags` 교집합; 조직 역할로 권한 확장 없음). ETL 관리자 판별은 **`require_etl_infrastructure`**(`sa_dev` 또는 `etl_yn=Y`). 정책은 **05_Permission_ARCHITECTURE.md**.
 - PostgreSQL 연동, CORS. execute-query 시 SELECT만 허용, 금지 키워드 검사(문맥 기반, SELECT 문장 제외).
 
 ### 5.2 API 엔드포인트·구성

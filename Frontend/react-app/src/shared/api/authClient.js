@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * - postLogin, postVerifyLogin, postLogout, postSignup, postCreateOrg, getInviteValidate
+ * - postLogin, postVerifyLogin, postLogout, postSignup, getInviteValidate
  * - getMe, patchMe, patchPassword, getLoginHistory, getProjects, postSelectProject
  *
  * [Dependencies]
@@ -54,10 +54,6 @@ export async function postVerifyLogin(preAuthToken, code) {
 
 export async function postSignup(body) {
   return postJsonNoAuth('/api/auth/signup', body)
-}
-
-export async function postCreateOrg(body) {
-  return postJsonNoAuth('/api/auth/create-org', body)
 }
 
 /** GET /api/auth/invite/validate?code= — Bearer 불필요 */

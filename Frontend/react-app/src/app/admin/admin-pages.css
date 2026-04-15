@@ -4,6 +4,9 @@
  * ap__table: 반응형 clamp 폰트·nowrap·ap__cell-clip(말줄임); td.ap__mono는 줄바꿈 예외
  * ap__table--projects: 프로젝트 목록(프로젝트명·설명 열 말줄임 폭)
  * ap__member-add-block / ap__member-add-inline: 멤버 추가 인풋·검색 한 줄. ap__select--table-in-cell: 권한 셀렉트
+ * ap__table .ap__select: 테이블 본문과 동일 clamp 폰트(inherit), ap__modal--usage max-width 800px
+ * ap__modal--usage: flex 세로·max-width 800px·min-height, ap__usage-wrap·테이블 width 100%로 본문이 모달 폭 채움
+ * ap__th-actions: 작업 열 min-width 250px. ap__usage-table·ap__cell-actions--usage-nav: 사용현황 이동 버튼 한 줄
  */
 
 .ap {
@@ -194,9 +197,16 @@
   color: var(--color-text);
 }
 
+/* 테이블 행과 동일 폰트(상위 .ap__table clamp 상속) */
+.ap__table .ap__select {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 /* 작업 열: 버튼·링크 한 줄, 넘치면 테이블 가로 스크롤 */
 .ap__th-actions {
   width: 1%;
+  min-width: 250px;
   white-space: nowrap;
   text-align: right;
 }
@@ -208,6 +218,13 @@
   gap: 6px;
   white-space: nowrap;
   vertical-align: middle;
+}
+
+.ap__cell-actions--usage-nav {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  justify-content: flex-end;
+  max-width: none;
 }
 
 .ap__cell-actions .ibank-btn-table,
@@ -290,12 +307,12 @@
   white-space: nowrap;
 }
 
-/* 멤버 목록 권한 셀렉트: 테이블 본문과 동일 clamp 폰트 */
+/* 멤버 목록 권한 셀렉트: 행 폰트와 동일(inherit), 패딩만 조정 */
 .ap__table .ap__select.ap__select--table-in-cell {
-  font-size: clamp(0.66rem, 0.28rem + 1vw, 0.8rem);
+  font-size: inherit;
+  line-height: inherit;
   font-weight: 400;
   padding: 5px 8px;
-  line-height: 1.35;
   max-width: min(280px, 36vw);
 }
 
@@ -395,9 +412,62 @@
 }
 
 .ap__modal--usage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   width: 100%;
-  max-width: 700px;
+  max-width: 800px;
+  min-height: 350px;
   max-height: 90vh;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ap__modal--usage > .ap__row {
+  flex: 0 0 auto;
+}
+
+.ap__modal--usage > .ap__error {
+  flex: 0 0 auto;
+}
+
+/* 헤더(제목·버튼) 아래 본문이 남는 세로 공간을 채움 */
+.ap__modal--usage > .ap__usage-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+.ap__modal--usage > p.ap__hint {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+}
+
+.ap__modal--usage .ap__usage-table.ap__table {
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  table-layout: fixed;
+}
+
+/* 남는 가로 폭: 1·2열 비율, 3열은 작업열(250px) 제외 나머지 — 하위 화면 4열(셀렉트)은 max 고정 안 함 */
+.ap__modal--usage .ap__usage-table th:nth-child(1),
+.ap__modal--usage .ap__usage-table td:nth-child(1) {
+  width: 24%;
+}
+
+.ap__modal--usage .ap__usage-table th:nth-child(2),
+.ap__modal--usage .ap__usage-table td:nth-child(2) {
+  width: 20%;
+}
+
+/* 3열: 1·2·4열 지정 후 남는 폭(table-layout: fixed) */
+.ap__modal--usage .ap__usage-table th:nth-child(3),
+.ap__modal--usage .ap__usage-table td:nth-child(3) {
+  width: auto;
 }
 
 .ap__modal--edit {
@@ -504,6 +574,11 @@
   font-size: 0.85rem;
 }
 
+.ap__table .ap__select.ap__select--sm {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .ap__row--warn {
   background: rgba(192, 57, 43, 0.08);
 }
@@ -577,10 +652,43 @@
   max-height: calc(90vh - 120px);
   overflow-y: auto;
   overflow-x: auto;
+  width: 100%;
 }
 
 .ap__usage-table {
   min-width: 640px;
+}
+
+.ap__modal--usage .ap__usage-table {
+  min-width: 0;
+}
+
+.ap__usage-table th.ap__th-actions {
+  min-width: 250px;
+  width: auto;
+  white-space: nowrap;
+}
+
+.ap__usage-table tbody td:has(.ap__cell-actions--usage-nav) {
+  min-width: 250px;
+  width: auto;
+  white-space: nowrap;
+}
+
+.ap__modal--usage .ap__usage-table th.ap__th-actions,
+.ap__modal--usage .ap__usage-table tbody td:has(.ap__cell-actions--usage-nav) {
+  width: 250px;
+  min-width: 250px;
+  max-width: 250px;
+  box-sizing: border-box;
+}
+
+/* 프로젝트/사용자·부서 열: 긴 문자열은 말줄임(행 높이 유지) */
+.ap__modal--usage .ap__usage-table td:nth-child(1),
+.ap__modal--usage .ap__usage-table td:nth-child(2),
+.ap__modal--usage .ap__usage-table td:nth-child(3) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ap__chips {

@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황 드릴다운(사용자 부서 열). 생성자 열은 이메일 셀 패턴(본인만 배지).
+ * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황(사용자 부서 열·요약 행은 프로젝트명/사용자명 일반 텍스트, 이동은 작업 열 `프로젝트`/`권한` 버튼). 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
  * ===========
@@ -742,36 +742,31 @@ export default function AdminRolesPage() {
                       const inEdit = memberEditKey === key && usageView !== 'usage'
                       return (
                         <tr key={key}>
-                          <td>
-                            {usageView === 'usage' ? (
-                              <button
-                                type="button"
-                                className="ap__btn--link"
-                                onClick={() => moveToProjectParticipants(row.project_info_id, row.project_name)}
-                              >
-                                {row.project_name}
-                              </button>
-                            ) : (
-                              row.project_name
-                            )}
-                          </td>
-                          <td>
-                            {usageView === 'usage' ? (
-                              <button
-                                type="button"
-                                className="ap__btn--link"
-                                onClick={() => moveToUserUsages(row.ptcpnt_user_id, row.user_name)}
-                              >
-                                {row.user_name}
-                              </button>
-                            ) : (
-                              row.user_name
-                            )}
-                          </td>
+                          <td>{row.project_name}</td>
+                          <td>{row.user_name}</td>
                           <td className="ap__td-muted">{row.user_department_display || '—'}</td>
                           <td>
                             {usageView === 'usage' ? (
-                              '-'
+                              <span className="ap__cell-actions ap__cell-actions--usage-nav">
+                                <button
+                                  type="button"
+                                  className="ibank-btn-table"
+                                  disabled={usageBusy}
+                                  onClick={() =>
+                                    moveToProjectParticipants(row.project_info_id, row.project_name)
+                                  }
+                                >
+                                  프로젝트
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ibank-btn-table"
+                                  disabled={usageBusy}
+                                  onClick={() => moveToUserUsages(row.ptcpnt_user_id, row.user_name)}
+                                >
+                                  권한
+                                </button>
+                              </span>
                             ) : inEdit ? (
                               <span className="ap__cell-actions">
                                 <select

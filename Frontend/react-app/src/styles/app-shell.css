@@ -423,7 +423,8 @@ a.ibank-sidebar-brand {
 
 .ibank-page-lead {
   margin: 10px 0 0;
-  max-width: 62ch;
+  max-width: none;
+  width: 100%;
   font-size: var(--font-size-hint);
   color: var(--color-text-muted);
   line-height: 1.55;

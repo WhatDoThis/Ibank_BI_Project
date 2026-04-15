@@ -7,7 +7,7 @@ SMTP 발송: `backend.smtp_info.smtp_host`(또는 레거시 평면 `smtp_host`)�
 ===========
 1. send_email: smtp_host 있으면 SMTP(465 SSL / 그 외 STARTTLS→실패 시 평문 재시도); host 없으면 로그 폴백만
 2. send_login_code_email: 2차 인증 코드
-3. send_invite_email: 초대 가입 URL
+3. send_invite_email: 초대 가입 URL + 부서·조직 역할·ETL·프로젝트 권한(선택 키워드 인자)
 
 [Dependencies]
 =========
@@ -89,9 +89,37 @@ def send_login_code_email(to_email: str, code: str) -> None:
 
 
 # 3.
-def send_invite_email(to_email: str, signup_url: str) -> None:
+def send_invite_email(
+    to_email: str,
+    signup_url: str,
+    *,
+    department_name: str | None = None,
+    org_role_ko: str | None = None,
+    include_etl_y: bool = False,
+    project_name: str | None = None,
+    project_permission_name: str | None = None,
+) -> None:
+    lines: list[str] = ["IBank BI 가입 초대입니다.", ""]
+    if department_name:
+        lines.append(f"초대 부서: {department_name}")
+    if org_role_ko:
+        lines.append(f"부여될 조직 역할: {org_role_ko}")
+    if include_etl_y:
+        lines.append("ETL(데이터 연동·저장) 권한: 가입 후 활성화됩니다.")
+    if project_name and project_permission_name:
+        lines.append(f"가입 후 함께 참여할 프로젝트: {project_name}")
+        lines.append(f"해당 프로젝트 권한 템플릿: {project_permission_name}")
+    elif project_name:
+        lines.append(f"가입 후 함께 참여할 프로젝트: {project_name}")
+    lines.extend(
+        [
+            "",
+            "아래 링크에서 이 메일 주소로 가입해 주세요. (초대 코드 유효 기간: 약 7일)",
+            signup_url,
+        ]
+    )
     send_email(
         subject="[Ibank BI] 초대",
-        body_text=f"가입 링크:\n{signup_url}",
+        body_text="\n".join(lines),
         to_addrs=[to_email],
     )
