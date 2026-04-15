@@ -71,6 +71,22 @@ def _path_under_dir(child, parent):
 _API_CONFIG_SCRIPT = '<script src="api-config.js"></script>'
 
 
+def _serve_brand_favicon(handler):
+    """브라우저가 /favicon.ico 로만 요청할 때도 탭 아이콘이 나오도록 dist 내 PNG 제공. (기존 204는 빈 응답이라 캐시·기본 아이콘만 남기 쉬움)"""
+    icon_path = DIR / "starbucks-siren-mark.png"
+    if not icon_path.is_file():
+        handler.send_response(404)
+        handler.end_headers()
+        return
+    body = icon_path.read_bytes()
+    handler.send_response(200)
+    handler.send_header("Content-Type", "image/png")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store, max-age=0")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 def _inject_api_config_into_index(html_path):
     """index.html 파일에 api-config.js 스크립트 주입 (</head> 직전). 빌드 결과에 스크립트가 없을 때 사용."""
     try:
@@ -99,9 +115,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             rest = self.path[len("/ibank-bi"):].lstrip("/")
             self.path = "/" + rest if rest else "/"
 
-        if self.path == "/favicon.ico" or self.path == "favicon.ico":
-            self.send_response(204)
-            self.end_headers()
+        path_no_q = self.path.split("?")[0].rstrip("/")
+        if path_no_q == "/favicon.ico" or path_no_q == "favicon.ico":
+            _serve_brand_favicon(self)
             return
         # config.json의 frontend.api_base_url 을 프론트에 주입 (Env/config 와 동기화)
         if self.path == "/api-config.js" or self.path == "api-config.js":
