@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+399. 2026-04-15 프로젝트 멤버: 본인 재참여(모달·API)·멤버 추가 목록에서 본인 제외 제거
 398. 2026-04-15 권한 사용현황「권한」드릴다운: 사용자별 목록 API에 ptcpnt_user_id 포함(저장 버튼)
 397. 2026-04-15 홈: 프로젝트 카드 버튼(`home__project-btn`) 상하 패딩 확대
 396. 2026-04-15 홈: 빠른 액세스 제목 하단 구분선 제거(quick-access)
@@ -401,6 +402,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+399. 2026-04-15 프로젝트 멤버: 본인 재참여(모달·API)·멤버 추가 목록에서 본인 제외 제거
+Purpose: 조직관리자(a)가 멤버에서 본인을 제거한 뒤「멤버 추가」에서 부서 트리·타부서 검색에 본인이 나오지 않고, API가 본인 추가를 거절함.
+
+Changes:
+
+- `add_member`: 본인(`target_uid == actor`) 전면 금지 제거(이미 멤버·초대대기는 기존 SQL로 차단)
+- `AdminProjectMembersPage`: `openAddModal`·`runExtSearch`에서 본인 무조건 제외 제거, 비멤버일 때「본인 참여 추가」블록·`handleSelfAddRejoin`
+
+Changed files: Backend/admin_server/service_projects.py, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, docs/log/log.md
 
 398. 2026-04-15 권한 사용현황「권한」드릴다운: 사용자별 목록 API에 ptcpnt_user_id 포함(저장 버튼)
 Purpose: `GET /api/admin/roles/users/{user_id}/usages`가 `ptcpnt_user_id`를 내려주지 않아 `AdminRolesPage`의 `handleSaveParticipantRole`가 조용히 return — 사용현황 모달에서「권한」→ 수정→저장(`ibank-btn-table--primary`)이 동작하지 않음.

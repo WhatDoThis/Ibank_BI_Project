@@ -8,7 +8,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시; 매핑은 main table_master만)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE)
-4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member / remove_member(잔존 project_invite 정리) / update_member_role
+4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member(본인 재참여 허용·이미 멤버·초대대기는 SQL로 차단) / remove_member(잔존 project_invite 정리) / update_member_role
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
@@ -1127,7 +1127,8 @@ def add_member(
     ptcpnt_user_id: int,
     pmssn_master_id: int,
 ) -> dict[str, Any]:
-    """부서 트리 소속이면 즉시 `project_ptcpnt_info` INSERT, 아니면 `create_project_full` 타부서와 동일 JSON `project_invite` INSERT."""
+    """부서 트리 소속이면 즉시 `project_ptcpnt_info` INSERT, 아니면 타부서와 동일 `project_invite` 알림.
+    actor==target(본인 재참여) 허용 — 이미 멤버·미수락 초대는 아래에서 거절한다."""
     cur = conn.cursor()
     try:
         pid = int(project_info_id)
@@ -1138,11 +1139,6 @@ def add_member(
 
         _assert_project_owned(cur, adpt, pid)
         _assert_pmssn_for_project(cur, pid, mid)
-
-        if target_uid == aid:
-            raise ValueError(
-                "본인을 프로젝트 멤버로 추가하거나 초대할 수 없습니다."
-            )
 
         cur.execute(
             "SELECT user_id FROM user_info WHERE user_id = %s",

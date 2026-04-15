@@ -2,13 +2,13 @@
  * app/admin/AdminProjectMembersPage.jsx (프로젝트 멤버)
  * =============================================
  * GET members: items(참여) + pending_invites(미수락 타부서 알림), user_department_display. POST/PATCH/DELETE members.
- * 상단「멤버 추가」: 프로젝트 생성 모달과 같은 ap__modal--create-wide·부서 내 테이블 + 타부서 검색 초대.
- * API: 부서 트리 소속은 즉시 추가(outcome member_added), 타부서는 project_invite 알림(outcome invite_sent).
+ * 상단「멤버 추가」: ap__modal--create-wide·부서 내 테이블 + 타부서 검색 초대·멤버에 없을 때「본인을 멤버로 추가」(재참여).
+ * API: 부서 트리 소속은 즉시 추가(outcome member_added), 타부서는 project_invite 알림(outcome invite_sent). 본인은 멤버·초대대기가 아니면 목록·추가 가능(add_member).
  * pending 행: 초대중·초대 취소. 활성 행: 권한 편집·제거.
  *
  * [Main Functions]
  * ===========
- * - AdminProjectMembersPage
+ * - AdminProjectMembersPage, handleSelfAddRejoin(본인 POST 멤버·모달 닫기)
  *
  * [Dependencies]
  * =========
@@ -81,6 +81,8 @@ export default function AdminProjectMembersPage() {
   const [extSearchBusy, setExtSearchBusy] = useState(false)
   const [highlightDeptUserIds, setHighlightDeptUserIds] = useState(() => new Set())
   const [highlightExtKeys, setHighlightExtKeys] = useState(() => new Set())
+  /** 멤버 추가 모달: 본인 재참여용 기본 권한 */
+  const [selfAddRoleId, setSelfAddRoleId] = useState('')
 
   const [roleEdits, setRoleEdits] = useState({})
 
@@ -142,6 +144,7 @@ export default function AdminProjectMembersPage() {
     setExtSearchResults([])
     setHighlightDeptUserIds(new Set())
     setHighlightExtKeys(new Set())
+    setSelfAddRoleId('')
   }
 
   async function openAddModal() {
@@ -159,10 +162,11 @@ export default function AdminProjectMembersPage() {
       const users = Array.isArray(tu?.items) ? tu.items : []
       const ritems = Array.isArray(tr?.items) ? tr.items : []
       setAssignableRoles(ritems)
+      const firstRid = ritems[0]?.pmssn_master_id
+      setSelfAddRoleId(firstRid != null ? String(firstRid) : '')
       const treeIds = new Set(users.map((u) => u.user_id).filter((id) => id != null))
       setDeptTreeUserIds(treeIds)
       const exclude = new Set(memberAndPendingUserIds)
-      if (me?.user_id != null) exclude.add(Number(me.user_id))
       setDeptMemberRows(
         users
           .filter((u) => u.user_id != null && !exclude.has(Number(u.user_id)))
@@ -184,6 +188,37 @@ export default function AdminProjectMembersPage() {
     if (addFormBusy) return
     resetAddModalFields()
     setAddModalOpen(false)
+  }
+
+  async function handleSelfAddRejoin() {
+    if (pid == null || me?.user_id == null) return
+    const uid = Number(me.user_id)
+    const mid = Number(selfAddRoleId)
+    if (!mid) {
+      setError('프로젝트 권한을 선택하세요.')
+      return
+    }
+    if (!confirmCrud('본인을 이 프로젝트 멤버로 추가할까요?')) return
+    setAddFormBusy(true)
+    setError('')
+    setOk('')
+    try {
+      const res = await postAdminProjectMember(pid, {
+        ptcpnt_user_id: uid,
+        pmssn_master_id: mid,
+      })
+      if (res?.outcome === 'invite_sent') {
+        setOk('초대 알림을 보냈습니다. 알림에서 수락해 주세요.')
+      } else {
+        setOk('멤버로 추가되었습니다.')
+      }
+      closeAddModal()
+      await loadMembers()
+    } catch (e) {
+      setError(e?.message || '본인 추가에 실패했습니다.')
+    } finally {
+      setAddFormBusy(false)
+    }
   }
 
   function setDeptRowChecked(uid, checked) {
@@ -209,7 +244,6 @@ export default function AdminProjectMembersPage() {
       const data = await getAdminUsersSearch(q)
       const items = Array.isArray(data?.items) ? data.items : []
       const inDept = new Set(deptTreeUserIds)
-      if (me?.user_id != null) inDept.add(Number(me.user_id))
       const ex = new Set(memberAndPendingUserIds)
       setExtSearchResults(
         items.filter(
@@ -464,6 +498,51 @@ export default function AdminProjectMembersPage() {
                 className="ap__modal-form ap__modal-form--create"
                 onSubmit={handleAddModalSubmit}
               >
+                {me?.user_id != null &&
+                !memberAndPendingUserIds.has(Number(me.user_id)) ? (
+                  <div className="ap__create-section">
+                    <div className="ap__create-section-title">본인 참여 추가</div>
+                    <p className="ap__hint" style={{ marginTop: 0 }}>
+                      멤버 목록에서 본인을 제외한 경우, 부서 트리에서 선택하거나 여기서 권한을 고른 뒤 바로 추가할 수 있습니다.
+                    </p>
+                    <div
+                      className="ap__row"
+                      style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}
+                    >
+                      <label
+                        className="ap__label"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, margin: 0 }}
+                      >
+                        프로젝트 권한
+                        <select
+                          className="ap__select ap__select--sm"
+                          value={selfAddRoleId}
+                          onChange={(ev) => setSelfAddRoleId(ev.target.value)}
+                          disabled={addFormBusy || assignableRoles.length === 0}
+                        >
+                          <option value="">선택</option>
+                          {assignableRoles.map((x) => (
+                            <option
+                              key={String(x.pmssn_master_id)}
+                              value={String(x.pmssn_master_id)}
+                            >
+                              {x.pmssn_name || x.pmssn_master_id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="ibank-btn-toolbar"
+                        disabled={addFormBusy || !selfAddRoleId}
+                        onClick={() => handleSelfAddRejoin()}
+                      >
+                        본인을 멤버로 추가
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">부서 내 참여자 추가</div>
                   <p className="ap__hint" style={{ marginTop: 0 }}>
