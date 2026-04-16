@@ -1,6 +1,13 @@
 # Log
 
 ## Log Index
+409. 2026-04-15 docs/main/07: 시스템 로그 통합(관리자 감사)·ISMS-P 선택 과제 보강
+408. 2026-04-15 docs/main/07: 시스템 로그—스케줄 ETL은 ETL 로그만·액션 유발만 system_log
+407. 2026-04-15 docs/main/07: 시스템 로그 절—상관 ID·UA·DDL 범위·배치 로깅 설명 보강
+406. 2026-04-15 docs/main/07: 추가 개발—로그인 이력 권한(SA·A)·시스템 로그(system_db) 과제
+405. 2026-04-15 docs/main/07: 오타 수정·추가 개발 필요사항 절(로그인 이력·권한 알림·선택 과제)
+404. 2026-04-15 docs/main/07: §11.x 요구자격·O 제한·부서 SA_DEV 반영(코드·05 대조)
+403. 2026-04-15 docs/main/07: §11.1 번호 수정·§11.3~11.5 사용자 스타일 정리
 402. 2026-04-15 docs/main/07: 위젯보드 캔버스 절 추가·§11.2~11.5·부록 보강(313행 이후만)
 401. 2026-04-15 admin-pages: ap__label--inline-select 라벨 줄바꿈 방지(nowrap)
 400. 2026-04-15 admin-pages: create 섹션 셀렉트(sm)+툴바 버튼 정렬·높이·셀렉트 폭(ap__create-section-tools)
@@ -405,6 +412,69 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+409. 2026-04-15 docs/main/07: 시스템 로그 통합(관리자 감사)·ISMS-P 선택 과제 보강
+Purpose: 관리자 고위험 작업을 system_log 컬럼으로 통합하고, ISMS-P·심사 관점 선택 과제를 문서에 반영.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: 과제 3에 9) 통합, 선택 과제 1을 ISMS-P 요약·링크·개선 검토 요소로 교체
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+408. 2026-04-15 docs/main/07: 시스템 로그—스케줄 ETL은 ETL 로그만·액션 유발만 system_log
+Purpose: ETL 주기 실행과 시스템 로그 역할 분리를 문서에 반영.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: 과제 3 목적·channel·7) 배치 정책
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+407. 2026-04-15 docs/main/07: 시스템 로그 절—상관 ID·UA·DDL 범위·배치 로깅 설명 보강
+Purpose: 용어 해설과 일반 사용자 DDL·배치 로그 정책을 사용자 기능 설명서 추가 개발 절에 반영.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+406. 2026-04-15 docs/main/07: 추가 개발—로그인 이력 권한(SA·A)·시스템 로그(system_db) 과제
+Purpose: 사용자 관리 접근자의 로그인 이력 조회 범위와 시스템 DDL/DML·앱 경유 DB 접근 로그 과제를 명세에 반영.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: 추가 개발 필요사항 §과제 1·3 보강, 선택 과제와 중복 시 통합 안내
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+405. 2026-04-15 docs/main/07: 오타 수정·추가 개발 필요사항 절(로그인 이력·권한 알림·선택 과제)
+Purpose: 전체 교정(맞춤법·띄어쓰기·오기) 및 미구현 기능 명세를 문서 말미에 반영.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: 띄어쓰기·오기(진입화면면·첨여 등), `## 추가 개발 필요사항` 본문 작성
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+404. 2026-04-15 docs/main/07: §11.x 요구자격·O 제한·부서 SA_DEV 반영(코드·05 대조)
+Purpose: `docs/main/05_Permission_ARCHITECTURE.md`, `admin_server/service_projects.py`, 관리 화면 JSX와 사용자 기능 설명서 §11을 맞춤.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: §11.1·11.2 요구자격에 SA_DEV, §11.3 목록·생성·수정·비활성·Purge·O 전용 제한(이름·설명만·기능·매핑 비활성), §11.4 O는 U만 권한·제외, §11.5 SA·SA_DEV·트리·이관·삭제 안내
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+403. 2026-04-15 docs/main/07: §11.1 번호 수정·§11.3~11.5 사용자 스타일 정리
+Purpose: §11.1·11.2 사용자 문체에 맞춰 프로젝트 관리·멤버·부서 절을 보강하고, 요구자격·작업-절·목록→수정 흐름을 통일했다.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: §11.1 중복 번호(2.)를 3·4로 정리, §11.3~11.5 요구자격·항목 구조·굵게 최소화
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
 
 402. 2026-04-15 docs/main/07: 위젯보드 캔버스 절 추가·§11.2~11.5·부록 보강(313행 이후만)
 Purpose: 사용자 기능 설명서에 목록 이후 캔버스 동작을 넣고, 권한·프로젝트·멤버·부서 관리 설명을 앞선 절 톤에 맞춰 확장.

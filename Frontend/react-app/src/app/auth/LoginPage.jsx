@@ -118,7 +118,7 @@ export default function LoginPage() {
         )}
         {step === 'code' && (
           <form onSubmit={handleVerify} className="login-page__form">
-            <p className="login-page__hint">이메일(또는 서버 로그)로 전달된 인증 코드를 입력하세요.</p>
+            <p className="login-page__hint">이메일로 전달된 인증 코드를 입력하세요.</p>
             <label className="login-page__label">
               인증 코드
               <input
