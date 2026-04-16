@@ -932,7 +932,7 @@ export default function MainArea({
             </button>
           </div>
         </div>
-        <textarea readOnly value={executedSql} placeholder="실행 후 SQL이 여기에 표시됩니다" id="sqlDisplay" className="qs-sql-textarea" />
+        <textarea readOnly value={executedSql} placeholder="현재 조건 기준 SQL (실행 여부와 관계없이 갱신)" id="sqlDisplay" className="qs-sql-textarea" />
         {explanation != null && (
           <div className="explanation-area">
             <div className="explanation-header">

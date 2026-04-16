@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, executedSql, explanation, pagination. 실행 성공 시 lastSuccessWorkspaceRef 스냅샷, 실패 시 빌더·결과 원상복구
+ * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, explanation, pagination. SQL 문자열은 빌더 상태로부터 useMemo(workspaceSql)로 항상 최신 반영. 실행 성공 시 lastSuccessWorkspaceRef 스냅샷, 실패 시 빌더·결과 원상복구
  * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출 (main_db만)
  * 3. QueryStudioPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
  * 4. /me project_info_id 변경(헤더 프로젝트 전환): resetBuilderState·테이블 재로드·안내 토스트
@@ -63,7 +63,6 @@ function cloneWorkspaceSnapshot(o) {
     joinOrderData: o.joinOrderData ? JSON.parse(JSON.stringify(o.joinOrderData)) : null,
     currentPage: o.currentPage,
     pageSize: o.pageSize,
-    executedSql: o.executedSql,
     resultData: cloneRows(o.resultData),
     totalCount: o.totalCount,
   }
@@ -87,7 +86,6 @@ export default function QueryStudioPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   /** null: 아직 COUNT 안 함(실행만으로는 전체 건수 미조회) */
   const [totalCount, setTotalCount] = useState(null)
-  const [executedSql, setExecutedSql] = useState('')
   const [explanation, setExplanation] = useState(null)
   const [toast, setToast] = useState(null)
   const [showSaveAsTableModal, setShowSaveAsTableModal] = useState(false)
@@ -151,6 +149,40 @@ export default function QueryStudioPage() {
     })
     return configs
   }, [relationshipOptions, joinConditions, joinTypes, joinLogicalOperators])
+
+  /** 실행 여부와 무관하게 현재 빌더 조건 기준 SELECT (표시·복사·저장·해석 공통) */
+  const workspaceSql = useMemo(() => {
+    if (gridColumns.length === 0) return ''
+    try {
+      const options = {
+        groupBy,
+        dateGranularity,
+        havings,
+        pivot,
+        pivotRowAggs,
+        joinConfigs,
+        joinOrder: joinOrderData?.join_order,
+      }
+      return generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, options)
+    } catch {
+      return ''
+    }
+  }, [
+    gridColumns,
+    addedTables,
+    filters,
+    orderBy,
+    currentPage,
+    pageSize,
+    tableRelationships,
+    joinConfigs,
+    joinOrderData,
+    groupBy,
+    dateGranularity,
+    havings,
+    pivot,
+    pivotRowAggs,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -295,7 +327,6 @@ export default function QueryStudioPage() {
     setResultData([])
     setCurrentPage(1)
     setTotalCount(null)
-    setExecutedSql('')
     setExplanation(null)
     setShowSaveAsTableModal(false)
     setSaveAsTableName('')
@@ -525,16 +556,14 @@ export default function QueryStudioPage() {
       const msg = warnings.length === 1 ? warnings[0].message : `경고 ${warnings.length}건: ${warnings.map((w) => w.message).join('; ')}`
       showToast('warning', msg)
     }
-    const priorSql = executedSql
     const priorResult = resultData
     const priorTotal = totalCount
     setQueryRunning(true)
     try {
       setTotalCount(null)
       const options = { groupBy, dateGranularity, havings, pivot, pivotRowAggs, joinConfigs, joinOrder: joinOrderData?.join_order }
-      // 1) 먼저 쿼리문 생성·표시 후 실행 (joinOrder 있으면 A→B, A→C 브랜치 지원). 전체 건수 COUNT는 별도 버튼으로만 실행.
+      // 1) 현재 조건 기준 SQL 생성 후 실행 (joinOrder 있으면 A→B, A→C 브랜치 지원). 전체 건수 COUNT는 별도 버튼으로만 실행.
       const sql = generateSQL(gridColumns, addedTables, filters, orderBy, currentPage, pageSize, tableRelationships, options)
-      setExecutedSql(sql)
 
       const res = await apiExecuteQuery(sql)
       const nextRows = res.data || []
@@ -555,7 +584,6 @@ export default function QueryStudioPage() {
         joinOrderData,
         currentPage,
         pageSize,
-        executedSql: sql,
         resultData: nextRows,
         totalCount: null,
       })
@@ -580,12 +608,10 @@ export default function QueryStudioPage() {
         setJoinOrderData(snap.joinOrderData ? JSON.parse(JSON.stringify(snap.joinOrderData)) : null)
         setCurrentPage(snap.currentPage)
         setPageSize(snap.pageSize)
-        setExecutedSql(snap.executedSql)
         setResultData(typeof structuredClone === 'function' ? structuredClone(snap.resultData) : JSON.parse(JSON.stringify(snap.resultData || [])))
         setTotalCount(snap.totalCount)
         setExplanation(null)
       } else {
-        setExecutedSql(priorSql)
         setResultData(Array.isArray(priorResult) ? priorResult.slice() : priorResult)
         setTotalCount(priorTotal)
       }
@@ -613,7 +639,6 @@ export default function QueryStudioPage() {
     joinLogicalOperators,
     relationshipOptions,
     showToast,
-    executedSql,
     resultData,
     totalCount,
   ])
@@ -654,7 +679,27 @@ export default function QueryStudioPage() {
       runExecuteQueryRef.current()
     }, 400)
     return () => clearTimeout(tid)
-  }, [autoExecute, gridColumns, addedTables, filters, orderBy, currentPage, pageSize, joinOrderData, pivot, havings])
+  }, [
+    autoExecute,
+    gridColumns,
+    addedTables,
+    filters,
+    orderBy,
+    currentPage,
+    pageSize,
+    joinOrderData,
+    pivot,
+    pivotRowAggs,
+    havings,
+    groupBy,
+    dateGranularity,
+    joinConditions,
+    joinTypes,
+    joinLogicalOperators,
+    tableRelationships,
+    joinConfigs,
+    relationshipOptions,
+  ])
 
   const moveColumn = useCallback((fromIndex, toIndex, insertBefore) => {
     setGridColumns((prev) => {
@@ -904,40 +949,40 @@ export default function QueryStudioPage() {
   }, [])
 
   const copySql = useCallback(() => {
-    if (!executedSql) {
+    if (!workspaceSql) {
       showToast('warning', '복사할 SQL이 없습니다')
       return
     }
-    navigator.clipboard.writeText(executedSql).then(
+    navigator.clipboard.writeText(workspaceSql).then(
       () => showToast('success', 'SQL이 클립보드에 복사되었습니다'),
       () => showToast('error', '복사 실패')
     )
-  }, [executedSql, showToast])
+  }, [workspaceSql, showToast])
 
   const runExplainSql = useCallback(async () => {
-    if (!executedSql) {
-      showToast('warning', '실행된 쿼리가 없습니다')
+    if (!workspaceSql) {
+      showToast('warning', '표시할 SQL이 없습니다')
       return
     }
     setExplanation('loading')
     try {
-      const data = await explainSql(executedSql)
+      const data = await explainSql(workspaceSql)
       setExplanation(data.explanation || '')
       showToast('success', '해석 완료')
     } catch (e) {
       setExplanation('❌ 해석 실패: ' + (e.message || 'API 호출 실패'))
       showToast('error', 'Claude API 호출 실패')
     }
-  }, [executedSql, showToast])
+  }, [workspaceSql, showToast])
 
   const openSaveAsTableModal = useCallback(() => {
-    if (!executedSql || !executedSql.trim()) {
-      showToast('warning', '먼저 쿼리를 실행한 뒤 저장하세요.')
+    if (!workspaceSql || !workspaceSql.trim()) {
+      showToast('warning', '저장할 SQL이 없습니다. 컬럼을 추가하거나 조건을 확인하세요.')
       return
     }
     setSaveAsTableName('')
     setShowSaveAsTableModal(true)
-  }, [executedSql, showToast])
+  }, [workspaceSql, showToast])
 
   const confirmSaveAsTable = useCallback(async () => {
     const name = (saveAsTableName || '').trim()
@@ -951,7 +996,7 @@ export default function QueryStudioPage() {
     }
     setSaveAsTableSubmitting(true)
     try {
-      const res = await saveQueryAsTable(name, executedSql)
+      const res = await saveQueryAsTable(name, workspaceSql)
       setShowSaveAsTableModal(false)
       setSaveAsTableName('')
       showToast('success', res.message || '저장이 대기열에 등록되었습니다. 백그라운드에서 처리됩니다.')
@@ -984,7 +1029,7 @@ export default function QueryStudioPage() {
     } finally {
       setSaveAsTableSubmitting(false)
     }
-  }, [saveAsTableName, executedSql, showToast])
+  }, [saveAsTableName, workspaceSql, showToast])
 
   const clearAll = useCallback(() => {
     resetBuilderState('success', '초기화되었습니다')
@@ -1106,7 +1151,7 @@ export default function QueryStudioPage() {
           totalCount={totalCount}
           countLoading={countLoading}
           onFetchTotalCount={runFetchTotalCount}
-          executedSql={executedSql}
+          executedSql={workspaceSql}
           explanation={explanation}
           onAddColumn={addColumn}
           onAddTableColumns={addTableColumns}
