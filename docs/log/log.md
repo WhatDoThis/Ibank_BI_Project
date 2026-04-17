@@ -1,6 +1,10 @@
 # Log
 
 ## Log Index
+413. 2026-04-15 위젯보드 목록: 작업 열 안내 제거·상단 읽기 전용 힌트 한 줄
+412. 2026-04-15 docs/main/00_PRD: 제어 문자 제거·ASCII도·경로 복구 전수 정리
+411. 2026-04-15 docs/main/00_PRD: 간결 재작성·시스템 아키텍처·기술 스택
+410. 2026-04-15 docs/main/01·02: 프론트·백엔드 가이드 디렉터리 트리·라우터 최신 반영
 409. 2026-04-15 docs/main/07: 시스템 로그 통합(관리자 감사)·ISMS-P 선택 과제 보강
 408. 2026-04-15 docs/main/07: 시스템 로그—스케줄 ETL은 ETL 로그만·액션 유발만 system_log
 407. 2026-04-15 docs/main/07: 시스템 로그 절—상관 ID·UA·DDL 범위·배치 로깅 설명 보강
@@ -412,6 +416,43 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+413. 2026-04-15 위젯보드 목록: 작업 열 안내 제거·상단 읽기 전용 힌트 한 줄
+Purpose: 작업 컬럼 하단 긴 안내로 행 높이·줄바꿈이 어색함.
+
+Changes:
+
+- `WidgetboardListPage.jsx`: 행별 읽기 전용 안내 블록 제거, 제목 아래 `ap__hint`에 통합 문구 추가·미사용 `canEdit` 제거
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
+
+412. 2026-04-15 docs/main/00_PRD: 제어 문자 제거·ASCII도·경로 복구 전수 정리
+Purpose: BEL/BS/FF 등 C0 제어 문자와 잘못된 줄바꿈으로 깨진 auth/api/backend/frontend/require/run 등 표기를 복구하고 구성도를 코드 펜스(```)로 통일한다.
+
+Changes:
+
+- `00_PRD.md`: 제어 문자 0건 검증, 단어·백틱·API 경로 정상화
+
+Changed files: docs/main/00_PRD.md, docs/log/log.md
+
+411. 2026-04-15 docs/main/00_PRD: 간결 재작성·시스템 아키텍처·기술 스택
+Purpose: PRD를 07 스타일(목차·구간·짧은 단락)로 읽기 쉽게 줄이고, 현행 구현 기준 시스템 아키텍처·기술 스택 절을 추가한다.
+
+Changes:
+
+- `00_PRD.md`: 장문 통합·중복 ETL 제거, ASCII 구성도, 클라이언트/서버/DB/배포·스택(프론트·백엔드·DB·인프라·협업), 문서 표에 03_API_GUIDE 정합
+
+Changed files: docs/main/00_PRD.md, docs/log/log.md
+
+410. 2026-04-15 docs/main/01·02: 프론트·백엔드 가이드 디렉터리 트리·라우터 최신 반영
+Purpose: `Frontend/react-app/src`·`Backend/` 실제 폴더와 맞춰 01·02 아키텍처 절 갱신.
+
+Changes:
+
+- `01_FRONTEND_GUIDE.md`: app·shared·styles·widgetboard 중첩 라우트·query_studio hooks·shared API 목록·스타일 절·03 문서 설명
+- `02_BACKEND_GUIDE.md`: *_server 트리·core user_dvsn_codes·etl table_master_hook·§5.5 라우터 전체·소개 문단
+
+Changed files: docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
 
 409. 2026-04-15 docs/main/07: 시스템 로그 통합(관리자 감사)·ISMS-P 선택 과제 보강
 Purpose: 관리자 고위험 작업을 system_log 컬럼으로 통합하고, ISMS-P·심사 관점 선택 과제를 문서에 반영.

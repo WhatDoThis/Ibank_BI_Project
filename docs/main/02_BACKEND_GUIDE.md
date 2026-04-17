@@ -1,6 +1,6 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/query_studio_server`, `Backend/api_server`(호스트 앱), `Backend/etl_server`, `Backend/campaign_dash_server`.  
+본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/api_server`(호스트), `Backend/auth_server`, `Backend/project_server`, `Backend/notification_server`, `Backend/admin_server`, `Backend/query_studio_server`, `Backend/etl_server`, `Backend/campaign_dash_server`, `Backend/widget_board_server`.  
 **목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. 레이어·의존 방향·작업 유형별 탐색은 **docs/report/03_AI_DEVELOP_GUIDE.md** 참고. 백엔드 **코드·흐름 통합** 레퍼런스 **03_API_GUIDE.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
 
 ---
@@ -9,7 +9,7 @@
 
 ### 1.1 역할
 
-- **FastAPI** 기반 REST API 서버. **`Backend/api_server/main.py`** 에서 health → **auth** → **project** → **notification** → **admin** → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) 순으로 라우터를 등록한다.
+- **FastAPI** 기반 REST API 서버. **`Backend/api_server/main.py`** 에서 health → **auth** → **project** → **notification** → **admin** → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) → **widget_board_server**(`require_permission("widgetboard")`) 순으로 라우터를 등록한다.
 - **PostgreSQL** 연동: **메인 DB**(쿼리 스튜디오·execute-query 물리 테이블), **시스템 DB**(`ibank_system_data` — ETL 메타·`user_info`·부서·프로젝트·`pmssn_master`·매핑 등, **04_DB_ARCHITECTURE.md**), **dash_db**(캠페인 대시보드 Star·집계 물리 테이블).
 - **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
 - **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. **lifespan**에서 ETL **폴더/DB 배치 스케줄러**(APScheduler) 기동. ETL **Job 큐 워커**(`queue_worker`)는 `/api/etl` 등에서 pending Job이 등록될 때 **최초 1회** 백그라운드 기동(pending → running, **동시 최대 3건**, `MAX_CONCURRENT`).
@@ -37,59 +37,55 @@
 
 ```
 Backend/
-├── core/                          # 공유 DB·의존성·대시보드 집계·설정·로깅 (여러 서버가 import)
-│   ├── db.py                      # config.backend 기반 DB 연결(get_main_db_config, get_allowed_tables, get_db_connection, get_db_connection_system, get_db_connection_dash 등)
-│   ├── sql_safety.py              # contains_dangerous_sql — query_studio execute-query·widget_board query 소스 공통 검사
-│   ├── dependencies.py            # get_db, get_config (요청 단위 주입)
-│   ├── auth_config.py             # JWT·SMTP·get_app_url (인증·초대 메일)
-│   ├── logging_setup.py           # 루트 로거 포맷: asctime / [LEVEL] message
-│   ├── dashboard_service.py       # 대시보드 집계 비즈니스 로직 (campaign_dash_server 등)
-│   └── invite_expiry.py           # 초대 JSON `invite_expires_at`(UTC ISO) 만료 판별 — 프로젝트·위젯보드·어드민 목록 공유
+├── core/                          # 공유 DB·SQL 안전·의존성·대시보드·인증 URL·로깅·초대 만료 (여러 *_server가 import)
+│   ├── db.py                      # main/system/dash/etl DB 설정·연결·허용 테이블
+│   ├── sql_safety.py              # contains_dangerous_sql — execute-query·위젯보드 등 SELECT 전용 검사
+│   ├── dependencies.py            # get_db, get_config
+│   ├── auth_config.py             # JWT·SMTP·get_app_url
+│   ├── logging_setup.py
+│   ├── dashboard_service.py       # 대시보드 집계(물리 테이블·Star 등)
+│   ├── invite_expiry.py           # 초대 만료 공통
+│   └── user_dvsn_codes.py         # user_dvsn 정규화(조직 역할 코드)
 │
-├── query_studio_server/           # 쿼리 스튜디오 API (prefix /api, etl_server와 동급 패키지)
-│   ├── router.py                  # list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats
-│   ├── schemas.py                 # 쿼리 스튜디오 전용 Pydantic 요청 스키마
+├── api_server/                    # FastAPI 호스트 — 앱 조립·CORS·라우터 등록·lifespan
+│   ├── main.py
+│   └── routers/
+│       ├── __init__.py            # health_router, query_studio_router 재export
+│       └── health.py
+│
+├── auth_server/                   # /api/auth — 로그인·2FA·refresh·me·가입·비밀번호
+│   ├── router.py, service.py, deps.py, permissions.py, security.py
+│   ├── email_service.py, schemas.py
+│
+├── project_server/                # /api/projects — 목록·선택(JWT)·생성·초대 수락 등
+│   ├── router.py, service.py
+│
+├── notification_server/           # /api/notifications
+│   ├── router.py, service.py
+│
+├── admin_server/                  # /api/admin — 부서·사용자·권한·프로젝트·멤버
+│   ├── router.py, deps.py, schemas.py
+│   ├── service.py, service_users.py, service_projects.py, service_roles.py, service_tables.py
+│   └── ownership_guards.py        # 정지·역할 변경 시 소유 자산 409 매트릭스
+│
+├── query_studio_server/           # /api/* (list-tables, execute-query 등) — prefix /api
+│   ├── router.py, schemas.py
 │   ├── pluralize.py, relationship_inference.py, join_path.py, join_metrics.py, peak_guard.py
 │
-├── api_server/                    # FastAPI 호스트: 앱 조립·CORS·라우터 등록
-│   ├── main.py                    # FastAPI 앱·CORS·라우터·lifespan(배치 스케줄러)·예외 핸들러
-│   └── routers/
-│       ├── __init__.py            # health + query_studio_server.router 재export
-│       └── health.py              # GET /, /api, /api/, /health
+├── etl_server/                    # /api/etl, /api/etl/batch
+│   ├── router.py, router_file.py
+│   ├── service.py, service_file.py, load_service.py, load_service_file.py, db_load_service.py
+│   ├── batch_executor_file.py, batch_executor_db.py, folder_adapter_file.py
+│   ├── csv_reader.py, parser_file.py, scheduler_file.py, queue_worker.py
+│   ├── preview_service.py, schema_infer.py
+│   ├── transform_engine.py, transform_rules_service.py, transform_upsert_verification.py
+│   ├── etl_limits.py, table_master_hook.py, timezone_utils.py
 │
-├── auth_server/                   # /api/auth — 로그인·JWT·2FA·초대
-├── project_server/                # /api/projects
-├── notification_server/           # /api/notifications
-├── admin_server/                  # /api/admin — 부서·사용자·권한·프로젝트
+├── campaign_dash_server/          # /api/campaign-dashboard — Star 집계
+│   ├── router.py, campaign_period.py
 │
-├── etl_server/                    # ETL API (단일) — /api/etl, /api/etl/batch
-│   ├── router.py                  # prefix /api/etl — connections, tables, jobs, storage-connections, target-tables, infer-schema, source-columns, source-indexes, transform/preview, preview, run, add-file, add-files-zip 등
-│   ├── router_file.py             # prefix /api/etl/batch — jobs, target-registry, run/now, history, jobs/from-etl-table 등
-│   ├── service.py                 # 메타 CRUD·get_target_db_connection·list_storage_connections·on_row_error
-│   ├── service_file.py            # batch_jobs·batch_run_history·etl_batch_target_registry·create_batch_job·update_run_progress
-│   ├── load_service.py            # 파일 적재·storage_connection_id·column_mapping
-│   ├── load_service_file.py       # 폴더 배치 적재·_batch_upsert(삽입/갱신 구분)
-│   ├── db_load_service.py         # DB 적재·COPY FROM STDIN·on_row_error
-│   ├── batch_executor_file.py     # run_batch_job·load_dataframe·update_run_progress
-│   ├── batch_executor_db.py       # run_db_batch_job·diff·_fetch_source_pk
-│   ├── folder_adapter_file.py     # SFTP/S3·download_file_head
-│   ├── csv_reader.py              # read_csv_robust
-│   ├── parser_file.py             # get_pending_files
-│   ├── scheduler_file.py          # APScheduler
-│   ├── preview_service.py         # get_preview·_get_preview_with_transform
-│   ├── queue_worker.py            # pending Job·동시 최대 3건(MAX_CONCURRENT)
-│   ├── schema_infer.py            # infer_schema
-│   ├── transform_engine.py        # 변환 룰 적용
-│   ├── transform_rules_service.py # etl_transform_rules CRUD
-│   ├── etl_limits.py              # get_etl_limits·get_max_zip_extract_total_mb
-│   └── transform_upsert_verification.py
-│
-├── campaign_dash_server/          # 캠페인 대시보드 API (/api/campaign-dashboard)
-│   ├── router.py                  # GET …/page(번들), summary, trend, trend-multi, tables, member-summary, delivery-demographics, hourly — Star 테이블(ibank_*_star_1/2)
-│   └── campaign_period.py         # 기간·전기간·팩트 상한일·trend-multi 창 — 라우터와 공통 해석
-│
-└── widget_board_server/           # 위젯 보드 (/api/widget-boards)
-    ├── router.py, service.py, schemas.py
+└── widget_board_server/           # /api/widget-boards — 보드·레이아웃·참여자
+    ├── router.py, service.py, schemas.py, constants.py
 ```
 
 - **라우터 등록 순서**: health → auth → project → notification → admin → **query_studio_router** → **etl_router** → **campaign_dashboard_router** → **widget_board_router** (`api_server/main.py` 의 `include_router` 순서).
@@ -345,7 +341,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 - **get_main_db_config()**, **get_allowed_tables(project_info_id, …)**, **get_db_connection()**: config.backend 기반 비즈니스(메인) DB 연결(허용 테이블은 프로젝트 매핑 필수).
 - **get_db_connection_system()**, **get_system_table_schema()**: backend.system_db 기반 시스템 DB(ETL 메타).
 - **get_dash_db_config()**, **get_dash_table_schema()**, **get_db_connection_dash()**, **is_new_dash_physical_table()**, **validate_dashboard_data_table_name()**: backend.dash_db 기반 뉴 대시보드·캠페인 대시보드 물리 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등).
-- 프레임워크 무관(Flask/FastAPI 공통) 사용. **etl_server·campaign_dash_server** 등이 동일 모듈을 import.
+- 프레임워크 무관(Flask/FastAPI 공통) 사용. **etl_server·campaign_dash_server·widget_board_server·admin_server** 등이 동일 모듈을 import.
 
 ### 5.3 core/dependencies.py
 
@@ -359,8 +355,14 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 ### 5.5 routers (등록 소스)
 
 - **health_router** (`api_server/routers/health.py`): GET /, /api, /api/, /health.
+- **auth_router** (`auth_server/router.py`): `/api/auth/*`.
+- **project_router** (`project_server/router.py`): `/api/projects`.
+- **notification_router** (`notification_server/router.py`): `/api/notifications`.
+- **admin_router** (`admin_server/router.py`): `/api/admin/*`.
 - **query_studio_router** (`query_studio_server/router.py`): prefix=/api. list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats. execute-query 시 SELECT만 허용·금지 키워드 검사.
+- **etl_router** (`etl_server/router.py` + `router_file.py`): `/api/etl`, `/api/etl/batch` — 전체에 `require_etl_infrastructure` 의존성(등록 방식은 `main.py` 참고).
 - **campaign_dashboard_router** (`campaign_dash_server/router.py`): prefix=/api/campaign-dashboard. **core.dashboard_service** 등 호출.
+- **widget_board_router** (`widget_board_server/router.py`): prefix=/api/widget-boards — 보드·레이아웃·참여·위젯 인스턴스 등.
 
 ### 5.6 core/dashboard_service.py
 
@@ -446,7 +448,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 00_PRD.md | 제품 요구사항·아키텍처·설정·기능 요약 |
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 (본 문서) |
-| 03_API_GUIDE.md | 모듈별 기능 표·시스템 흐름 도식·core/auth/admin 등 |
+| 03_API_GUIDE.md | 모듈별 API·인증 흐름·엔드포인트 통합 레퍼런스(대용량) |
 | docs/report/03_AI_DEVELOP_GUIDE.md | 레이어·의존 방향·DB 연결 매트릭스·확장 체크리스트 (AI·온보딩) |
 
 - docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE·docs/report/03_AI_DEVELOP_GUIDE.md.**

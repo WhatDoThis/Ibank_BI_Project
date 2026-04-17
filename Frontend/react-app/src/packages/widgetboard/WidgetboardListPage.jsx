@@ -1,7 +1,7 @@
 /**
  * packages/widgetboard/WidgetboardListPage.jsx (위젯 보드 목록)
  * ============================================================
- * 프로젝트 단위 보드 목록(소유·공유). 캔버스 진입·제목/설명 수정·초대·비활성/활성·삭제·참여자 모달.
+ * 프로젝트 단위 보드 목록(소유·공유). 캔버스 진입·제목/설명 수정·초대·비활성/활성·삭제·참여자 모달. 읽기 전용 안내는 상단 ap__hint에만 표시.
  *
  * [Main Functions]
  * ===========
@@ -318,6 +318,9 @@ export default function WidgetboardListPage() {
           <p className="ap__hint">
             소유·초대(수락 후)·프로젝트 범위(project) 보드가 표시됩니다.
           </p>
+          <p className="ap__hint" style={{ marginTop: 4 }}>
+            편집 권한 참여자가 아닌 경우 캔버스는 읽기 전용만 가능합니다.
+          </p>
         </div>
         <button
           type="button"
@@ -358,7 +361,6 @@ export default function WidgetboardListPage() {
                   const id = row.widget_board_id
                   const active = isBoardActive(row)
                   const isOwner = Boolean(row.is_owner)
-                  const canEdit = Boolean(row.can_edit)
                   const hasShare = Boolean(row.has_share)
                   const scope = String(row.share_scope || 'private').toLowerCase()
                   const canvasOnly =
@@ -468,13 +470,6 @@ export default function WidgetboardListPage() {
                             </>
                           ) : null}
                         </div>
-                        {!isOwner && !canEdit && active ? (
-                          <div className="ap__hint" style={{ marginTop: 8, fontSize: '0.8rem' }}>
-                            {canvasOnly
-                              ? '프로젝트 범위 읽기 전용(캔버스만)'
-                              : '읽기 전용(캔버스만)'}
-                          </div>
-                        ) : null}
                       </td>
                     </tr>
                   )
