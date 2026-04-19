@@ -168,6 +168,36 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 
 ## 7. 핵심 기능 요약
 
+### 인증·관리·홈·공통(SPA)
+
+라우트·컴포넌트·파일 경로는 **01_FRONTEND_GUIDE.md §1** 을 본다. 아래는 제품 관점에서 **묶음별**로만 적는다.
+
+1) **인증(S5/S6/S7)**
+
+- **로그인**: 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login` 등.
+- **회원가입(`/signup`, 초대 코드)**: 공개 라우트. 최초 조직·계정은 DB 시드·운영 절차로 두고, 웹 공개 화면 `/create-org` 는 제공하지 않는다(백엔드 `POST /api/auth/create-org` 는 필요 시 운영 도구로 호출 가능).
+- **마이페이지**: 닉네임·비밀번호·로그인 이력 등 `PATCH /api/auth/me`·`/me/password`·`GET login-history` 등.
+
+2) **관리·알림(S8)**
+
+- 알림 벨·알림 API, 조직 관리자용 `/admin/users`·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`, 최고 관리자용 `/admin/org` 등(가드: `OrgAdminRoute`·`ProjectAdminRoute`, operator 포함·`SuperAdminRoute`).
+
+3) **관리 API 클라이언트**
+
+- 프론트 `adminClient.js` 에 roles·projects·members·invite·search 등을 둔다.
+
+4) **홈(`/`)·프로젝트·가드**
+
+- 홈 카드·진입 가능 메뉴는 `homeAccess.js`·`adminAccess.js` 로 제어한다(프로젝트 관리 카드는 operator 포함).
+- 토큰은 `localStorage`; 공통 HTTP(`shared/api/http.js`)가 `Authorization: Bearer` 및 401 시 `refresh` 후 1회 재시도.
+- 홈·프로젝트 전환: `GET /api/projects`·`POST /api/projects/{id}/select`.
+- 쿼리 스튜디오·대시보드·위젯보드 경로는 JWT에 `project_info_id` 없으면 `/` 로 유도(`NeedProjectRoute`).
+- ETL 네비·`/etl` 은 `me.etl_yn=Y` 또는 `user_dvsn=sa_dev` 일 때만(`EtlAccessRoute`).
+
+5) **헤더·작업 프로젝트**
+
+- 로그인 후 상단 **작업 프로젝트** 드롭다운(이메일·알림 벨 사이). `POST /api/projects/{id}/select` 로 전환 시 JWT가 갱신되고, 쿼리 스튜디오·캠페인 대시보드·위젯보드는 해당 프로젝트 기준으로 데이터 재조회·빌더 초기화 등이 맞춰진다.
+
 ### 쿼리 스튜디오
 
 - 사이드바·그리드·SQL 자동 생성·실행·페이지네이션·Claude 해석.
@@ -187,7 +217,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 - 소스: 파일 / DB / 폴더 배치. 동기화: Full / Incremental / Diff(PK 기준). Job 큐·워커 동시 처리 상한 등은 02·report 08·14 참고.
 - **저장 DB**: 기본 DB(`storage_connection_id` null) 또는 등록 연결. FormData·JSON 규칙은 프로젝트 컨벤션(storageDb.js)과 동일.
 
-### 공통
+### 공통(SPA·빌드 외)
 
 - API 베이스는 빌드 시 `api-config.js` 주입 또는 `getApiBase` 로 맞춘다.
 - SQL 컬럼 참조는 별칭(`t1.col`) 형태를 쓴다.

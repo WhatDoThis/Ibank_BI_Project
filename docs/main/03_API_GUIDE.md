@@ -1,25 +1,43 @@
 # 백엔드 코드·API 통합 가이드
 
-본 문서는 **`Backend/`** 이하 패키지의 **코드 파일(모듈) 단위 기능을 표로 요약**하고, **시스템·업무 흐름을 ASCII 도식**으로 정리하는 통합 레퍼런스다.  
-**구성 원칙**: 백엔드 **동작 단위(호스트 앱 → auth → admin → project → 대시보드 등)** 로 큰 절을 나누고, **라우터 마운트 순서**는 §1.1과 같다(auth 다음 project·notification·admin). **§3·§4**는 조직 관리 → 프로젝트 선택 흐름을 읽기 쉽게 admin을 project보다 앞에 둔다. **각 절에서는 흐름도 바로 아래에 그 흐름에 쓰이는 모듈·함수 표**를 둔다. (위에서 아래로 읽으면 API 한 줄의 원인을 같은 화면에서 따라갈 수 있게 한다.)
-디렉터리 트리·실행 방식·패키지 목록은 **02_BACKEND_GUIDE.md**, DB 스키마는 **04_DB_ARCHITECTURE.md**, 권한 모델은 **05_Permission_ARCHITECTURE.md**, AI 작업 분해는 **docs/report/03_AI_DEVELOP_GUIDE.md**를 병행한다.
+본 문서는 **docs/main** 내에서 **`Backend/`** 패키지를 **호스트 앱 → 인증 → 각 서버 라우터** 순으로 따라가며 정리한 **API·모듈 통합 레퍼런스**다.
 
-**도식(ASCII) 표기**: 각 흐름도 박스·주요 단계는 **`한글 단계명 (함수·Depends·엔드포인트 등 코드 식별자)`** 한 줄을 소제목으로 둔다. 괄호 안은 저장소 코드와 동일한 이름이다.
+- **표**: 모듈·파일 단위로 함수·엔드포인트를 요약한다.
+- **ASCII 흐름도**: 시스템·업무 흐름을 도식으로 보인다.
+- **절 구성**: 동작 단위(호스트 → auth → admin → project → 대시보드 등)로 §1~§7을 나눈다. **라우터 마운트 순서**는 §1.1과 같다(auth 다음 project·notification·admin). **§3·§4**는 조직 관리 → 프로젝트 선택 흐름을 읽기 쉽게 admin을 앞에 둔다.
+- **절 안 배치**: 흐름도 바로 아래에 그 흐름에 쓰이는 모듈·함수 표를 둔다(한 화면에서 API 한 줄의 원인을 추적하기 쉽게).
+
+**병행 문서**
+
+- **구조·실행·디렉터리**: **02_BACKEND_GUIDE.md**
+- **DB 스키마**: **04_DB_ARCHITECTURE.md**
+- **권한·역할**: **05_Permission_ARCHITECTURE.md**
+- **AI 작업 분해**: **docs/report/03_AI_DEVELOP_GUIDE.md**
+
+**도식(ASCII) 표기**
+
+- 흐름도 박스·주요 단계는 **`한글 단계명 (함수·Depends·엔드포인트 등 코드 식별자)`** 한 줄을 소제목으로 둔다.
+- 괄호 안 이름은 저장소 코드와 동일하게 쓴다.
 
 ---
 
-## 문서 구성 (읽는 순서)
+## 목차
 
-1. **[§1 API 호스트·공유 코어](#1-api-호스트공유-코어-api_server-core)** — 앱 기동, 로깅, DB 풀, `auth_config`·역할 코드
+아래 번호 순서대로 읽으면 된다.
+
+1. **[§1 API 호스트·공유 코어](#1-api-호스트공유-코어-api_server-core)** — 앱 기동, 로깅, DB 풀, sql_safety, invite_expiry, `auth_config`·역할 코드
 2. **[§2 auth_server](#2-auth_server-인증세션권한-게이트)** — 로그인·토큰·`require_active_access`·`require_permission`·refresh/정지 연동
 3. **[§3 admin_server](#3-admin_server-조직프로젝트-관리)** — 초대~생성~멤버, 소유 가드, 이관·정지
 4. **[§4 project_server](#4-project_server-프로젝트-목록선택초대-응답)** — 목록, `select`, 타부서 초대 수락·거절
-5. **[§5 캠페인 대시보드](#5-캠페인-대시보드-campaign_dash--core)** — [§5.3 HTTP 라우터](#53-campaign_dash_serverrouterpy) · `dashboard_service`
-6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.1 알림](#61-notification_server) · [§6.2 위젯 보드 API](#62-widget_board_server) · 쿼리 스튜디오(`list-tables`·`describe-table`)·ETL 등
+5. **[§5 캠페인 대시보드](#5-캠페인-대시보드-campaign_dash--core)** — [§5.3 HTTP 라우터](#53-campaign_dash_serverrouterpy) · `dashboard_service` · campaign_period
+6. **[§6 기타 패키지](#6-기타-패키지)** — [§6.0 패키지 한눈에](#60-패키지-한눈에) · [§6.1 알림](#61-notification_server) · [§6.2 위젯 보드](#62-widget_board_server) · [§6.3 쿼리 스튜디오](#63-query_studio_server)
+7. **[§7 etl_server](#7-etl_server)** — `/api/etl`·`/api/etl/batch`·Job 큐·변환 룰·적재 파이프라인
 
 ---
 
 ## 1. API 호스트·공유 코어 (`api_server`, `core`)
+
+FastAPI 앱 조립·공용 DB 풀·헬스·쿼리 스튜디오/ETL 등 라우터 등록이 모두 이 범주에 해당한다.
 
 ### 1.1 앱 기동 흐름
 
@@ -61,11 +79,13 @@
 │     ├─ admin_router         (/api/admin)      │
 │     ├─ query_studio_router  (/api/*)          │
 │     ├─ etl_router           (/api/etl)        │
-│     │   └─ Depends: require_etl_infrastructure│
-│     ├─ campaign_dashboard   (/api/campaign-dashboard)│
-│     │   └─ Depends: require_permission("dashboard")  │
-│     └─ widget_board         (/api/widget-boards)     │
-│         └─ Depends: require_permission("widgetboard") │
+│     │   router.py + router_file(/batch)       │
+│     │   → /api/etl/batch/*                    │
+│     │   dependencies=[Depends(require_etl_infrastructure)]│
+│     ├─ campaign_dashboard_router (/api/campaign-dashboard)│
+│     │   dependencies=[Depends(require_permission("dashboard"))]│
+│     └─ widget_board_router  (/api/widget-boards)     │
+│         dependencies=[Depends(require_permission("widgetboard"))] │
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
@@ -169,6 +189,8 @@ health, query_studio ──────→ _MAIN_DB_POOL
 auth, admin, project ──────→ _SYSTEM_DB_POOL
 etl_server ────────────────→ _ETL_DB_POOL
 campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
+widget_board (메타)  ──────→ _SYSTEM_DB_POOL
+widget_board (데이터) ─────→ _MAIN_DB_POOL 또는 _DASH_DB_POOL (data_source_type에 따라)
 ```
 
 #### `core/db.py`
@@ -183,7 +205,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 | `get_dash_table_schema` | `dash_db` 스키마명 (기본 `public`) |
 | `get_system_table_schema` | ETL 스키마 우선, system_db fallback |
 | `get_system_table_schema_core` | system_db 스키마 고정 반환 |
-| `get_allowed_tables_by_project` | 프로젝트별 허용 테이블 (매핑 기반) |
+| `get_allowed_tables_by_project` | project_info_id + db_type + 선택적 usage_query_studio/usage_widgetboard 플래그 필터 |
 | `get_allowed_tables` | `project_info_id` 필수, 매핑 기반(`get_allowed_tables_by_project`) |
 | `get_table_schema` | `main_db.table_schema`(비면 `public`; `main_db` 없으면 오류) |
 | `_table_exists` | 테이블 존재 여부 (내부) |
@@ -200,16 +222,29 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 | `get_db_connection_dash` | 대시보드 DB 풀 연결 |
 | `is_new_dash_physical_table` | `ibank_1` 계열 패턴 판별 |
 | `validate_dashboard_data_table_name` | 대시보드 테이블명 검증 |
-| `is_table_allowed_for_project_dashboard` | 프로젝트 대시보드 허용 여부 |
+| `is_table_allowed_for_project_dashboard` | `*_star_1`·`*_star_2` 물리 존재 시 매핑 없이 허용; 그 외 dash는 대시보드 기능 켜진 프로젝트는 table_master dash 카탈로그, 아니면 매핑만 |
 | `format_value` | datetime/decimal 등 JSON 직렬화 |
 | `validate_table_name` | 이름 패턴 + 스키마 존재 검증 |
 | `validate_column_name` | 컬럼명 패턴 검증 |
+| `safe_rollback` | 서버 연결 종료 후에도 InterfaceError 없이 rollback 시도 |
+| `_normalize_db_type` | db_type(main/dash) 정규화, 유효하지 않으면 ValueError |
+| `list_dash_schema_table_names` | dash_db 스키마 BASE TABLE 이름 목록(캠페인 대시보드 후보 스캔) |
+| `get_merged_allowed_table_names_for_project` | 쿼리스튜디오·위젯보드용 허용명 — main_db 매핑만(dash 제외) |
+| `validate_table_identifier` | 이름 패턴만 검증(물리 존재는 호출부에서 해당 연결·스키마로 확인) |
+| `project_dashboard_feature_enabled` | project_info.feature_flags.dash가 False가 아니면 True |
+| `get_table_master_table_names_by_db_type` | table_master에서 db_type 일치하는 table_name 집합 |
 
 #### `core/sql_safety.py`
 
 | 함수 | 기능 |
 |------|------|
-| `contains_dangerous_sql` | 세미콜론 분할 후 비SELECT 구간에서 DDL/DML 금지어 검사 — `query_studio_server` `_contains_dangerous_sql`·`widget_board_server` `fetch_widget_data`(query 타입) 공통 |
+| `contains_dangerous_sql` | 세미콜론 분할 후 비SELECT 구간에서 DDL/DML 금지어 검사 — `query_studio_server.router`의 `_contains_dangerous_sql`은 동일 모듈의 래퍼(디버그 로그 후 `contains_dangerous_sql` 호출). `widget_board_server` `fetch_widget_data`(query 타입)도 동일 `core.sql_safety` 사용 |
+
+#### `core/invite_expiry.py`
+
+| 함수 | 기능 |
+|------|------|
+| `invite_expired_from_payload` | noti_content 등 dict의 invite_expires_at(UTC ISO) 만료 여부 판별 — project·widget_board·admin 초대 목록 공유 |
 
 #### `core/dependencies.py`
 
@@ -258,6 +293,8 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 ---
 
 ## 2. `auth_server` — 인증·세션·권한 게이트
+
+로그인·토큰·세션 바인딩·`require_active_access` / `require_permission` / `require_etl_infrastructure` 등 **다른 라우터가 공통으로 거는 게이트**의 기준이다.
 
 ### 2.1 로그인·토큰·로그아웃 (프로젝트 선택은 §4)
 
@@ -316,7 +353,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 │     │  분기:                                               │
 │     │  ├─ /api/admin/* → get_authenticated_user_row        │
 │     │  │   (동일·비활성·잠금 검사) → org/프로젝트 Depends   │
-│     │  ├─ /api/etl/*   → require_etl_infrastructure        │
+│     │  ├─ /api/etl*    → require_etl_infrastructure (/batch 포함) │
 │     │  └─ 쿼리·대시·위젯 → require_permission("…")          │
 │     └────────────────────────────────────────────────────┘
 │
@@ -352,7 +389,7 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 |------|------|
 | `hash_password` | bcrypt 해시 생성 |
 | `verify_password` | bcrypt 해시 검증 |
-| `validate_password_strength` | 10자·대소문자·숫자·특수문자 정책 |
+| `validate_password_strength` | 신규 비밀번호 정책 검증 (10자·대소문자·숫자·특수문자). 가입·변경 시 적용, 로그인 시 기존 약한 비밀번호는 미검사 |
 | `hash_otp_code` | OTP SHA-256 해시 |
 | `verify_otp_code` | timing-safe OTP 비교 |
 | `hash_token` | JWT 문자열 SHA-256 hex |
@@ -387,13 +424,14 @@ campaign_dashboard ────────→ _DASH_DB_POOL (+ _MAIN_DB_POOL)
 
 | 함수 | 기능 |
 |------|------|
-| `invite_validate_row` | 초대코드 행 조회 |
-| `signup_with_invite` | 초대 기반 가입 |
+| `invite_validate_row` | 초대코드 행 조회 (프로젝트명·역할명 LEFT JOIN 포함) |
+| `signup_with_invite` | 초대 기반 가입 (`validate_password_strength` 적용. `invite_target_dvsn`·`invite_etl_yn` 반영. u 역할 + 프로젝트 지정 시 `validate_invite_user_project` → `project_ptcpnt_info` INSERT) |
 | `create_org_and_user` | 부서 + sa 생성 |
 | `login_send_code` | 1단계 로그인 |
 | `_fetch_dptmt_id_or_raise_inactive_locked` | refresh·rotate 경로에서 비활성·잠금 검사 |
 | `verify_login_complete` | 2단계 OTP 후 비활성·잠금 재확인, 세션·토큰 발급 |
-| `refresh_session_tokens` | 슬라이딩 리프레시 + 비활성·잠금 거절 |
+| `refresh_session_tokens` | 슬라이딩 리프레시 + 비활성·잠금 거절. JWT의 project_info_id가 비활성·비참여면 클레임을 제거하고 토큰 발급 |
+| `rotate_session_tokens_clear_project` | JWT·세션에서 project_info_id 클레임을 제거하고 토큰 재발급. `/me` 호출 시 JWT의 프로젝트가 비활성이거나 참여자가 아니면 자동 호출되어 `project_info_id=null`·`permissions=[]` 반환 + 새 토큰 포함 |
 | `rotate_session_tokens_with_project` | 프로젝트 선택 — `active_yn=Y`·비활성·잠금 검증 후 토큰 재발급 |
 | `logout_one_session` | 세션 만료 |
 | `invalidate_all_sessions` | 전체 세션 만료 — `do_commit` 인자 (`suspend` 등에서 `False`로 동일 트랜잭션 commit) |
@@ -425,9 +463,9 @@ HTTP 요청
         │
         ├─ /api/admin/*     → get_authenticated_user_row(= Depends(require_active_access) 후 user_dvsn 조회) → 역할·부서·프로젝트 Depends
         │
-        ├─ /api/etl/*       → require_etl_infrastructure
+        ├─ /api/etl*        → require_etl_infrastructure
         │                      (내부적으로 require_active_access)
-        │                      + sa_dev | etl_manager | etl_yn=Y
+        │                      + sa_dev | etl_manager | etl_yn=Y (/batch 포함)
         │
         └─ 프로젝트 기능 라우트 → require_permission("dashboard" 등)
                                  (내부적으로 require_active_access)
@@ -467,7 +505,7 @@ get_access_payload
 │  ├─ PATCH /api/auth/me/password                   │
 │  ├─ GET /api/auth/me/login-history                │
 │  ├─ require_permission (쿼리·대시보드·위젯)       │
-│  ├─ require_etl_infrastructure (/api/etl/*)       │
+│  ├─ require_etl_infrastructure (/api/etl*, /batch 포함) │
 │  ├─ admin_server get_authenticated_user_row       │
 │  │   (payload = Depends(require_active_access))   │
 │  └─ project·notification 등 동일 패턴              │
@@ -508,6 +546,7 @@ require_permission("dashboard") 등
 └──────────────────────────────────────────────────┘
 
 `sa_dev`·`sa`·`a`·`o`·`u` 구분 없이 동일 규칙(②③④)으로 유효 권한을 계산한다.
+조직 역할(`user_dvsn`)은 프로젝트 UI 권한을 **늘리지 않는다**(어드민·ETL은 각각 별도 가드).
 ```
 
 #### 2.3.3 리프레시·만료·슬라이딩·프로젝트 select
@@ -582,6 +621,14 @@ POST /api/auth/refresh (refresh_session_tokens)
                        │ 통과
                        ▼
 ┌──────────────────────────────────────────────────┐
+│  project_info_id 클레임 유효성 (refresh 경로)     │
+│  JWT에 project_info_id가 있으면:                  │
+│  ├─ is_project_active? NO → 클레임 제거(None)     │
+│  └─ is_project_participant? NO → 클레임 제거(None)│
+│  → 이후 토큰 발급 시 proj_claim 반영              │
+└──────────────────────┬───────────────────────────┘
+                       ▼
+┌──────────────────────────────────────────────────┐
 │  create_access_token · create_refresh_token       │
 │  session_log UPDATE (해시·access/refresh 만료)     │
 └──────────────────────────────────────────────────┘
@@ -648,10 +695,13 @@ PATCH /api/admin/users/{id}/suspend
 
 | 함수 | 기능 |
 |------|------|
-| `get_access_payload` | Bearer → access JWT payload만 추출 (`typ=access`) — **세션 미검증**. 라우터 Depends 비사용 |
+| `_parse_bearer_access_token` | Authorization 헤더 → `(원문 토큰, JWT payload)`. typ=access·exp·서명 검증 |
+| `_hash_access_token_raw` | Bearer 원문 → SHA-256 hex (`security.hash_token`과 동일, 순환 import 회피) |
+| `get_access_payload` | JWT만 검증(세션 미검증). 보호 API Depends에는 **사용하지 않음**(레거시·테스트용) |
 | `ensure_user_active_not_locked` | `system_db`에서 `user_active_yn`·`user_lock_yn` 검사 → 비활성·잠금 시 403 |
-| `require_access_session_bound` | JWT + `session_log` 바인딩(`access_token_encrypt`·`refresh_exprtn_dtm`) — **로그아웃** |
-| `require_active_access` | JWT + 활성·미잠금 + 세션 바인딩 (`_parse_bearer` → `ensure_user_active_not_locked` → `_assert_access_session_bound`) |
+| `_assert_access_session_bound` | `session_log`에서 `access_token_encrypt` SHA-256 비교 + `refresh_exprtn_dtm` 미만료 확인 |
+| `require_access_session_bound` | JWT + 세션 바인딩만 검사 (비활성·잠금 계정도 세션 종료 가능) — **로그아웃 전용** |
+| `require_active_access` | `_parse_bearer_access_token` → `ensure_user_active_not_locked` → `_assert_access_session_bound` — **대부분 보호 API** |
 
 #### `auth_server/permissions.py`
 
@@ -659,28 +709,28 @@ PATCH /api/admin/users/{id}/suspend
 |------|------|
 | `get_user_dvsn_lower` | `user_id` → `user_dvsn` 소문자 |
 | `user_has_etl_infrastructure_access` | `sa_dev`·원문 `etl_manager`·또는 `etl_yn=Y` |
-| `is_project_participant` | 프로젝트 참여 여부 |
+| `is_project_participant` | `project_ptcpnt_info` 존재 여부 |
 | `is_project_active` | `project_info.active_yn == Y` 확인 |
-| `resolve_pmssn_list_to_names` | pmssn 리스트 → 이름 정규화 |
-| `get_permission_ids_for_user_project` | 유저·프로젝트별 권한 ID 목록 |
-| `_feature_flags_dict_to_ids` | `{query,dash,widget}` → 권한 ID `frozenset` |
-| `get_project_enabled_feature_ids` | `project_info.feature_flags` → 허용 권한 ID 집합 |
-| `compute_effective_project_permission_ids` | `pmssn_list` ∩ `feature_flags` (비활성 프로젝트 → 빈 집합) |
+| `resolve_pmssn_list_to_names` | pmssn_list 배열 → `pmssn_master_detail.pmssn_detail_name` 목록으로 정규화 |
+| `get_permission_ids_for_user_project` | 유저·프로젝트별 권한 ID 목록 (`project_ptcpnt_info` → `pmssn_master.pmssn_list` → 정규화) |
+| `_feature_flags_dict_to_ids` | `{query, dash, widget}` → 권한 ID `frozenset` (`query→query.read+query.execute`, `dash→dashboard`, `widget→widgetboard`) |
+| `get_project_enabled_feature_ids` | `project_info.feature_flags` JSONB → 허용 권한 ID 집합 (NULL·컬럼 없음 → 전체 허용) |
+| `compute_effective_project_permission_ids` | `pmssn_list`(정규화) ∩ `feature_flags` 허용 ID. 비활성 프로젝트 → 빈 집합. `user_dvsn` 인자는 시그니처 유지용이며 권한 확장 없음 |
 | `get_effective_permission_ids_for_me` | `/me`용 — `compute_effective_project_permission_ids` 호출 |
-| `require_etl_infrastructure` | ETL 라우터 Depends — `require_active_access` + ETL 자격 |
-| `require_permission` | 프로젝트 권한 Depends — `require_active_access` + `compute` + 비활성·기능 off 분기 |
+| `require_etl_infrastructure` | `require_active_access` 후 `user_has_etl_infrastructure_access(conn, user_id)` 검사, 미충족 시 403. **`main.py`** 에서 `etl_router` 전체에 `dependencies=[Depends(require_etl_infrastructure)]` 로 일괄 적용. 상세 **[§7.5](#75-security-and-limits)** |
+| `require_permission` | FastAPI Depends 팩토리 — `require_active_access` + `compute` + 비활성·기능 off 시 403 분기. 필요 권한 AND 조건 |
 
 #### `auth_server/router.py`
 
 | 엔드포인트 | 기능 |
 |------------|------|
-| `POST /api/auth/signup` | 초대코드 기반 가입 |
+| `POST /api/auth/signup` | 초대코드 기반 가입 (`validate_password_strength` 적용. u 역할 + 프로젝트·역할 지정 초대 시 `project_ptcpnt_info` 자동 등록) |
 | `POST /api/auth/create-org` | 부서 + sa 생성 (SPA `/create-org` 없음·DB 시드 또는 운영 도구 호출) |
 | `POST /api/auth/login` | 1단계 로그인 |
 | `POST /api/auth/verify-login` | 2단계 OTP 검증 |
-| `POST /api/auth/refresh` | 토큰 리프레시 (서비스에서 비활성·잠금 검사) |
+| `POST /api/auth/refresh` | 토큰 리프레시 (서비스에서 비활성·잠금·비활성 프로젝트 검사. project_info_id 비활성·비참여 시 클레임 제거) |
 | `POST /api/auth/logout` | 세션 만료 (`require_access_session_bound` — 비활성·잠금도 로그아웃 가능) |
-| `GET /api/auth/me` | 프로필+권한 (`require_active_access`) |
+| `GET /api/auth/me` | 프로필+권한. JWT의 project_info_id가 비활성·비참여 시 `rotate_session_tokens_clear_project`로 토큰 재발급·`project_info_id=null`·`permissions=[]` 반환 (`require_active_access`) |
 | `PATCH /api/auth/me` | 닉네임 (`require_active_access`) |
 | `PATCH /api/auth/me/password` | 비밀번호 (`require_active_access`) |
 | `GET /api/auth/me/login-history` | 로그인 이력 (`require_active_access`) |
@@ -689,6 +739,8 @@ PATCH /api/admin/users/{id}/suspend
 ---
 
 ## 3. `admin_server` — 조직·프로젝트 관리
+
+부서·사용자·역할·프로젝트·테이블 매핑·초대 등 **조직 단위 관리 API**다.
 
 ### 3.0 연계 한눈에
 
@@ -700,7 +752,8 @@ PATCH /api/admin/users/{id}/suspend
 ├─ 1. 사용자 초대 → POST /api/admin/users/invite → invite_user_by_email …
 ├─ 2. 가입 → POST /api/auth/signup → signup_with_invite …
 ├─ 3. 프로젝트 생성 → POST /api/admin/projects → create_project_full
-│        (단일 트랜잭션: project_info + 생성자 pmssn + 매핑 + 부서 내 멤버 + 타부서 알림)
+│        (단일 트랜잭션: project_info + 생성자 pmssn + 매핑(채널 플래그 또는 레거시·main만)
+│         + 부서 내 멤버 + 타부서 알림)
 ├─ 4. 이후 매핑/멤버 → POST …/projects/{id}/tables | …/members (add_member 분기)
 ├─ 5. 타부서 초대 수락 → POST /api/projects/{id}/accept-invite (project_server)
 └─ 6. 프로젝트 카드 선택 → POST /api/projects/{id}/select → require_permission 업무 API
@@ -735,7 +788,14 @@ POST /api/admin/projects
 │     ※ 시스템 기본 자동 배정 없음                    │
 │                                                    │
 │  ③ 테이블 매핑                                      │
-│     table_master_ids 각각 검증 + INSERT             │
+│     table_mappings 전달 시:                          │
+│       _sync_project_table_mappings_with_usage        │
+│       (table_master_id별 use_query_studio_yn·        │
+│        use_widgetboard_yn 개별 설정, main만 허용,    │
+│        둘 다 N이면 해당 행 미매핑)                    │
+│     table_mappings 미전달 시 (레거시):                │
+│       table_master_ids 각각 검증 + INSERT            │
+│       (양 채널 모두 Y)                               │
 │                                                    │
 │  ④ 부서 내 멤버 (members[])                         │
 │     각각:                                           │
@@ -777,7 +837,10 @@ POST /api/admin/projects/{id}/members
 │  멤버 추가 (add_member)                             │
 │  ├─ 프로젝트 소유·pmssn 검증                       │
 │  ├─ 본인 추가 불가                                  │
-│  ├─ 이미 멤버 / 이미 초대 대기 중 확인              │
+│  ├─ 이미 멤버 확인                                  │
+│  ├─ 이미 초대 대기 중 확인                          │
+│  │   pending_project_invite_exists_for_user_project  │
+│  │   → 이미 대기 중이면 ValueError                  │
 │  │                                                  │
 │  ├─ _user_in_actor_dept_scope?                      │
 │  │   │                                              │
@@ -814,7 +877,8 @@ PATCH /api/admin/users/{id}/suspend  또는  DELETE /api/admin/users/{id}
 │     │   ├─ 커스텀 pmssn (user_id)                  │
 │     │   ├─ table_master (create_user_id)           │
 │     │   ├─ 등록 부서 (dptmt_create_user_id)        │
-│     │   └─ 초대자 참여 행 (invite_user_id≠자기)    │
+│     │   ├─ 초대자 참여 행 (invite_user_id≠자기)    │
+│     │   └─ 위젯 보드 (widget_board.owner_user_id)  │
 │     │                                              │
 │     ├─ ETL 자산 스캔 (_collect_etl_flat_for_guard) │
 │     │   (etl_db에서 create_user_id 기준 스캔)      │
@@ -884,8 +948,9 @@ POST /api/admin/users/transfer-ownership
 │  ├─ table_master 소유자 확인                        │
 │  ├─ _table_master_recipient_eligible               │
 │  │   ├─ sa_dev → 항상 OK                           │
-│  │   ├─ 미매핑 → 수직 트리 sa·a만                  │
-│  │   └─ 매핑 → 트리 sa·a 또는 참여+query.execute   │
+│  │   ├─ 미매핑 → 수직 트리(상·하위) sa·a만          │
+│  │   └─ 매핑 → (수직 트리 sa·a) 또는               │
+│  │            (매핑 프로젝트 참여 + query.execute)   │
 │  │                                                  │
 │  ├─ table_master.create_user_id UPDATE              │
 │  │                                                  │
@@ -951,6 +1016,25 @@ body: { use_yn: "N", migrate_users_to_dptmt_info_id: 2 }
 └──────────────────────────────────────────────────┘
 ```
 
+#### I-pre. 프로젝트 물리 삭제 미리보기 (`get_inactive_project_purge_preview`)
+
+```
+GET /api/admin/projects/{id}/purge-preview
+│
+▼
+┌──────────────────────────────────────────────────┐
+│  비활성 프로젝트 purge 미리보기                     │
+│  ├─ active_yn = 'Y' → 거부                        │
+│  ├─ 소속 부서 검증                                  │
+│  └─ widget_board 목록 + widget_item·share 건수     │
+│     응답: { project_info_id, project_name,          │
+│             widget_boards: [...],                   │
+│             totals: { widget_boards, widget_item_   │
+│                       rows, widget_board_share_rows │
+│             } }                                     │
+└──────────────────────────────────────────────────┘
+```
+
 #### I. 프로젝트 물리 삭제 (`purge`)
 
 ```
@@ -967,9 +1051,14 @@ DELETE /api/admin/projects/{id}/purge
 │  ② user_info.invite_project_info_id = NULL          │
 │     (확장 컬럼 없으면 SAVEPOINT 스킵)              │
 │  ③ email_invite_code_master.invite_project = NULL   │
-│  ④ table_project_mapping DELETE                     │
-│  ⑤ project_ptcpnt_info DELETE                       │
-│  ⑥ project_info DELETE                              │
+│  ④ 위젯보드 연쇄 삭제:                             │
+│     ├─ widget_board_invite 알림 삭제               │
+│     ├─ widget_item DELETE (보드별)                  │
+│     ├─ widget_board_share DELETE (보드별)           │
+│     └─ widget_board DELETE                          │
+│  ⑤ table_project_mapping DELETE                     │
+│  ⑥ project_ptcpnt_info DELETE                       │
+│  ⑦ project_info DELETE                              │
 │                                                    │
 │  FK 위반 시 → 안내 에러                             │
 └──────────────────────────────────────────────────┘
@@ -1041,6 +1130,9 @@ GET /api/admin/projects/{id}/members
 │        ├─ project → project_create_user_id UPDATE
 │        ├─ pmssn_master → user_id UPDATE
 │        ├─ table_master → create_user_id UPDATE
+│        ├─ widget_board → owner_user_id UPDATE
+│        │   + widget_item.create_user_id UPDATE
+│        ├─ dptmt_creator → dptmt_create_user_id UPDATE
 │        └─ etl_* → ETL `create_user_id` UPDATE
 │
 └─ 3. 정지 (suspend_user)
@@ -1068,7 +1160,7 @@ GET /api/admin/projects/{id}/members
 | `require_org_admin` | `sa_dev`·`sa`·`a`만 통과 |
 | `require_super_admin` | `sa_dev`·`sa`만 통과 |
 | `require_org_admin_or_operator` | 위 + `o` 통과 |
-| `require_project_admin_or_operator_participant` | org 관리자는 소속 부서 프로젝트만, `o`는 참여자일 때만 |
+| `require_project_admin_or_operator_participant` | org 관리자(a/sa/sa_dev)는 소속 부서 소유 프로젝트만; o는 소속 부서 소유이거나 타부서라면 참여자일 때만 |
 
 #### `admin_server/schemas.py`
 
@@ -1078,25 +1170,27 @@ GET /api/admin/projects/{id}/members
 | `UserRoleBody` / `UserEtlYnBody` | 역할 변경 / ETL 자격 변경 |
 | `ProjectFeatureFlags` | 프로젝트 기능 on/off (`query`·`dash`·`widget`) |
 | `ProjectMemberAssignBody` | 멤버 지정 (`user_id` + `pmssn_master_id`) |
-| `ProjectCreateBody` | 프로젝트 생성 (이름·설명·`feature_flags`·테이블·`creator_pmssn`·`members`·`external_invites`) |
-| `ProjectUpdateBody` | 프로젝트 수정 (이름·설명·`active`·`feature_flags`·`table_master_ids`) |
+| `TableMappingEntry` | 프로젝트별 table_master 매핑 — `use_query_studio`·`use_widgetboard` 독립 설정 |
+| `ProjectAssignmentBody` | 프로젝트 참여 지정 (`project_info_id` + `pmssn_master_id`) |
+| `ProjectCreateBody` | 프로젝트 생성 (이름·설명·`feature_flags`·`table_mappings`(채널 플래그) 또는 `table_master_ids`(레거시)·`creator_pmssn`·`members`·`external_invites`) |
+| `ProjectUpdateBody` | 프로젝트 수정 (이름·설명·`active`·`feature_flags`·`table_mappings`(우선) 또는 `table_master_ids`) |
 | `AcceptProjectInviteBody` | 초대 수락/거절 (`notification_info_id`) |
 | `MemberAddBody` / `MemberRoleBody` | 멤버 추가 / 역할 변경 |
 | `RoleCreateBody` / `RoleUpdateBody` | 커스텀 역할 생성·수정 |
 | `OrgPatchBody` | 부서명 수정 |
 | `OrgDepartmentCreateBody` / `PatchBody` | 부서 생성·수정 (`migrate_users_to` 포함) |
 | `TableMasterPatchBody` / `ProjectTableAddBody` | 테이블 마스터 수정 / 매핑 추가 |
-| `TransferOwnershipBody` | 자산 이관 (`project_invite`·`dptmt_creator` 포함) |
+| `TransferOwnershipBody` | 자산 이관 (`project`·`project_invite`·`pmssn_master`·`table_master`·`dptmt_creator`·`widget_board` 또는 etl_db 메타) |
 | `UserManageUpdateBody` | 사용자 일괄 변경 (부서·역할·ETL·프로젝트) |
 
 #### `admin_server/ownership_guards.py`
 
 | 함수/클래스 | 기능 |
 |-------------|------|
-| `can_own_after_change` | 목표 역할·ETL 기준 리소스 소유 가능 여부 매트릭스 |
+| `can_own_after_change` | 리소스 논리 타입(`project`·`pmssn_master`·`table_master`·`etl_meta`·`dptmt_creator`·`widget_board`)·목표 역할·목표 etl_yn 기준 소유 가능 여부 매트릭스 |
 | `_reason_for_block` | 차단 사유 메시지 생성 |
 | `ManagementBlockedError` | 409 응답용 예외 (payload dict) |
-| `build_ownership_violation_payload` | 소유 스캔 → `changeable`·`blocking`·`allowed` 구조화 |
+| `build_ownership_violation_payload` | 스캔 결과(projects·pmssn·table_masters·departments·etl_items·project_invite_rows·widget_boards) → `changeable`·`blocking_assets`·`allowed_assets` 구조화. `for_suspend=True` 시 `project_invite_rows`·`widget_boards`도 blocking에 포함 |
 
 #### `admin_server/service_users.py`
 
@@ -1106,12 +1200,12 @@ GET /api/admin/projects/{id}/members
 | `list_users_for_admin_ui` | 관리 UI용 (`sa_dev` 전역, 그 외 트리·정렬) |
 | `list_users_dept_tree_for_project_create` | 프로젝트 생성 모달용 (본인 제외·부서 트리) |
 | `search_users_by_email` | 이메일 검색 (`exclude_dptmt_zero` 옵션) |
-| `invite_user_by_email` | 초대 (역할·부서·ETL·프로젝트 검증) |
+| `invite_user_by_email` | 초대 (역할·부서 트리·ETL·U+프로젝트, 초대 메일에 부서·역할·프로젝트 권한 명시, UndefinedColumn 시 DDL 안내) |
 | `assert_invite_dptmt_allowed` | 초대 부서 트리 검증 |
 | `list_departments_for_invite` | 초대 모달용 부서 목록 (`display_label`) |
 | `suspend_user` | 정지 (`ownership_guards` 409 + 세션 무효) |
 | `activate_user` | 활성 |
-| `delete_inactive_user` | 비활성만 삭제 (409 가드 + 연관 행 정리 + DELETE) |
+| `delete_inactive_user` | 비활성만 삭제 (409 소유 가드 + 세션 무효 + 알림·참여·초대·로그인 이력 정리 후 user_info DELETE) |
 | `set_user_dvsn_admin_user` | 조직 역할 변경 |
 | `set_user_etl_flag` | ETL 자격 (`N` 시 등록 건 검사) |
 | `list_invite_codes_for_dept` | 초대코드 목록 |
@@ -1120,13 +1214,13 @@ GET /api/admin/projects/{id}/members
 | `create_department` | 부서 추가 (`sa`는 하위만) |
 | `update_department_in_org_settings` | 부서 수정 (`migrate_users` + 참조 검사) |
 | `delete_department_in_org_settings` | 부서 삭제 (참조 검사) |
-| `get_user_work_assets` | 자산 조회 (초대자 참여·등록 부서·ETL 연쇄 안내) |
+| `get_user_work_assets` | 자산 조회 (생성·참여·초대자 프로젝트 참여, 커스텀 역할, 등록 부서, table_master + ETL 연쇄 안내, 위젯 보드 소유) |
 | `list_ownership_transfer_targets` | 이관 후보 (수직 트리 branch CTE) |
-| `list_department_creator_transfer_targets` | 부서 생성자 이관 후보 (`sa`·`sa_dev`만) |
-| `list_table_master_transfer_targets` | 테이블 마스터 이관 후보 |
-| `transfer_resource_ownership` | 이관 실행 (`project_invite`·`dptmt_creator`·ETL 연쇄 포함) |
-| `get_user_change_options` | 변경 모달 옵션 (`can_manage_etl_yn`·마지막 SA 경고) |
-| `update_user_management` | 일괄 변경 (`ownership_guards` 409·`u`→`etl_yn` `N`) |
+| `list_department_creator_transfer_targets` | 부서 생성자 이관 후보 (수직 트리 내 `sa`·`sa_dev`만, Admin 제외) |
+| `list_table_master_transfer_targets` | 테이블 마스터 이관 후보 (수직 트리 SA/A + 매핑 프로젝트 참여자 query.execute + sa_dev) |
+| `transfer_resource_ownership` | 이관 실행 (`project`·`project_invite`·`pmssn_master`·`table_master`(ETL 연쇄)·`dptmt_creator`·`widget_board`·ETL 메타 포함) |
+| `get_user_change_options` | 변경 옵션 (`can_manage_etl_yn`·마지막 SA 경고·`projects[].project_department_display`(상위(자기)) 포함) |
+| `update_user_management` | 일괄 변경 (부서·역할·ETL·프로젝트 참여. `ownership_guards` 409. `u` 시 `etl_yn` N 강제. `project_assignments`로 역할별 개별 지정 가능) |
 
 #### `admin_server/service_roles.py`
 
@@ -1147,6 +1241,7 @@ GET /api/admin/projects/{id}/members
 |------|------|
 | `normalize_feature_flags_for_db` | `feature_flags` → DB 저장용 `{query,dash,widget}` 정규화 |
 | `_sync_project_table_mappings` | 매핑 집합을 요청 목록과 일치 (추가·삭제) |
+| `_sync_project_table_mappings_with_usage` | table_project_mapping을 엔트리와 일치(use_query_studio_yn·use_widgetboard_yn 개별 설정, 둘 다 N이면 미매핑, main만 허용) |
 | `_user_in_actor_dept_scope` | 부서 트리 소속 여부 (활성 사용자만) |
 | `_actor_may_manage_system_dev_department_users` | `dptmt=0` 소속 관리 가능 여부 |
 | `_assert_target_not_hidden_system_dev_member` | 일반 관리자가 개발 부서 계정 지정 차단 |
@@ -1155,30 +1250,33 @@ GET /api/admin/projects/{id}/members
 | `_assert_pmssn_for_project` | pmssn이 프로젝트 부서 것인지 확인 |
 | `list_projects_in_dept` | 부서 소속 프로젝트 목록 (`creator_email` 포함) |
 | `list_projects_for_participant` | 참여 프로젝트 목록 (역할명·`creator_email`) |
-| `create_project_full` | **단일 트랜잭션**: `project_info` + creator 멤버 + 매핑 + 부서 내 멤버 + 타부서 알림 |
-| `update_project` | 프로젝트 수정 (`feature_flags`·`table_master_ids` 동기화, `o` 제한) |
+| `create_project_full` | **단일 트랜잭션**: `project_info` + creator 멤버 + 매핑(table_mappings→채널 플래그 / 레거시→양쪽 Y, main만) + 부서 내 멤버 + 타부서 알림 |
+| `update_project` | 프로젝트 수정 (`feature_flags`·`table_mappings`(우선) 또는 `table_master_ids` 동기화, `o` 제한) |
 | `deactivate_project` | 소프트 삭제 (`active_yn=N`) |
-| `purge_inactive_project` | 비활성만 물리 삭제 (알림·초대·매핑·참여 정리 후 DELETE) |
+| `purge_inactive_project` | 비활성만 물리 삭제 (위젯보드 알림·위젯·공유·보드 → 테이블 매핑 → 참여 → 알림·초대 참조 정리 후 DELETE) |
+| `get_inactive_project_purge_preview` | 비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 수 요약 반환 |
 | `_list_pending_project_invites` | 미수락 `project_invite` 알림 목록 (만료 체크 포함) |
 | `list_members` | 멤버 + `pending_invites` 통합 반환 |
 | `cancel_project_invite` | 미수락 초대 알림 삭제 |
 | `_pending_invite_for_user_project` | 중복 초대 확인 |
 | `_notify_project_member_added_pair` | 멤버 추가 시 양방향 알림 |
 | `_notify_project_member_removed_pair` | 멤버 제거 시 양방향 알림 |
-| `add_member` | 부서 내 → 즉시 INSERT / 타부서 → `project_invite` 알림 |
+| `add_member` | 본인 재참여 허용. 부서 내 → 즉시 INSERT / 타부서 → `project_invite` 알림. 이미 멤버·초대 대기는 SQL로 차단 |
 | `update_member_role` | 멤버 역할 변경 (`o`는 `u`만) |
-| `remove_member` | 멤버 제거 + 양방향 알림 (`o`는 `u`만) |
+| `remove_member` | 멤버 제거 + 양방향 알림 + 잔존 project_invite 알림 정리 (`o`는 `u`만) |
 | `validate_invite_user_project` | 초대 시 프로젝트·pmssn 정합 검증 |
 
 #### `admin_server/service_tables.py`
 
 | 함수 | 기능 |
 |------|------|
-| `list_table_master` | 전사 테이블 목록 (`sort=project_create`: dash 우선·`update_dtm`) |
+| `list_table_master` | 전사 테이블 목록 (`sort=project_create`: db_type=main이면 update_dtm·table_name; 그 외 dash 우선·동일) |
 | `update_table_master` | 테이블 라벨·설명 수정 |
-| `list_project_tables` | 프로젝트별 매핑 테이블 |
-| `add_project_table_mapping` | 매핑 추가 |
+| `list_project_tables` | 프로젝트별 매핑 테이블 (`use_query_studio`·`use_widgetboard` bool 포함) |
+| `add_project_table_mapping` | 매핑 추가 (main table_master만, 양 채널 Y 기본) |
 | `delete_project_table_mapping` | 매핑 삭제 |
+
+**교차 참조 (`table_master`)**: ETL이 **내장 main_db·dash_db**에 물리 테이블을 적재·갱신하면 **`Backend.etl_server.table_master_hook.upsert_table_master_after_load`** 가 동일 `system_db.table_master` 행을 UPSERT한다(`db_type`은 `main` 또는 `dash`만). 관리자 화면의 라벨·설명 수정은 위 **`service_tables`** 가 담당한다. ETL 측 상세는 **[§7.5](#75-security-and-limits)**·**[§7.6](#76-related-database-tables)**.
 
 #### `admin_server/router.py`
 
@@ -1205,10 +1303,11 @@ GET /api/admin/projects/{id}/members
 | `GET/POST/PUT/DELETE /api/admin/roles` | 역할 CRUD |
 | `GET /api/admin/roles/{id}/usages` | 역할 사용현황 |
 | `GET /api/admin/roles/permission-options` | 권한 옵션 |
-| `GET/POST /api/admin/projects` | 프로젝트 목록 / 생성 (`create_project_full`) |
-| `PATCH /api/admin/projects/{id}` | 프로젝트 수정 (`feature_flags`·`table_master_ids` 동기화) |
+| `GET/POST /api/admin/projects` | 프로젝트 목록 / 생성 (`create_project_full` — table_mappings 전달 시 채널별 플래그, 미전달 시 레거시 양쪽 Y) |
+| `PATCH /api/admin/projects/{id}` | 프로젝트 수정 (`feature_flags`·`table_mappings` 동기화. `table_mappings`와 `table_master_ids` 동시 전달 시 `table_mappings` 우선. 운영자(o) 변경 불가) |
 | `DELETE /api/admin/projects/{id}` | 소프트 삭제 (비활성화) |
-| `DELETE /api/admin/projects/{id}/purge` | 비활성 프로젝트 물리 삭제 |
+| `GET /api/admin/projects/{id}/purge-preview` | 비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 요약 |
+| `DELETE /api/admin/projects/{id}/purge` | 비활성 프로젝트만 DB에서 제거. 위젯보드(알림·위젯·공유·보드)·참여·매핑·알림·초대 참조 선행 정리 후 DELETE |
 | `GET /api/admin/invite-codes` | 초대코드 목록 |
 | `GET /api/admin/tables`, `PATCH /api/admin/tables` | 테이블 마스터 (`sort=project_create`) |
 | `GET/POST/DELETE /api/admin/projects/{id}/tables` | 테이블 매핑 |
@@ -1221,6 +1320,8 @@ GET /api/admin/projects/{id}/members
 ---
 
 ## 4. `project_server` — 프로젝트 목록·선택·초대 응답
+
+참여 프로젝트 목록·**작업 프로젝트 선택(`select`)**·타부서 **초대 수락/거절**을 담당한다.
 
 ### 4.1 프로젝트 선택 → 업무 진입
 
@@ -1265,22 +1366,24 @@ GET /api/admin/projects/{id}/members
 │  ▼
 │  ┌──────────────────────────────────────────────────┐
 │  │  초대 수락 (accept_project_invite)                 │
-│  │  [accept_project_invite]                          │
-│  │  ① notification_info 조회 + 본인 확인              │
-│  │  ② noti_content JSON 파싱                          │
-│  │     { project_info_id, pmssn_master_id,            │
-│  │       invite_user_id, invite_expires_at }          │
-│  │  ③ invite_expires_at 만료? → ValueError            │
-│  │  ④ project_info.active_yn = Y? → 비활성 거부       │
-│  │  ⑤ 이미 멤버? → ValueError                         │
-│  │  ⑥ _assert_pmssn_for_project (역할 정합)           │
-│  │  ⑦ project_ptcpnt_info INSERT (멤버 등록)          │
-│  │  ⑧ notification_info UPDATE (read_yn=Y)            │
-│  │  ⑨ _notify_inviter_invite_resolved (수락 알림)     │
+│  │  ① _parse_project_invite_payload                   │
+│  │     notification_info 조회 + 본인 확인              │
+│  │     noti_type=project_invite 검증                   │
+│  │     noti_content JSON 파싱                          │
+│  │     { project_info_id, pmssn_master_id,             │
+│  │       invite_user_id, invite_expires_at }           │
+│  │     invite_expires_at 만료 → ValueError             │
+│  │  ② project_info.active_yn = Y? → 비활성 거부       │
+│  │  ③ 이미 멤버? → ValueError                         │
+│  │  ④ _assert_pmssn_for_project (역할 정합)            │
+│  │  ⑤ project_ptcpnt_info INSERT (멤버 등록)           │
+│  │  ⑥ notify_inviter_project_invite_resolved           │
 │  │     → 초대자에게 "OO님이 수락했습니다"              │
-│  │  ⑩ 수락자 본인에게 참여 완료 알림                   │
+│  │  ⑦ delete_notification_by_id_in_txn                 │
+│  │     (초대 알림 삭제 — 잔존 시 초대중 오표시 방지)   │
+│  │  ⑧ insert_notification (수락자 참여 완료 알림)      │
 │  │     → "프로젝트 참여가 완료되었습니다"              │
-│  │  ⑪ COMMIT                                          │
+│  │  ⑨ COMMIT                                          │
 │  └──────────────────────────────────────────────────┘
 │
 └─ [거절] POST /api/projects/{id}/reject-invite
@@ -1289,15 +1392,13 @@ GET /api/admin/projects/{id}/members
    ▼
    ┌──────────────────────────────────────────────────┐
    │  초대 거절 (reject_project_invite)                 │
-   │  [reject_project_invite]                          │
-   │  ① notification_info 조회 + 본인 확인              │
-   │  ② noti_content JSON 파싱                          │
-   │  ③ invite_expires_at 만료? → ValueError            │
-   │  ④ 이미 멤버? → "알림을 닫아 주세요"               │
-   │  ⑤ notification_info DELETE (알림 삭제)             │
-   │  ⑥ _notify_inviter_invite_resolved (거절 알림)     │
+   │  ① _parse_project_invite_payload                   │
+   │     (수락과 동일 검증: 알림 존재·본인·타입·만료)    │
+   │  ② 이미 멤버? → "알림을 닫아 주세요"               │
+   │  ③ delete_notification_by_id_in_txn (알림 삭제)     │
+   │  ④ notify_inviter_project_invite_resolved           │
    │     → 초대자에게 "OO님이 거절했습니다"              │
-   │  ⑦ COMMIT                                          │
+   │  ⑤ COMMIT                                          │
    └──────────────────────────────────────────────────┘
 ```
 
@@ -1307,23 +1408,24 @@ GET /api/admin/projects/{id}/members
 |------------|------|
 | `GET /api/projects` | 내 참여 프로젝트 목록 (활성만) |
 | `POST /api/projects/{id}/select` | 프로젝트 선택 → JWT 재발급 (`project_info_id` 포함) |
-| `POST /api/projects/{id}/accept-invite` | 타부서 초대 수락 |
-| `POST /api/projects/{id}/reject-invite` | 타부서 초대 거절 |
+| `POST /api/projects/{id}/accept-invite` | 타부서 초대 수락 (ValueError → 400 통일, 401 리프레시 혼동 방지) |
+| `POST /api/projects/{id}/reject-invite` | 타부서 초대 거절 (ValueError → 400) |
 
 ### 4.4 `project_server/service.py`
 
 | 함수 | 기능 |
 |------|------|
-| `list_projects_for_user` | 참여 프로젝트 목록 (`active_yn=Y`, 역할명 포함) |
+| `list_projects_for_user` | 참여 프로젝트 목록 (`active_yn=Y`, pmssn_master JOIN으로 역할명 포함) |
 | `select_project_tokens` | `auth_service.rotate_session_tokens_with_project` 위임 |
-| `_invite_expired_from_payload` | `invite_expires_at` ISO 파싱 → 만료 여부 |
-| `_notify_inviter_invite_resolved` | 초대자에게 수락/거절 결과 알림 INSERT |
-| `accept_project_invite` | 수락: 만료 검사 → 활성 확인 → 멤버 등록 → 알림 `read_yn` → 초대자 알림 → 수락자 참여 완료 알림 |
-| `reject_project_invite` | 거절: 만료 검사 → 알림 DELETE → 초대자 거절 알림 |
+| `_parse_project_invite_payload` | 알림 단건 조회 → 타입·소유자·JSON·project_info_id 일치·만료 검증 후 payload 반환. accept/reject 공통 |
+| `accept_project_invite` | `_parse_project_invite_payload` → 활성·중복 확인 → 멤버 등록 → 초대자 수락 알림(`notify_inviter_project_invite_resolved`) → 초대 알림 DELETE → 수락자 참여 완료 알림 |
+| `reject_project_invite` | `_parse_project_invite_payload` → 이미 멤버 확인 → 초대 알림 DELETE → 초대자 거절 알림 |
 
 ---
 
 ## 5. 캠페인 대시보드 (`campaign_dash_server` + `core`)
+
+Star 물리 테이블·`dash_db` 기반 **캠페인 지표 HTTP API**와 **`core.dashboard_service`** 집계 로직이다.
 
 ### 5.1 데이터 흐름
 
@@ -1378,7 +1480,7 @@ GET /api/admin/projects/{id}/members
 | 함수 | 기능 |
 |------|------|
 | `get_required_columns` | 대시보드 필수 컬럼·타입 목록 |
-| `get_aggregatable_tables` | 프로젝트별 대시보드 가능 테이블 필터 |
+| `get_aggregatable_tables` | dash_db 스키마에서 `*_star_1` 패턴·`is_new_dash_physical_table` 인 물리 테이블을 매핑과 무관하게 후보로 두고, DASHBOARD_REQUIRED_COLUMNS를 만족하는 것만 반환 |
 | `_full_table_name` | `table_id` → `schema.table` 문자열 |
 | `_build_group_by_clause` | `GROUP BY` SELECT/절 생성 |
 | `_build_where_clause` | `WHERE` 절 + params 생성 |
@@ -1400,7 +1502,7 @@ GET /api/admin/projects/{id}/members
 | 메서드 | 경로 | 핵심 | 의존성 |
 |--------|------|------|--------|
 | `GET` | `/api/campaign-dashboard/tables` | `get_aggregatable_tables` 후 **`*_star_1` 접미사만** 드롭다운용 `{ tables: [{id,name}] }` | `require_permission("dashboard")` |
-| `GET` | `/api/campaign-dashboard/page` | SPA용 **번들**: 동일 `table_id`·기간 앵커로 `summary`·`trend_multi`·`member_summary`·`hourly`(success/open/click)를 한 응답에 포함 — `trend_days`·`trend_count`·`trend_by_channel` 쿼리 지원 | 위와 동일 + `table_id`·`target_date`·`period` 등 |
+| `GET` | `/api/campaign-dashboard/page` | SPA용 번들: 동일 `table_id`·기간 앵커로 `summary`·`trend_multi`·`member_summary`·`hourly`(success/open/click)를 한 응답에 포함. 쿼리 파라미터: `trend_days`·`trend_count`·`trend_by_channel` | `require_permission("dashboard")` |
 | `GET` | `/api/campaign-dashboard/summary` | KPI 집계 + 전기간 대비 **변동률**(`_calc_change_pct`) 병합 | 위와 동일 + `table_id`·`target_date`·`period` |
 | `GET` | `/api/campaign-dashboard/trend` | 단일 지표 **일별** 추이, `days`(1~365)·`metric`, `end_date` — `dashboard_service.get_chart_data` | 위와 동일 |
 | `GET` | `/api/campaign-dashboard/trend-multi` | **복수 기간** 추이(`daily`/`weekly`/`monthly`, `count`·`days`, `by_channel`) — 라우터 내 SQL | 위와 동일 |
@@ -1412,7 +1514,14 @@ GET /api/admin/projects/{id}/members
 
 #### 기간·추이 창 공통 모듈
 
-**`campaign_dash_server/campaign_period.py`** (라우터가 import): `calc_summary_date_range`, `calc_previous_range`, `fact_inclusive_end_date`, `trend_multi_window_start` — summary·member·hourly·trend-multi·`/page` 가 동일 규칙으로 기간을 맞춘다.
+**`campaign_dash_server/campaign_period.py`** (라우터가 import): 일간·주간·월간에 대해 summary·hourly·delivery-demographics·trend-multi·`/page` 가 동일한 날짜 상한(팩트 delivery_date 기준)을 쓰도록 한 곳에서 정의한다.
+
+| 함수 | 기능 |
+|------|------|
+| `calc_summary_date_range` | 기준일이 속한 집계 구간 `[시작, 끝]` ISO 문자열 (주간=월~일) |
+| `calc_previous_range` | 직전 동일 단위 구간 |
+| `fact_inclusive_end_date` | 팩트 쿼리 WHERE 상한일 — `calc_summary_date_range`의 `[1]`과 동일 |
+| `trend_multi_window_start` | trend-multi SQL용 `(start_dt, date_expr, group_expr)` — `fact_inclusive_end_date` 결과를 넣어 summary와 버킷 합계 정합 |
 
 #### 라우터 모듈 내부 함수 정리
 
@@ -1422,7 +1531,11 @@ GET /api/admin/projects/{id}/members
 | `_require_star_fact_table` | `*_star_1` 접미사 + **`db.validate_dashboard_data_table_name`** |
 | `_member_table_id_from_fact` | `_star_1` → 동일 접두의 **`_star_2`** 회원 테이블명(검증 포함) |
 | `_quoted_table` | **`db.get_dash_table_schema()`** 기준 `"schema"."table"` 인용 |
-| `_calc_change_pct` | `(cur - prev) / prev × 100`, `prev` 없거나 0이면 `None` |
+| `_campaign_summary_result` | summary 엔드포인트와 동일 본문(dict) 반환 — KPI·aggregated_data·전기간 증감률 병합. `/page` 번들에서 재사용 |
+| `_member_summary_payload_optional` | 회원 스냅샷 dict 또는 데이터 없음 시 None 반환. `/page` 번들용 |
+| `_hourly_payload_dict` | hourly 엔드포인트와 동일 본문(dict) 반환. `/page` 번들용 |
+| `_trend_multi_execute` | trend-multi 응답 본문. `fact_inclusive_end_date`로 summary·hourly와 팩트 상한 정합 |
+| `_calc_change_pct` | `(cur - prev) / prev × 100` 변동률, `prev` 없거나 0이면 `None` |
 | `_jsonb_as_dict` | JSONB / str / None → dict 안전 변환 |
 | `_clamp_date_to_range` | 날짜를 `[start, end]` 안으로 클램핑 |
 | `_snapshot_end_clamped` | 현재 기간 스냅샷 조회 **종료일** 클램핑 |
@@ -1498,14 +1611,22 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
-│  STEP 6: 기간·전기간 (campaign_period.calc_* )   │
-│  campaign_period.calc_summary_date_range          │
-│  campaign_period.calc_previous_range (전기간 등) │
+│  STEP 6: 기간·전기간 (campaign_period.calc_*)    │
+│  campaign_period.calc_summary_date_range → [start, end] │
+│  campaign_period.calc_previous_range → [prev_start, prev_end] │
+│  campaign_period.fact_inclusive_end_date → 팩트 상한일 │
 └──────────────┬───────────────────────────────────┘
                ▼
 ┌──────────────────────────────────────────────────┐
 │  STEP 7: 엔드포인트별 집계·SQL 분기                │
 │                                                   │
+│  /page (번들)       → _campaign_summary_result     │
+│  │                     + _trend_multi_execute       │
+│  │                     + _member_summary_payload    │
+│  │                       _optional                  │
+│  │                     + _hourly_payload_dict ×3    │
+│  │                     (success/open/click)         │
+│  │                                                │
 │  /summary            → dashboard_service            │
 │  │                     get_dashboard_data ×2 (현재/전기) │
 │  │                     변동률 필드 병합             │
@@ -1562,11 +1683,27 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ## 6. 기타 패키지
 
-- **`query_studio_server`**: `/api` 하위 쿼리 스튜디오·execute-query — **02_BACKEND_GUIDE.md**, `query_studio_server/router.py`. **`GET /api/list-tables`**: 현재 프로젝트의 **main·dash 매핑을 합친** 허용 테이블 목록(동일 `table_name`이 양쪽에 있으면 **main 메타 우선**). JSON에는 **`db_type` 키를 넣지 않음**(클라이언트는 “매핑된 테이블” 여부만 사용). **`POST /api/describe-table`**: 요청 테이블이 매핑된 쪽(**main 또는 dash**)을 판별해 해당 스키마의 `information_schema`로 컬럼을 조회한다. 선택 설정 **`backend.query_studio_peak_guard`** 가 있으면 `GET /api/table-relationships?mode=all`·`POST /api/join-order`·`POST /api/execute-query`에 분당 한도(슬라이딩 60초)·관계 전체 계산 동시 상한·관계 결과 TTL 인메모리 캐시를 적용하며, 한도 초과 시 **429**(`Retry-After`)·동시 상한 대기 초과 시 **503**을 반환할 수 있다(`peak_guard.py`).
-- **`etl_server`**: `/api/etl`, `/api/etl/batch`, `require_etl_infrastructure` — **02_BACKEND_GUIDE.md**, `etl_server/router.py`·`router_file.py`.
-- **`notification_server`**: **§6.1** — HTTP는 목록·카운트·읽음만; 생성은 `service.insert_notification` 내부 호출 — `notification_server/router.py`·`service.py`.
-- **`campaign_dash_server`**: **§5.1** 흐름 개요 · **§5.3** 엔드포인트·내부함수·보안 — `campaign_dash_server/router.py` · **02_BACKEND_GUIDE.md** 병행.
-- **`widget_board_server`**: **§6.2** — `system_db` 메타·`/api/widget-boards`(초대·참여자·공유 포함) — `widget_board_server/router.py` · 설계 **docs/report/20_Widget_Board_System_Design.md**.
+알림·위젯 보드·쿼리 스튜디오는 **§6.1~§6.3** 에서 다룬다. 그 앞의 **§6.0** 에서는 동일 절에 언급되는 나머지 패키지를 한눈에 정리한다.
+
+### 6.0 패키지 한눈에
+
+- **`query_studio_server`**
+  - **경로**: `/api` 하위(쿼리 스튜디오·execute-query 등). 상세는 **§6.3**, 코드는 **`query_studio_server/router.py`**, 구조는 **02_BACKEND_GUIDE.md**.
+  - **list-tables / describe-table**: `mapping_usage=query_studio|widgetboard` 로 채널별 매핑 필터. **main_db** 매핑만 반환(dash 제외). describe-table 은 항상 main_db 연결.
+  - **SQL 안전**: `Backend.core.sql_safety` import. `_contains_dangerous_sql` 은 디버그 로그 래퍼.
+  - **라벨**: `query_studio_user_labels`(system_db JSONB, user_id+project_info_id별) 우선, 파일 보조.
+  - **peak_guard**(선택 `backend.query_studio_peak_guard`): `table-relationships?mode=all`, `join-order`, `execute-query` 에 분당 한도·동시 계산 상한·TTL 캐시. 초과 시 **429**(`Retry-After`), 대기 초과 시 **503**(`peak_guard.py`).
+
+- **`etl_server`**
+  - **경로**: `/api/etl`, `/api/etl/batch`. 가드: **`require_etl_infrastructure`**. 상세는 **§7**, 운영·COPY 등은 **02_BACKEND_GUIDE.md** §6.
+  - **라우터**: **`router.py`**(메인) + **`router_file.py`**(`prefix="/batch"` 를 메인에서 `include_router` → URL 은 `/api/etl/batch/*`). 별도 `etl_file_router` 없음.
+  - **한도**: **`etl_limits`**(업로드·적재 행·배치 크기 등, `backend.etl_limits` 또는 모듈 기본). **query_studio `peak_guard`** 와 목적·범위가 다르다 → **[§6.3](#63-query_studio_server)** vs **[§7.5](#75-security-and-limits)**.
+
+- **`notification_server`**: **§6.1** — HTTP 는 목록·카운트·읽음만. 생성은 `service.insert_notification` 내부. **`notification_server/router.py`**, **`service.py`**.
+
+- **`campaign_dash_server`**: **§5.1** 흐름 · **§5.3** 엔드포인트·내부함수·보안. **`campaign_dash_server/router.py`**, **02_BACKEND_GUIDE.md** 병행.
+
+- **`widget_board_server`**: **§6.2** — `system_db` 메타·`/api/widget-boards`(초대·참여·공유). **`widget_board_server/router.py`**, 설계 **docs/report/20_Widget_Board_System_Design.md**.
 
 ---
 
@@ -1589,9 +1726,22 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 |------|------------|
 | `list_notifications` | `user_id` 기준 `notification_info` 최신순 조회, `create_dtm`·`update_dtm` ISO 문자열 변환 |
 | `count_unread` | `user_id` 기준 미읽음 건수 반환 |
-| `mark_read_one` | `notification_info_id` + `user_id` 로 단건 `read_yn='Y'`, `update_dtm=NOW()` |
-| `mark_read_all` | `user_id` 기준 미읽음 전부 동일 갱신, 변경 행 수 반환 |
-| `insert_notification` | admin·project 등 **다른 서버에서 내부 호출**, `notification_info` INSERT 후 PK 반환 |
+| `mark_read_one` | 단건 읽음 (API용 commit 포함) |
+| `mark_read_all` | 전체 읽음 (API용 commit 포함), 변경 행 수 반환 |
+| `mark_notification_read_in_txn` | 동일 트랜잭션 내 읽음 처리 (commit/rollback은 호출자) |
+| `fetch_notification_by_id` | 알림 단건 조회 (notification_info_id·noti_content·noti_type·user_id) |
+| `delete_notification_by_id_in_txn` | 알림 단건 DELETE (트랜잭션 내, 호출자 commit) |
+| `delete_notifications_for_user_in_txn` | 사용자 전체 알림 DELETE (user_info DELETE 전 정리용) |
+| `delete_project_invite_notifications_for_project_in_txn` | 프로젝트의 project_invite 알림 전체 DELETE (purge용, JSON project_info_id 매칭) |
+| `delete_project_invite_notifications_for_user_project_in_txn` | 특정 사용자·프로젝트 project_invite 알림 DELETE (멤버 제거 시 잔존 초대행 정리) |
+| `fetch_pending_project_invite_rows_for_project` | 프로젝트의 미수락 project_invite 알림 목록 (이미 멤버인 행 제외, user_info·dptmt JOIN) |
+| `pending_project_invite_exists_for_user_project` | 특정 사용자·프로젝트에 미수락 초대 존재 여부 (중복 초대 방지) |
+| `user_has_pending_widget_board_invite` | 미읽음 widget_board_invite 알림 중 해당 board_id 존재 여부 |
+| `delete_widget_board_notifications_for_board_in_txn` | 위젯보드 관련 알림(invite·accepted·rejected) 일괄 DELETE (purge용) |
+| `user_display_label_for_notification` | user_nickname·user_email COALESCE → 알림 제목용 표시 라벨 |
+| `notify_inviter_project_invite_resolved` | 초대자에게 project_invite 수락/거절 결과 알림 INSERT |
+| `notify_inviter_widget_board_invite_resolved` | 초대자에게 widget_board_invite 수락/거절 결과 알림 INSERT |
+| `insert_notification` | notification_info 1행 삽입 (`autocommit=False`면 호출자 트랜잭션, `True`면 즉시 commit) |
 
 #### 동작 흐름 (벨·패널 등)
 
@@ -1639,20 +1789,21 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 ```
 ┌─────────────────────────────┐
-│  호출 원 (admin_server)       │
 │  admin_server               │
-│  • 초대 발송                 │──┐
-│  • 정지/활성화 통보          │  │
-│  • 역할 변경 통보            │  │
-├─────────────────────────────┤  │    ┌───────────────────────────┐
-│  호출 원 (project_server)    │  ├──▶ │  핵심 (insert_notification) │
-│  project_server             │  │    │  insert_notification()    │
-│  • 프로젝트 초대             │  │    │  notification_info INSERT │
-│  • 초대 수락/거절 결과 통보  │──┘    │  → PK 반환               │
+│  • 멤버 추가/제거 통보       │──┐
+│  • 타부서 초대 발송          │  │
+├─────────────────────────────┤  │
+│  project_server             │  │    ┌───────────────────────────┐
+│  • 초대 수락/거절 결과 통보  │  ├──▶ │  insert_notification()    │
+│  • 수락자 참여 완료 알림     │  │    │  notification_info INSERT │
+├─────────────────────────────┤  │    │  → PK 반환               │
+│  widget_board_server        │  │    │                           │
+│  • 위젯보드 초대 발송        │──┘    │  autocommit=False →      │
+│  • 초대 수락/거절 결과 통보  │       │  호출자 트랜잭션          │
 └─────────────────────────────┘       └───────────────────────────┘
 ```
 
-**설계 요약**: HTTP 라우터는 **조회·카운트·읽음 처리**만 담당하고, **알림 적재 책임은 호출 측(admin·project 등)** 에 둔다. `insert_notification` 은 `service` 에만 있고 라우터에 노출되지 않으므로 **외부 HTTP로 알림 직접 생성은 불가**하다.
+**설계 요약**: HTTP 라우터는 **조회·카운트·읽음 처리**만 담당하고, **알림 적재 책임은 호출 측(admin·project·widget_board 등)** 에 둔다. `insert_notification`은 `service`에만 있고 라우터에 노출되지 않으므로 **외부 HTTP로 알림 직접 생성은 불가**하다. 트랜잭션 내 호출(`autocommit=False`)과 API 직접 호출(`autocommit=True`) 두 경로를 지원하며, `*_in_txn` 접미사 함수는 모두 호출자가 commit/rollback을 제어한다.
 
 ---
 
@@ -1660,34 +1811,338 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`.
 
-**접근 정책**: 보드를 **읽을** 수 있는 주체는 (1) **소유자**, (2) **`widget_board_share`에 등록된 사용자**, (3) **`share_scope = project`** 이고 동일 프로젝트 **`project_ptcpnt_info` 참여자**인 경우(읽기 전용 캔버스). **편집**은 소유자 또는 `widget_board_share.can_edit = true` 인 사용자만. **`share_scope`** 는 `POST`/`PATCH` 바디에서 **`private`**(기본·초대·공유 행 위주) 또는 **`project`** 로 설정하며, 스키마·`widget_board_server/service.py`·목록 UI와 정합된다. **초대**는 **`widget_board_invite` 알림** → 수락 시 `widget_board_share` 행이 생기는 흐름을 병행한다. 목록 API는 `share_scope=project` 인 보드 중 **위젯보드 권한이 없는** 비공유 참여자에게는 노출하지 않도록 필터한다(`list_boards`).
+**접근 정책**: 보드를 **읽을** 수 있는 주체는 (1) **소유자**, (2) **`widget_board_share`에 등록된 사용자**, (3) **`share_scope = project`** 이고 동일 프로젝트 **`project_ptcpnt_info` 참여자**인 경우(읽기 전용 캔버스). **편집**은 소유자 또는 `widget_board_share.can_edit = true` 인 사용자만. **`share_scope`** 는 `POST`/`PATCH` 바디에서 **`private`**(기본·초대·공유 행 위주) 또는 **`project`** 로 설정한다. **초대**는 **`widget_board_invite` 알림** → 수락 시 `widget_board_share` 행이 생기는 흐름을 병행한다. 목록 API는 `share_scope=project` 인 보드 중 **위젯보드 권한이 없는** 비공유 참여자에게는 노출하지 않도록 필터한다(`list_boards`). **비활성 보드**는 소유자만 목록에 노출되며, 소유자가 아닌 사용자에게는 "찾을 수 없음" 처리된다.
 
-**위젯 데이터**(`saved_table` / `query`): 소스 테이블·쿼리는 **현재 프로젝트에 매핑된 리소스만** 허용한다. **`table_project_mapping`의 main·dash** 를 모두 고려해 허용 여부와 **조회 시 DB 연결(main vs dash 스키마)** 을 고른다. SQL 금지어 검사는 **`Backend.core.sql_safety`** 를 `query_studio_server` 와 공유한다(구 `widget_board_server/sql_safety.py` 없음).
+**위젯 데이터**(`saved_table` / `query`): 소스 테이블·쿼리는 **현재 프로젝트에 매핑된 리소스만** 허용한다. `saved_table`은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_type=main)` 로만 허용하며 dash_db 테이블은 사용하지 않는다. SQL 금지어 검사는 **`Backend.core.sql_safety`** 를 `query_studio_server` 와 공유한다. `saved_table` 조회 시 `data_config`의 `dateStart`·`dateEnd`·`dateGrain`·`dateColumn`으로 기간 필터를 적용하고, 응답 `columns`에 `data_type`을 포함하며 `meta.applied_date_column`을 반환한다.
 
 #### `router.py` — 엔드포인트
 
 | 메서드 | 경로 | 핵심 |
 |--------|------|------|
-| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 `{ items }` (`is_owner`, `can_edit`, `owner`, `participant_count`, `widget_item_count` 등 — 알림 건수 필드 없음) |
-| `POST` | `/api/widget-boards` | 보드 생성 |
-| `GET` | `/api/widget-boards/{board_id}` | 보드 상세 + 위젯 + **`can_edit`** |
-| `GET` | `/api/widget-boards/{board_id}/participants` | 참여자·공유 대상 목록 |
-| `GET` | `/api/widget-boards/{board_id}/invite-candidates` | 초대 후보(같은 프로젝트 등 정책 반영) |
-| `PATCH` | `/api/widget-boards/{board_id}` | 보드 메타(비활성 보드는 소유자만 일부 수정) |
-| `DELETE` | `/api/widget-boards/{board_id}` | **비활성** 보드만 물리 삭제(위젯·공유·관련 알림 정리 후 행 삭제). **활성이면 400** |
-| `POST` | `/api/widget-boards/{board_id}/widgets` | 위젯 추가(`create_user_id` 등 메타 반영) |
-| `PATCH` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 패치 |
-| `DELETE` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 비활성 |
-| `PATCH` | `/api/widget-boards/{board_id}/layout` | 다건 `layout_x/y/w/h` |
-| `POST` | `/api/widget-boards/{board_id}/invite-notifications` | 초대 알림 일괄 발송 |
-| `POST` | `/api/widget-boards/{board_id}/accept-invite` | 알림 ID 기준 초대 수락 → 공유 |
-| `POST` | `/api/widget-boards/{board_id}/reject-invite` | 초대 거절 |
-| `POST` | `/api/widget-boards/{board_id}/share` | 지정 사용자 공유 upsert(커스텀 공유) |
-| `DELETE` | `/api/widget-boards/{board_id}/share/{shared_user_id}` | 공유 제거 |
-| `POST` | `/api/widget-boards/{board_id}/widgets/{widget_id}/data` | 위젯 데이터(SELECT·기간·한도 — `data_config` 정책은 서비스·FE 마법사와 정합) |
+| `GET` | `/api/widget-boards` | 접근 가능 보드 목록 (`is_owner`, `can_edit`, `owner`, `participant_count`, `widget_item_count`, `share_row_count`) |
+| `POST` | `/api/widget-boards` | 보드 생성 (프로젝트 참여자만) |
+| `GET` | `/api/widget-boards/{board_id}` | 보드 상세 + 위젯(layout 포함) + `can_edit`. 비활성 보드 → 에러 |
+| `GET` | `/api/widget-boards/{board_id}/participants` | 소유자 + 공유 대상 목록 (`viewer_is_owner` 포함) |
+| `GET` | `/api/widget-boards/{board_id}/invite-candidates` | 초대 후보 (같은 프로젝트 참여자 중 widgetboard 권한 있고 미공유·미초대) |
+| `PATCH` | `/api/widget-boards/{board_id}` | 보드 메타 수정. 비활성 보드는 소유자만 이름·설명·활성 여부만. `active_yn`·`share_scope` 소유자 전용 |
+| `DELETE` | `/api/widget-boards/{board_id}` | **비활성** 보드만 물리 삭제 (위젯·공유·관련 알림 정리 후 행 삭제). 활성이면 **400** |
+| `POST` | `/api/widget-boards/{board_id}/widgets` | 위젯 추가 (`create_user_id` 저장, `saved_table` 시 허용 검사) |
+| `PATCH` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 패치 (`saved_table` 변경 시 허용 재검사) |
+| `DELETE` | `/api/widget-boards/{board_id}/widgets/{widget_id}` | 위젯 물리 DELETE (soft delete 아님) |
+| `PATCH` | `/api/widget-boards/{board_id}/layout` | 다건 `layout_x/y/w/h` 일괄 변경 |
+| `POST` | `/api/widget-boards/{board_id}/invite-notifications` | 초대 알림 일괄 발송 (widgetboard 권한·미공유·미초대 사용자만) |
+| `POST` | `/api/widget-boards/{board_id}/accept-invite` | 알림 ID 기준 초대 수락 → `widget_board_share` INSERT + 초대자 알림 |
+| `POST` | `/api/widget-boards/{board_id}/reject-invite` | 초대 거절 → 알림 DELETE + 초대자 알림 |
+| `POST` | `/api/widget-boards/{board_id}/share` | 지정 사용자 공유 upsert (소유자 전용, 활성 보드만) |
+| `DELETE` | `/api/widget-boards/{board_id}/share/{shared_user_id}` | 공유 제거 + 해당 사용자 create_user_id 소유 위젯을 소유자로 이관 |
+| `POST` | `/api/widget-boards/{board_id}/widgets/{widget_id}/data` | 위젯 데이터 조회 (saved_table: 기간 필터·data_type·meta / query: SQL 안전 검사 / note: 빈 응답) |
+
+#### `service.py` — 핵심 함수
+
+| 함수 | 기능 |
+|------|------|
+| `_can_read_board` / `_can_edit_board` | 소유자·share·project scope 판정 |
+| `assert_board_read` / `assert_board_edit` / `assert_board_owner` | 접근 계층별 검증 (비활성 보드 처리 포함) |
+| `list_boards` | 접근 가능 보드 목록. project scope 보드는 widgetboard 권한 없으면 미노출 |
+| `create_board` | 프로젝트 참여자만. `StringDataRightTruncation` → 안내 에러 |
+| `get_board_detail` | 보드 + 위젯(data_config JSON 파싱·layout dict 포함) + `can_edit` |
+| `patch_board` | 비활성 보드 → 소유자만 이름·설명·활성 여부. 활성 → 편집자도 가능 |
+| `delete_board` | 비활성만. 위젯 → 공유 → 알림 → 보드 행 삭제 |
+| `add_widget` / `patch_widget` | `saved_table` 시 `_allowed_saved_table` 검사. `create_user_id` 저장 |
+| `delete_widget` | 물리 DELETE |
+| `patch_layout` | 다건 layout 일괄 UPDATE |
+| `send_invite_notifications` | 소유자만. 참여자·widgetboard 권한·미공유·미초대 필터 후 알림 INSERT |
+| `_parse_widget_board_invite_payload` | accept/reject 공통 검증 (알림 존재·타입·소유자·JSON·보드/프로젝트 일치·만료) |
+| `accept_widget_board_invite` | 검증 → share INSERT → 알림 read_yn → 초대자 수락 알림 |
+| `reject_widget_board_invite` | 검증 → 알림 DELETE → 초대자 거절 알림 |
+| `upsert_share` / `delete_share` | 소유자 전용. 제거 시 해당 사용자 소유 위젯의 `create_user_id`를 소유자로 이관 |
+| `list_board_participants` / `list_invite_candidates` | 참여자·후보 조회 |
+| `_allowed_saved_table` | `usage_widgetboard=True, db_type=main` 매핑 + 물리 존재 검사 |
+| `fetch_widget_data` | `saved_table`: 기간 필터(`dateStart/End/Grain/Column`)·`data_type` 포함 columns·`meta.applied_date_column` / `query`: SQL 안전 검사 / `note`: 빈 응답 / `campaign_dash`: 미지원 안내 |
+
+#### `schemas.py` — Pydantic 모델
+
+| 클래스 | 기능 |
+|--------|------|
+| `WidgetBoardCreateBody` | 보드 생성 (`board_dscrtn` 길이 검증) |
+| `WidgetBoardPatchBody` | 보드 수정 (`active_yn` bool 포함) |
+| `WidgetItemCreateBody` / `WidgetItemPatchBody` | 위젯 생성·수정 |
+| `LayoutItem` / `LayoutPatchBody` | 레이아웃 일괄 변경 |
+| `ShareUpsertBody` | 공유 upsert |
+| `WidgetBoardInviteItem` / `WidgetBoardInviteBatchBody` | 초대 알림 일괄 발송 |
+| `WidgetBoardInviteResolveBody` | 초대 수락·거절 |
+
+#### `constants.py`
+
+| 상수 | 기능 |
+|------|------|
+| `BOARD_DSCRTN_MAX_LEN` | board_dscrtn 허용 문자 수 (기본 1000) |
 
 프론트: **`Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx`**(캔버스), **`WidgetboardListPage.jsx`**(목록), **`api/widgetBoardClient.js`**. 설계 상세는 **docs/report/20_Widget_Board_System_Design.md**.
 
+### 6.3 `query_studio_server`
+
+라우터 **`APIRouter(prefix="/api", tags=["report"])`**. 엔드포인트별로 `require_permission("query.read")` 또는 `require_permission("query.execute")`를 사용한다. DB는 **`get_db`**(main_db 풀)을 기본으로 쓰며, `list-tables`·`describe-table`은 `mapping_usage` 파라미터에 따라 채널별 매핑을 필터한다.
+
+#### `router.py` — 엔드포인트
+
+| 번호 | 메서드 | 경로 | 핵심 | 권한 |
+|------|--------|------|------|------|
+| 1 | `GET` | `/api/list-tables` | 프로젝트 매핑 테이블 목록 + 사이즈·라벨. `mapping_usage=query_studio` 또는 `widgetboard` | `require_active_access` + 채널별 권한 검사 |
+| 2 | `POST` | `/api/describe-table` | 테이블 컬럼 구조. `mapping_usage` 동일 | 위와 동일 |
+| 3 | `GET` | `/api/column-labels` | 테이블·컬럼 라벨 조회 (유저 JSON ∪ 파일) | `query.read` |
+| 4 | `POST` | `/api/column-labels` | 라벨 저장 (user_id+project_info_id별 system_db JSONB) | `query.read` |
+| 5 | `GET` | `/api/table-relationships` | FK/추론 관계 (`mode=fk` 또는 `all`). peak_guard 적용 | `query.read` |
+| 6 | `POST` | `/api/join-order` | JOIN 순서 자동 계산. peak_guard 적용 | `query.read` |
+| 7 | `POST` | `/api/save-query-as-table` | 쿼리 결과 → 테이블 (큐 기반 비동기. CREATE 후 `table_master`·`table_project_mapping` upsert 3회 재시도). **동일 `table_master`** 는 ETL 적재 완료 시 **`table_master_hook`** 로도 등록·갱신된다(`db_type`은 `main`/`dash` 컨벤션, **[§7.6](#76-related-database-tables)**) | `query.execute` |
+| 8 | `GET` | `/api/save-query-as-table/status/{job_id}` | 저장 작업 상태 조회 | `query.read` |
+| 9 | `POST` | `/api/execute-query` | SELECT 실행 (main_db만). peak_guard 적용 | `query.execute` |
+| 10 | `POST` | `/api/explain-sql` | Claude API로 SQL 해석 | `query.execute` |
+| 11 | `POST` | `/api/get-column-values` | 컬럼 고유값 조회 (main_db 매핑만) | `query.read` |
+| 12 | `POST` | `/api/query-stats` | 쿼리 통계 (COUNT + EXPLAIN, main_db만) | `query.execute` |
+
+#### 보조 모듈
+
+| 모듈 | 역할 |
+|------|------|
+| `schemas.py` | Pydantic 요청 모델 8종. `DescribeTableRequest`에 `mapping_usage` 필드 추가 |
+| `analysis_store.py` | `allowlist_analysis` 테이블 CRUD (분석 스냅샷 저장·조회, 기존 호환; 관계 캐시는 `_compute_relationships_all` peak_guard TTL 우선) |
+| `join_path.py` | BFS 경로 탐색, JOIN 순서 결정, 순환·깊이 검증 |
+| `join_metrics.py` | JOIN 정확도 점수, 경우의 수, 파생 테이블 컬럼 |
+| `relationship_inference.py` | `_id` 컬럼 기반 관계 추론 (pluralize 활용) |
+| `pluralize.py` | 단수→복수 변환, 부모 테이블명 추론 |
+| `peak_guard.py` | 선택 설정: TTL 캐시·동시 계산 상한·분당 한도 (429·503). **query_studio 전용**이며, ETL 파일·적재 한도는 **`etl_limits`** (**[§7.5](#75-security-and-limits)**) |
+
+#### 핵심 내부 함수
+
+| 함수 | 기능 |
+|------|------|
+| `_assert_mapping_list_perm` | list-tables·describe-table 공통: `mapping_usage`별 `query.read` 또는 `widgetboard` 권한 검사 |
+| `_resolve_project_table_db_type` | main_db 매핑에 있을 때만 `main` 반환. dash 매핑은 미사용 |
+| `_qs_mapped_table_conn` | QS·위젯보드: 항상 main_db 연결 반환 |
+| `_load_user_project_labels` / `_persist_user_project_labels` | system_db `query_studio_user_labels` JSONB 조회·저장 (user_id+project_info_id별) |
+| `_resolve_table_display_label` | 유저 JSON → table_master 메타 → 파일 → DEFAULT_TABLE_LABELS → 물리명 |
+| `_resolve_column_display_label` | 유저 JSON → 파일 → 테이블별/공통 기본 → 물리명 |
+| `_contains_dangerous_sql` | `core.sql_safety.contains_dangerous_sql`의 래퍼로, 디버그 로그를 추가한 뒤 동일 결과를 반환. `widget_board_server`도 동일 `core.sql_safety`를 사용한다 |
+| `_fetch_relationships` | FK/추론 관계 조회. `project_info_id` 필수, 병합 허용 집합 기준 |
+| `_compute_relationships_all_raw` | FK+추론 전체 관계 계산 (캐시 없음) |
+| `_compute_relationships_all` | peak_guard 적용 래퍼 (TTL 캐시·세마포어). 관계 캐시·분석 스냅샷은 이 경로가 우선, `analysis_store`는 기존 호환 유지 |
+| `_upsert_table_master_and_mapping` | table_master UPSERT + `table_project_mapping` 연결. feature_flags에 따라 `use_widgetboard_yn` 자동 결정 |
+| `_save_table_worker` | 데몬 스레드: queued → running → CREATE TABLE AS → table_master upsert(3회 재시도) → completed/failed |
+
 ---
 
-*함수·엔드포인트 표는 **§1~§5** 각 절의 흐름도 바로 아래에 통합되어 있다. 캠페인 대시보드 HTTP 상세는 **§5.3**, 알림은 **§6.1**, 위젯 보드(서버·초대·공유)는 **§6.2**, 그 외 **§6** 은 패키지 안내다.*
+## 7. etl_server
+
+파일·외부 DB → 저장 DB 적재, 변환 룰, Job 큐, SFTP/S3 **배치**(`/api/etl/batch`)까지 포함한 **ETL 백엔드 전역**이다.
+
+### 7.0 호스트·라우터 (요약)
+
+- **`main.py`**: `from Backend.etl_server import router as etl_router` 를 **한 번만** `include_router` 한다.
+- **가드**: `dependencies=[Depends(require_etl_infrastructure)]` 가 **`/api/etl/*` 와 `/api/etl/batch/*` 전체**에 적용된다.
+- **`router.py`**: `APIRouter(prefix="/api/etl")` + 내부에서 **`router_file.router`** (`prefix="/batch"`) 를 `include_router` → 실제 URL 은 `/api/etl/batch/*`. 별도 **`etl_file_router`** 는 없다.
+- **세부 구현·DB 지원 표**: **02_BACKEND_GUIDE.md** §6.
+
+### 7.1 Package overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  etl_server (FastAPI)                                       │
+│  router.py  prefix=/api/etl                                  │
+│    └─ include_router(router_file) → /api/etl/batch/*        │
+├─────────────────────────────────────────────────────────────┤
+│  Meta·CRUD          │ service.py, service_file.py           │
+│  HTTP (단일·배치)    │ router.py, router_file.py             │
+│  적재               │ load_service.py, load_service_file.py   │
+│                     │ db_load_service.py                      │
+│  변환·검증         │ transform_engine.py                   │
+│                     │ transform_rules_service.py            │
+│                     │ transform_upsert_verification.py      │
+│  배치 실행         │ batch_executor_db.py, batch_executor_file.py │
+│  Job 큐            │ queue_worker.py                         │
+│  폴더·스케줄       │ folder_adapter_file.py, scheduler_file.py │
+│  미리보기·추론     │ preview_service.py, schema_infer.py    │
+│  파일 입출력       │ csv_reader.py, parser_file.py            │
+│  원장·한도·시간    │ table_master_hook.py, etl_limits.py, timezone_utils.py │
+└──────────────────────┬──────────────────────────────────────┘
+                       ▼
+              ETL 메타 DB (config `etl_db`, 예: ibank_etl_data)
+              + system_db (table_master 등)
+```
+
+### 7.2 Router endpoints
+
+**공통 가드**
+
+- 아래 표에서 Guard 열을 생략한 행은 모두 **`require_etl_infrastructure`** 이다(`main.py` 에서 `etl_router` 일괄 Depends).
+- 일부 핸들러는 `payload = Depends(require_etl_infrastructure)` 형태로 동일 가드를 명시할 수 있다.
+
+#### A. `router.py` — `/api/etl` (DB·파일 ETL 메타·실행)
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/etl` | 서비스 안내·대표 엔드포인트 목록·업로드 보존 일수 |
+| GET | `/api/etl/tables` | `etl_tables` 목록 (파일 소스는 `preview_available`) |
+| POST | `/api/etl/tables` | ETL 테이블 정의 등록 |
+| PATCH | `/api/etl/tables/{etl_table_id}` | 테이블 설정 부분 갱신 |
+| DELETE | `/api/etl/tables/{etl_table_id}` | ETL 테이블 삭제 (배치·원장 등 선행 검사) |
+| POST | `/api/etl/tables/{etl_table_id}/refresh-column-mapping` | 컬럼 매핑 재조회 반영 |
+| DELETE | `/api/etl/tables/{etl_table_id}/row` | 행 단위 삭제(조건부) |
+| POST | `/api/etl/upload` | 파일 업로드 (CSV·Excel·Parquet) |
+| POST | `/api/etl/infer-schema` | 샘플 기반 스키마 추론 |
+| POST | `/api/etl/tables/{etl_table_id}/add-file` | 기존 파일 ETL에 단일 파일 추가 적재 흐름 |
+| POST | `/api/etl/tables/{etl_table_id}/add-files-zip` | ZIP 추가 적재 |
+| GET | `/api/etl/timezones` | IANA 타임존 목록 |
+| POST | `/api/etl/cleanup-expired-uploads` | 만료 업로드 정리 |
+| POST | `/api/etl/connections` | 소스 DB 연결 등록 |
+| GET | `/api/etl/connections` | 연결 목록 |
+| POST | `/api/etl/connections/test` | 연결 테스트 |
+| DELETE | `/api/etl/connections/{connection_id}` | 연결 삭제 |
+| GET | `/api/etl/connections/{connection_id}/tables` | 소스 테이블 목록 |
+| GET | `/api/etl/connections/{connection_id}/source-columns` | 소스 컬럼 메타 |
+| GET | `/api/etl/connections/{connection_id}/source-indexes` | 소스 인덱스 |
+| POST | `/api/etl/connections/{connection_id}/validate-incremental-column` | 증분 컬럼 검증 |
+| GET | `/api/etl/tables/{etl_table_id}/transform-rules` | 변환 룰 목록 |
+| POST | `/api/etl/transform-rules` | 변환 룰 생성 |
+| PUT | `/api/etl/transform-rules/{rule_id}` | 변환 룰 수정 |
+| DELETE | `/api/etl/transform-rules/{rule_id}` | 변환 룰 삭제 |
+| GET | `/api/etl/storage-connections` | 저장 DB 연결 목록(내장 main·dash + 등록 연결) |
+| POST | `/api/etl/storage-connections` | 저장 DB 연결 등록 |
+| PATCH | `/api/etl/storage-connections/{storage_connection_id}` | 저장 연결 수정 |
+| DELETE | `/api/etl/storage-connections/{storage_connection_id}` | 저장 연결 삭제 |
+| POST | `/api/etl/storage-connections/test` | 저장 연결 테스트 |
+| GET | `/api/etl/target-tables` | 적재 대상 DB의 테이블 목록 |
+| GET | `/api/etl/target-columns` | 대상 테이블 컬럼 |
+| GET | `/api/etl/tables/{etl_table_id}/target-exists` | 타깃 테이블 존재 여부 |
+| GET | `/api/etl/tables/{etl_table_id}/preview` | 변환 반영 미리보기 |
+| POST | `/api/etl/transform/preview` | 룰·매핑만으로 변환 미리보기 |
+| POST | `/api/etl/tables/{etl_table_id}/run` | 실행: 파일은 **동일 프로세스 스레드**, DB·추가적재는 **pending Job + queue_worker** |
+| GET | `/api/etl/jobs` | Job 목록 (`etl_table_id`, `statuses` 필터) |
+| GET | `/api/etl/jobs/{job_id}` | Job 단건 |
+| DELETE | `/api/etl/jobs/{job_id}` | Job 삭제 |
+| POST | `/api/etl/jobs/{job_id}/cancel` | 실행·대기 Job 취소 |
+
+#### B. `router_file.py` — `/api/etl/batch` (SFTP·S3 폴더 배치)
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/etl/batch` | 배치 API 안내 |
+| GET | `/api/etl/batch/folder-connections` | 폴더 연결 목록 |
+| POST | `/api/etl/batch/folder-connections` | 폴더 연결 등록 |
+| PATCH | `/api/etl/batch/folder-connections/{folder_connection_id}` | 수정 |
+| DELETE | `/api/etl/batch/folder-connections/{folder_connection_id}` | 삭제 |
+| POST | `/api/etl/batch/folder-connections/test` | 연결 테스트 |
+| GET | `/api/etl/batch/folder-connections/{folder_connection_id}/files` | 원격 파일 목록 |
+| GET | `/api/etl/batch/folder-connections/{folder_connection_id}/patterns` | 패턴 목록 |
+| GET | `/api/etl/batch/folder-connections/{folder_connection_id}/columns` | 컬럼 샘플 |
+| GET | `/api/etl/batch/target-tables` | 배치 타깃 테이블 |
+| GET | `/api/etl/batch/target-registry` | `etl_batch_target_registry` 목록 |
+| DELETE | `/api/etl/batch/target-registry/{registry_id}` | 레지스트리 행 삭제 |
+| GET | `/api/etl/batch/jobs` | 배치 Job 목록 |
+| POST | `/api/etl/batch/jobs` | 배치 Job 생성 |
+| POST | `/api/etl/batch/jobs/from-etl-table` | 기존 ETL 테이블에서 배치 Job 생성 |
+| POST | `/api/etl/batch/jobs/validate-target` | 타깃 검증 |
+| PATCH | `/api/etl/batch/jobs/{batch_job_id}` | 배치 Job 수정 |
+| DELETE | `/api/etl/batch/jobs/{batch_job_id}` | 배치 Job 삭제 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/run-now` | 즉시 실행 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/toggle` | 활성/비활성 토글 |
+| GET | `/api/etl/batch/jobs/{batch_job_id}/db-preview` | DB 배치 미리보기 |
+| GET | `/api/etl/batch/jobs/{batch_job_id}/history` | 실행 이력 |
+| GET | `/api/etl/batch/jobs/{batch_job_id}/history/{run_id}` | 이력 단건 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/history/{run_id}/cancel` | 실행 취소 |
+| GET | `/api/etl/batch/jobs/{batch_job_id}/skipped-files/history` | 스킵 파일 이력 |
+| GET | `/api/etl/batch/jobs/{batch_job_id}/skipped-files` | 스킵 파일 집계 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/skipped-files/delete` | 스킵 기록 정리 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/reset-ts` | 처리 시각 리셋 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/rollback-file` | 파일 단위 롤백 |
+| POST | `/api/etl/batch/jobs/{batch_job_id}/clone` | Job 복제 |
+
+### 7.3 Module map
+
+| 모듈 | 역할 (요약) |
+|------|-------------|
+| `service.py` | `etl_connections`·`etl_tables`·`etl_jobs`·`etl_storage_connections` CRUD, 소스 테이블/컬럼/인덱스 조회, Job claim·진행, 동적 컬럼 존재 대응 INSERT/SELECT |
+| `service_file.py` | `batch_folder_connections`(SFTP/S3)·`batch_jobs`·`batch_run_history`·`etl_batch_target_registry` 등 배치 메타·실행 이력·스킵/롤백 |
+| `load_service.py` | 파일 → 파싱 → 변환 → **main_db** 대상 테이블 DROP/CREATE/INSERT, `run_file_upsert` |
+| `load_service_file.py` | 배치·추가 적재 경로의 DataFrame 적재·UPSERT 보조 |
+| `db_load_service.py` | PG/MySQL/Oracle 소스 → 저장 DB **full / incremental / diff**, COPY·staging·인덱스 생성 |
+| `transform_engine.py` | `etl_transform_rules` 를 pandas DataFrame에 **선언적 오퍼레이션**으로 적용 (`apply_rules`, type cast, cleansing, numeric, row filter/dedup 등). **임의 Python `eval` 기반 사용자 코드 실행은 없음** |
+| `transform_rules_service.py` | 변환 룰 CRUD·조회 |
+| `transform_upsert_verification.py` | 룰 출력과 적재 파이프라인 정합 검증(dry-run 등) |
+| `preview_service.py` | 테이블·파일 미리보기, `transform/preview` 연동 |
+| `schema_infer.py` | 업로드/샘플로부터 컬럼 타입 추론 |
+| `csv_reader.py` / `parser_file.py` | CSV 견고 읽기, Excel/zip·배치 pending 파일 목록 |
+| `queue_worker.py` | `etl_jobs` pending 선점(`SKIP LOCKED`)·동시 최대 3건·`run_db_load` / `run_file_load` / `run_file_upsert` 디스패치 |
+| `batch_executor_db.py` / `batch_executor_file.py` | 스케줄러가 호출하는 배치 실행 본체(DB/파일) |
+| `scheduler_file.py` | 앱 lifespan에서 기동, 활성 배치 Job 로드·주기 실행 |
+| `folder_adapter_file.py` | SFTP/S3 어댑터(목록·다운로드·삭제) |
+| `table_master_hook.py` | 적재 성공 후 `system_db.table_master` UPSERT (`db_type` main·dash) |
+| `etl_limits.py` | 업로드 크기·적재 행·배치 크기 등 한도 (config 병합) |
+| `timezone_utils.py` | 타임존 헬퍼 (`router` 의 `/timezones` 등과 연계) |
+| `__init__.py` | 패키지에서 `router` 만 re-export (`main` 은 이것만 import) |
+
+### 7.4 Key flows
+
+#### DB ETL 실행 (요약)
+
+```
+Client          router.py                 service.py           queue_worker.py       db_load_service.py
+   │ POST …/run  │                         │ insert_job(pending)│                     │
+   │─────────────▶│                         │                    │                     │
+   │◀ 202 pending │                         │                    │                     │
+   │              │                         │     start_background_worker (필요 시)    │
+   │              │                         │                    │ claim_next…       │
+   │              │                         │                    │────────────────────▶│ run_db_load
+   │              │                         │                    │                     │ (transform → COPY/Upsert)
+   │              │                         │◀ update_job·table_master_hook ─────────────│
+```
+
+#### 파일 ETL (첫 적재)
+
+```
+Client POST …/run (source_type=file)
+  → service.insert_job(running)
+  → 동일 프로세스 Thread → load_service.run_file_load
+  → (업로드 경로 일치 보장 — 다중 워커와 파일 경로 불일치 방지)
+```
+
+#### 폴더 배치 (요약)
+
+```
+lifespan → scheduler_file.start_scheduler → batch_executor_*
+  ↔ service_file (batch_jobs, run_history, skipped set)
+  ↔ folder_adapter_file (원격 스캔)
+```
+
+### 7.5 Security and limits
+
+- **가드 1 — ETL 인프라**: `require_etl_infrastructure` = `require_active_access` + `user_has_etl_infrastructure_access` (`sa_dev`·`etl_manager`·또는 `user_info.etl_yn=Y`). **`permissions.py`** 표는 **[§2.4](#24-jwtdepends엔드포인트-auth_server)**.
+- **가드 2 — 프로젝트·메타**: ETL 메타는 JWT `project_info_id` 등과 조인·필터되는 쿼리 패턴을 따른다(상세는 `service.py`·`service_file.py`).
+- **가드 3 — `etl_limits`**: 업로드 용량·적재 행·ZIP 추출·배치 크기 등. **쿼리 스튜디오 `peak_guard`**(엔드포인트당 분당 한도·동시 분석·TTL 캐시)와는 **별 모듈·별 설정**이다.
+- **가드 4 — 데이터·SQL 안전**: `transform_engine` 은 **룰 타입별 pandas 처리**이며, 사용자 임의 코드 `eval` 샌드박스는 **구현되지 않음**. DB 적재는 파라미터화·COPY 경로 등으로 SQL 인젝션을 피하는 패턴을 사용한다(세부는 소스 주석·`core.sql_safety`는 주로 query_studio).
+
+### 7.6 Related database tables
+
+- **ETL 메타 DB** (`etl_db`): **04_DB_ARCHITECTURE.md** 의 `ibank_etl_data` 절을 본다.
+- 아래는 **주요 엔터티 예시**다.
+
+| 테이블(예) | 용도 |
+|------------|------|
+| `etl_connections` | 소스 DB 연결 |
+| `etl_tables` | ETL 단위(소스·타깃·sync_mode·파일 경로·storage_connection_id 등) |
+| `etl_transform_rules` | 테이블별 변환 룰 |
+| `etl_jobs` | 실행 Job·상태·오류 메시지 |
+| `etl_storage_connections` | 적재 대상 PostgreSQL 연결 |
+| `batch_folder_connections` / `batch_jobs` / `batch_run_history` | 폴더 배치·실행 이력 |
+| `etl_batch_target_registry` | 배치로 생성된 타깃 테이블 레지스트리 |
+
+- **system_db**: 적재가 **내장 main·dash**에 완료되면 **`table_master`** 가 `table_master_hook` 으로 갱신된다.
+
+---
+
+*함수·엔드포인트 표는 **§1~§5** 각 절의 흐름도 바로 아래에 통합되어 있다.*
+
+- **§5.3**: 캠페인 대시보드 HTTP 상세
+- **§6.1~§6.3**: 알림 · 위젯 보드 · 쿼리 스튜디오
+- **§6.0**: 패키지 한눈에(나머지 패키지 요약)
+- **§7**: ETL 서버(`etl_server`) 전체

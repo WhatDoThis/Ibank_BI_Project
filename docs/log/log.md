@@ -1,6 +1,19 @@
 # Log
 
 ## Log Index
+426. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_system_data `\d` 기준 전면 동기화
+425. 2026-04-17 docs/main/04_DB_ARCHITECTURE: 스키마 문서 확정 서술·구조 정리
+424. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_etl_data 운영 `\d` 스키마와 동기화
+423. 2026-04-17 docs/main/03_API_GUIDE: 서두·목차·§1~§7 도입·§6·§7 가독성(00~02 스타일)
+422. 2026-04-17 docs/main/03·02: §7 etl_server(API·모듈·흐름)·§1·§2·§3·§6 교차·etl_server 트리
+421. 2026-04-17 docs/main/03·02: §5 캠페인 대시보드·§6.2·§6.3 query_studio·디렉터리 트리·sql_safety 설명
+420. 2026-04-17 docs/main/03·02: §4 project_server·§6.1 notification(service·도식)·§3.1 C·project/notification 트리
+419. 2026-04-17 docs/main/03·02: §3 admin_server(purge-preview·매핑·소유·이관)·§6.1 알림·§2 rotate 설명·admin 트리
+418. 2026-04-17 docs/main/03·02: §2 auth_server(서비스·deps·permissions·refresh·/me)·auth_server 트리
+417. 2026-04-17 docs/main/03_API_GUIDE·02_BACKEND_GUIDE: §1 라우터·db·sql_safety·invite_expiry, §5·§6, 백엔드 가이드 3.2.4~5.6 동기화
+416. 2026-04-15 docs/main/02_BACKEND_GUIDE: 01과 동일 서식(머리말·§1.1 번호·§6.7 하위 절)
+415. 2026-04-15 docs/main/01_FRONTEND_GUIDE: §1.1 이하 전반 단락·목록 정리
+414. 2026-04-15 PRD·프론트 가이드: §7 SPA 묶음(1~5)·01 §1.1 단락·글머리 정리
 413. 2026-04-15 위젯보드 목록: 작업 열 안내 제거·상단 읽기 전용 힌트 한 줄
 412. 2026-04-15 docs/main/00_PRD: 제어 문자 제거·ASCII도·경로 복구 전수 정리
 411. 2026-04-15 docs/main/00_PRD: 간결 재작성·시스템 아키텍처·기술 스택
@@ -416,6 +429,130 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+426. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_system_data `\d` 기준 전면 동기화
+Purpose: 제공된 PostgreSQL `\d` 출력에 맞춰 시스템 DB 테이블·제약·인덱스·FK·위젯 보드 3종을 문서에 반영한다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: `dptmt_info`~`query_studio_user_labels` 컬럼·타입·DEFAULT·PK/UNIQUE/CHECK/FK 명칭 정정, `user_info` 실스키마 반영, `widget_board`·`widget_board_share`·`widget_item` 12b~12d 추가, 관계 트리·요약(16테이블) 갱신
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+425. 2026-04-17 docs/main/04_DB_ARCHITECTURE: 스키마 문서 확정 서술·구조 정리
+Purpose: DB 구조 문서를 추정·운영·앱 구현 설명 없이 컬럼·제약·FK 중심으로 통일하고, `ibank_system_data` / `ibank_etl_data` 절 순서를 정리한다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: 제목·트리·본문에서 운영/실측/레거시/앱 코드 언급 제거, CHECK·UNIQUE·인덱스를 명시, 시스템 13테이블 요약에 `query_studio_user_labels` 반영, ETL 공통 규칙을 `ibank_etl_data` 절 직전으로 이동
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+424. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_etl_data 운영 `\d` 스키마와 동기화
+Purpose: 사용자 제공 PostgreSQL `\d` 출력을 기준으로 ETL 메타 테이블 정의·트리·요약을 문서와 맞춘다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: 테이블 수 13(`server_timezones` 포함), FK/NULL/CHECK/인덱스·`batch_jobs` 전 컬럼·`etl_*`·`batch_*`·`server_timezones` 컬럼 형태 갱신, `schedule_cron` 미존재·`create_user_id` 교차 DB 설명, 관계 트리 보정
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+423. 2026-04-17 docs/main/03_API_GUIDE: 서두·목차·§1~§7 도입·§6·§7 가독성(00~02 스타일)
+Purpose: 00_PRD·01·02와 맞춰 짧은 단락·글머리·병행 문서 블록·절 머리 한 줄 요약으로 읽기 쉽게 한다.
+
+Changes:
+
+- `03_API_GUIDE.md`: 머리말 재구성(역할·병행 문서·도식 규칙), `## 목차` + 안내 문장, §1·§2·§3·§4·§5·§6·§7 절 도입 한 줄, §6.0 제목 정리·§6.0/6.1~6.3 구조 설명, §6 패키지 긴 문장을 하위 글머리로 분해, §7 소제목 번호(7.0~7.6)·교차 링크 앵커 갱신, 말미 안내를 글머리로 분리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+422. 2026-04-17 docs/main/03·02: §7 etl_server(API·모듈·흐름)·§1·§2·§3·§6 교차·etl_server 트리
+Purpose: 저장소 `Backend/etl_server` 실제 라우팅·모듈 구조를 반영한 API 가이드 §7 신설, 문서 간 교차 참조·백엔드 트리 정리.
+
+Changes:
+
+- `03_API_GUIDE.md`: §7 etl_server(개요·엔드포인트·모듈·플로우·보안·DB), 문서 목차 §7, §1.1 etl/batch 포함, `require_etl_infrastructure`·`service_tables`·§6 etl·peak_guard·save-query-as-table 보강, 각주 §7 반영
+- `02_BACKEND_GUIDE.md`: `etl_server/` 파일별 디렉터리 트리·`__init__`·batch 마운트 주석
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+421. 2026-04-17 docs/main/03·02: §5 캠페인 대시보드·§6.2·§6.3 query_studio·디렉터리 트리·sql_safety 설명
+Purpose: 대시보드 번들·기간 모듈·위젯보드·쿼리 스튜디오 문서와 백엔드 트리를 코드에 맞춘다.
+
+Changes:
+
+- `03_API_GUIDE.md`: §5.3 내부함수·campaign_period 표·STEP 6~7·`/page` 행, §6 도입부·§6.2·§6.3 신설, §1.3 sql_safety 한 줄, 문서 목차 §6.3 링크
+- `02_BACKEND_GUIDE.md`: `campaign_dash_server`·`query_studio_server`·`widget_board_server` 트리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+420. 2026-04-17 docs/main/03·02: §4 project_server·§6.1 notification(service·도식)·§3.1 C·project/notification 트리
+Purpose: 프로젝트 초대 수락/거절·알림 서비스 API 문서와 백엔드 디렉터리 설명을 코드에 맞춘다.
+
+Changes:
+
+- `03_API_GUIDE.md`: §4.2~§4.4, §6.1 `service` 표·알림 생성 도식·설계 요약, §3.1 C `add_member` 흐름
+- `02_BACKEND_GUIDE.md`: `project_server/`·`notification_server/` 트리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+419. 2026-04-17 docs/main/03·02: §3 admin_server(purge-preview·매핑·소유·이관)·§6.1 알림·§2 rotate 설명·admin 트리
+Purpose: 어드민·알림·인증 문서를 위젯보드 purge·테이블 매핑 채널 플래그·이관 자산에 맞춘다.
+
+Changes:
+
+- `03_API_GUIDE.md`: §3.0~§3.3·§3.1 F/I-pre/I·§3.2 이관·§6.1 도식·§2.2 `rotate_session_tokens_clear_project`
+- `02_BACKEND_GUIDE.md`: `admin_server/` 디렉터리 트리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+418. 2026-04-17 docs/main/03·02: §2 auth_server(서비스·deps·permissions·refresh·/me)·auth_server 트리
+Purpose: 인증 가이드와 백엔드 디렉터리 설명을 현행 코드(프로젝트 클레임 정리·권한 표)에 맞춘다.
+
+Changes:
+
+- `03_API_GUIDE.md` §2.2~§2.4: service·security·deps·permissions·router 표 및 §2.3.2·§2.3.3 흐름도 보강
+- `02_BACKEND_GUIDE.md` §2: `auth_server/` 파일 트리·주석 정리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+417. 2026-04-17 docs/main/03_API_GUIDE·02_BACKEND_GUIDE: §1 라우터·db·sql_safety·invite_expiry, §5·§6, 백엔드 가이드 3.2.4~5.6 동기화
+Purpose: API 통합 가이드와 백엔드 가이드를 `api_server/main.py`·`core` 기준으로 맞춘다.
+
+Changes:
+
+- `03_API_GUIDE.md`: 문서 목차(§1 sql_safety·invite_expiry, §5 campaign_period, §6 peak_guard), §1.1 라우터·Depends, §1.3 풀 도식·`db.py` 표 보강·`invite_expiry.py` 표, §5.2·§5.3·§6.2 정리
+- `02_BACKEND_GUIDE.md`: `core/` 트리 순서, `widget_board_router` 설명, §3.2.4~3.2.5, §5.6 `get_aggregatable_tables`
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+416. 2026-04-15 docs/main/02_BACKEND_GUIDE: 01과 동일 서식(머리말·§1.1 번호·§6.7 하위 절)
+Purpose: 프론트 가이드와 같은 가독성 규칙으로 백엔드 가이드를 맞춘다.
+
+Changes:
+
+- `02_BACKEND_GUIDE.md`: 문서 머리말 bullet, §1.1을 1)~6) 블록, §2·§3.1·§4.0·§4.6·§5·§6.1~6.4·§7 정리, §6.7을 6.7.1~6.7.5로 분할
+
+Changed files: docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+415. 2026-04-15 docs/main/01_FRONTEND_GUIDE: §1.1 이하 전반 단락·목록 정리
+Purpose: `### 1.1 역할`과 동일한 가독성 규칙(번호·빈 줄·`-`·하위 들여쓰기)으로 §1.2~§7까지 정리한다.
+
+Changes:
+
+- `01_FRONTEND_GUIDE.md`: 6) 앱 스택 분리, §3 요약 bullet, §4.1~4.5·§5·§6·§7 장문을 짧은 항목·중첩 목록으로 재구성
+
+Changed files: docs/main/01_FRONTEND_GUIDE.md, docs/log/log.md
+
+414. 2026-04-15 PRD·프론트 가이드: §7 SPA 묶음(1~5)·01 §1.1 단락·글머리 정리
+Purpose: PRD 핵심 기능 요약에 인증·관리·홈·헤더를 프론트 가이드와 같은 번호·단락 구조로 넣고, 01 §1.1 역할 목록을 묶음별 줄바꿈·`-` 로 읽기 쉽게 맞춘다.
+
+Changes:
+
+- `00_PRD.md`: §7에 `### 인증·관리·홈·공통(SPA)` 추가(1)~5)), 기존 `### 공통` 제목을 `### 공통(SPA·빌드 외)` 로 구분
+- `01_FRONTEND_GUIDE.md`: §1.1에 1)~5) 사이 빈 줄·하위 `-` 목록·S8/adminClient/헤더 소제목 정리
+
+Changed files: docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/log/log.md
 
 413. 2026-04-15 위젯보드 목록: 작업 열 안내 제거·상단 읽기 전용 힌트 한 줄
 Purpose: 작업 컬럼 하단 긴 안내로 행 높이·줄바꿈이 어색함.

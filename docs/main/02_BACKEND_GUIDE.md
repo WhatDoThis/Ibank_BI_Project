@@ -1,7 +1,13 @@
 # 백엔드 개발 가이드
 
-본 문서는 **docs/main** 내 백엔드 전용 명세입니다. 구현 위치: `Backend/core`, `Backend/api_server`(호스트), `Backend/auth_server`, `Backend/project_server`, `Backend/notification_server`, `Backend/admin_server`, `Backend/query_studio_server`, `Backend/etl_server`, `Backend/campaign_dash_server`, `Backend/widget_board_server`.  
-**목적**: 현재 코드 기준 구조·API·설정·모듈 역할을 정리한 가이드(로드맵·Phase 표현 없음). 날짜별 작업 이력은 **docs/log/log.md** 참고. 레이어·의존 방향·작업 유형별 탐색은 **docs/report/03_AI_DEVELOP_GUIDE.md** 참고. 백엔드 **코드·흐름 통합** 레퍼런스 **03_API_GUIDE.md** 참고. ETL 운영·COPY·설정 모달 보조는 **docs/report/08_ETL_Phase_Implement_Guide.md**. **부록 A**는 Flask→FastAPI 전환 당시 참고용 요약이다.
+본 문서는 **docs/main** 내 백엔드 전용 명세이며, **현재 코드 기준** 구조·API·설정·모듈 역할만 다룬다(로드맵·Phase 표현 없음).
+
+- **주요 구현 위치**: `Backend/core`, `Backend/api_server`(호스트), `auth_server`, `project_server`, `notification_server`, `admin_server`, `query_studio_server`, `etl_server`, `campaign_dash_server`, `widget_board_server`
+- **작업 이력**: **docs/log/log.md**
+- **레이어·의존·탐색**: **docs/report/03_AI_DEVELOP_GUIDE.md**
+- **API·인증 흐름 통합**: **03_API_GUIDE.md**
+- **ETL 운영·COPY·모달 보조**: **docs/report/08_ETL_Phase_Implement_Guide.md**
+- **부록 A**: Flask→FastAPI 전환 당시 참고 요약
 
 ---
 
@@ -9,12 +15,38 @@
 
 ### 1.1 역할
 
-- **FastAPI** 기반 REST API 서버. **`Backend/api_server/main.py`** 에서 health → **auth** → **project** → **notification** → **admin** → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) → **widget_board_server**(`require_permission("widgetboard")`) 순으로 라우터를 등록한다.
-- **PostgreSQL** 연동: **메인 DB**(쿼리 스튜디오·execute-query 물리 테이블), **시스템 DB**(`ibank_system_data` — ETL 메타·`user_info`·부서·프로젝트·`pmssn_master`·매핑 등, **04_DB_ARCHITECTURE.md**), **dash_db**(캠페인 대시보드 Star·집계 물리 테이블).
-- **CORS** 허용. 쿼리 실행 시 SELECT만 허용, 금지 키워드 문맥 검사(SELECT 문장 제외).
-- **실행**: `python run.py back` → config.backend.api_host/api_port(기본 5001), uvicorn 기동. **lifespan**에서 ETL **폴더/DB 배치 스케줄러**(APScheduler) 기동. ETL **Job 큐 워커**(`queue_worker`)는 `/api/etl` 등에서 pending Job이 등록될 때 **최초 1회** 백그라운드 기동(pending → running, **동시 최대 3건**, `MAX_CONCURRENT`).
-- **인증·인가**: **`/api/auth/*`** 로그인·토큰·세션. 보호 API는 **`Authorization: Bearer`** access JWT에 더해 **`session_log.access_token_encrypt`**(Bearer 원문 SHA-256) 일치·**`refresh_exprtn_dtm`** 미만료를 **`require_active_access`**에서 검사한다. **`POST /api/auth/logout`** 만 **`require_access_session_bound`**(JWT+세션만, 비활성·잠금도 허용). 리프레시 **7일 슬라이딩**·`POST /api/auth/refresh` 거절 조건·즉시 세션 끊김은 **03_API_GUIDE.md §2.3.3**. 쿼리 스튜디오·대시보드 등은 **`Backend.auth_server.permissions.require_permission`**(JWT `project_info_id`·멤버·`pmssn_list`). 상세는 **03_API_GUIDE.md §2.3**, **05_Permission_ARCHITECTURE.md**.
-- **전역 예외 응답**: 404/500 시 `error`·`message` JSON — **docs/report/03_AI_DEVELOP_GUIDE.md §10**.
+1) **호스트·라우터 (`api_server/main.py`)**
+
+- **FastAPI** REST — `include_router` 순서: health → auth → project → notification → admin → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) → **widget_board_server**(`require_permission("widgetboard")`)
+
+2) **PostgreSQL 용도**
+
+- **메인 DB**: 쿼리 스튜디오·`execute-query` 물리 테이블
+- **시스템 DB**: 예 `ibank_system_data` — ETL 메타·`user_info`·부서·프로젝트·`pmssn_master`·매핑 등 — **04_DB_ARCHITECTURE.md**
+- **dash_db**: 캠페인 대시보드 Star·집계 물리 테이블
+
+3) **CORS·쿼리 안전**
+
+- CORS 허용
+- 쿼리 실행: **SELECT만**, 금지 키워드 문맥 검사(SELECT 문장 제외)
+
+4) **실행·백그라운드**
+
+- `python run.py back` → `config.backend.api_host` / `api_port`(기본 **5001**), uvicorn
+- **lifespan**: ETL 폴더/DB 배치 스케줄러(APScheduler)
+- **ETL Job 워커**(`queue_worker`): pending 등록 시 **최초 1회** 기동 — 동시 최대 **3건**(`MAX_CONCURRENT`)
+
+5) **인증·인가**
+
+- **`/api/auth/*`**: 로그인·토큰·세션
+- 보호 API: **`Authorization: Bearer`** + `session_log.access_token_encrypt`·`refresh_exprtn_dtm` → **`require_active_access`**
+- **`POST /api/auth/logout`**: **`require_access_session_bound`**(JWT+세션만, 비활성·잠금 허용)
+- 리프레시·세션 끊김: **03_API_GUIDE.md §2.3.3**
+- 기능별 권한: **`auth_server.permissions.require_permission`**(`project_info_id`, 멤버, `pmssn_list`) — **03_API_GUIDE.md §2.3**, **05_Permission_ARCHITECTURE.md**
+
+6) **전역 예외**
+
+- 404/500 → `error`·`message` JSON — **docs/report/03_AI_DEVELOP_GUIDE.md §10**
 
 ### 1.2 기술 스택
 
@@ -27,24 +59,26 @@
 
 ### 1.3 실행 방식
 
-- **로컬**: `python run.py back` → API 서버만 기동.
-- **배포**: 루트 **deploy.sh** 사용(빌드 + report-api/report-front 재시작). 상세는 docs/report/DEPLOY_SERVER.md.
-- **접속**: API 베이스 URL은 config.frontend.api_base_url(예: 로컬 `http://localhost:5001`, 배포 `https://도메인/report_api`).
+- **로컬**: `python run.py back` → API 서버만 기동
+- **배포**: 루트 **deploy.sh**(빌드 + report-api/report-front 재시작) — **docs/report/DEPLOY_SERVER.md**
+- **접속(API 베이스)**: `config.frontend.api_base_url` 예: 로컬 `http://localhost:5001`, 배포 `https://도메인/report_api`
 
 ---
 
 ## 2. 아키텍처·디렉토리 구조
 
+- 저장소 **현행** 폴더 트리 요약(세부는 코드·`main.py` 기준).
+
 ```
 Backend/
 ├── core/                          # 공유 DB·SQL 안전·의존성·대시보드·인증 URL·로깅·초대 만료 (여러 *_server가 import)
 │   ├── db.py                      # main/system/dash/etl DB 설정·연결·허용 테이블
+│   ├── invite_expiry.py           # 초대 만료 공통
 │   ├── sql_safety.py              # contains_dangerous_sql — execute-query·위젯보드 등 SELECT 전용 검사
 │   ├── dependencies.py            # get_db, get_config
 │   ├── auth_config.py             # JWT·SMTP·get_app_url
 │   ├── logging_setup.py
 │   ├── dashboard_service.py       # 대시보드 집계(물리 테이블·Star 등)
-│   ├── invite_expiry.py           # 초대 만료 공통
 │   └── user_dvsn_codes.py         # user_dvsn 정규화(조직 역할 코드)
 │
 ├── api_server/                    # FastAPI 호스트 — 앱 조립·CORS·라우터 등록·lifespan
@@ -54,42 +88,85 @@ Backend/
 │       └── health.py
 │
 ├── auth_server/                   # /api/auth — 로그인·2FA·refresh·me·가입·비밀번호
-│   ├── router.py, service.py, deps.py, permissions.py, security.py
-│   ├── email_service.py, schemas.py
+│   ├── router.py                  # 엔드포인트 매핑
+│   ├── service.py                 # 가입·로그인·세션·비밀번호·프로필
+│   ├── deps.py                    # JWT 검증·세션 바인딩·활성 검사 Depends
+│   ├── permissions.py             # 프로젝트·ETL 권한 검증·require_permission 팩토리
+│   ├── security.py                # bcrypt·JWT·OTP·비밀번호 정책
+│   ├── email_service.py           # SMTP 발송 (로그인 코드·초대)
+│   └── schemas.py                 # Pydantic 요청 모델
 │
-├── project_server/                # /api/projects — 목록·선택(JWT)·생성·초대 수락 등
-│   ├── router.py, service.py
+├── project_server/                # /api/projects — 목록·선택(JWT)·초대 수락/거절
+│   ├── router.py                  # 엔드포인트 매핑
+│   └── service.py                 # 목록·선택·초대 검증·수락·거절
 │
-├── notification_server/           # /api/notifications
-│   ├── router.py, service.py
+├── notification_server/           # /api/notifications — 목록·읽음·알림 적재(내부 호출)
+│   ├── router.py                  # 엔드포인트 매핑 (조회·읽음만)
+│   └── service.py                 # CRUD + 트랜잭션 내 헬퍼(*_in_txn) + 초대자 알림 + 위젯보드 알림
 │
 ├── admin_server/                  # /api/admin — 부서·사용자·권한·프로젝트·멤버
-│   ├── router.py, deps.py, schemas.py
-│   ├── service.py, service_users.py, service_projects.py, service_roles.py, service_tables.py
-│   └── ownership_guards.py        # 정지·역할 변경 시 소유 자산 409 매트릭스
+│   ├── router.py                  # 엔드포인트 매핑
+│   ├── deps.py                    # 인증·역할 Depends (org_admin, super_admin, project_admin_or_operator)
+│   ├── schemas.py                 # Pydantic 요청 모델 (TableMappingEntry, TransferOwnershipBody 등)
+│   ├── service.py                 # 패키지 진입점 (비즈니스는 service_* 분리)
+│   ├── service_users.py           # 유저·초대·부서·이관·정지·일괄 변경
+│   ├── service_projects.py        # 프로젝트 CRUD·멤버·초대·purge(위젯보드 연쇄)
+│   ├── service_roles.py           # 역할 CRUD·사용현황
+│   ├── service_tables.py          # 테이블 마스터·프로젝트 매핑 (채널 플래그)
+│   └── ownership_guards.py        # 정지·역할 변경 시 소유 자산 409 매트릭스 (widget_board 포함)
 │
 ├── query_studio_server/           # /api/* (list-tables, execute-query 등) — prefix /api
-│   ├── router.py, schemas.py
-│   ├── pluralize.py, relationship_inference.py, join_path.py, join_metrics.py, peak_guard.py
+│   ├── router.py                  # 엔드포인트 + 라벨(system_db JSONB)·관계·큐 워커·peak_guard 적용
+│   ├── schemas.py                 # Pydantic 요청 모델 (DescribeTableRequest.mapping_usage 등)
+│   ├── analysis_store.py          # allowlist_analysis 테이블 CRUD
+│   ├── pluralize.py               # 단수→복수 변환·부모 테이블 추론
+│   ├── relationship_inference.py  # _id 컬럼 기반 관계 추론
+│   ├── join_path.py               # BFS JOIN 경로·순서 결정·순환 검증
+│   ├── join_metrics.py            # JOIN 정확도 점수·파생 테이블 컬럼
+│   └── peak_guard.py              # 선택 설정: TTL 캐시·동시 계산 상한·분당 한도 (429·503)
 │
-├── etl_server/                    # /api/etl, /api/etl/batch
-│   ├── router.py, router_file.py
-│   ├── service.py, service_file.py, load_service.py, load_service_file.py, db_load_service.py
-│   ├── batch_executor_file.py, batch_executor_db.py, folder_adapter_file.py
-│   ├── csv_reader.py, parser_file.py, scheduler_file.py, queue_worker.py
-│   ├── preview_service.py, schema_infer.py
-│   ├── transform_engine.py, transform_rules_service.py, transform_upsert_verification.py
-│   ├── etl_limits.py, table_master_hook.py, timezone_utils.py
+├── etl_server/                    # /api/etl, /api/etl/batch (main.py는 etl_server.router 만 include)
+│   ├── __init__.py                # router re-export (router_file는 router.py가 include)
+│   ├── router.py
+│   ├── router_file.py             # prefix /batch → 합쳐진 URL /api/etl/batch/*
+│   ├── service.py
+│   ├── service_file.py
+│   ├── load_service.py
+│   ├── load_service_file.py
+│   ├── db_load_service.py
+│   ├── transform_engine.py
+│   ├── transform_rules_service.py
+│   ├── transform_upsert_verification.py
+│   ├── batch_executor_db.py
+│   ├── batch_executor_file.py
+│   ├── queue_worker.py
+│   ├── schema_infer.py
+│   ├── preview_service.py
+│   ├── csv_reader.py
+│   ├── parser_file.py
+│   ├── folder_adapter_file.py
+│   ├── scheduler_file.py
+│   ├── table_master_hook.py
+│   ├── etl_limits.py
+│   └── timezone_utils.py
 │
-├── campaign_dash_server/          # /api/campaign-dashboard — Star 집계
-│   ├── router.py, campaign_period.py
+├── campaign_dash_server/          # /api/campaign-dashboard — Star 집계·/page 번들
+│   ├── router.py                  # 엔드포인트 + 내부 집계 함수 (summary·member·hourly·trend-multi·page)
+│   └── campaign_period.py         # 기간·추이 창 공통 (calc_summary_date_range, fact_inclusive_end_date 등)
 │
-└── widget_board_server/           # /api/widget-boards — 보드·레이아웃·참여자
-    ├── router.py, service.py, schemas.py, constants.py
+└── widget_board_server/           # /api/widget-boards — 보드·레이아웃·초대·공유·위젯 데이터
+    ├── router.py                  # 엔드포인트 매핑 (CRUD·초대·공유·데이터)
+    ├── service.py                 # 비즈니스 로직 (접근 정책·초대·saved_table·기간 필터)
+    ├── schemas.py                 # Pydantic 요청 모델 (초대·공유·레이아웃)
+    └── constants.py               # BOARD_DSCRTN_MAX_LEN
 ```
 
-- **라우터 등록 순서**: health → auth → project → notification → admin → **query_studio_router** → **etl_router** → **campaign_dashboard_router** → **widget_board_router** (`api_server/main.py` 의 `include_router` 순서).
-- **etl_limits**: etl_server에 **etl_limits.py** 모듈 있음. config에 etl_limits가 없을 때 기본값(max_file_size_mb, max_rows_per_load, max_batch_size, max_zip_extract_total_mb) 반환. config에 0을 넣으면 해당 항목 한도 없음.
+- **라우터 등록 순서 (`main.py` `include_router`)**
+  - health → auth → project → notification → admin → **query_studio_router** → **etl_router** → **campaign_dashboard_router** → **widget_board_router**
+- **etl_limits**
+  - 모듈: `etl_server/etl_limits.py`
+  - config에 `etl_limits` 없으면 기본값(`max_file_size_mb`, `max_rows_per_load`, `max_batch_size`, `max_zip_extract_total_mb`)
+  - 항목에 **0** → 해당 한도 없음
 
 ---
 
@@ -97,9 +174,13 @@ Backend/
 
 ### 3.1 config 로드
 
-- **위치**: `Env/config/config.json` (또는 config.json.example 복사 후 수정).
-- **로드**: `Env/__init__.py` → loader.load_config() → config.backend, config.frontend.
-- **백엔드 사용**: main.py(api_host, api_port), **Backend.core.db** — **`backend.main_db`**(쿼리 스튜디오·execute-query), **`backend.system_db`**, **`backend.etl_db`**, **`backend.dash_db`** 블록 키 구조는 동일 계열(db_host, db_port, db_name, db_user, db_password, 선택 table_schema). 평면 `backend.db_*` 는 지원하지 않음. **query_studio_server** 라우터(query_timeout_seconds, claude_api_key, claude_api_url, 선택 **`backend.query_studio_peak_guard`** → `query_studio_server/peak_guard.py`).
+- **파일**: `Env/config/config.json` (또는 `config.json.example` 복사 후 수정)
+- **로드 경로**: `Env/__init__.py` → `loader.load_config()` → `config.backend`, `config.frontend`
+- **백엔드에서 쓰는 블록**
+  - `main.py`: `api_host`, `api_port`
+  - **`Backend.core.db`**: `backend.main_db`, `system_db`, `etl_db`, `dash_db` — 키 구조 동일 계열(`db_host`, `db_port`, `db_name`, `db_user`, `db_password`, 선택 `table_schema`)
+  - 평면 `backend.db_*` 는 **지원하지 않음**
+- **쿼리 스튜디오 라우터**: `query_timeout_seconds`, `claude_api_key`, `claude_api_url`, 선택 **`backend.query_studio_peak_guard`** → `query_studio_server/peak_guard.py`
 
 ### 3.1.1 메인 DB (main_db)
 
@@ -140,6 +221,14 @@ Backend/
 - **backend.etl_db**: ETL **적재 대상(저장) PostgreSQL**. `Backend.core.db` 의 `get_etl_db_config()` 등. 키는 `main_db`와 동일.
 - **backend.query_studio_peak_guard** (선택): 관계 그래프 **TTL 캐시**, 무거운 관계 계산 **동시 실행 상한**, 사용자당 **분당 execute/관계 API 상한** 등. `enabled: false` 로 비활성화. 키 생략 시 `peak_guard.py` 기본값. `config.json.example` 참고.
 
+### 3.2.4 SQL 안전 검사 (`core/sql_safety.py`)
+
+`contains_dangerous_sql` 함수는 `query_studio_server/router.py`의 `_contains_dangerous_sql`과 동일 로직을 모듈화한 것이다. `widget_board_server`의 `data_source_type=query` 위젯 데이터 조회에서도 동일 함수를 사용해 SELECT 전용 검사를 보장한다.
+
+### 3.2.5 초대 만료 공통 (`core/invite_expiry.py`)
+
+`invite_expired_from_payload(payload)` — `noti_content` 등 dict의 `invite_expires_at`(UTC ISO 문자열)이 현재(UTC)를 넘었는지 판별. `project_server`·`widget_board_server`·`admin_server` 초대 목록에서 공유.
+
 ### 3.3 ETL 한도 (etl_limits)
 
 - **backend.etl_limits**: config.json의 backend 안에 선택적으로 지정. **없으면** `Backend/etl_server/etl_limits.py` **기본값** 사용(일반적 서버 4~8GB 메모리 기준 권장).
@@ -169,11 +258,12 @@ Backend/
 
 ### 4.0 auth·project·notification·admin (prefix `/api`)
 
-- **`/api/auth`**: 로그인·2FA·refresh·`/me`·초대 기반 가입·비밀번호 등 — `Backend/auth_server`.
-- **`/api/projects`**: 프로젝트 목록·선택(JWT rotate)·생성·멤버·초대·수락/거절 등 — `Backend/project_server`.
-- **`/api/notifications`**: 알림 목록·읽음·프로젝트 초대 수락/거절과 연동 등 — `Backend/notification_server`.
-- **`/api/admin`**: 부서·사용자·역할·프로젝트(어드민) CRUD·초대 메일 등 — `Backend/admin_server`(프론트 `shared/api/adminClient.js`).
-- 세부 경로·모듈 함수 표는 **docs/main/03_API_GUIDE.md** 참고. 비즈니스 흐름은 **06_CUSTOMER_JOURNEY.md**, 권한·엣지는 **05_Permission_ARCHITECTURE.md** 참고.
+- **`/api/auth`**: 로그인·2FA·refresh·`/me`·초대 가입·비밀번호 — `Backend/auth_server`
+- **`/api/projects`**: 목록·선택(JWT rotate)·생성·멤버·초대·수락/거절 — `Backend/project_server`
+- **`/api/notifications`**: 알림·읽음·초대 연동 — `Backend/notification_server`
+- **`/api/admin`**: 부서·사용자·역할·프로젝트(어드민) CRUD·초대 메일 — `Backend/admin_server` (프론트 `adminClient.js`)
+
+**세부 표·함수**: **03_API_GUIDE.md** — 흐름 **06_CUSTOMER_JOURNEY.md**, 권한 **05_Permission_ARCHITECTURE.md**
 
 ### 4.1 health
 
@@ -255,8 +345,9 @@ Backend/
 
 ### 4.6 뉴 대시보드 (prefix /api/new-dashboard) — 계약 참고
 
-- **운영 API**: **§4.6.2** `/api/campaign-dashboard/*` — 요청·응답 필드는 아래 **뉴 대시보드** 경로와 동일 계약이다.
-- **데이터 소스(캠페인 대시보드)**: Star 물리 테이블 — **config.backend.dash_db**. 아래 표의 `/api/new-dashboard/*` 는 **과거 경로명·계약 정의**로 남겨 두었다(현재 `main` 에 해당 prefix 라우터 없음).
+- **운영 API**: **§4.6.2** `/api/campaign-dashboard/*` — 요청·응답은 본 절 **new-dashboard** 계약과 동일
+- **데이터 소스**: Star 물리 테이블 — **`config.backend.dash_db`**
+- **아래 표 `/api/new-dashboard/*`**: 과거 경로명·계약 정의 보존 — 현재 `main` 에 해당 prefix 라우터 **없음**
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -331,17 +422,17 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 5.1 main.py (api_server)
 
-- FastAPI 앱 생성, CORSMiddleware(allow_origins=["*"]), 라우터 등록(health, auth, project, notification, admin, query_studio_router, etl_router, **campaign_dashboard_router**, **widget_board_router**).
-- 예외: 404/500 → JSONResponse.
-- lifespan: ETL 폴더 배치 스케줄러(`etl_server.scheduler_file`) 기동(실패 시 예외 스택 로깅·API 기동은 계속).
-- `__main__`: config.backend.api_host/api_port, uvicorn.run(app). 시작 시 로그용으로 **Backend.core.db** 설정 출력.
+- **앱**: FastAPI 생성, `CORSMiddleware(allow_origins=["*"])`, 라우터 등록(health, auth, project, notification, admin, query_studio, etl, **campaign_dashboard**, **widget_board**)
+- **예외**: 404/500 → `JSONResponse`
+- **lifespan**: ETL 폴더 배치 스케줄러(`etl_server.scheduler_file`) — 실패 시 스택 로깅·API는 계속 기동
+- **`__main__`**: `uvicorn.run(app)` — 시작 시 **core.db** 설정 로그 출력
 
 ### 5.2 core/db.py
 
-- **get_main_db_config()**, **get_allowed_tables(project_info_id, …)**, **get_db_connection()**: config.backend 기반 비즈니스(메인) DB 연결(허용 테이블은 프로젝트 매핑 필수).
-- **get_db_connection_system()**, **get_system_table_schema()**: backend.system_db 기반 시스템 DB(ETL 메타).
-- **get_dash_db_config()**, **get_dash_table_schema()**, **get_db_connection_dash()**, **is_new_dash_physical_table()**, **validate_dashboard_data_table_name()**: backend.dash_db 기반 뉴 대시보드·캠페인 대시보드 물리 테이블(`ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등).
-- 프레임워크 무관(Flask/FastAPI 공통) 사용. **etl_server·campaign_dash_server·widget_board_server·admin_server** 등이 동일 모듈을 import.
+- **메인 DB**: `get_main_db_config()`, `get_allowed_tables(project_info_id, …)`, `get_db_connection()` — 프로젝트 매핑 기준 허용 테이블 필수
+- **시스템 DB**: `get_db_connection_system()`, `get_system_table_schema()` — ETL 메타 등
+- **dash_db**: `get_dash_db_config()`, `get_dash_table_schema()`, `get_db_connection_dash()`, `is_new_dash_physical_table()`, `validate_dashboard_data_table_name()` — `ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등
+- **공용 모듈**: Flask/FastAPI 무관 — **etl_server**, **campaign_dash_server**, **widget_board_server**, **admin_server** 등에서 import
 
 ### 5.3 core/dependencies.py
 
@@ -354,19 +445,20 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 5.5 routers (등록 소스)
 
-- **health_router** (`api_server/routers/health.py`): GET /, /api, /api/, /health.
-- **auth_router** (`auth_server/router.py`): `/api/auth/*`.
-- **project_router** (`project_server/router.py`): `/api/projects`.
-- **notification_router** (`notification_server/router.py`): `/api/notifications`.
-- **admin_router** (`admin_server/router.py`): `/api/admin/*`.
-- **query_studio_router** (`query_studio_server/router.py`): prefix=/api. list-tables, describe-table, table-relationships, join-order, save-query-as-table, execute-query, explain-sql, get-column-values, query-stats. execute-query 시 SELECT만 허용·금지 키워드 검사.
-- **etl_router** (`etl_server/router.py` + `router_file.py`): `/api/etl`, `/api/etl/batch` — 전체에 `require_etl_infrastructure` 의존성(등록 방식은 `main.py` 참고).
-- **campaign_dashboard_router** (`campaign_dash_server/router.py`): prefix=/api/campaign-dashboard. **core.dashboard_service** 등 호출.
-- **widget_board_router** (`widget_board_server/router.py`): prefix=/api/widget-boards — 보드·레이아웃·참여·위젯 인스턴스 등.
+- **health_router** (`api_server/routers/health.py`): `GET /`, `/api`, `/api/`, `/health`
+- **auth_router**: `/api/auth/*`
+- **project_router**: `/api/projects`
+- **notification_router**: `/api/notifications`
+- **admin_router**: `/api/admin/*`
+- **query_studio_router** (`query_studio_server/router.py`): prefix `/api` — list/describe/relationships/join-order/save-query-as-table/execute-query/explain-sql/get-column-values/query-stats — **execute-query**: SELECT만·금지 키워드 검사
+- **etl_router** (`etl_server/router.py` + `router_file.py`): `/api/etl`, `/api/etl/batch` — `require_etl_infrastructure`(등록은 `main.py`)
+- **campaign_dashboard_router**: prefix `/api/campaign-dashboard` — **core.dashboard_service** 등
+- **widget_board_router**: `/api/widget-boards/*` — 위젯 보드 메타·레이아웃(`dependencies=[Depends(require_permission("widgetboard"))]`)
 
 ### 5.6 core/dashboard_service.py
 
 - 대시보드 집계 비즈니스 로직. db만 사용(프레임워크 무관). `table_id`가 뉴 대시보드 물리 테이블(`ibank_1` 등)이면 dash_db 연결·스키마로 집계.
+- **get_aggregatable_tables**: dash_db 스키마에서 `*_star_1` 패턴·`is_new_dash_physical_table` 인 물리 테이블을 매핑과 무관하게 후보로 두고, DASHBOARD_REQUIRED_COLUMNS를 만족하는 것만 반환.
 
 ---
 
@@ -374,12 +466,15 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 6.1 역할
 
-- **router.py**: /api/etl API 진입. service, load_service, db_load_service, preview_service, schema_infer, transform_rules_service 호출.
-- **service.py**: 메타 CRUD(connections, tables, jobs), list_source_tables(PostgreSQL/MySQL/Oracle 분기), 연결 테스트. **create_etl_table** 시 타겟 테이블명 중복 검사: etl_tables에 동일 target_table 있으면 거부; 메인 DB에 테이블 존재 시 **full** 모드만 거부, **incremental** 모드면 허용(파일로 만든 테이블에 DB 증분 ETL 추가 가능). 동일 target_table·삭제 시 DROP 생략 등 세부 동작은 **`service.py`·`delete_etl_table`** 구현을 본다.
-- **load_service.py**: 파일 적재 — get_etl_table → 파싱(CSV/Excel/Parquet) → 변환 룰 → 메인 DB DROP/CREATE/INSERT. 업로드 파일은 **3일** 초과 시 자동 삭제.
-- **db_load_service.py**: DB 적재 — get_etl_table → 소스 연결 → Full / Incremental / **diff**(`_run_diff_sync`: PK 집합 비교·배치 INSERT·선택 orphan DELETE). PostgreSQL·MySQL·**Oracle** 모두 지원. COPY FROM STDIN·on_row_error·인덱스 생성 등 단일 etl_server 경로.
-- **preview_service.py**: 파일·DB 소스 미리보기(10행).
-- **queue_worker.py**: pending Job 선점 → running, **동시 최대 3건**, load_service/db_load_service 호출 후 completed/failed 갱신.
+- **`router.py`**: `/api/etl` 진입 — `service`, `load_service`, `db_load_service`, `preview_service`, `schema_infer`, `transform_rules_service` 호출
+- **`service.py`**
+  - 메타 CRUD(connections, tables, jobs), `list_source_tables`(PG/MySQL/Oracle), 연결 테스트
+  - **`create_etl_table`**: 동일 `target_table` in `etl_tables` → 거부; 메인 DB에 테이블 있으면 **full**만 거부·**incremental**은 허용
+  - 삭제·DROP 생략 등: **`delete_etl_table`** 등 구현 참고
+- **`load_service.py`**: 파일 적재 — 파싱(CSV/Excel/Parquet) → 변환 룰 → 메인 DB DROP/CREATE/INSERT; 업로드 파일 **3일** 초과 시 삭제
+- **`db_load_service.py`**: DB 적재 — Full / Incremental / **diff**(`_run_diff_sync`); PG·MySQL·Oracle; COPY·`on_row_error`·인덱스
+- **`preview_service.py`**: 파일·DB 미리보기(10행)
+- **`queue_worker.py`**: pending→running, 동시 **최대 3건**, 완료/실패 갱신
 
 ### 6.2 DB 지원 현황
 
@@ -391,18 +486,26 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 6.3 외부 DB 연결 구조·실패 시 점검
 
-- **연결 경로**: 브라우저 → (HTTP) → **Backend API** → (TCP) → **외부 DB**. 브라우저는 외부 DB에 직접 연결하지 않음.
-- **경유 IP**: 외부 DB(또는 방화벽) 로그에 찍히는 "연결 시도 클라이언트 IP" = **Backend가 실행 중인 호스트의 IP**. 로컬에서 run.py back 이면 그 PC의 IP, 서버에서 실행하면 그 서버의 IP.
-- **연결 실패 시 점검 순서**: (1) Backend 실행 호스트 확인(그 IP가 외부 DB 입장의 클라이언트 IP). (2) Backend 터미널 로그 확인(ETL DB 연결 시도/실패 로그). (3) 외부 DB 서버: 방화벽 해당 포트(PostgreSQL 5432, Oracle 1521 등) 인바운드 허용·**Backend 호스트 IP** 허용, DB listen·접속 허용 설정. (4) Backend 호스트에서 해당 호스트:포트로 telnet/Test-NetConnection으로 연결 테스트.
-- **실패 메시지 예**: 타임아웃(방화벽·포트 미개방), connection refused(DB 미실행·listen 확인), password authentication failed(인증), could not translate host(호스트명·DNS). service.py _connection_error_to_user_message()에서 사용자용 메시지 변환. 연결 타임아웃 15초(connect_timeout). **Oracle**: Service Name만 지원(JDBC @호스트:1521/서비스명 형태). 3306은 MySQL 포트이므로 PostgreSQL 연결 시 5432 사용.
+- **연결 경로**: 브라우저 → HTTP → **Backend API** → TCP → **외부 DB** (브라우저는 DB에 직접 연결하지 않음)
+- **경유 IP**: 방화벽/DB 로그의 클라이언트 IP = **Backend 호스트 IP** (`python run.py back` 실행 머신)
+- **실패 시 점검 순서**
+  1. Backend 실행 호스트·IP 확인
+  2. Backend 터미널 로그(연결 시도/실패)
+  3. 외부 DB: 포트 인바운드·**Backend IP** 허용·listen·접속 권한
+  4. Backend 호스트에서 `telnet` / `Test-NetConnection` 등으로 포트 확인
+- **실패 메시지 예**: 타임아웃, `connection refused`, 인증 실패, 호스트/DNS 오류 — `service.py` `_connection_error_to_user_message()`; `connect_timeout` **15초**
+- **Oracle**: **Service Name**만(`@호스트:1521/서비스명`); PG는 **5432**, MySQL **3306** 구분
 
 ### 6.4 Job 확인 방법 (운영)
 
-- **터미널 로그**(python run.py back): 루트 로거 포맷 `YYYY-MM-DD HH:MM:SS / [LEVEL] message`(`core/logging_setup.py`). 파일 적재: `etl_file_load start`·`done`·`fail` 등. DB 적재: `etl_db_load_done`·`etl_db_load_fail` 등. 태그로 grep·스택은 `logger.exception` 블록 확인.
-- **시스템 DB**: etl_jobs에서 job_id, etl_table_id, status, started_at, finished_at, rows_processed, error_message. status='running'이고 finished_at NULL이면 실행 중 또는 미갱신. status='failed'면 error_message 확인.
-- **파일 적재**: etl_tables.file_path 경로 존재 여부(3일 지나면 정리로 삭제). 메인 DB target_table 존재·건수 확인.
-- **DB 적재**: POST /api/etl/connections/test로 소스 연결 확인. incremental 모드면 pk_columns 필수.
-- **running으로 멈춘 Job 수동 정리**: etl_jobs에서 해당 job_id를 status='failed', finished_at=NOW(), error_message='수동 종료'로 UPDATE. 필요 시 etl_tables 해당 행 status='error'로 UPDATE.
+- **터미널 로그** (`python run.py back`)
+  - 포맷: `core/logging_setup.py` — `YYYY-MM-DD HH:MM:SS / [LEVEL] message`
+  - 파일 적재: `etl_file_load` start/done/fail 등
+  - DB 적재: `etl_db_load_done` / `etl_db_load_fail` 등 — `logger.exception` 블록으로 스택 확인
+- **시스템 DB `etl_jobs`**: `status`, `finished_at`, `error_message` — `running`+`finished_at` NULL은 실행 중 또는 미갱신; `failed`는 `error_message` 확인
+- **파일 적재**: `etl_tables.file_path` 존재(3일 후 정리)·메인 DB `target_table` 건수
+- **DB 적재**: `POST /api/etl/connections/test`; incremental이면 **`pk_columns` 필수**
+- **running 고착 시 수동 정리**: `etl_jobs` UPDATE → `failed`, `finished_at`, 메시지 `수동 종료`; 필요 시 `etl_tables.status='error'`
 
 ### 6.5 재실행 시 동작
 
@@ -427,17 +530,55 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 6.7 etl_server (단일 ETL)
 
-- **역할**: ETL 페이지 전용 API(단일). prefix **/api/etl**, **/api/etl/batch**. 저장 DB 등록·선택, 테이블선택 및 컬럼매핑, **COPY FROM STDIN** 적재, **on_row_error**(행 실패 시 fail/skip). **동일 target_table** 다른 연결에서 추가 적재 허용. **GET tables/{id}/preview**: **변환 룰·타입 캐스트 적용** 후 저장될 모습으로 미리보기 반환(preview_service.get_preview → _get_preview_with_transform). **PATCH tables/{id}**: body에 **clear_last_synced_at: true** 시 증분 기준(last_synced_at) 초기화. **delete_etl_table**: 해당 etl_table_id를 참조하는 **batch_jobs** 및 batch_loaded_keys·batch_run_history 선삭제 후 etl_tables 삭제. **폴더 배치**: batch_jobs(**on_file_error** stop/continue, **index_definitions**)·batch_run_history·**etl_batch_target_registry**. **service_file.get_skipped_filenames_set**: 배치 이력에서 skipped/error 파일명 집합 반환; **batch_executor_file**에서 pending에서 제외해 매 주기 재다운로드·재시도 방지. 배치 타겟 목록 삭제 시 delete_batch_target_registry_and_drop_table. **create_batch_job** 중복 검사. **update_run_progress** 실시간 갱신. **load_service_file**: _batch_upsert에서 INSERT DO NOTHING 후 **실제 변경 행만** UPDATE(IS DISTINCT FROM); inserted_this_batch==len(rows)이면 UPDATE 스킵. **batch_executor_file**: 대기 파일 없으면 **run 기록 미생성**; on_file_error=continue 시 파일별 실패해도 다음 파일 계속·partial_error; commit 실패 시 명시 처리. **batch_executor_db**: etl_table_id 있을 때 **list_transform_rules** → **apply_rules** 적용 후 apply_mapping_type_cast·적재(run_file_load/run_db_load와 동일 순서). **csv_reader.read_csv_robust**: CSV 인코딩 감지·순차 시도, load_service·parser_file 공용. **parser_file.get_pending_files** 첫 실행 전부 반환. **folder_adapter_file.download_file_head** 64KB. **transform/preview** get_raw_sample·apply_rules. **db_load_service**: run_db_load 커넥션 누수 방지; 적재 후 **index_definitions** 있으면 _create_indexes_on_target; **get_source_indexes**(PostgreSQL/MySQL/Oracle). **transform_engine._apply_type_cast_with_mask** 벡터화. **transform_upsert_verification**: 변환 룰·엔진 출력과 load_dataframe/_batch_upsert 호환 검증(run_dry_run_pipeline, verify_transform_output_columns). **service.claim_next_pending_job** finally rollback-safe; **_sys_cursor** context manager. **load_service** run_file_load/run_file_upsert 변수 etl_row.
-- **주요 기능**: (1) **저장 DB**: etl_storage_connections, get_target_db_connection. (2) **테이블·컬럼·인덱스 조회**: list_target_tables, list_target_columns, **get_source_indexes**(connection_id, source_table) → PK·인덱스 목록(is_primary 구분). (3) **infer-schema**: 파일 업로드 → 스키마 반환. (4) **column_mapping·변환 룰**: apply_mapping_type_cast·transform_rules. (5) **on_row_error**: fail/skip, Incremental. (6) **COPY 적재** 후 **index_definitions** 있으면 **_create_indexes_on_target**. (7) **etl_batch_target_registry**: list/upsert/clear/delete_batch_target_registry. (8) **배치 실행**: run_batch_job, on_file_error·index_definitions 반영.
-- **router.py**: tables, upload, infer-schema, target-tables, target-columns, storage-connections, source-columns, **GET connections/:id/source-indexes**, validate-incremental-column, transform/preview, tables PATCH, jobs, preview, run, add-files-zip.
-- **router_file.py**: GET/POST /batch/jobs, **POST /batch/jobs/from-etl-table**(ETL 테이블 기반 배치 등록·etl_table.status=done 검증·last_synced_at 초기 세팅), target-registry, validate-target, run/now, history, get-run-detail, skipped-files, rollback. list_folder_columns 시 CSV는 download_file_head만.
-- **service.py**: get_target_db_connection, list_target_tables, list_target_columns, list_storage_connections, create_etl_table(**index_definitions**), update_etl_table, delete_etl_table. **claim_next_pending_job** finally에서 close 전 rollback-safe. **_sys_cursor** context manager(새 함수 권장).
-- **service_file.py**: batch_jobs(**on_file_error**, **index_definitions**)·batch_folder_connections·batch_run_history·etl_batch_target_registry. create_batch_job(중복 검사), delete_batch_job(FK 순서), update_run_progress, finish_run, create_batch_run.
-- **db_load_service.py**: get_source_indexes(_fetch_source_indexes_pg/mysql/oracle), **_create_indexes_on_target**. run_db_load 상단 conn 초기화·except/finally에서 close; non-streaming 경로 conn_main finally close; non-streaming 경로에서 rows_processed 조기 반환 시 건수 누락을 막는 분기.
-- **load_service.py**: run_file_load·run_file_upsert 변수 **etl_row**(row shadowing 방지). CSV 시 **csv_reader.read_csv_robust**. commit 후 index_definitions 있으면 _create_indexes_on_target.
-- **load_service_file.py**: load_dataframe(**index_definitions**)·테이블 **없을 때** 생성 직후에도 PK가 있으면 _batch_upsert 사용(duplicate key 방지). _batch_upsert(IS DISTINCT FROM·inserted_this_batch==len이면 UPDATE 스킵). add_allowed_table은 storage_connection_id 없을 때만.
-- **batch_executor_db.py**: run_db_batch_job. **pk_columns 미설정 시** 소스 DB에서 **_fetch_source_pk**로 PK 자동 조회 후 load_dataframe에 전달. **sync_mode=diff** 시 `_run_diff_sync`(is_batch=True). run_table_load 전 diff 사전 검증(14번 설계서).
-- **메타**: etl_tables(**index_definitions**), etl_storage_connections, **batch_jobs**(on_file_error, index_definitions), batch_folder_connections, batch_run_history, etl_batch_target_registry. 상세는 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**.
+#### 6.7.1 API 범위·공통
+
+- prefix **`/api/etl`**, **`/api/etl/batch`** — 저장 DB·테이블·컬럼 매핑·**COPY FROM STDIN**·**`on_row_error`**(fail/skip)
+- 동일 **`target_table`** 다른 연결에서 추가 적재 허용
+- **`GET …/tables/{id}/preview`**: 변환 룰·타입 캐스트 반영 후 미리보기(`preview_service` → `_get_preview_with_transform`)
+- **`PATCH …/tables/{id}`**: `clear_last_synced_at: true` → 증분 기준(`last_synced_at`) 초기화
+- **`delete_etl_table`**: 참조 **batch_jobs**, `batch_loaded_keys`, `batch_run_history` 선삭제 후 `etl_tables` 삭제
+- **폴더 배치**: `batch_jobs`(`on_file_error`, `index_definitions`), `batch_run_history`, **`etl_batch_target_registry`**
+- **`get_skipped_filenames_set`** + **`batch_executor_file`**: 스킵/에러 파일명으로 pending 재시도 억제; 타겟 삭제 시 `delete_batch_target_registry_and_drop_table`
+- **`create_batch_job`** 중복 검사, **`update_run_progress`** 실시간 갱신
+
+#### 6.7.2 실행기·파일·CSV
+
+- **`batch_executor_file`**: 대기 파일 없으면 run 기록 미생성; `on_file_error=continue` → 파일별 실패 후 계속·`partial_error`; commit 실패 명시 처리
+- **`batch_executor_db`**: `etl_table_id` 있으면 `list_transform_rules` → `apply_rules` → `apply_mapping_type_cast` → 적재(파일 적재와 동일 순서)
+- **`csv_reader.read_csv_robust`**: 인코딩 감지·순차 시도 — `load_service`·`parser_file` 공용
+- **`parser_file.get_pending_files`**: 첫 실행 시 전부 반환
+- **`folder_adapter_file.download_file_head`**: 64KB
+- **`transform/preview`**: `get_raw_sample`·`apply_rules`
+- **`load_service_file`**: `_batch_upsert` — `INSERT DO NOTHING` 후 변경 행만 `UPDATE`(`IS DISTINCT FROM`); `inserted_this_batch == len(rows)`면 UPDATE 생략; 테이블 신규 생성 직후 PK 있으면 `_batch_upsert`; `add_allowed_table`은 `storage_connection_id` 없을 때만
+
+#### 6.7.3 db_load·transform·검증
+
+- **`db_load_service`**: `run_db_load` 연결 누수 방지·`finally` close; 적재 후 **`index_definitions`** → `_create_indexes_on_target`; **`get_source_indexes`**(PG/MySQL/Oracle)
+- **`transform_engine._apply_type_cast_with_mask`**: 벡터화
+- **`transform_upsert_verification`**: 룰·엔진 출력과 `load_dataframe` / `_batch_upsert` 호환(`run_dry_run_pipeline`, `verify_transform_output_columns`)
+- **`service.claim_next_pending_job`**: `finally` rollback-safe; **`_sys_cursor`** 컨텍스트 매니저
+- **`load_service`**: `run_file_load` / `run_file_upsert`에서 변수명 **`etl_row`**(shadowing 방지); CSV는 `read_csv_robust`; commit 후 인덱스 생성
+- **`batch_executor_db`**: `pk_columns` 없으면 **`_fetch_source_pk`**; **`sync_mode=diff`** → `_run_diff_sync`(batch); 사전 검증은 **14_ETL_PK_DIFF.md**
+
+#### 6.7.4 라우터·서비스 파일
+
+- **`router.py`**: tables, upload, infer-schema, target-tables/columns, storage-connections, source-columns, **`GET …/source-indexes`**, validate-incremental-column, transform/preview, PATCH tables, jobs, preview, run, add-files-zip
+- **`router_file.py`**: batch jobs CRUD, **`POST …/from-etl-table`**(`etl_table.status=done`, `last_synced_at` 초기화), target-registry, validate-target, run/now, history, detail, skipped-files, rollback; 폴더 컬럼 조회 시 CSV는 `download_file_head`만
+- **`service.py`**: target·storage CRUD, **`create_etl_table`(`index_definitions`)** 등; **`claim_next_pending_job`**, **`_sys_cursor`**
+- **`service_file.py`**: `batch_jobs`, 폴더 연결, 이력, 레지스트리 — `create_batch_job`, `delete_batch_job`(FK 순서), `update_run_progress`, `finish_run`, `create_batch_run`
+
+#### 6.7.5 기능 체크리스트·메타
+
+1. 저장 DB: `etl_storage_connections`, `get_target_db_connection`
+2. 테이블·컬럼·인덱스: `list_target_tables`, `list_target_columns`, **`get_source_indexes`**
+3. **`infer-schema`**: 파일만 업로드 → 스키마
+4. **`column_mapping`**·변환 룰: `apply_mapping_type_cast`, transform rules
+5. **`on_row_error`**, Incremental
+6. COPY 후 **`index_definitions`** → `_create_indexes_on_target`
+7. **`etl_batch_target_registry`**: list/upsert/clear/delete
+8. 배치 실행: `run_batch_job`, `on_file_error`, `index_definitions`
+
+**메타 테이블**: `etl_tables`, `etl_storage_connections`, **`batch_jobs`**, `batch_folder_connections`, `batch_run_history`, `etl_batch_target_registry` — 상세 **08_ETL_Phase_Implement_Guide.md**, **09_ETL_SFTP_Connection.md**
 
 ---
 
@@ -451,9 +592,10 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 03_API_GUIDE.md | 모듈별 API·인증 흐름·엔드포인트 통합 레퍼런스(대용량) |
 | docs/report/03_AI_DEVELOP_GUIDE.md | 레이어·의존 방향·DB 연결 매트릭스·확장 체크리스트 (AI·온보딩) |
 
-- docs/report: 배포·실행 로그·보조 설계. **동작 정의의 기준은 본 문서·00_PRD·01_FRONTEND_GUIDE·docs/report/03_AI_DEVELOP_GUIDE.md.**
+- **`docs/report`**: 배포·실행 로그·보조 설계
+- **동작 정의 기준**: 본 문서·**00_PRD**·**01_FRONTEND_GUIDE**·**docs/report/03_AI_DEVELOP_GUIDE.md**
 
-**문서 이력**: 날짜별 수정 타임라인은 두지 않는다. 작업 이력은 **docs/log/log.md** 를 본다.
+**문서 이력**: 본 파일에 날짜 타임라인 없음 → **docs/log/log.md**·Git
 
 ---
 
