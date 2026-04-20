@@ -24,18 +24,19 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 11. list_tables: GET /api/list-tables?mapping_usage=query_studio|widgetboard (채널별 매핑)
 12. describe_table: POST /api/describe-table (mapping_usage 동일, main_db 매핑 테이블만·항상 main 연결)
 13. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
-14. save_column_labels: POST /api/column-labels (라벨 저장)
+14. save_column_labels: POST /api/column-labels (라벨 저장·성공 시 `labels_save` 계측)
 15. table_relationships: GET /api/table-relationships (mode=fk|all, JWT project_info_id 필수)
 16. api_join_order: POST /api/join-order (JOIN 순서, 허용 테이블은 프로젝트 매핑 병합 집합)
-17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블)
+17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블; DDL 완료는 워커에서 `emit_query_studio_log`·`saved_table_create`)
 18. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
-19. execute_query: POST /api/execute-query (SELECT, main_db만)
+19. execute_query: POST /api/execute-query (SELECT, main_db만·성공 시 `query_execute` 계측)
 20. explain_sql: POST /api/explain-sql (Claude 해석)
 21. get_column_values: POST /api/get-column-values (main_db·main 매핑만)
 22. query_stats: POST /api/query-stats (COUNT·EXPLAIN, main_db만)
 
 [Dependencies]
 =========
+- Backend.query_studio_server.audit_emit.emit_query_studio_log
 - Backend.core.db, Backend.core.sql_safety, Backend.core.dependencies(get_db·get_config·get_system_db)
 - Backend.auth_server.deps.require_active_access, Backend.auth_server.permissions(require_permission, compute_effective_project_permission_ids, get_user_dvsn_lower, is_project_active)
 - require_query_read_perm / require_query_execute_perm: 테스트·오버라이드용 공통 Depends 대상
@@ -73,6 +74,7 @@ from Backend.auth_server.permissions import (
     require_permission,
 )
 from Backend.core.dependencies import get_db, get_config, get_system_db
+from Backend.query_studio_server.audit_emit import emit_query_studio_log
 from Backend.query_studio_server.join_path import determine_join_order, validate_join_order
 from Backend.query_studio_server.join_metrics import join_accuracy_score
 from Backend.query_studio_server.schemas import (
@@ -832,6 +834,18 @@ def save_column_labels(
                 continue
             data["column_labels"][table_name][col_name] = (label or "").strip() or col_name
         _persist_user_project_labels(user_id, project_info_id, data)
+        ncols = len((data.get("column_labels") or {}).get(table_name, {}))
+        emit_query_studio_log(
+            user_id,
+            business_action="labels_save",
+            action_kind="UPDATE",
+            table_name=table_name[:63] if table_name else None,
+            detail_json={
+                "project_info_id": project_info_id,
+                "x_column_label_count": ncols,
+                "x_table_label_updated": body.table_label is not None,
+            },
+        )
         file_labels = _load_labels_file()
         return {
             "table_name": table_name,
@@ -1201,6 +1215,17 @@ def _save_table_worker():
                 conn_up.commit()
                 cur_up.close()
                 conn_up.close()
+                emit_query_studio_log(
+                    save_create_uid,
+                    business_action="saved_table_create",
+                    action_kind="CREATE",
+                    table_name=str(table_name)[:63] if table_name else None,
+                    detail_json={
+                        "job_id": job_id,
+                        "project_info_id": project_info_id,
+                    },
+                    risk_tier="MED",
+                )
             except psycopg2.Error as e:
                 if conn_create:
                     try:
@@ -1440,6 +1465,20 @@ def execute_query(
             return str(obj)
 
         body_bytes = json.dumps(payload, ensure_ascii=False, default=_json_default).encode("utf-8")
+        uid_exec = _perm.get("user_id")
+        uid_exec = int(uid_exec) if uid_exec is not None else None
+        pid_exec = _perm.get("project_info_id")
+        emit_query_studio_log(
+            uid_exec,
+            business_action="query_execute",
+            action_kind="EXECUTE",
+            rows_affected=len(result),
+            detail_json={
+                "project_info_id": int(pid_exec) if pid_exec is not None else None,
+                "query_len": len(query),
+                "db_ms": _db_ms,
+            },
+        )
         return Response(
             content=body_bytes,
             media_type="application/json; charset=utf-8",

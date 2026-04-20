@@ -471,6 +471,7 @@
 | `get_allowed_tables()` 무인자 | ~~제거·필수화~~ **완료** | — |
 | `get_table_columns` 등 미호출 공개 함수 | ~~제거~~ **Phase C 완료** | — |
 | 미등록 대시보드 패키지 | ~~삭제 또는 연결~~ **삭제 완료** | — |
+| 부서 트리 재귀 CTE를 `core` 함수로 승격 | `admin_server`·`system_log_server` 등 동일 로직 3회+ 중복 제거 | `docs/report/22_System_Log_Development_Plan.md` Phase 1 스코프 필터 안정화 후 |
 
 ---
 

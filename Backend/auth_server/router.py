@@ -7,6 +7,7 @@ Backend.auth_server.router (/api/auth)
 ===========
 1. POST /api/auth/signup, create-org, login, verify-login, refresh, logout
 2. GET/PATCH /api/auth/me — JWT의 project_info_id가 비활성·탈퇴 시 토큰 재발급·project_info_id null·permissions 빈 배열
+2b. GET /api/auth/me/login-history — 최근 로그인 시도(응답 스키마 유지, 조회 로직은 system_log_server.service_login_history 위임)
 3. GET /api/auth/invite/validate
 
 [Dependencies]

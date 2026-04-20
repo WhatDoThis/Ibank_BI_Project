@@ -209,8 +209,8 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 
 ### 위젯보드
 
-- 레이아웃·위젯 설정은 브라우저 localStorage 에 저장할 수 있다.
-- API: `/api/widget-boards` 및 쿼리 실행 API.
+- 위젯보드: 보드·위젯·레이아웃·공유 설정은 system_db(`widget_board`, `widget_item`, `widget_board_share`)에 서버사이드 저장된다. API: `/api/widget-boards`.
+- 위젯 데이터 조회·쿼리 실행은 쿼리 스튜디오 API 등과 연동한다.
 
 ### ETL
 

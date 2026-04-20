@@ -55,6 +55,7 @@
       "smtp_from": "",
       "app_url": ""
     },
+    "system_log_append_enabled": false,
     "query_studio_peak_guard": {
       "enabled": true,
       "relationship_cache_ttl_seconds": 600,

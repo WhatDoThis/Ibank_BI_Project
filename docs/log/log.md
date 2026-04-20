@@ -1,6 +1,24 @@
 # Log
 
 ## Log Index
+444. 2026-04-20 Backend: Phase2 query_studio execute·labels·saved_table system_log
+443. 2026-04-20 Backend: Phase2 admin 부서·이관 + auth 로그인·가입·비밀번호 system_log
+442. 2026-04-20 Backend: Phase2 admin projects·roles·tables 계측·audit_emit 분리
+441. 2026-04-20 Backend: Phase2 admin service_users 계측·append IP·UA 보강
+440. 2026-04-20 Backend: §7 요청 상관 ID 미들웨어·append 연동
+439. 2026-04-20 Backend: P1-7 로그인 이력 조회 system_log_server·auth 래퍼
+438. 2026-04-20 Backend: Phase1 system_log_server·append 인프라(§5 P1-2~6·P1-5 시범)
+437. 2026-04-20 docs/report/22: 무중단 적용·구동 안전(§5.1)
+436. 2026-04-20 docs/report/22: 로그인 이력 조회 system_log_server 통합
+435. 2026-04-20 docs: 감사 롤백 정책·이력 목록 기본 정렬(07·22)
+434. 2026-04-20 docs/report/22: Phase2 파일·함수 계측 매핑·검증
+433. 2026-04-20 docs: 사용자 이력 통합 UI(07·22)
+432. 2026-04-20 docs: system_log DDL 반영(04·22·07)·log
+431. 2026-04-20 docs/main·report: 가이드 현행 계약 톤·부록 A 축소·ReportIndex
+430. 2026-04-20 docs/report/22: action_kind 대분류·business_action·P1-5 E2E
+429. 2026-04-20 docs/report 22·21: 시스템 로그 계획 보강·부서 트리 CTE 기술 부채
+428. 2026-04-20 docs/main: 코드 기준 PRD·백엔드·API·프론트 가이드 정합
+427. 2026-04-20 docs/report: 22 시스템 로그(system_log) 개발 계획·ReportIndex
 426. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_system_data `\d` 기준 전면 동기화
 425. 2026-04-17 docs/main/04_DB_ARCHITECTURE: 스키마 문서 확정 서술·구조 정리
 424. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_etl_data 운영 `\d` 스키마와 동기화
@@ -429,6 +447,209 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+444. 2026-04-20 Backend: Phase2 query_studio execute·labels·saved_table system_log
+Purpose: `docs/report/22` §6.5.3에 따라 쿼리 스튜디오 `execute-query`·컬럼 라벨 저장·백그라운드 저장 테이블 완료 시 `channel=query_studio` 로 `system_log` 계측한다.
+
+Changes:
+
+- `query_studio_server/audit_emit.py`: `emit_query_studio_log` 신설
+- `query_studio_server/router.py`: `query_execute`, `labels_save`, 워커 완료 시 `saved_table_create`
+
+Changed files: Backend/query_studio_server/audit_emit.py, Backend/query_studio_server/router.py, docs/log/log.md
+
+443. 2026-04-20 Backend: Phase2 admin 부서·이관 + auth 로그인·가입·비밀번호 system_log
+Purpose: `docs/report/22` §6.5.1·§6.5.2 Phase 2a에 따라 `service_users` 부서 CRUD·소유 이관과 `auth_server/service` 로그인 완료·실패·초대 가입·조직 생성·비밀번호 변경에 `system_log` 계측을 추가한다.
+
+Changes:
+
+- `admin_server/service_users.py`: `dept_*`, `ownership_transfer`, `_emit_ownership_transfer_log`
+- `admin_server/router.py`: 부서·이관 API에 `actor_user_id` 전달
+- `auth_server/audit_emit.py`: `emit_auth_system_log` 신설
+- `auth_server/service.py`: `login_success`/`login_failure`, `signup_invite`, `org_create`, `password_change`
+
+Changed files: Backend/admin_server/service_users.py, Backend/admin_server/router.py, Backend/auth_server/audit_emit.py, Backend/auth_server/service.py, docs/log/log.md
+
+442. 2026-04-20 Backend: Phase2 admin projects·roles·tables 계측·audit_emit 분리
+Purpose: `docs/report/22` §6.5.1 Phase 2a에 따라 `service_projects`·`service_roles`·`service_tables` 쓰기 경로에 commit 후 `system_log` 계측을 추가하고, `service_users`의 중복 헬퍼를 `admin_server/audit_emit.py`로 분리한다.
+
+Changes:
+
+- `admin_server/audit_emit.py`: `emit_admin_system_log` 신설
+- `admin_server/service_users.py`: 로컬 `_emit_*` 제거·`audit_emit` import
+- `admin_server/service_projects.py`·`service_roles.py`·`service_tables.py`: §6.5.1 `business_action` 정합 계측
+- `admin_server/router.py`: `actor_user_id` 등 kw-only 인자 전달
+
+Changed files: Backend/admin_server/audit_emit.py, Backend/admin_server/service_users.py, Backend/admin_server/service_projects.py, Backend/admin_server/service_roles.py, Backend/admin_server/service_tables.py, Backend/admin_server/router.py, docs/log/log.md
+
+441. 2026-04-20 Backend: Phase2 admin service_users 계측·append IP·UA 보강
+Purpose: 계획 §6 Phase 2a에 따라 `admin_server/service_users` 주요 쓰기(commit 후)에 `system_log` 계측을 추가하고, 미들웨어 contextvars로 `append_system_log`의 IP·UA 필드를 자동 보강한다.
+
+Changes:
+
+- `core/request_context.py`: client host·UA raw ContextVar
+- `api_server/middleware/correlation.py`: 위 변수 설정·reset
+- `core/system_audit_log.py`: INSERT 시 IP·UA 보강
+- `admin_server/service_users.py`: `_emit_admin_system_log` 및 정지·활성·삭제·초대·역할·ETL·일괄 변경 계측
+- `admin_server/router.py`: activate·role·etl-access에 `actor_user_id` 전달
+- `docs/main/03_API_GUIDE.md` §1·§3.4 보강
+
+Changed files: Backend/core/request_context.py, Backend/api_server/middleware/correlation.py, Backend/core/system_audit_log.py, Backend/admin_server/service_users.py, Backend/admin_server/router.py, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+440. 2026-04-20 Backend: §7 요청 상관 ID 미들웨어·append 연동
+Purpose: 계획 §7에 따라 API 입구에서 `X-Request-Correlation-Id`를 처리하고 `contextvars`·`Request.state`에 저장하며, `append_system_log`가 행에 상관 ID가 없을 때 컨텍스트 값을 채운다. IP 마스킹 단일화를 위해 `service_login_history`는 `core.request_context.mask_client_ip_for_audit`를 사용한다.
+
+Changes:
+
+- `core/request_context.py`: ContextVar·UUID 해석·IP 마스킹·UA 요약
+- `api_server/middleware/correlation.py`, `middleware/__init__.py`: CorrelationIdMiddleware
+- `api_server/main.py`: 미들웨어 등록
+- `core/system_audit_log.py`: INSERT 시 상관 ID 보강
+- `system_log_server/service_login_history.py`: 마스킹 core 위임
+- `docs/main/02_BACKEND_GUIDE.md`, `03_API_GUIDE.md` §1
+
+Changed files: Backend/core/request_context.py, Backend/api_server/middleware/correlation.py, Backend/api_server/middleware/__init__.py, Backend/api_server/main.py, Backend/core/system_audit_log.py, Backend/system_log_server/service_login_history.py, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+439. 2026-04-20 Backend: P1-7 로그인 이력 조회 system_log_server·auth 래퍼
+Purpose: 계획 §3.3·§5 P1-7에 따라 `user_login_log` 읽기 전용 로직을 `system_log_server`로 옮기고, `/api/auth/me/login-history`는 동일 마스킹·SELECT 규칙을 쓰는 얇은 래퍼로 유지한다.
+
+Changes:
+
+- `system_log_server/service_login_history.py`: IP 마스킹·본인/조직 페이징 조회
+- `system_log_server/router.py`: `GET .../login-history/me`, `.../org`
+- `system_log_server/schemas.py`: `LoginHistoryItemOut`·`LoginHistoryListOut`
+- `auth_server/service.py`: `fetch_login_history_masked` → 위임
+- `auth_server/router.py`: 엔드포인트 목록 보강
+- `docs/main/03_API_GUIDE.md` §3.4, `02_BACKEND_GUIDE.md` 트리, `api_server/main.py` 주석
+
+Changed files: Backend/system_log_server/service_login_history.py, Backend/system_log_server/router.py, Backend/system_log_server/schemas.py, Backend/auth_server/service.py, Backend/auth_server/router.py, Backend/api_server/main.py, docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/log/log.md
+
+438. 2026-04-20 Backend: Phase1 system_log_server·append 인프라(§5 P1-2~6·P1-5 시범)
+Purpose: `22` 계획 Phase 1에 따라 system_log 조회 API·append 헬퍼·설정 플래그(기본 off)를 추가하고, 사용자 정지 시 시범 계측을 연결한다. 타 서비스 기동 경로는 변경 최소화.
+
+Changes:
+
+- `core/system_audit_log.py`: CHANNEL_*·`SystemLogRow`·`append_system_log`·`system_log_append_enabled`
+- `system_log_server/`: `router`·`service`(부서 트리 스코프)·`schemas` — `GET /api/system-logs`
+- `api_server/main.py`: `system_log_router` 등록(admin 직후)
+- `admin_server`: `suspend_user`에 commit 후 계측(플래그 on 시만)·`PATCH .../suspend`에 `actor_user_id` 전달
+- `Env/config/config.json.example`: `system_log_append_enabled`
+- `docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`: 라우터·API §3.4 반영
+
+Changed files: Backend/core/system_audit_log.py, Backend/system_log_server/__init__.py, Backend/system_log_server/router.py, Backend/system_log_server/service.py, Backend/system_log_server/schemas.py, Backend/api_server/main.py, Backend/admin_server/service_users.py, Backend/admin_server/router.py, Env/config/config.json.example, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+437. 2026-04-20 docs/report/22: 무중단 적용·구동 안전(§5.1)
+Purpose: system_log 도입 시 DDL·배포·플래그·롤백·미들웨어·풀 정책으로 기존 구동에 차질이 없도록 계획서를 보강한다.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §5.1, 구현 메모, §6 도입, §7 표, §6.6·§10, §11, 목차
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+436. 2026-04-20 docs/report/22: 로그인 이력 조회 system_log_server 통합
+Purpose: 기존 로그인 이력 조회 읽기 경로를 `system_log_server`로 집결하고, 적재는 `auth_server`에 두는 방침을 개발 계획에 명시한다.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §0·§3.3·§5 P1-7·§6.3·§8.1·§10·§11·목차
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+435. 2026-04-20 docs: 감사 롤백 정책·이력 목록 기본 정렬(07·22)
+Purpose: 업무 DML은 commit 후만 기록·rollback 미기록, 인증은 실패 시 N 행 허용으로 하이브리드 확정. 통합 이력 UI는 로그인·시스템 모드 모두 일시 내림차순 기본.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §1, §6.4, §5 P1-4, §8.1, §10, §11
+- `07_USER_FUNCTIONAL_GUIDE.md`: §12 과제 1 6) 정렬
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+434. 2026-04-20 docs/report/22: Phase2 파일·함수 계측 매핑·검증
+Purpose: 시스템 로그 개발 계획서만으로 구현·검증 가능하도록 §6.4 공통 수칙·§6.5 패키지별 파일·함수 표·§6.6 rg 절차를 추가한다.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §6.4~6.6, §6 서두, §10, §11, 목차
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+433. 2026-04-20 docs: 사용자 이력 통합 UI(07·22)
+Purpose: 로그인·시스템 이력을 한 페이지·동일 셸(`tab`)로 묶고, 개발 계획서에 §8.1·체크리스트·요약을 반영한다.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md`: §12 과제 1 통합·버튼명·과제 3 조회 UI·권한 진입 문구 정합
+- `22_System_Log_Development_Plan.md`: 한 줄 요약·요구 출처·§8.1·§10 체크리스트·§11
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+432. 2026-04-20 docs: system_log DDL 반영(04·22·07)·log
+Purpose: 운영 DB에 적용한 `system_log` 테이블 정의를 스키마 문서·개발 계획서·기능 가이드에 맞춘다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: 관계 트리·§13 본문·요약 표(시스템 DB 17테이블)·용도 머리말
+- `22_System_Log_Development_Plan.md`: §4 컬럼·인덱스·OWNER·04 교차, §10 첫 체크 완료, §11 이력
+- `07_USER_FUNCTIONAL_GUIDE.md`: §12 저장소 문구
+- `docs/report/00_ReportIndex.md`: 22번 행
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/report/22_System_Log_Development_Plan.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+431. 2026-04-20 docs/main·report: 가이드 현행 계약 톤·부록 A 축소·ReportIndex
+Purpose: `docs/main`에서 삭제·전환 서사를 줄이고 **지금 등록되는 라우터·쓰는 경로**만 남긴다. 시간축 이력은 log/Git으로 보도록 정리한다.
+
+Changes:
+
+- `02_BACKEND_GUIDE.md`: §4.3·§4.6·§4.7 대시보드(현행 호출·계약 표), 부록 A 스택·이력 포인터로 축소, 머리말·§5.2 core 문구
+- `03_API_GUIDE.md`: `get_access_payload`·프로젝트 생성 표현(호환 중심)
+- `01_FRONTEND_GUIDE.md`: API 클라이언트 파일 규칙
+- `05_Permission_ARCHITECTURE.md`: ETL 판별 한 줄
+- `docs/report/00_ReportIndex.md`: 백엔드 가이드 bullet
+
+Changed files: docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+430. 2026-04-20 docs/report/22: action_kind 대분류·business_action·P1-5 E2E
+Purpose: 시스템 로그 계획에서 `action_kind`를 대분류 6종으로 한정하고 세부는 `business_action`에 두며, P1-5 E2E 검증 범위를 명시한다.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §2 항목 5·7, §4.1 `action_kind`·`business_action`, §5 P1-5, §11 문서 이력
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+429. 2026-04-20 docs/report 22·21: 시스템 로그 계획 보강·부서 트리 CTE 기술 부채
+Purpose: `22_System_Log_Development_Plan.md`에 detail_json 규약·Phase 1 순서·구현 메모·집약 원칙·channel 표·상관 ID 스레드 주의를 반영하고, 부서 트리 CTE 중복을 `21` §15 기술 부채로 추적한다.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §2.7, §3.2, §4.1.1, §5~§7 정합·§0·§3.1 문구
+- `21_Backend_Package_Refactoring_Inventory.md`: §15 부서 트리 CTE `core` 승격 행
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/log/log.md
+
+428. 2026-04-20 docs/main: 코드 기준 PRD·백엔드·API·프론트 가이드 정합
+Purpose: 위젯보드 저장 위치, ETL API 장 중복 제거·배치 테이블 보강, DB 풀 상한·ETL 흐름·워커 기동·스레드 풀 분리, 업로드 보존·정리 메커니즘을 현행 코드와 맞춘다.
+
+Changes:
+
+- `00_PRD.md`: 위젯보드 system_db 서버 저장·API 안내(localStorage 오설명 제거)
+- `02_BACKEND_GUIDE.md`: §4.4 단일 ETL 표(router.py+router_file)·§3.2 배치 테이블 보감·§1.1 lifespan vs queue_worker lazy·§3.3 UPLOAD_FILE_RETENTION_DAYS·§6.1 queue_worker vs scheduler_file 풀 분리
+- `03_API_GUIDE.md`: 풀 max=30, §1.3 get_db_connection_etl/system 설명, §7.2·§7.3·§7.4 ETL 표·transform_engine·파일 적재 흐름 보강
+- `01_FRONTEND_GUIDE.md`: §4.4 업로드 만료 삭제 트리거(업로드 시·수동 API, cron 미구현)
+
+Changed files: docs/main/00_PRD.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/01_FRONTEND_GUIDE.md, docs/log/log.md
+
+427. 2026-04-20 docs/report: 22 시스템 로그(system_log) 개발 계획·ReportIndex
+Purpose: `07` 사용자 기능 가이드 §12 과제 3을 바탕으로 `system_log_server` 중심의 점진적 백엔드 개발 계획을 문서화하고 report 인덱스를 갱신한다.
+
+Changes:
+
+- `docs/report/22_System_Log_Development_Plan.md`: Phase 1~3, 스키마 초안, 패키지별 계측 우선순위, 상관 ID·권한·ETL 분리·검증 체크리스트
+- `docs/report/00_ReportIndex.md`: 22번 문서 행 추가
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
 
 426. 2026-04-17 docs/main/04_DB_ARCHITECTURE: ibank_system_data `\d` 기준 전면 동기화
 Purpose: 제공된 PostgreSQL `\d` 출력에 맞춰 시스템 DB 테이블·제약·인덱스·FK·위젯 보드 3종을 문서에 반영한다.

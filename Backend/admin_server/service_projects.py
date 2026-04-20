@@ -7,14 +7,15 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 ===========
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시; 매핑은 main table_master만)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
-3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE)
-4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member(본인 재참여 허용·이미 멤버·초대대기는 SQL로 차단) / remove_member(잔존 project_invite 정리) / update_member_role
+3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE) — commit 성공 후 `audit_emit.emit_admin_system_log`(actor_user_id 있을 때)
+4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member / remove_member / update_member_role — 동일 계측
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
 
 [Dependencies]
 =========
+- Backend.admin_server.audit_emit.emit_admin_system_log
 - Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
 - Backend.core.invite_expiry.invite_expired_from_payload
 - json
@@ -31,6 +32,7 @@ import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json
 
+from Backend.admin_server.audit_emit import emit_admin_system_log
 from Backend.admin_server.service_roles import (
     _attach_user_department_display,
     _user_department_display_from_join,
@@ -547,6 +549,17 @@ def create_project_full(
             invites_sent += 1
 
         conn.commit()
+        emit_admin_system_log(
+            int(actor_user_id),
+            business_action="project_create",
+            action_kind="CREATE",
+            detail_json={
+                "project_info_id": pid,
+                "members_added": members_added,
+                "invites_sent": invites_sent,
+            },
+            risk_tier="MED",
+        )
         return {
             "project_info_id": pid,
             "members_added": members_added,
@@ -574,6 +587,8 @@ def update_project(
     feature_flags: dict[str, Any] | None = None,
     table_master_ids: list[int] | None = None,
     table_mappings: list[dict[str, Any]] | None = None,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     cur = conn.cursor()
     try:
@@ -621,6 +636,14 @@ def update_project(
             and table_mappings is None
         ):
             conn.commit()
+            emit_admin_system_log(
+                actor_user_id,
+                business_action="project_update",
+                detail_json={
+                    "project_info_id": project_info_id,
+                    "x_note": "no_field_changes",
+                },
+            )
             return
 
         if table_mappings is not None:
@@ -631,6 +654,16 @@ def update_project(
             _sync_project_table_mappings(cur, project_info_id, list(table_master_ids))
 
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="project_update",
+            detail_json={
+                "project_info_id": project_info_id,
+                "x_has_project_fields": bool(sets),
+                "x_table_mappings": table_mappings is not None,
+                "x_table_master_ids": table_master_ids is not None,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -641,7 +674,9 @@ def update_project(
         cur.close()
 
 
-def deactivate_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
+def deactivate_project(
+    conn, dptmt_info_id: int, project_info_id: int, *, actor_user_id: int | None = None
+) -> None:
     cur = conn.cursor()
     try:
         _assert_project_owned_allow_inactive(cur, dptmt_info_id, project_info_id)
@@ -650,6 +685,13 @@ def deactivate_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
             (project_info_id,),
         )
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="project_deactivate",
+            action_kind="UPDATE",
+            detail_json={"project_info_id": project_info_id},
+            risk_tier="MED",
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -724,7 +766,9 @@ def get_inactive_project_purge_preview(
         cur.close()
 
 
-def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> None:
+def purge_inactive_project(
+    conn, dptmt_info_id: int, project_info_id: int, *, actor_user_id: int | None = None
+) -> None:
     """`active_yn`이 Y가 아닌 프로젝트만 물리 삭제. 단일 트랜잭션에서 선행 정리 후 `project_info` DELETE.
 
     순서: project_invite 알림 → user_info·email_invite 초대 프로젝트 쌍 NULL → 위젯보드(알림·위젯·공유·보드) →
@@ -822,6 +866,13 @@ def purge_inactive_project(conn, dptmt_info_id: int, project_info_id: int) -> No
             (pid,),
         )
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="project_purge",
+            action_kind="DELETE",
+            detail_json={"project_info_id": pid},
+            risk_tier="HIGH",
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -987,6 +1038,8 @@ def cancel_project_invite(
     dptmt_info_id: int,
     project_info_id: int,
     notification_info_id: int,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     """미수락 project_invite 알림 행을 삭제한다(초대 취소)."""
     cur = conn.cursor()
@@ -1025,6 +1078,16 @@ def cancel_project_invite(
             conn.rollback()
             raise ValueError("초대 취소에 실패했습니다.")
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="invite_cancel",
+            action_kind="DELETE",
+            detail_json={
+                "project_info_id": pid,
+                "notification_info_id": nid,
+                "target_user_id": target_uid,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1181,6 +1244,17 @@ def add_member(
                 conn, cur, pid, str(pname_immediate), aid, target_uid
             )
             conn.commit()
+            emit_admin_system_log(
+                aid,
+                business_action="member_add",
+                detail_json={
+                    "project_info_id": pid,
+                    "affected_user_id": target_uid,
+                    "pmssn_master_id": mid,
+                    "x_outcome": "member_added",
+                },
+                risk_tier="MED",
+            )
             return {"outcome": "member_added"}
 
         cur.execute(
@@ -1236,6 +1310,17 @@ def add_member(
             autocommit=False,
         )
         conn.commit()
+        emit_admin_system_log(
+            aid,
+            business_action="member_add",
+            detail_json={
+                "project_info_id": pid,
+                "affected_user_id": target_uid,
+                "pmssn_master_id": mid,
+                "x_outcome": "invite_sent",
+            },
+            risk_tier="MED",
+        )
         return {"outcome": "invite_sent"}
     except ValueError:
         conn.rollback()
@@ -1253,6 +1338,8 @@ def update_member_role(
     project_info_id: int,
     ptcpnt_user_id: int,
     pmssn_master_id: int,
+    *,
+    actor_user_id: int | None = None,
     actor_dvsn: str | None = None,
 ) -> None:
     cur = conn.cursor()
@@ -1273,6 +1360,15 @@ def update_member_role(
                 )
         cur.execute(
             """
+            SELECT pmssn_master_id FROM project_ptcpnt_info
+            WHERE project_info_id = %s AND ptcpnt_user_id = %s
+            """,
+            (project_info_id, ptcpnt_user_id),
+        )
+        prev_row = cur.fetchone()
+        prev_mid = int(prev_row["pmssn_master_id"]) if prev_row else None
+        cur.execute(
+            """
             UPDATE project_ptcpnt_info SET pmssn_master_id = %s, update_dtm = NOW()
             WHERE project_info_id = %s AND ptcpnt_user_id = %s
             """,
@@ -1282,6 +1378,16 @@ def update_member_role(
             conn.rollback()
             raise ValueError("멤버를 찾을 수 없습니다.")
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="member_role_update",
+            detail_json={
+                "project_info_id": project_info_id,
+                "affected_user_id": int(ptcpnt_user_id),
+                "old_pmssn_master_id": prev_mid,
+                "new_pmssn_master_id": int(pmssn_master_id),
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1342,6 +1448,16 @@ def remove_member(
             int(ptcpnt_user_id),
         )
         conn.commit()
+        emit_admin_system_log(
+            int(actor_user_id),
+            business_action="member_remove",
+            action_kind="DELETE",
+            detail_json={
+                "project_info_id": int(project_info_id),
+                "affected_user_id": int(ptcpnt_user_id),
+            },
+            risk_tier="HIGH",
+        )
     except ValueError:
         conn.rollback()
         raise

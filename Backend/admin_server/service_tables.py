@@ -6,10 +6,10 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 [Main Functions]
 ===========
 1. list_table_master(project_create: db_type=main이면 update_dtm·table_name; 그 외에는 dash 우선 포함 정렬)
-2. update_table_master
+2. update_table_master — commit 후 `audit_emit.emit_admin_system_log`
 3. list_project_tables(use_query_studio·use_widgetboard bool)
-4. add_project_table_mapping(main table_master만, 양 채널 Y 기본)
-5. delete_project_table_mapping
+4. add_project_table_mapping(main table_master만, 양 채널 Y 기본) — 동일 계측
+5. delete_project_table_mapping — 동일
 
 [Endpoints/Classes/Functions]
 =======================
@@ -21,6 +21,7 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 
 [Dependencies]
 =========
+- Backend.admin_server.audit_emit.emit_admin_system_log
 - typing.Any
 - system_db tables: project_info, table_master, table_project_mapping
 """
@@ -28,6 +29,9 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 from __future__ import annotations
 
 from typing import Any
+
+from Backend.admin_server.audit_emit import emit_admin_system_log
+
 
 def _mapping_yn_to_bool(v: Any) -> bool:
     return str(v or "").strip().upper() != "N"
@@ -124,6 +128,8 @@ def update_table_master(
     table_master_id: int,
     table_label: str | None,
     table_dscrtn: str | None,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     if table_label is None and table_dscrtn is None:
         raise ValueError("수정할 값이 없습니다.")
@@ -156,6 +162,15 @@ def update_table_master(
                 (table_dscrtn, table_master_id),
             )
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="table_master_update",
+            detail_json={
+                "table_master_id": int(table_master_id),
+                "x_table_label": table_label is not None,
+                "x_table_dscrtn": table_dscrtn is not None,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -208,6 +223,8 @@ def add_project_table_mapping(
     dptmt_info_id: int,
     project_info_id: int,
     table_master_id: int,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     cur = conn.cursor()
     try:
@@ -251,6 +268,15 @@ def add_project_table_mapping(
             (project_info_id, table_master_id),
         )
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="table_mapping_add",
+            action_kind="CREATE",
+            detail_json={
+                "project_info_id": int(project_info_id),
+                "table_master_id": int(table_master_id),
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -267,6 +293,8 @@ def delete_project_table_mapping(
     dptmt_info_id: int,
     project_info_id: int,
     table_master_id: int,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     cur = conn.cursor()
     try:
@@ -281,6 +309,15 @@ def delete_project_table_mapping(
         if cur.rowcount == 0:
             raise ValueError("매핑 정보를 찾을 수 없습니다.")
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="table_mapping_delete",
+            action_kind="DELETE",
+            detail_json={
+                "project_info_id": int(project_info_id),
+                "table_master_id": int(table_master_id),
+            },
+        )
     except ValueError:
         conn.rollback()
         raise

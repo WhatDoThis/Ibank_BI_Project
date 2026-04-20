@@ -11,18 +11,21 @@ pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 �
 3. list_role_usages(user_department_display)
 4. list_role_project_participants(user_department_display)
 5. list_user_role_usages(user_department_display·ptcpnt_user_id 반환)
-6. create_custom_role
-7. update_custom_role
-8. delete_custom_role
+6. create_custom_role — commit 후 `audit_emit.emit_admin_system_log`
+7. update_custom_role — 동일
+8. delete_custom_role — 동일
 
 [Dependencies]
 =========
+- Backend.admin_server.audit_emit.emit_admin_system_log
 - (conn, SQL만)
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from Backend.admin_server.audit_emit import emit_admin_system_log
 
 
 def _user_department_display_from_join(
@@ -300,6 +303,16 @@ def create_custom_role(
         )
         rid = int(cur.fetchone()["pmssn_master_id"])
         conn.commit()
+        emit_admin_system_log(
+            int(actor_user_id),
+            business_action="role_create",
+            action_kind="CREATE",
+            detail_json={
+                "pmssn_master_id": rid,
+                "dptmt_info_id": int(dptmt_info_id),
+            },
+            risk_tier="MED",
+        )
         return rid
     except Exception:
         conn.rollback()
@@ -315,6 +328,8 @@ def update_custom_role(
     pmssn_master_id: int,
     pmssn_name: str | None,
     pmssn_list: list[str] | None,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     cur = conn.cursor()
     try:
@@ -343,6 +358,16 @@ def update_custom_role(
                 (pmssn_list, pmssn_master_id),
             )
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="role_update",
+            detail_json={
+                "pmssn_master_id": int(pmssn_master_id),
+                "dptmt_info_id": int(dptmt_info_id),
+                "x_pmssn_name": pmssn_name is not None,
+                "x_pmssn_list": pmssn_list is not None,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -354,7 +379,13 @@ def update_custom_role(
 
 
 # 8.
-def delete_custom_role(conn, dptmt_info_id: int, pmssn_master_id: int) -> None:
+def delete_custom_role(
+    conn,
+    dptmt_info_id: int,
+    pmssn_master_id: int,
+    *,
+    actor_user_id: int | None = None,
+) -> None:
     cur = conn.cursor()
     try:
         cur.execute(
@@ -379,6 +410,16 @@ def delete_custom_role(conn, dptmt_info_id: int, pmssn_master_id: int) -> None:
             raise ValueError("프로젝트에서 사용 중인 역할은 삭제할 수 없습니다.")
         cur.execute("DELETE FROM pmssn_master WHERE pmssn_master_id = %s", (pmssn_master_id,))
         conn.commit()
+        emit_admin_system_log(
+            actor_user_id,
+            business_action="role_delete",
+            action_kind="DELETE",
+            detail_json={
+                "pmssn_master_id": int(pmssn_master_id),
+                "dptmt_info_id": int(dptmt_info_id),
+            },
+            risk_tier="HIGH",
+        )
     except ValueError:
         conn.rollback()
         raise

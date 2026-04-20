@@ -63,20 +63,22 @@ FastAPI 앱 조립·공용 DB 풀·헬스·쿼리 스튜디오/ETL 등 라우터
 │  ├─ _SYSTEM_DB_POOL (system_db)              │
 │  ├─ _ETL_DB_POOL (etl_db)                    │
 │  └─ _DASH_DB_POOL (dash_db)                  │
-│  각 풀: min=1, max=20, ThreadedConnectionPool │
+│  각 풀: min=1, max=30, ThreadedConnectionPool │
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
 │  앱·라우터 조립 (FastAPI·main.py)              │
 │  FastAPI app 생성                              │
 │  ├─ CORS 미들웨어 (allow_origins=["*"])       │
+│  ├─ CorrelationIdMiddleware (`X-Request-Correlation-Id`, `core.request_context`) │
 │  ├─ lifespan → ETL scheduler 기동             │
-│  └─ 9개 라우터 등록:                           │
+│  └─ 라우터 등록(health → … → widget_board):   │
 │     ├─ health_router        (인증 없음)       │
 │     ├─ auth_router          (/api/auth)       │
 │     ├─ project_router       (/api/projects)   │
 │     ├─ notification_router  (/api/notifications)│
 │     ├─ admin_router         (/api/admin)      │
+│     ├─ system_log_router    (/api/system-logs)│
 │     ├─ query_studio_router  (/api/*)          │
 │     ├─ etl_router           (/api/etl)        │
 │     │   router.py + router_file(/batch)       │
@@ -100,7 +102,7 @@ FastAPI 앱 조립·공용 DB 풀·헬스·쿼리 스튜디오/ETL 등 라우터
 | 함수 | 기능 |
 |------|------|
 | `lifespan` | 앱 시작 시 ETL 배치 스케줄러 기동 |
-| `app` | FastAPI 인스턴스 생성, CORS, 9개 라우터 등록 |
+| `app` | FastAPI 인스턴스 생성, CORS, `CorrelationIdMiddleware`, 라우터 등록 |
 | `not_found_handler` | 404 JSON 응답 |
 | `internal_error_handler` | 500 JSON 응답 |
 | `__main__` | config 읽어 uvicorn 실행 (`configure_root_logging` 선행) |
@@ -119,6 +121,14 @@ FastAPI 앱 조립·공용 DB 풀·헬스·쿼리 스튜디오/ETL 등 라우터
 | `health_check` | DB `SELECT 1` 헬스체크 |
 | `index` | 루트 `/` 안내 JSON |
 | `api_index` | `/api` 엔드포인트 목록 JSON |
+
+#### 요청 상관 ID (`api_server/middleware/correlation.py`, `core/request_context.py`)
+
+- **요청**: `X-Request-Correlation-Id` 없으면 서버가 UUID 발급. 값이 있으면 최대 128자 트림 후 UUID 파싱, 실패 시 새 UUID 발급.
+- **저장**: `contextvars` + `request.state.correlation_id`. `append_system_log` 시 `SystemLogRow.request_correlation_id` 가 비어 있으면 현재 컨텍스트 값을 사용.
+- **응답**: 동일 UUID를 `X-Request-Correlation-Id` 로 반사.
+- **실패**: 미들웨어 설정 단계 예외는 로깅 후 요청은 계속(상관 ID 없을 수 있음). DB I/O 없음.
+- **추가 contextvars**: `request_client_host`, `request_user_agent_raw` — `append_system_log` 가 `client_ip_masked`·`user_agent_summary` 를 비운 행으로 호출될 때 마스킹·요약으로 채운다.
 
 ---
 
@@ -216,8 +226,8 @@ widget_board (데이터) ─────→ _MAIN_DB_POOL 또는 _DASH_DB_POOL (
 | `get_table_columns_for_etl_target` | ETL 타겟 컬럼 (allowed 미검사) |
 | `get_primary_key_columns_for_etl_target` | ETL 타겟 PK (allowed 미검사) |
 | `get_db_connection` | 메인 DB 풀 연결 |
-| `get_db_connection_etl` | ETL DB 풀 연결 |
-| `get_db_connection_system` | ETL 호환 alias → etl 연결 |
+| `get_db_connection_etl` | ETL DB 풀 연결 (`get_etl_db_config`; etl_db 없으면 system_db fallback) |
+| `get_db_connection_system` | ETL 호환 alias — 내부적으로 `get_db_connection_etl()` 과 동일 풀 |
 | `get_db_connection_system_core` | system_db 고정 풀 연결 |
 | `get_db_connection_dash` | 대시보드 DB 풀 연결 |
 | `is_new_dash_physical_table` | `ibank_1` 계열 패턴 판별 |
@@ -496,7 +506,7 @@ require_active_access
   = parse + ensure_user_active_not_locked + _assert_access_session_bound
 
 get_access_payload
-  → JWT만 검증(세션 미검증). 라우터 Depends에는 **사용하지 않음**(레거시·테스트용 참고).
+  → JWT만 검증(세션 미검증). 보호 라우터 Depends에는 **사용하지 않음**(진단·내부 참고).
 
 적용 예:
 ┌──────────────────────────────────────────────────┐
@@ -697,7 +707,7 @@ PATCH /api/admin/users/{id}/suspend
 |------|------|
 | `_parse_bearer_access_token` | Authorization 헤더 → `(원문 토큰, JWT payload)`. typ=access·exp·서명 검증 |
 | `_hash_access_token_raw` | Bearer 원문 → SHA-256 hex (`security.hash_token`과 동일, 순환 import 회피) |
-| `get_access_payload` | JWT만 검증(세션 미검증). 보호 API Depends에는 **사용하지 않음**(레거시·테스트용) |
+| `get_access_payload` | JWT만 검증(세션 미검증). 보호 API Depends에는 **사용하지 않음**(진단·내부 참고) |
 | `ensure_user_active_not_locked` | `system_db`에서 `user_active_yn`·`user_lock_yn` 검사 → 비활성·잠금 시 403 |
 | `_assert_access_session_bound` | `session_log`에서 `access_token_encrypt` SHA-256 비교 + `refresh_exprtn_dtm` 미만료 확인 |
 | `require_access_session_bound` | JWT + 세션 바인딩만 검사 (비활성·잠금 계정도 세션 종료 가능) — **로그아웃 전용** |
@@ -752,7 +762,7 @@ PATCH /api/admin/users/{id}/suspend
 ├─ 1. 사용자 초대 → POST /api/admin/users/invite → invite_user_by_email …
 ├─ 2. 가입 → POST /api/auth/signup → signup_with_invite …
 ├─ 3. 프로젝트 생성 → POST /api/admin/projects → create_project_full
-│        (단일 트랜잭션: project_info + 생성자 pmssn + 매핑(채널 플래그 또는 레거시·main만)
+│        (단일 트랜잭션: project_info + 생성자 pmssn + 매핑(채널 플래그 또는 table_master_ids 호환·main만)
 │         + 부서 내 멤버 + 타부서 알림)
 ├─ 4. 이후 매핑/멤버 → POST …/projects/{id}/tables | …/members (add_member 분기)
 ├─ 5. 타부서 초대 수락 → POST /api/projects/{id}/accept-invite (project_server)
@@ -793,7 +803,7 @@ POST /api/admin/projects
 │       (table_master_id별 use_query_studio_yn·        │
 │        use_widgetboard_yn 개별 설정, main만 허용,    │
 │        둘 다 N이면 해당 행 미매핑)                    │
-│     table_mappings 미전달 시 (레거시):                │
+│     table_mappings 미전달 시 (table_master_ids 호환): │
 │       table_master_ids 각각 검증 + INSERT            │
 │       (양 채널 모두 Y)                               │
 │                                                    │
@@ -1172,7 +1182,7 @@ GET /api/admin/projects/{id}/members
 | `ProjectMemberAssignBody` | 멤버 지정 (`user_id` + `pmssn_master_id`) |
 | `TableMappingEntry` | 프로젝트별 table_master 매핑 — `use_query_studio`·`use_widgetboard` 독립 설정 |
 | `ProjectAssignmentBody` | 프로젝트 참여 지정 (`project_info_id` + `pmssn_master_id`) |
-| `ProjectCreateBody` | 프로젝트 생성 (이름·설명·`feature_flags`·`table_mappings`(채널 플래그) 또는 `table_master_ids`(레거시)·`creator_pmssn`·`members`·`external_invites`) |
+| `ProjectCreateBody` | 프로젝트 생성 (이름·설명·`feature_flags`·`table_mappings`(채널 플래그) 또는 `table_master_ids`(호환 본문)·`creator_pmssn`·`members`·`external_invites`) |
 | `ProjectUpdateBody` | 프로젝트 수정 (이름·설명·`active`·`feature_flags`·`table_mappings`(우선) 또는 `table_master_ids`) |
 | `AcceptProjectInviteBody` | 초대 수락/거절 (`notification_info_id`) |
 | `MemberAddBody` / `MemberRoleBody` | 멤버 추가 / 역할 변경 |
@@ -1250,7 +1260,7 @@ GET /api/admin/projects/{id}/members
 | `_assert_pmssn_for_project` | pmssn이 프로젝트 부서 것인지 확인 |
 | `list_projects_in_dept` | 부서 소속 프로젝트 목록 (`creator_email` 포함) |
 | `list_projects_for_participant` | 참여 프로젝트 목록 (역할명·`creator_email`) |
-| `create_project_full` | **단일 트랜잭션**: `project_info` + creator 멤버 + 매핑(table_mappings→채널 플래그 / 레거시→양쪽 Y, main만) + 부서 내 멤버 + 타부서 알림 |
+| `create_project_full` | **단일 트랜잭션**: `project_info` + creator 멤버 + 매핑(table_mappings→채널 플래그 / `table_master_ids` 호환→양쪽 Y, main만) + 부서 내 멤버 + 타부서 알림 |
 | `update_project` | 프로젝트 수정 (`feature_flags`·`table_mappings`(우선) 또는 `table_master_ids` 동기화, `o` 제한) |
 | `deactivate_project` | 소프트 삭제 (`active_yn=N`) |
 | `purge_inactive_project` | 비활성만 물리 삭제 (위젯보드 알림·위젯·공유·보드 → 테이블 매핑 → 참여 → 알림·초대 참조 정리 후 DELETE) |
@@ -1303,7 +1313,7 @@ GET /api/admin/projects/{id}/members
 | `GET/POST/PUT/DELETE /api/admin/roles` | 역할 CRUD |
 | `GET /api/admin/roles/{id}/usages` | 역할 사용현황 |
 | `GET /api/admin/roles/permission-options` | 권한 옵션 |
-| `GET/POST /api/admin/projects` | 프로젝트 목록 / 생성 (`create_project_full` — table_mappings 전달 시 채널별 플래그, 미전달 시 레거시 양쪽 Y) |
+| `GET/POST /api/admin/projects` | 프로젝트 목록 / 생성 (`create_project_full` — `table_mappings` 전달 시 채널별 플래그, 미전달 시 `table_master_ids` 호환·양쪽 Y) |
 | `PATCH /api/admin/projects/{id}` | 프로젝트 수정 (`feature_flags`·`table_mappings` 동기화. `table_mappings`와 `table_master_ids` 동시 전달 시 `table_mappings` 우선. 운영자(o) 변경 불가) |
 | `DELETE /api/admin/projects/{id}` | 소프트 삭제 (비활성화) |
 | `GET /api/admin/projects/{id}/purge-preview` | 비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 요약 |
@@ -1316,6 +1326,20 @@ GET /api/admin/projects/{id}/members
 | `POST /api/admin/projects/{id}/members` | 멤버 추가 (부서 내 즉시 / 타부서 알림) |
 | `PATCH /api/admin/projects/{id}/members/{uid}` | 멤버 역할 변경 |
 | `DELETE /api/admin/projects/{id}/members/{uid}` | 멤버 제거 |
+
+### 3.4 `system_log_server` — `/api/system-logs` (감사 로그 조회)
+
+- **prefix**: `/api/system-logs` — `Backend/system_log_server/router.py` (`api_server/main.py`에서 `admin` 직후 등록).
+- **인가**: 엔드포인트마다 `Depends(require_org_admin)` (`sa_dev`·`sa`·`a`).
+- **GET `/api/system-logs`**: 쿼리 `user_key`(행위자 id 문자열·이메일 부분 일치), `from`·`to`(날짜), `ip_contains`, `page`(기본 1), `page_size`(기본 50, 최대 200), `channel`, `action_kind`, `success_yn`. 응답 `{ items, total, page, page_size }`, 목록 기본 정렬 `create_dtm DESC`. 조회 범위: `sa_dev`는 전체, `sa`·`a`는 `actor_user_id`가 액터 부서 하위 트리(재귀 CTE)에 속한 활성 사용자인 행만(`actor_user_id` NULL 행은 제외).
+
+**설정**: `backend.system_log_append_enabled`(bool, 예시는 `false`) — `Backend/core/system_audit_log.append_system_log` 계측 INSERT on/off. 상세는 `docs/report/22_System_Log_Development_Plan.md` §5.
+
+> **Phase 2(계획 §6)**: `admin_server/service_users` 의 사용자 정지·활성·삭제·초대·역할·ETL·일괄 변경 등은 commit 성공 직후 `_emit_admin_system_log` → `append_system_log`(HTTP 요청 시 미들웨어가 넣은 상관 ID·IP·UA 요약이 자동 보강될 수 있음).
+
+- **GET `/api/system-logs/login-history/me`**: `require_active_access`. 본인 `user_login_log`만. 쿼리는 위 system_log 목록과 동일 계열(`user_key`, `from`, `to`, `ip_contains`, `page`, `page_size` 기본 50·최대 50). 응답 `{ items, total, page, page_size }`, `items` 항목은 `login_trial_ip`(마스킹)·`login_success_yn`·`login_trial_browser`·`create_dtm`(ISO 문자열); `user_id`·`user_email`은 응답에서 생략(`exclude_none`).
+- **GET `/api/system-logs/login-history/org`**: `require_org_admin`. `user_login_log` + `user_info` 조인, **부서 트리 스코프**는 system_log 목록과 동일(`sa_dev` 전체·`sa`/`a`는 로그인 주체 사용자의 부서가 액터 부서 하위인 행). 동일 쿼리·페이징. `items`에 `user_id`·`user_email` 포함.
+- **GET `/api/auth/me/login-history`**: 레거시 래퍼 — 응답 `{ items }` 최근 10건 유지, 내부적으로 위와 동일 `service_login_history` 마스킹·SELECT 규칙 사용.
 
 ---
 
@@ -1986,8 +2010,8 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 | POST | `/api/etl/tables` | ETL 테이블 정의 등록 |
 | PATCH | `/api/etl/tables/{etl_table_id}` | 테이블 설정 부분 갱신 |
 | DELETE | `/api/etl/tables/{etl_table_id}` | ETL 테이블 삭제 (배치·원장 등 선행 검사) |
-| POST | `/api/etl/tables/{etl_table_id}/refresh-column-mapping` | 컬럼 매핑 재조회 반영 |
-| DELETE | `/api/etl/tables/{etl_table_id}/row` | 행 단위 삭제(조건부) |
+| POST | `/api/etl/tables/{etl_table_id}/refresh-column-mapping` | DB 소스 ETL의 `column_mapping`을 소스 테이블 컬럼·타입 기준으로 재조회·반영 |
+| DELETE | `/api/etl/tables/{etl_table_id}/row` | `etl_tables` 등록 행만 삭제(메인 DB 타깃 물리 테이블은 유지) |
 | POST | `/api/etl/upload` | 파일 업로드 (CSV·Excel·Parquet) |
 | POST | `/api/etl/infer-schema` | 샘플 기반 스키마 추론 |
 | POST | `/api/etl/tables/{etl_table_id}/add-file` | 기존 파일 ETL에 단일 파일 추가 적재 흐름 |
@@ -2013,7 +2037,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 | POST | `/api/etl/storage-connections/test` | 저장 연결 테스트 |
 | GET | `/api/etl/target-tables` | 적재 대상 DB의 테이블 목록 |
 | GET | `/api/etl/target-columns` | 대상 테이블 컬럼 |
-| GET | `/api/etl/tables/{etl_table_id}/target-exists` | 타깃 테이블 존재 여부 |
+| GET | `/api/etl/tables/{etl_table_id}/target-exists` | 타깃 테이블 존재 여부 및 `sync_mode` 등 메타 |
 | GET | `/api/etl/tables/{etl_table_id}/preview` | 변환 반영 미리보기 |
 | POST | `/api/etl/transform/preview` | 룰·매핑만으로 변환 미리보기 |
 | POST | `/api/etl/tables/{etl_table_id}/run` | 실행: 파일은 **동일 프로세스 스레드**, DB·추가적재는 **pending Job + queue_worker** |
@@ -2066,7 +2090,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 | `load_service.py` | 파일 → 파싱 → 변환 → **main_db** 대상 테이블 DROP/CREATE/INSERT, `run_file_upsert` |
 | `load_service_file.py` | 배치·추가 적재 경로의 DataFrame 적재·UPSERT 보조 |
 | `db_load_service.py` | PG/MySQL/Oracle 소스 → 저장 DB **full / incremental / diff**, COPY·staging·인덱스 생성 |
-| `transform_engine.py` | `etl_transform_rules` 를 pandas DataFrame에 **선언적 오퍼레이션**으로 적용 (`apply_rules`, type cast, cleansing, numeric, row filter/dedup 등). **임의 Python `eval` 기반 사용자 코드 실행은 없음** |
+| `transform_engine.py` | `etl_transform_rules` 를 pandas DataFrame에 **선언적 오퍼레이션**으로 적용 (`apply_rules` 등). 컬럼 룰 카테고리는 `cleansing`, `type_cast`, `code_map`, `mapping`, `derived`, `masking`, `string`, `datetime`, `numeric` 등이며 행 룰은 `row`만 등록된다. **사용자 임의 코드 실행 경로·`_apply_custom_code` 는 없고**, 임의 Python `eval`도 없다 |
 | `transform_rules_service.py` | 변환 룰 CRUD·조회 |
 | `transform_upsert_verification.py` | 룰 출력과 적재 파이프라인 정합 검증(dry-run 등) |
 | `preview_service.py` | 테이블·파일 미리보기, `transform/preview` 연동 |
@@ -2102,8 +2126,9 @@ Client          router.py                 service.py           queue_worker.py  
 ```
 Client POST …/run (source_type=file)
   → service.insert_job(running)
-  → 동일 프로세스 Thread → load_service.run_file_load
-  → (업로드 경로 일치 보장 — 다중 워커와 파일 경로 불일치 방지)
+  → 동일 프로세스 Thread → _run_file_load_in_process → load_service.run_file_load (lazy import)
+  → queue_worker 를 거치지 않음 — 업로드와 동일 프로세스에서 파일 접근 보장
+  → (다중 워커와 파일 경로 불일치 방지)
 ```
 
 #### 폴더 배치 (요약)

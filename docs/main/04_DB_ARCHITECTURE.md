@@ -1,6 +1,6 @@
 # DB 스키마 정의 (ibank_system_data · ibank_etl_data)
 
-**용도**: `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의. 구현·배포 절차는 **docs/report/17_SystemDB_Commercialization_Implementation_Guide.md**, **docs/main/02_BACKEND_GUIDE.md** 를 본다.
+**용도**: `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의. **`system_log`** 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md`** 참고. 구현·배포 절차는 **docs/report/17_SystemDB_Commercialization_Implementation_Guide.md**, **docs/main/02_BACKEND_GUIDE.md** 를 본다.
 
 ---
 
@@ -30,6 +30,8 @@ table_master (독립 — 전사 공통, 부서 FK 없음; db_type은 main|dash)
     └── (table_project_mapping이 table_master_id 참조)
 
 query_studio_user_labels (복합 PK user_id+project_info_id; DDL상 FK 없음)
+
+system_log (독립 — 감사·추적 append-only; `actor_user_id`는 `user_info` 논리 참조·**DDL상 FK 없음**)
 
 etl_connections (독립 — 전사 공통, 부서 FK 없음)
     └── etl_tables (connection_id FK)
@@ -63,7 +65,7 @@ server_timezones (독립 — ibank_etl_data.public)
 
 ## ibank_system_data (public)
 
-아래 **1. ~ 12d.** 는 `ibank_system_data.public` 테이블 정의다.
+아래 **1. ~ 13.** 는 `ibank_system_data.public` 테이블 정의다.
 
 ---
 
@@ -433,6 +435,49 @@ create_user_id           integer                       FK `widget_item_create_us
 인덱스: `idx_wi_board` btree(`widget_board_id`) WHERE `active_yn` = 'Y'::bpchar.
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. system_log (시스템 감사·추적 로그)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`ibank_system_data.public`. **append-only** 적재 전제. 상세 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md` §2·§4** 참고.
+
+PRIMARY KEY: `system_log_pkey` (`system_log_id`) — `BIGSERIAL`.
+
+컬럼명                    타입             제약조건        설명
+───────────────────────  ──────────────  ────────────  ─────────────────
+system_log_id            bigserial       NOT NULL PK   일련번호
+create_dtm               timestamp       NOT NULL DEFAULT now() 기록 시각
+actor_user_id            integer         NULL          행위자 `user_info.user_id` (**FK 미선언** — 사용자 삭제 후에도 로그 보존)
+request_correlation_id   uuid            NULL          HTTP 요청 단위 상관 ID
+client_ip_masked         varchar(45)     NULL          마스킹된 클라이언트 IP
+user_agent_summary       varchar(120)    NULL          User-Agent 파싱 요약
+channel                  varchar(40)     NOT NULL      채널(auth, admin, query_studio, etl, widget_board, …)
+action_kind              varchar(20)     NOT NULL      대분류(CREATE, UPDATE, DELETE, EXECUTE, LOGIN, EXPORT 등)
+business_action          varchar(60)     NULL          세부 액션 식별자(user_suspend, …)
+db_target                varchar(20)     NULL          대상 DB 구분(system / main / dash / etl_meta 등)
+schema_name              varchar(63)     NULL          스키마명
+table_name               varchar(63)     NULL          테이블명
+resource_name            varchar(200)    NULL          논리 리소스명(위젯 보드명 등)
+rows_affected            integer         NULL          영향 행 수
+success_yn               varchar(1)      NOT NULL DEFAULT Y 성공 여부
+http_status              smallint        NULL          HTTP 응답 코드
+error_code               varchar(80)     NULL          애플리케이션 오류 코드
+sql_fingerprint          varchar(64)     NULL          SQL 정규화 지문(sha256 hex 등)
+sql_template_key         varchar(120)    NULL          요약 키(channel.operation 형식)
+risk_tier                varchar(10)     NULL          HIGH / MED / LOW
+target_summary           varchar(500)    NULL          대상 요약
+detail_json              jsonb           NOT NULL DEFAULT '{}' 확장(JSON)
+
+OWNER: 적용 스크립트 기준 **`ibankbi`**.
+
+인덱스:
+
+- `idx_system_log_create_dtm` btree(`create_dtm` DESC)
+- `idx_system_log_actor_dtm` btree(`actor_user_id`, `create_dtm` DESC)
+- `idx_system_log_correlation` btree(`request_correlation_id`) WHERE `request_correlation_id` IS NOT NULL
+- `idx_system_log_channel_action` btree(`channel`, `action_kind`, `create_dtm` DESC)
+- `idx_system_log_business_action` btree(`business_action`, `create_dtm` DESC) WHERE `business_action` IS NOT NULL
+
+
 ---
 
 ## ibank_etl_data (public)
@@ -778,7 +823,7 @@ sort_order               smallint        DEFAULT 0     정렬 순서
 
 구분              테이블 수    테이블 목록
 ──────────────── ────────── ──────────────────────
-ibank_system_data   16       dptmt_info, user_info,
+ibank_system_data   17       dptmt_info, user_info,
                              email_invite_code_master,
                              session_log, user_login_log,
                              pmssn_master_detail,
@@ -790,7 +835,8 @@ ibank_system_data   16       dptmt_info, user_info,
                              query_studio_user_labels,
                              widget_board,
                              widget_board_share,
-                             widget_item
+                             widget_item,
+                             system_log
 
 ETL (ibank_etl_data) 13     etl_connections,
                              etl_tables,

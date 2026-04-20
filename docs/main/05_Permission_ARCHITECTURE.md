@@ -25,7 +25,7 @@ project_ptcpnt_info (프로젝트마다 유저 ↔ 템플릿 PK)
 | 구분 | JWT에 `project_info_id` | 검증 함수 | 비고 |
 |------|-------------------------|------------|------|
 | 쿼리 스튜디오·대시·위젯 등 **프로젝트 업무** | **필수** | `require_permission` | §1 — `pmssn_list` ∩ `feature_flags` |
-| **ETL 인프라** API | 불필요 | `require_etl_infrastructure` | §4 — `sa_dev`·`etl_yn=Y`·DB 원문 `etl_manager`(레거시) |
+| **ETL 인프라** API | 불필요 | `require_etl_infrastructure` | §4 — `sa_dev`·`etl_yn=Y`·DB 저장값 `etl_manager`(호환) |
 | **`/api/admin/*`** | 불필요 | `require_org_admin` 등 | §6 — 조직 역할·부서 트리 별도 규칙 |
 
 **프로젝트 미선택**으로 `require_permission`이 걸린 API를 호출하면 **403** (예: 프로젝트를 선택해주세요).  

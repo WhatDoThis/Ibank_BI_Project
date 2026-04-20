@@ -13,17 +13,17 @@ Backend.admin_server.service_users (유저·초대·부서)
 3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, 초대 메일에 부서·역할·프로젝트 권한 명시, UndefinedColumn 시 DDL 안내)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
 3c. _invite_org_role_label_ko / _fetch_invite_email_labels (초대 메일 본문용 부서·프로젝트·권한 템플릿명)
-4. suspend_user(세션 무효) / activate_user / delete_inactive_user(비활성만·소유 가드·연관 행 정리 후 user_info DELETE)
-5. set_user_dvsn_admin_user (a/sa/sa_dev·a·o·u 부여)
-6. set_user_etl_flag (sa·sa_dev·etl_yn, N 시 ETL 등록 건 검사)
+4. suspend_user / activate_user / delete_inactive_user — commit 후 `audit_emit.emit_admin_system_log`(플래그 on 시)
+5. set_user_dvsn_admin_user / set_user_etl_flag — 동일 계측(actor_user_id)
+6. invite_user_by_email / update_user_management — 동일 계측
 7. list_invite_codes_for_dept
-8. get_department / update_department_name
-9. list_departments_for_org_settings(id≠0·미사용 포함·member_count·display_label·dptmt_create_user_id→creator_email) / create_department / update_department_in_org_settings(이름·코드·use_yn·migrate_users_to_dptmt_info_id) / delete_department_in_org_settings(행 DELETE·sa는 본인 부서 행 금지)
+8. get_department / update_department_name — commit 후 `emit_admin_system_log`(dept_update)
+9. list_departments_for_org_settings / create_department(dept_create) / update_department_in_org_settings(dept_update|dept_invalidate) / delete_department_in_org_settings(dept_delete) — 동일
 10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 역할) 검사
 11. get_user_work_assets — 생성·참여·초대자(invite_user_id) 프로젝트 참여, 커스텀 역할, 등록 부서, table_master·etl_db·연쇄 안내
 12. list_ownership_transfer_targets / list_department_creator_transfer_targets — 이관 수신(일반: sa_dev·sa·a / 부서생성자: sa·sa만, 동일 부서 수직 트리·SA→sa_dev 제외)
 12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
-13. transfer_resource_ownership — project·project_invite(project_ptcpnt_info)·pmssn_master·table_master·dptmt_creator·ETL 메타 이관
+13. transfer_resource_ownership — project·project_invite(project_ptcpnt_info)·pmssn_master·table_master·dptmt_creator·ETL 메타 이관 — 성공 시 `ownership_transfer` 계측
 14. ownership_guards 연동 — 정지·삭제 시 project_invite_rows 포함(초대자 이관 전 NOT NULL)·그 외 목표 역할·ETL 매트릭스(409)
 15. get_user_change_options / update_user_management — 부서·역할·ETL·프로젝트 참여 변경·projects[].project_department_display(소속 부서: 최상위 이름(-), 하위 상위(자기))(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·역할 u 시 etl_yn N)
 
@@ -33,6 +33,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 - Backend.auth_server.email_service, Backend.core.auth_config
 - Backend.core.user_dvsn_codes.canon_user_dvsn
 - Backend.core.db (get_db_connection_etl, get_system_table_schema)
+- Backend.admin_server.audit_emit (`emit_admin_system_log` → `append_system_log`)
 - (ETL 메타 조회용 로컬 헬퍼 _admin_etl_q, _admin_etl_table_columns_lower, _admin_etl_select_cols — etl_server 패키지 import 회피)
 - Backend.admin_server.service_projects.validate_invite_user_project
 - Backend.auth_server.permissions (get_effective_permission_ids_for_me, is_project_participant)
@@ -48,6 +49,7 @@ from typing import Any
 import psycopg2.errors
 
 from Backend.admin_server import service_projects
+from Backend.admin_server.audit_emit import emit_admin_system_log as _emit_admin_system_log
 from Backend.admin_server.ownership_guards import (
     ManagementBlockedError,
     build_ownership_violation_payload,
@@ -1230,6 +1232,20 @@ def invite_user_by_email(
             ),
         )
         conn.commit()
+        dj_inv: dict[str, Any] = {
+            "dptmt_info_id": int(dptmt_id),
+            "x_invite_target_dvsn": target_role,
+        }
+        if proj_id is not None:
+            dj_inv["project_info_id"] = int(proj_id)
+        _emit_admin_system_log(
+            actor_user_id,
+            action_kind="CREATE",
+            business_action="invite_send",
+            risk_tier="MED",
+            target_summary=f"invite_dptmt_info_id={int(dptmt_id)}",
+            detail_json=dj_inv,
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1348,7 +1364,14 @@ def _assert_suspend_activate_target(actor_dvsn: str, target_user_dvsn: str) -> N
     raise ValueError("정지·활성 처리 권한이 없습니다.")
 
 
-def suspend_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -> None:
+def suspend_user(
+    conn,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    target_user_id: int,
+    *,
+    actor_user_id: int | None = None,
+) -> None:
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, target_user_id)
     cur = conn.cursor()
     try:
@@ -1372,6 +1395,13 @@ def suspend_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -
 
         invalidate_all_sessions(conn, int(target_user_id), do_commit=False)
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="user_suspend",
+            risk_tier="HIGH",
+            target_summary=f"target_user_id={int(target_user_id)}",
+            detail_json={"affected_user_id": int(target_user_id)},
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1382,7 +1412,14 @@ def suspend_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -
         cur.close()
 
 
-def activate_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) -> None:
+def activate_user(
+    conn,
+    actor_dptmt: int,
+    actor_dvsn: str,
+    target_user_id: int,
+    *,
+    actor_user_id: int | None = None,
+) -> None:
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, target_user_id)
     cur = conn.cursor()
     try:
@@ -1399,6 +1436,13 @@ def activate_user(conn, actor_dptmt: int, actor_dvsn: str, target_user_id: int) 
             (target_user_id,),
         )
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="user_activate",
+            risk_tier="MED",
+            target_summary=f"target_user_id={int(target_user_id)}",
+            detail_json={"affected_user_id": int(target_user_id)},
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1464,6 +1508,14 @@ def delete_inactive_user(
             conn.rollback()
             raise ValueError("사용자를 삭제하지 못했습니다.")
         conn.commit()
+        _emit_admin_system_log(
+            aid,
+            action_kind="DELETE",
+            business_action="user_delete_inactive",
+            risk_tier="HIGH",
+            target_summary=f"deleted_user_id={tid}",
+            detail_json={"affected_user_id": tid},
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1481,6 +1533,8 @@ def set_user_dvsn_admin_user(
     actor_dvsn: str,
     target_user_id: int,
     new_dvsn: str,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     nd = (new_dvsn or "").strip().lower()
     if nd not in ("a", "o", "u"):
@@ -1523,6 +1577,17 @@ def set_user_dvsn_admin_user(
             (nd, target_user_id),
         )
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="user_role_change",
+            risk_tier="HIGH",
+            target_summary=f"target_user_id={int(target_user_id)}",
+            detail_json={
+                "affected_user_id": int(target_user_id),
+                "old_value": cur_td,
+                "new_value": nd,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1540,6 +1605,8 @@ def set_user_etl_flag(
     actor_dvsn: str,
     target_user_id: int,
     etl_yn: str,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     flag = (etl_yn or "").strip().upper()
     if flag not in ("Y", "N"):
@@ -1552,13 +1619,18 @@ def set_user_etl_flag(
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT user_dvsn FROM user_info WHERE user_id = %s",
+            """
+            SELECT user_dvsn,
+                   UPPER(TRIM(COALESCE(etl_yn, 'N'))) AS etl_yn_cur
+            FROM user_info WHERE user_id = %s
+            """,
             (target_user_id,),
         )
         row = cur.fetchone()
         if not row:
             raise ValueError("사용자를 찾을 수 없습니다.")
         td = (row.get("user_dvsn") or "").strip().lower()
+        prev_etl = str(row.get("etl_yn_cur") or "N").strip().upper()
         if td == "sa_dev":
             raise ValueError("SA_DEV 계정의 etl_yn은 변경할 수 없습니다.")
         if flag == "N":
@@ -1568,6 +1640,17 @@ def set_user_etl_flag(
             (flag, target_user_id),
         )
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="user_etl_flag",
+            risk_tier="MED",
+            target_summary=f"target_user_id={int(target_user_id)}",
+            detail_json={
+                "affected_user_id": int(target_user_id),
+                "old_value": prev_etl,
+                "new_value": flag,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1905,6 +1988,8 @@ def update_department_in_org_settings(
     actor_dvsn: str,
     actor_dptmt_id: int,
     migrate_users_to_dptmt_info_id: int | None = None,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     eff = (actor_dvsn or "").strip().lower()
     if eff not in ("sa_dev", "sa"):
@@ -1986,6 +2071,19 @@ def update_department_in_org_settings(
             conn.rollback()
             raise ValueError("부서를 찾을 수 없습니다.")
         conn.commit()
+        ba = "dept_invalidate" if (has_use and use_v == "N") else "dept_update"
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action=ba,
+            detail_json={
+                "dptmt_info_id": int(dptmt_info_id),
+                "x_has_name": has_name,
+                "x_has_code": has_code,
+                "x_has_use": has_use,
+                "migrate_users_to_dptmt_info_id": mig,
+            },
+            risk_tier="HIGH" if ba == "dept_invalidate" else "MED",
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -1997,7 +2095,12 @@ def update_department_in_org_settings(
 
 
 def delete_department_in_org_settings(
-    conn, dptmt_info_id: int, actor_dvsn: str, actor_dptmt_id: int
+    conn,
+    dptmt_info_id: int,
+    actor_dvsn: str,
+    actor_dptmt_id: int,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     eff = (actor_dvsn or "").strip().lower()
     if eff not in ("sa_dev", "sa"):
@@ -2017,6 +2120,13 @@ def delete_department_in_org_settings(
             conn.rollback()
             raise ValueError("부서를 찾을 수 없습니다.")
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="dept_delete",
+            action_kind="DELETE",
+            detail_json={"dptmt_info_id": tid},
+            risk_tier="HIGH",
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -2091,6 +2201,16 @@ def create_department(
             raise ValueError("부서 등록에 실패했습니다.")
         new_id = int(row["dptmt_info_id"] if hasattr(row, "get") else row[0])
         conn.commit()
+        _emit_admin_system_log(
+            int(actor_user_id),
+            business_action="dept_create",
+            action_kind="CREATE",
+            detail_json={
+                "dptmt_info_id": new_id,
+                "parent_dptmt_info_id": pid,
+            },
+            risk_tier="MED",
+        )
         return new_id
     except Exception:
         conn.rollback()
@@ -2099,7 +2219,9 @@ def create_department(
         cur.close()
 
 
-def update_department_name(conn, dptmt_info_id: int, new_name: str) -> None:
+def update_department_name(
+    conn, dptmt_info_id: int, new_name: str, *, actor_user_id: int | None = None
+) -> None:
     name = (new_name or "").strip()
     if not name:
         raise ValueError("부서명이 필요합니다.")
@@ -2113,6 +2235,11 @@ def update_department_name(conn, dptmt_info_id: int, new_name: str) -> None:
             conn.rollback()
             raise ValueError("부서를 찾을 수 없습니다.")
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="dept_update",
+            detail_json={"dptmt_info_id": int(dptmt_info_id), "x_field": "dptmt_name_only"},
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -2774,6 +2901,28 @@ def list_department_creator_transfer_targets(
     return out
 
 
+def _emit_ownership_transfer_log(
+    actor_user_id: int | None,
+    *,
+    resource_type: str,
+    resource_id: int,
+    from_user_id: int,
+    to_user_id: int,
+) -> None:
+    _emit_admin_system_log(
+        actor_user_id,
+        business_action="ownership_transfer",
+        action_kind="UPDATE",
+        detail_json={
+            "resource_type": resource_type,
+            "resource_id": int(resource_id),
+            "from_user_id": int(from_user_id),
+            "to_user_id": int(to_user_id),
+        },
+        risk_tier="HIGH",
+    )
+
+
 # 13.
 def transfer_resource_ownership(
     conn,
@@ -2783,6 +2932,8 @@ def transfer_resource_ownership(
     resource_id: int,
     from_user_id: int,
     to_user_id: int,
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     rt = (resource_type or "").strip().lower()
     rid = int(resource_id)
@@ -2827,6 +2978,13 @@ def transfer_resource_ownership(
             cur.close()
             cur = None
             _transfer_etl_resource(rt, rid, fid, tid)
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         if rt == "table_master":
             if (to_row.get("ua") or "") != "Y":
@@ -2899,6 +3057,13 @@ def transfer_resource_ownership(
                 tid,
             )
             conn.commit()
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         if rt == "dptmt_creator":
             eff_ac = (actor_dvsn or "").strip().lower()
@@ -2946,6 +3111,13 @@ def transfer_resource_ownership(
                 conn.rollback()
                 raise ValueError("부서 생성자 이관에 실패했습니다.")
             conn.commit()
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         if (to_row.get("ua") or "") != "Y":
             raise ValueError("비활성 사용자에게는 이관할 수 없습니다.")
@@ -2995,6 +3167,13 @@ def transfer_resource_ownership(
                 (tid, rid),
             )
             conn.commit()
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         if rt == "project_invite":
             cur.execute(
@@ -3032,6 +3211,13 @@ def transfer_resource_ownership(
                 conn.rollback()
                 raise ValueError("초대자 이관에 실패했습니다.")
             conn.commit()
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         if rt == "project":
             cur.execute(
@@ -3059,6 +3245,13 @@ def transfer_resource_ownership(
                 (tid, rid),
             )
             conn.commit()
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         if rt == "pmssn_master":
             cur.execute(
@@ -3088,6 +3281,13 @@ def transfer_resource_ownership(
                 (tid, rid),
             )
             conn.commit()
+            _emit_ownership_transfer_log(
+                actor_user_id,
+                resource_type=rt,
+                resource_id=rid,
+                from_user_id=fid,
+                to_user_id=tid,
+            )
             return
         raise ValueError("지원하지 않는 리소스 유형입니다.")
     except ValueError:
@@ -3633,6 +3833,13 @@ def update_user_management(
                     (pid, tid),
                 )
         conn.commit()
+        _emit_admin_system_log(
+            actor_user_id,
+            business_action="user_management_update",
+            risk_tier="HIGH",
+            target_summary=f"target_user_id={tid}",
+            detail_json={"affected_user_id": tid},
+        )
     except ValueError:
         conn.rollback()
         raise

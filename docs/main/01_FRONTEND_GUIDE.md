@@ -195,7 +195,7 @@ Frontend/react-app/
 - **`SourceTypeSelector.jsx`**: 소스 유형 — 파일 / PostgreSQL · MySQL · Oracle
 - **`FileUploadForm.jsx`**
   - CSV / Excel / Parquet, `etlUploadFile`(multipart), `target_table`·`description`·`created_by`
-  - 업로드 파일 **3일** 초과 시 서버에서 삭제 → 이후 동일 ETL 재실행 시 파일 없음으로 실패할 수 있음
+  - 업로드 파일 **3일** 초과 시 삭제. 삭제는 **새 파일 업로드 시** `_cleanup_expired_uploads`가 자동 실행되거나 `POST /api/etl/cleanup-expired-uploads`로 수동 트리거할 수 있다. cron 등 **주기 스케줄 자동 삭제는 미구현**이다. 만료 후 동일 ETL 재실행 시 파일 없음으로 실패할 수 있음
 - **`DbConnectionForm.jsx`**
   - 필드: 이름·host·port·database·schema·username·password — **`etlTestConnection` 통과 후에만** 등록
   - Oracle: **서비스명(Service Name)** 라벨·안내(JDBC `@호스트:1521/서비스명`, SID 미지원), placeholder 예 `FREEPDB1`
@@ -228,7 +228,7 @@ Frontend/react-app/
 - **`auth/jwtUtils.js`**, **`auth/tokenStorage.js`**: JWT 클레임·로컬 스토리지
 - **`utils/crudConfirm.js`**, **`userDvsnDisplay.js`**, **`passwordPolicy.js`**: 관리·가입 공통
 
-**엔드포인트 추가 시**: 해당 패키지 `api/*Client.js` 및 필요 시 `shared/api/*`·`http.js` 수정 (구 monolithic `client.js` 없음).
+**엔드포인트 추가 시**: 해당 패키지 `api/*Client.js` 및 필요 시 `shared/api/*`·`http.js` 수정한다. 저장소에는 **루트 단일 `client.js`** 를 두지 않는다.
 
 ---
 

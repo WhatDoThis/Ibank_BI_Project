@@ -6,8 +6,9 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 [Main Functions]
 ===========
 1. lifespan: ETL 배치 스케줄러(etl_server.scheduler_file) 기동(실패 시 예외 스택을 로깅하고 API 기동은 계속)
-2. not_found_handler: 404 예외 시 JSON 응답
-3. internal_error_handler: 500 예외 시 JSON 응답
+2. CorrelationIdMiddleware: X-Request-Correlation-Id·contextvars(계획 §7)
+3. not_found_handler: 404 예외 시 JSON 응답
+4. internal_error_handler: 500 예외 시 JSON 응답
 
 [기동]
 ===========
@@ -20,14 +21,15 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 3. project_router: /api/projects — Backend.project_server.router
 4. notification_router: /api/notifications — Backend.notification_server.router
 5. admin_router: /api/admin — Backend.admin_server.router
-6. query_studio_router: /api/* — Backend.query_studio_server.router (엔드포인트별 require_permission)
-7. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
-8. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
-9. widget_board_router: /api/widget-boards/* — 위젯 보드 메타·레이아웃(`dependencies=[require_permission("widgetboard")]`)
+6. system_log_router: /api/system-logs — Backend.system_log_server.router (system_log 목록·`/login-history/me|org`)
+7. query_studio_router: /api/* — Backend.query_studio_server.router (엔드포인트별 require_permission)
+8. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
+9. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
+10. widget_board_router: /api/widget-boards/* — 위젯 보드 메타·레이아웃(`dependencies=[require_permission("widgetboard")]`)
 
 [Dependencies]
 =========
-- Env (config.backend), Backend.core.db, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.query_studio_server, Backend.etl_server.router, Backend.campaign_dash_server, Backend.widget_board_server
+- Env (config.backend), Backend.core.db, Backend.core.request_context, Backend.api_server.middleware.correlation, Backend.auth_server(router·permissions), Backend.api_server.routers, Backend.system_log_server, Backend.query_studio_server, Backend.etl_server.router, Backend.campaign_dash_server, Backend.widget_board_server
 - logging (표준), fastapi, uvicorn
 """
 
@@ -53,7 +55,9 @@ from Backend.auth_server.permissions import require_etl_infrastructure, require_
 from Backend.project_server import router as project_router
 from Backend.notification_server import router as notification_router
 from Backend.admin_server import router as admin_router
+from Backend.api_server.middleware.correlation import CorrelationIdMiddleware
 from Backend.api_server.routers import health_router, query_studio_router
+from Backend.system_log_server import router as system_log_router
 from Backend.etl_server import router as etl_router
 from Backend.campaign_dash_server import router as campaign_dashboard_router
 from Backend.widget_board_server import router as widget_board_router
@@ -93,12 +97,14 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(CorrelationIdMiddleware)
 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(project_router)
 app.include_router(notification_router)
 app.include_router(admin_router)
+app.include_router(system_log_router)
 app.include_router(query_studio_router)
 app.include_router(
     etl_router,

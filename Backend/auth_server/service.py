@@ -6,23 +6,24 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 [Main Functions]
 ===========
 1. invite_validate_row: 초대코드 행 조회(프로젝트명·역할명 JOIN)
-2. signup_with_invite: 초대 가입(user_dvsn·etl_yn·U 시 프로젝트 멤버)
-3. create_org_and_user: 부서+슈퍼어드민 트랜잭션(validate_password_strength)
+2. signup_with_invite: 초대 가입(user_dvsn·etl_yn·U 시 프로젝트 멤버) — commit 후 `emit_auth_system_log`
+3. create_org_and_user: 부서+슈퍼어드민 트랜잭션(validate_password_strength) — 동일
 4. login_send_code: 1단계 비번 검증·OTP 저장·pre_auth 발급
-5. verify_login_complete: 2단계·OTP 후 활성·잠금 재확인·세션·토큰
+5. verify_login_complete: 2단계·OTP 후 활성·잠금 재확인·세션·토큰 — 성공·실패 시 `audit_emit.emit_auth_system_log`(플래그 on)
 6. refresh_session_tokens: 슬라이딩 리프레시·비활성·잠금 시 거절(JWT의 project_info_id가 비활성·비참여면 클레임 제거)
 7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급(active_yn=Y·참여자 검증)
 7a. rotate_session_tokens_clear_project: 작업 프로젝트 클레임 제거 후 토큰·session_log 갱신
 8. logout_one_session: 세션 1건 만료
 9. invalidate_all_sessions: 유저 전체 세션 만료(do_commit=False 시 호출부에서 commit)
 10. get_user_profile: 마이페이지용
-11. update_user_nickname / change_password(신규 비밀번호 validate_password_strength)
+11. update_user_nickname / change_password(신규 비밀번호 validate_password_strength·commit 후 emit_auth_system_log)
 12. insert_login_log
-13. fetch_login_history_masked: 최근 10건 IP 마스킹
+13. fetch_login_history_masked: 최근 N건 IP 마스킹 — `Backend.system_log_server.service_login_history` 위임
 
 [Dependencies]
 =========
 - Backend.admin_server.service_projects.validate_invite_user_project
+- Backend.auth_server.audit_emit.emit_auth_system_log
 - Backend.auth_server.security, Backend.core.auth_config, Backend.core.db.safe_rollback
 """
 
@@ -36,6 +37,7 @@ import jwt
 
 from Backend.admin_server import service_projects as admin_projects
 from Backend.auth_server import email_service, permissions as auth_permissions, security
+from Backend.auth_server.audit_emit import emit_auth_system_log
 from Backend.core import auth_config, db
 
 _log = logging.getLogger(__name__)
@@ -151,6 +153,13 @@ def signup_with_invite(conn, invite_code: str, email: str, password: str, nickna
             (invite_code.strip(),),
         )
         conn.commit()
+        emit_auth_system_log(
+            uid,
+            business_action="signup_invite",
+            action_kind="CREATE",
+            detail_json={"dptmt_info_id": int(dptmt_id)},
+            risk_tier="MED",
+        )
         return uid
     except Exception:
         db.safe_rollback(conn)
@@ -201,7 +210,15 @@ def create_org_and_user(conn, org_name: str, email: str, password: str, nickname
             (uid, dptmt_id),
         )
         conn.commit()
-        return uid
+        uid_int = int(uid)
+        emit_auth_system_log(
+            uid_int,
+            business_action="org_create",
+            action_kind="CREATE",
+            detail_json={"dptmt_info_id": int(dptmt_id)},
+            risk_tier="HIGH",
+        )
+        return uid_int
     except Exception:
         db.safe_rollback(conn)
         raise
@@ -319,6 +336,13 @@ def verify_login_complete(
     try:
         payload = security.decode_pre_auth_payload(pre_auth_token)
     except Exception:
+        emit_auth_system_log(
+            None,
+            business_action="login_failure",
+            action_kind="LOGIN",
+            success_yn="N",
+            detail_json={"x_reason": "invalid_pre_auth"},
+        )
         raise ValueError("유효하지 않거나 만료된 인증 토큰입니다.")
     user_id = int(payload["user_id"])
     cur = conn.cursor()
@@ -337,18 +361,46 @@ def verify_login_complete(
             raise ValueError("사용자를 찾을 수 없습니다.")
         exp = row.get("scnd_auth_expire_dtm")
         if exp is not None and exp < datetime.now():
+            emit_auth_system_log(
+                user_id,
+                business_action="login_failure",
+                action_kind="LOGIN",
+                success_yn="N",
+                detail_json={"x_reason": "otp_expired"},
+            )
             raise ValueError("인증 코드가 만료되었습니다.")
         if not security.verify_otp_code(code, row.get("scnd_auth_token")):
             insert_login_log(conn, user_id, client_ip, "N", user_agent or "")
             conn.commit()
+            emit_auth_system_log(
+                user_id,
+                business_action="login_failure",
+                action_kind="LOGIN",
+                success_yn="N",
+                detail_json={"x_reason": "wrong_otp"},
+            )
             raise ValueError("인증 코드가 올바르지 않습니다.")
         if (row.get("ua") or "") != "Y":
             insert_login_log(conn, user_id, client_ip, "N", user_agent or "")
             conn.commit()
+            emit_auth_system_log(
+                user_id,
+                business_action="login_failure",
+                action_kind="LOGIN",
+                success_yn="N",
+                detail_json={"x_reason": "inactive_account"},
+            )
             raise ValueError("비활성화된 계정입니다.")
         if (row.get("ul") or "") == "Y":
             insert_login_log(conn, user_id, client_ip, "N", user_agent or "")
             conn.commit()
+            emit_auth_system_log(
+                user_id,
+                business_action="login_failure",
+                action_kind="LOGIN",
+                success_yn="N",
+                detail_json={"x_reason": "locked_account"},
+            )
             raise ValueError("잠긴 계정입니다. 관리자에게 문의하세요.")
         cur.execute(
             "UPDATE user_info SET scnd_auth_token = NULL, scnd_auth_expire_dtm = NULL, last_login_dtm = NOW(), last_login_ip = %s, update_dtm = NOW() WHERE user_id = %s",
@@ -391,6 +443,13 @@ def verify_login_complete(
         )
         insert_login_log(conn, user_id, client_ip, "Y", user_agent or "")
         conn.commit()
+        emit_auth_system_log(
+            user_id,
+            business_action="login_success",
+            action_kind="LOGIN",
+            success_yn="Y",
+            detail_json={"session_log_id": int(sid)},
+        )
     except ValueError:
         db.safe_rollback(conn)
         raise
@@ -716,6 +775,13 @@ def change_password(conn, user_id: int, current_password: str, new_password: str
             (new_hash, user_id),
         )
         conn.commit()
+        emit_auth_system_log(
+            int(user_id),
+            business_action="password_change",
+            action_kind="UPDATE",
+            success_yn="Y",
+            risk_tier="HIGH",
+        )
     except ValueError:
         db.safe_rollback(conn)
         raise
@@ -729,35 +795,6 @@ def change_password(conn, user_id: int, current_password: str, new_password: str
 
 # 13.
 def fetch_login_history_masked(conn, user_id: int, limit: int = 10) -> list[dict[str, Any]]:
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            SELECT login_trial_ip, login_success_yn, login_trial_browser, create_dtm
-            FROM user_login_log
-            WHERE user_id = %s
-            ORDER BY create_dtm DESC
-            LIMIT %s
-            """,
-            (user_id, limit),
-        )
-        rows = cur.fetchall()
-    finally:
-        cur.close()
-    out = []
-    for r in rows:
-        ip = r.get("login_trial_ip") or ""
-        parts = ip.split(".")
-        if len(parts) == 4 and all(p.isdigit() for p in parts):
-            masked = f"{parts[0]}.{parts[1]}.*.*"
-        else:
-            masked = ip
-        out.append(
-            {
-                "login_trial_ip": masked,
-                "login_success_yn": r.get("login_success_yn"),
-                "login_trial_browser": r.get("login_trial_browser"),
-                "create_dtm": r.get("create_dtm").isoformat() if r.get("create_dtm") else None,
-            }
-        )
-    return out
+    from Backend.system_log_server import service_login_history
+
+    return service_login_history.fetch_login_history_masked_for_user(conn, user_id, limit)

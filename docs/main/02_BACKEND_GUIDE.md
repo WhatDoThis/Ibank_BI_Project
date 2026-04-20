@@ -2,12 +2,12 @@
 
 본 문서는 **docs/main** 내 백엔드 전용 명세이며, **현재 코드 기준** 구조·API·설정·모듈 역할만 다룬다(로드맵·Phase 표현 없음).
 
-- **주요 구현 위치**: `Backend/core`, `Backend/api_server`(호스트), `auth_server`, `project_server`, `notification_server`, `admin_server`, `query_studio_server`, `etl_server`, `campaign_dash_server`, `widget_board_server`
+- **주요 구현 위치**: `Backend/core`, `Backend/api_server`(호스트), `auth_server`, `project_server`, `notification_server`, `admin_server`, `system_log_server`, `query_studio_server`, `etl_server`, `campaign_dash_server`, `widget_board_server`
 - **작업 이력**: **docs/log/log.md**
 - **레이어·의존·탐색**: **docs/report/03_AI_DEVELOP_GUIDE.md**
 - **API·인증 흐름 통합**: **03_API_GUIDE.md**
 - **ETL 운영·COPY·모달 보조**: **docs/report/08_ETL_Phase_Implement_Guide.md**
-- **부록 A**: Flask→FastAPI 전환 당시 참고 요약
+- **부록 A**: 스택·이력은 log/Git, 본문은 현행 구조만
 
 ---
 
@@ -17,7 +17,7 @@
 
 1) **호스트·라우터 (`api_server/main.py`)**
 
-- **FastAPI** REST — `include_router` 순서: health → auth → project → notification → admin → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) → **widget_board_server**(`require_permission("widgetboard")`)
+- **FastAPI** REST — `include_router` 순서: health → auth → project → notification → admin → **system_log_server**(`/api/system-logs`) → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) → **widget_board_server**(`require_permission("widgetboard")`)
 
 2) **PostgreSQL 용도**
 
@@ -33,8 +33,8 @@
 4) **실행·백그라운드**
 
 - `python run.py back` → `config.backend.api_host` / `api_port`(기본 **5001**), uvicorn
-- **lifespan**: ETL 폴더/DB 배치 스케줄러(APScheduler)
-- **ETL Job 워커**(`queue_worker`): pending 등록 시 **최초 1회** 기동 — 동시 최대 **3건**(`MAX_CONCURRENT`)
+- **lifespan**: ETL 폴더/DB 배치 스케줄러(APScheduler, `scheduler_file`) 기동 — `queue_worker`는 여기서 시작하지 않는다.
+- **ETL Job 워커**(`queue_worker`): `etl_server/router.py`의 `run_table_load`(DB 소스 분기)·`add_file`·`add_files_zip` 등에서 `start_background_worker()`가 호출될 때 **lazy**로 최초 1회 기동된다. pending Job이 생길 때까지 별도 데몬으로 상시 구동되지는 않으며, 동시 최대 **3건**(`MAX_CONCURRENT`).
 
 5) **인증·인가**
 
@@ -79,10 +79,15 @@ Backend/
 │   ├── auth_config.py             # JWT·SMTP·get_app_url
 │   ├── logging_setup.py
 │   ├── dashboard_service.py       # 대시보드 집계(물리 테이블·Star 등)
-│   └── user_dvsn_codes.py         # user_dvsn 정규화(조직 역할 코드)
+│   ├── user_dvsn_codes.py         # user_dvsn 정규화(조직 역할 코드)
+│   ├── system_audit_log.py        # system_log append-only 계측(플래그·INSERT)
+│   └── request_context.py         # 상관 ID·client host·UA raw contextvars·IP 마스킹·UA 요약(§7·append 보강)
 │
 ├── api_server/                    # FastAPI 호스트 — 앱 조립·CORS·라우터 등록·lifespan
 │   ├── main.py
+│   ├── middleware/
+│   │   ├── __init__.py            # CorrelationIdMiddleware 재export
+│   │   └── correlation.py         # X-Request-Correlation-Id·Request.state
 │   └── routers/
 │       ├── __init__.py            # health_router, query_studio_router 재export
 │       └── health.py
@@ -114,6 +119,12 @@ Backend/
 │   ├── service_roles.py           # 역할 CRUD·사용현황
 │   ├── service_tables.py          # 테이블 마스터·프로젝트 매핑 (채널 플래그)
 │   └── ownership_guards.py        # 정지·역할 변경 시 소유 자산 409 매트릭스 (widget_board 포함)
+│
+├── system_log_server/             # /api/system-logs — system_log·user_login_log 조회(§5 P1-7)
+│   ├── router.py
+│   ├── service.py
+│   ├── service_login_history.py   # 로그인 이력 조회·IP 마스킹(auth 적재와 분리)
+│   └── schemas.py
 │
 ├── query_studio_server/           # /api/* (list-tables, execute-query 등) — prefix /api
 │   ├── router.py                  # 엔드포인트 + 라벨(system_db JSONB)·관계·큐 워커·peak_guard 적용
@@ -162,7 +173,7 @@ Backend/
 ```
 
 - **라우터 등록 순서 (`main.py` `include_router`)**
-  - health → auth → project → notification → admin → **query_studio_router** → **etl_router** → **campaign_dashboard_router** → **widget_board_router**
+  - health → auth → project → notification → admin → **system_log_router** → **query_studio_router** → **etl_router** → **campaign_dashboard_router** → **widget_board_router**
 - **etl_limits**
   - 모듈: `etl_server/etl_limits.py`
   - config에 `etl_limits` 없으면 기본값(`max_file_size_mb`, `max_rows_per_load`, `max_batch_size`, `max_zip_extract_total_mb`)
@@ -199,6 +210,8 @@ Backend/
 | **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode(full\|incremental\|**diff**), status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error**, **index_definitions** JSONB, **diff_delete_orphans** 등). on_row_error: 'fail'\|'skip'. index_definitions: 타겟 테이블 인덱스 정의(적재 후 자동 생성). |
 | **etl_transform_rules** | 변환 룰(etl_table_id, source_column, target_column, rule_type, rule_config, apply_order, is_active). |
 | **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message, notice). |
+
+위 5종 외에 배치 관련 테이블(`batch_folder_connections`, `batch_folder_sftp`, `batch_folder_s3`, `batch_jobs`, `batch_run_history`, `etl_batch_target_registry`, `batch_loaded_keys`)이 있다. 상세 DDL은 **docs/report/09_ETL_SFTP_Connection.md**를 본다.
 
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
 - **batch_jobs**(폴더 배치): **on_file_error** 'stop'\|'continue'(파일 1건 실패 시 run 중단 vs 다음 파일 계속). **index_definitions** JSONB(타겟 인덱스 정의).
@@ -239,6 +252,8 @@ Backend/
 | **max_rows_per_load** | 1회 적재당 최대 행 수. 파일은 해당 행까지만 읽고, DB는 이 행 수까지만 가져와 적재. | 100_000 | 무제한 |
 | **max_batch_size** | DB 적재 시 배치당 최대 행 수(사용자 batch_size 상한). 스트리밍 시 메모리 상한. | 50_000 | 사용자값 그대로 |
 | **max_zip_extract_total_mb** | ZIP 추가 적재 시 압축 해제 **총** 용량 상한(MB). 초과 시 add-files-zip 전체 실패(ZIP bomb 방지). | 2048(2GB) | 검사 안 함(0) |
+
+- **`UPLOAD_FILE_RETENTION_DAYS`**: 업로드 파일 보관 기간(일). `etl_server/router.py` 상수로 **3일** 고정이며, `etl_limits` config 키가 아니다.
 
 - **파일**: 크기 > max_file_size_mb 이면 실패. CSV는 max_rows_per_load만큼만 읽고, Excel/Parquet는 읽은 뒤 해당 행 수로 자름.
 - **ZIP 추가 적재**(POST add-files-zip): 압축 해제 **전**에 `get_max_zip_extract_total_mb()`로 상한(MB) 조회 후, `zf.infolist()`의 `file_size` 합계가 상한을 초과하면 HTTP 400으로 거부. 상한 0이면 검사 생략. UI 안내: 각 파일 최대 50MB(초과 시 해당 파일 Skip), ZIP 전체 최대 2GB(초과 시 데이터 추가 실패).
@@ -288,34 +303,13 @@ Backend/
 | POST | /api/get-column-values | 컬럼 고유값 |
 | POST | /api/query-stats | 쿼리 통계 |
 
-### 4.3 dashboard (prefix /api/dashboard) — 미제공
+### 4.3 dashboard (prefix /api/dashboard)
 
-- **`api_server/main.py`에 라우터 없음** → **404**. 과거 구현 패키지는 제거되었다. UI·API는 **§4.6.2 캠페인 대시보드**만 사용한다.
+- 앱은 **`/api/dashboard` prefix 라우터를 등록하지 않는다.** 마케팅 대시보드 UI는 **`/dashboard`**, API는 **`§4.6.2` `/api/campaign-dashboard/*`** 를 사용한다.
 
-### 4.4 ETL (prefix /api/etl)
+### 4.4 ETL (prefix /api/etl, /api/etl/batch) — 단일
 
-| 메서드 | 경로 | 용도 |
-|--------|------|------|
-| GET | /api/etl/connections | 연결 목록 |
-| POST | /api/etl/connections | 연결 1건 등록 |
-| POST | /api/etl/connections/test | 연결 테스트 |
-| GET | /api/etl/connections/{id}/tables | 소스 DB 테이블 목록 |
-| GET | /api/etl/tables | ETL 테이블 목록 |
-| POST | /api/etl/tables | ETL 테이블 1건 등록 |
-| PATCH | /api/etl/tables/{id} | ETL 테이블 설정 일부 갱신 |
-| GET | /api/etl/tables/{id}/preview | 미리보기(10행) |
-| POST | /api/etl/tables/{id}/run | 대기열 등록(실행) |
-| POST | /api/etl/tables/{id}/add-file | 단일 파일 추가 적재 |
-| POST | /api/etl/tables/{id}/add-files-zip | ZIP 다중 파일 추가 적재 |
-| GET | /api/etl/jobs | Job 목록 |
-| GET | /api/etl/jobs/{job_id} | Job 1건 조회(폴링) |
-| POST | /api/etl/upload | 파일 업로드(multipart) |
-| DELETE | /api/etl/tables/{id} | ETL 테이블 삭제 |
-| POST | /api/etl/jobs/{job_id}/cancel | Job 취소 |
-
-- 요청/응답 형식: JSON.
-
-### 4.5 ETL (prefix /api/etl, /api/etl/batch) — 단일
+아래 표는 `router.py`(메인)와 `router_file.py`(배치, prefix `/batch`)의 현행 엔드포인트 전체를 포함한다.
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -345,9 +339,9 @@ Backend/
 
 ### 4.6 뉴 대시보드 (prefix /api/new-dashboard) — 계약 참고
 
-- **운영 API**: **§4.6.2** `/api/campaign-dashboard/*` — 요청·응답은 본 절 **new-dashboard** 계약과 동일
+- **운영 호출**: **`§4.6.2` `/api/campaign-dashboard/*`** — 요청·응답 필드는 아래 **`/api/new-dashboard/*` 표**와 동일 계약이다(경로 이름만 다름).
 - **데이터 소스**: Star 물리 테이블 — **`config.backend.dash_db`**
-- **아래 표 `/api/new-dashboard/*`**: 과거 경로명·계약 정의 보존 — 현재 `main` 에 해당 prefix 라우터 **없음**
+- **`/api/new-dashboard` prefix** 는 앱에 **마운트하지 않는다.** 아래 표는 클라이언트·문서 간 **계약 정의용**으로 `new-dashboard` 경로명을 유지한 것이다.
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
@@ -412,9 +406,9 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | GET | /api/campaign-dashboard/delivery-demographics | 발송 기준 인구통계 |
 | GET | /api/campaign-dashboard/hourly | 시간대별 집계 |
 
-### 4.7 마케팅 대시보드 (prefix /api/new-dashboard2) — 제거됨
+### 4.7 기타 대시보드 prefix
 
-- 과거 패키지 및 엔드포인트는 저장소에서 삭제되었다. 동종 기능이 필요하면 별도 패키지·`main` 등록으로 재도입한다.
+- **`/api/new-dashboard2`** 등 별도 마케팅 대시보드 prefix 는 **등록하지 않는다.** 동일 기능 영역은 **`§4.6.2`** 로 통일한다.
 
 ---
 
@@ -422,7 +416,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ### 5.1 main.py (api_server)
 
-- **앱**: FastAPI 생성, `CORSMiddleware(allow_origins=["*"])`, 라우터 등록(health, auth, project, notification, admin, query_studio, etl, **campaign_dashboard**, **widget_board**)
+- **앱**: FastAPI 생성, `CORSMiddleware(allow_origins=["*"])`, `CorrelationIdMiddleware`, 라우터 등록(health, auth, project, notification, admin, system_log, query_studio, etl, **campaign_dashboard**, **widget_board**)
 - **예외**: 404/500 → `JSONResponse`
 - **lifespan**: ETL 폴더 배치 스케줄러(`etl_server.scheduler_file`) — 실패 시 스택 로깅·API는 계속 기동
 - **`__main__`**: `uvicorn.run(app)` — 시작 시 **core.db** 설정 로그 출력
@@ -432,7 +426,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 - **메인 DB**: `get_main_db_config()`, `get_allowed_tables(project_info_id, …)`, `get_db_connection()` — 프로젝트 매핑 기준 허용 테이블 필수
 - **시스템 DB**: `get_db_connection_system()`, `get_system_table_schema()` — ETL 메타 등
 - **dash_db**: `get_dash_db_config()`, `get_dash_table_schema()`, `get_db_connection_dash()`, `is_new_dash_physical_table()`, `validate_dashboard_data_table_name()` — `ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등
-- **공용 모듈**: Flask/FastAPI 무관 — **etl_server**, **campaign_dash_server**, **widget_board_server**, **admin_server** 등에서 import
+- **공용 모듈**: ASGI/라우터와 **무관한 순수 모듈** — **etl_server**, **campaign_dash_server**, **widget_board_server**, **admin_server** 등에서 import
 
 ### 5.3 core/dependencies.py
 
@@ -475,6 +469,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 - **`db_load_service.py`**: DB 적재 — Full / Incremental / **diff**(`_run_diff_sync`); PG·MySQL·Oracle; COPY·`on_row_error`·인덱스
 - **`preview_service.py`**: 파일·DB 미리보기(10행)
 - **`queue_worker.py`**: pending→running, 동시 **최대 3건**, 완료/실패 갱신
+- **`queue_worker`**(단일 ETL Job 큐)와 **`scheduler_file`**(APScheduler 배치)은 **별개의 스레드 풀**을 사용한다. 동시 실행 상한도 각각 3건으로 독립 적용한다(`queue_worker.MAX_CONCURRENT` vs 배치 측 `ThreadPoolExecutor(max_workers=3)` 등 구현 기준).
 
 ### 6.2 DB 지원 현황
 
@@ -599,41 +594,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ---
 
-## 부록 A. Flask → FastAPI 전환 요약 (참고)
+## 부록 A. 스택·이력 참고
 
-운영 백엔드는 FastAPI 기준이다. 아래는 전환 당시 구조 정리·참고용 요약이다.
-
-### A.1 목적·원칙
-
-- **목적**: Flask 기반 Backend API를 FastAPI로 전면 교체.
-- **상태**: **전환 완료**. 이후 변경 이력은 **docs/log/log.md** 참고.
-- **원칙**: config 로드 방식 유지, 프론트 영향 최소화, 의존성 낮은 파일부터 순차 적용.
-
-### A.2 파일별 의존성 (전환 후 구조)
-
-| 순서 | 위치 | 비고 |
-|------|------|------|
-| 1 | core/db.py | Env.config, psycopg2 |
-| 2 | core/dashboard_service.py | db만 사용 |
-| 3 | core/dependencies.py | get_db, get_config |
-| 4 | query_studio_server/schemas.py | Pydantic |
-| 5 | query_studio_server/router.py, api_server/routers/health.py | APIRouter |
-| 6 | api_server/main.py | FastAPI, CORS, 라우터, uvicorn |
-
-### A.3 Phase 요약
-
-| Phase | 대상 | 내용 |
-|-------|------|------|
-| 0 | 계획서 | 문서 작성 |
-| 1 | core/db.py, Env | 설정·DB 검증 |
-| 2 | core/dashboard_service.py | 변경 없음 |
-| 3 | routes.py | Flask → FastAPI APIRouter, 동일 경로·응답 |
-| 4 | main.py | FastAPI 앱·CORS·라우터·uvicorn |
-| 5 | run.py | 의존성 오류 시 fastapi/uvicorn 안내 |
-| 6 | requirements.txt | flask 제거, fastapi·uvicorn 추가 |
-| 7 | README, docs/main | Flask → FastAPI 문구 |
-| 8 | 검수·query_studio | 연동 테스트, log.md |
-
-### A.4 롤백 시 참고
-
-- Phase 3·4 완료 후 롤백: Git에서 main.py·routers/ 이전 커밋 복원, requirements.txt·run.py를 Flask 기준으로 되돌림.
+- **현재**: HTTP API 호스트는 **FastAPI** (`Backend/api_server/main.py`)이며, 공유 모듈은 **`Backend/core`**, 기능별 패키지는 `*_server/` 아래에 둔다.
+- **프레임워크 전환·Phase·구버전 롤백** 등 시간축 작업 기록은 **`docs/log/log.md`** 와 Git 커밋을 본다. 본 가이드 본문에는 **현행 구조만** 둔다.

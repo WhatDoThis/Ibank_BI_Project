@@ -205,6 +205,7 @@ def admin_transfer_ownership(
             body.resource_id,
             body.from_user_id,
             body.to_user_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -322,6 +323,7 @@ def admin_user_suspend(
             int(actor["dptmt_info_id"]),
             str(actor.get("user_dvsn") or ""),
             user_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ManagementBlockedError as e:
         raise HTTPException(status_code=409, detail=e.payload) from e
@@ -342,6 +344,7 @@ def admin_user_activate(
             int(actor["dptmt_info_id"]),
             str(actor.get("user_dvsn") or ""),
             user_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -383,6 +386,7 @@ def admin_user_role(
             str(actor.get("user_dvsn") or ""),
             user_id,
             body.user_dvsn,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -403,6 +407,7 @@ def admin_user_etl_access(
             str(actor.get("user_dvsn") or ""),
             user_id,
             body.etl_yn,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -441,7 +446,9 @@ def admin_org_patch(
 ):
     did = int(actor["dptmt_info_id"])
     try:
-        service_users.update_department_name(conn, did, body.dptmt_name)
+        service_users.update_department_name(
+            conn, did, body.dptmt_name, actor_user_id=int(actor["user_id"])
+        )
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "부서 정보가 수정되었습니다."}
@@ -501,6 +508,7 @@ def admin_org_departments_patch(
             actor_dvsn=str(actor.get("user_dvsn") or ""),
             actor_dptmt_id=int(actor["dptmt_info_id"]),
             migrate_users_to_dptmt_info_id=body.migrate_users_to_dptmt_info_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -519,6 +527,7 @@ def admin_org_departments_delete(
             int(dptmt_info_id),
             actor_dvsn=str(actor.get("user_dvsn") or ""),
             actor_dptmt_id=int(actor["dptmt_info_id"]),
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -607,6 +616,7 @@ def admin_roles_update(
             pmssn_master_id,
             body.pmssn_name,
             body.pmssn_list,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -620,7 +630,12 @@ def admin_roles_delete(
     conn=Depends(get_system_db),
 ):
     try:
-        service_roles.delete_custom_role(conn, int(actor["dptmt_info_id"]), pmssn_master_id)
+        service_roles.delete_custom_role(
+            conn,
+            int(actor["dptmt_info_id"]),
+            pmssn_master_id,
+            actor_user_id=int(actor["user_id"]),
+        )
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "삭제되었습니다."}
@@ -740,6 +755,7 @@ def admin_projects_patch(
             if body.table_mappings is None
             else None,
             table_mappings=tm_patch,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -754,7 +770,12 @@ def admin_projects_delete(
 ):
     """소프트 삭제 — active_yn='N'으로 변경. 실제 row 삭제 아님."""
     try:
-        service_projects.deactivate_project(conn, int(actor["dptmt_info_id"]), project_info_id)
+        service_projects.deactivate_project(
+            conn,
+            int(actor["dptmt_info_id"]),
+            project_info_id,
+            actor_user_id=int(actor["user_id"]),
+        )
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "프로젝트가 비활성화되었습니다."}
@@ -784,7 +805,10 @@ def admin_projects_purge(
     """비활성(active_yn≠Y) 프로젝트만 DB에서 제거. 위젯보드·참여·테이블 매핑·관련 알림·초대 참조를 선행 정리한다."""
     try:
         service_projects.purge_inactive_project(
-            conn, int(actor["dptmt_info_id"]), project_info_id
+            conn,
+            int(actor["dptmt_info_id"]),
+            project_info_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -821,13 +845,13 @@ def admin_table_patch(
     actor: dict = Depends(require_org_admin),
     conn=Depends(get_system_db),
 ):
-    _ = actor
     try:
         service_tables.update_table_master(
             conn,
             table_master_id,
             body.table_label,
             body.table_dscrtn,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -871,6 +895,7 @@ def admin_project_table_add(
             int(actor["dptmt_info_id"]),
             project_info_id,
             body.table_master_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -890,6 +915,7 @@ def admin_project_table_delete(
             int(actor["dptmt_info_id"]),
             project_info_id,
             table_master_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -929,6 +955,7 @@ def admin_project_invite_cancel(
             int(actor["dptmt_info_id"]),
             project_info_id,
             notification_info_id,
+            actor_user_id=int(actor["user_id"]),
         )
     except ValueError as e:
         raise _ve(e) from e
@@ -975,6 +1002,7 @@ def admin_project_member_role(
             project_info_id,
             ptcpnt_user_id,
             body.pmssn_master_id,
+            actor_user_id=int(actor["user_id"]),
             actor_dvsn=str(actor.get("user_dvsn") or ""),
         )
     except ValueError as e:
