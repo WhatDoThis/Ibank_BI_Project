@@ -16,12 +16,12 @@
 
 - `/login` — 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login`.
 - `/signup`(초대 코드)는 공개 라우트. 최초 조직·계정은 DB 시드·운영 절차로 두고, 웹 공개 화면 `/create-org`는 제공하지 않는다(백엔드 `POST /api/auth/create-org`는 필요 시 운영 도구로 호출 가능).
-- `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET login-history`).
+- `/mypage` — 닉네임·비밀번호·로그인 이력(`PATCH /api/auth/me`·`/me/password`·`GET /api/auth/me/login-history` — 최근 10건, `system_log_server` 와 동일 마스킹 규칙).
 
 2) **S8(관리·알림)**
 
 - `NotificationBell`·`notificationsClient`.
-- `/admin/users`(`OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`).
+- `/admin/users`(`OrgAdminRoute`)·**`/admin/user-history`**(통합 이력: `tab=login`|`tab=system`, `OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`).
 
 3) **`adminClient.js`**
 
@@ -104,7 +104,7 @@ Frontend/react-app/
     │   ├── auth/                     # LoginPage, SignupPage, AuthContext, login.css
     │   ├── home/                     # HomePage, homeAccess.js, home.css
     │   ├── mypage/                   # MyPage, mypage.css
-    │   ├── admin/                    # AdminUsers|Org|Roles|Projects|ProjectMembersPage, adminAccess.js, admin-pages.css, admin-users.css, admin-org.css
+    │   ├── admin/                    # AdminUsers|UserHistory|Org|Roles|Projects|ProjectMembersPage, adminAccess.js, admin-pages.css, admin-users.css, user-history.css, admin-org.css
     │   ├── layout/                   # ProtectedLayout, navConfig.js, ProjectHeaderSelect, NotificationBell, PageHeader, SidebarNavIcon, ShellChromeOverrideContext, pageTitles, *.css
     │   └── guards/                   # NeedProjectRoute, ProjectFeatureRoute, EtlAccessRoute, OrgAdminRoute, SuperAdminRoute, ProjectAdminRoute, etlAccess.js
     ├── packages/
@@ -127,7 +127,7 @@ Frontend/react-app/
     │   └── etl/                      # /etl — ETLPage, index.jsx, etl.css, api/etlClient.js, utils/storageDb.js
     │       └── components/           # SourceTypeSelector, File/Db/Folder 폼, 배치·이력·저장DB·ETLTableList 등 + TargetTableSelectModal/ (서브폴더: CodeMapInlineEditor 등)
     └── shared/
-        ├── api/http.js, adminClient.js, authClient.js, notificationsClient.js, queryStudioTableApi.js
+        ├── api/http.js, adminClient.js, authClient.js, notificationsClient.js, queryStudioTableApi.js, systemLogClient.js
         ├── auth/jwtUtils.js, tokenStorage.js
         ├── config/api.js
         └── utils/crudConfirm.js, userDvsnDisplay.js, passwordPolicy.js

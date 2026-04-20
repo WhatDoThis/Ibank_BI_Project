@@ -36,7 +36,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 공통
 
 - **설정**: 환경은 `Env/config/config.json` 만 사용(.env 미사용).
-- **API**: FastAPI — health, **auth/projects/notifications/admin**, **쿼리 스튜디오**(`/api/*`), **ETL**(`/api/etl`, `/api/etl/batch`), **캠페인 대시보드**(`/api/campaign-dashboard`). PostgreSQL 연동. 쿼리 스튜디오: join-order, save-query-as-table·status, execute-query 등.
+- **API**: FastAPI — health, **auth/projects/notifications/admin**, **시스템·로그인 이력 조회**(`/api/system-logs`, `system_log_server`), **쿼리 스튜디오**(`/api/*`), **ETL**(`/api/etl`, `/api/etl/batch`), **캠페인 대시보드**(`/api/campaign-dashboard`), **위젯보드**(`/api/widget-boards`). PostgreSQL 연동. 쿼리 스튜디오: join-order, save-query-as-table·status, execute-query 등.
 
 ---
 
@@ -91,7 +91,8 @@ API·웹 서버 설정은 **Env/config/config.json** 에서 합니다.
 `Env/config/config.json.example` 을 복사해 `config.json` 으로 만든 뒤 값을 채우면 됩니다.
 
 - **backend**: api_host, api_port, **jwt_secret**·jwt 만료 설정, 선택 **smtp_info**(smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, **app_url** — 초대 링크·메일; host 비면 메일 미발송·로그 폴백), **main_db**(필수 — 쿼리 스튜디오·execute-query용 비즈니스 DB), query_timeout_seconds, claude_api_key, claude_api_url (노출 테이블은 **main_db.table_schema** 기준, 비면 `public`)  
-  - **ETL 사용 시**: **system_db**(ETL 메타·상용 메타 동일 DB), **etl_limits**(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb**·기본 2GB) 선택  
+  - **ETL 사용 시**: **system_db**(ETL 메타·상용 메타·**system_log** 감사 테이블 동일 DB), **etl_limits**(max_file_size_mb, max_rows_per_load, max_batch_size, **max_zip_extract_total_mb**·기본 2GB) 선택  
+  - **시스템 감사 계측(선택)**: **system_log_append_enabled** — `true`일 때만 서버가 `system_log`에 append(`append_system_log`). 조회·CSV API는 플래그와 무관. 상세는 **docs/main/03_API_GUIDE.md** §3.4, **docs/report/22_System_Log_Development_Plan.md**  
   - **캠페인 대시보드**: **dash_db** — Star·집계 물리 테이블(`ibank_*_star_*` 등)
 - **frontend**: static_port, main_page, api_base_url, static_dir (기본: `Frontend/react-app/dist`)
 
@@ -118,14 +119,16 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   ├── api_server/           # FastAPI 앱·CORS·health·라우터 조립 (main.py)
 │   │   ├── main.py
 │   │   └── routers/
-│   ├── core/                 # db, dependencies, auth_config, logging_setup, dashboard_service
+│   ├── core/                 # db, dependencies, auth_config, logging_setup, dashboard_service, system_audit_log, request_context
 │   ├── auth_server/          # /api/auth
 │   ├── project_server/       # /api/projects
 │   ├── notification_server/  # /api/notifications
 │   ├── admin_server/         # /api/admin
+│   ├── system_log_server/    # /api/system-logs — system_log·로그인 이력 조회·CSV
 │   ├── query_studio_server/  # /api/* (쿼리 빌더 API)
 │   ├── etl_server/           # /api/etl, /api/etl/batch (단일 ETL)
-│   └── campaign_dash_server/ # /api/campaign-dashboard (대시보드 API)
+│   ├── campaign_dash_server/ # /api/campaign-dashboard (대시보드 API)
+│   └── widget_board_server/  # /api/widget-boards
 ├── Frontend/
 │   ├── react-app/
 │   │   ├── src/
@@ -136,14 +139,14 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 │   │   │   │   ├── campaign_dashboard/  # 대시보드 UI (단일)
 │   │   │   │   ├── widgetboard/
 │   │   │   │   └── etl/             # api/etlClient.js
-│   │   │   └── shared/              # api/http.js, config/api.js
+│   │   │   └── shared/              # api/http.js, adminClient.js, systemLogClient.js, config/api.js
 │   │   └── dist/
 │   └── static_server/
 └── Env/
     └── config/
 ```
 
-상세 경로·엔드포인트는 **docs/main** (00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md) 참고.
+상세 경로·엔드포인트는 **docs/main** (00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md, **03_API_GUIDE.md**) 참고.
 
 ---
 
@@ -170,7 +173,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, 03_API_GUIDE(예정·비움), 04_DB_ARCHITECTURE, 05_Permission, 06_CUSTOMER_JOURNEY. AI·온보딩 지도는 **docs/report/03_AI_DEVELOP_GUIDE.md** |
+| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, **03_API_GUIDE**, 04_DB_ARCHITECTURE, 05_Permission, 06_CUSTOMER_JOURNEY, 07_USER_FUNCTIONAL_GUIDE. 시스템 감사·통합 이력 설계는 **docs/report/22_System_Log_Development_Plan.md**. AI·온보딩 지도는 **docs/report/03_AI_DEVELOP_GUIDE.md** |
 | **docs/README.md** | docs 폴더 구성( main / log / report ) |
 | **docs/log/log.md** | 작업 이력(목적·변경 파일) |
 | **docs/report/** | 배포·보조 설계·체크리스트(동작 정의는 docs/main 우선) |

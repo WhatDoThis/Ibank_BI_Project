@@ -515,7 +515,8 @@ PATCH /api/auth/me/password
 └─ invalidate_all_sessions → 전체 세션 만료 → 재로그인
 
 GET /api/auth/me/login-history
-└─ 최근 10건, IP 3·4번째 자리 마스킹 (예: 192.168.*.*)
+└─ 최근 10건·응답 `{ items }`, IP 3·4번째 자리 마스킹 (예: 192.168.*.*)
+   내부 SELECT·마스킹은 `system_log_server/service_login_history` 와 동일 규칙(본인 전용 페이징 API는 `GET /api/system-logs/login-history/me` — 03 §3.4)
 ```
 
 ---
@@ -719,6 +720,20 @@ PUT .../users/{id}/management (사용자 일괄 변경)
 │     ├─ 변경: pmssn_master_id UPDATE                 │
 │     └─ 제거: project_ptcpnt_info DELETE             │
 └──────────────────────────────────────────────────┘
+```
+
+---
+
+### 11-B2: 통합 사용자 이력 (`/admin/user-history`)
+
+조직 어드민(`OrgAdminRoute`) 전용. 사용자 관리 화면의「사용자 이력 조회」→ **`UserHistoryPage`**, 쿼리 **`tab=login`**(기본)·**`tab=system`**.
+
+```
+GET /api/system-logs/login-history/org   (tab=login — 부서 트리 스코프·필터·정렬·50건 페이징)
+GET /api/system-logs                     (tab=system — channel·action_kind·success_yn 등 추가 필터)
+GET .../login-history/org/export.csv   | GET .../export.csv  (동일 조건 CSV, 92일·50,000행 상한 — 03 §3.4)
+
+프론트: shared/api/systemLogClient.js (getLoginHistoryOrg, getSystemLogsOrg, downloadUserHistoryCsv)
 ```
 
 ---

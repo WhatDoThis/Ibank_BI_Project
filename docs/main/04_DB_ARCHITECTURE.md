@@ -438,7 +438,7 @@ create_user_id           integer                       FK `widget_item_create_us
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 13. system_log (시스템 감사·추적 로그)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`ibank_system_data.public`. **append-only** 적재 전제. 상세 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md` §2·§4** 참고.
+`ibank_system_data.public`. **append-only** 적재 전제. 상세 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md` §2·§4** 참고. **HTTP 조회·CSV**는 `Backend/system_log_server`, **INSERT 계측**은 `Backend/core/system_audit_log.py`(및 각 패키지 `audit_emit`)가 담당한다.
 
 **운영 보존(제품 정책)**: `system_log` 원본은 **2년** 보존을 원칙으로 한다(만료 후 아카이브·파티션 드롭 등은 `22`·운영 런북에서 정한다).
 

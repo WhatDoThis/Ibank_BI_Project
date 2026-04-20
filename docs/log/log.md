@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+471. 2026-04-20 docs/main·README: system_log 개발 완료 반영(가이드·PRD·여정·07 §12)
 470. 2026-04-20 통합 이력 CSV 파일명: `YYYYMMDD_hhmmss` 구분자
 469. 2026-04-20 통합 이력 CSV 파일명: login_log_/system_log_+타임스탬프
 468. 2026-04-20 통합 이력: 상세열·CSV 화면 정합(기능/상세·한글 헤더)
@@ -473,6 +474,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+471. 2026-04-20 docs/main·README: system_log 개발 완료 반영(가이드·PRD·여정·07 §12)
+Purpose: `22`·log.md에 이미 반영된 구현을 docs/main 전반과 README에 맞춰, 잔여 과제(권한 변경 알림)와 감사 정책 메모만 07 §12에 남긴다.
+
+Changes:
+
+- README: API·트리·설정(`system_log_append_enabled`)·문서 표 갱신
+- 00_PRD·01·02·03·04·06·07: `/api/system-logs`, 통합 이력 UI, 계측 완료 서술, CSV 파일명, `systemLogClient` 교차 참조
+
+Changed files: README.md, docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
 
 470. 2026-04-20 통합 이력 CSV 파일명: `YYYYMMDD_hhmmss` 구분자
 Purpose: 날짜·시각 사이에 `_`를 넣어 `login_log_20260420_153045.csv` 형태로 읽기 쉽게 한다.

@@ -120,10 +120,11 @@ Backend/
 │   ├── service_tables.py          # 테이블 마스터·프로젝트 매핑 (채널 플래그)
 │   └── ownership_guards.py        # 정지·역할 변경 시 소유 자산 409 매트릭스 (widget_board 포함)
 │
-├── system_log_server/             # /api/system-logs — system_log·user_login_log 조회(§5 P1-7)
+├── system_log_server/             # /api/system-logs — system_log·user_login_log 조회·CSV
 │   ├── router.py
 │   ├── service.py
 │   ├── service_login_history.py   # 로그인 이력 조회·IP 마스킹(auth 적재와 분리)
+│   ├── audit_emit.py              # CSV 다운로드 등 조회측 감사 append
 │   └── schemas.py
 │
 ├── query_studio_server/           # /api/* (list-tables, execute-query 등) — prefix /api
@@ -216,7 +217,9 @@ Backend/
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
 - **batch_jobs**(폴더 배치): **on_file_error** 'stop'\|'continue'(파일 1건 실패 시 run 중단 vs 다음 파일 계속). **index_definitions** JSONB(타겟 인덱스 정의).
 
-동일 **시스템 DB**에 `user_info`·`dptmt_info`·`project_info`·`pmssn_master`·`table_master`·`table_project_mapping` 등 상용화 메타가 함께 존재한다. FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
+동일 **시스템 DB**에 `user_info`·`dptmt_info`·`project_info`·`pmssn_master`·`table_master`·`table_project_mapping` 등 상용화 메타가 함께 존재한다. 감사용 **`system_log`**(append-only)·**`user_login_log`** 등도 이 DB에 둔다 — DDL·인덱스는 **04_DB_ARCHITECTURE.md §13**, 계측·채널·UI 계획은 **docs/report/22_System_Log_Development_Plan.md**. 조회·CSV HTTP는 **`system_log_server`**, 적재는 각 도메인 서버에서 **`core.system_audit_log.append_system_log`**(또는 패키지 `audit_emit`) 호출.
+
+FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
 
 ### 3.2.1 뉴 대시보드 전용 DB (dash_db)
 
@@ -241,6 +244,12 @@ Backend/
 ### 3.2.5 초대 만료 공통 (`core/invite_expiry.py`)
 
 `invite_expired_from_payload(payload)` — `noti_content` 등 dict의 `invite_expires_at`(UTC ISO 문자열)이 현재(UTC)를 넘었는지 판별. `project_server`·`widget_board_server`·`admin_server` 초대 목록에서 공유.
+
+### 3.2.6 시스템 감사 로그 계측 (`system_log_append_enabled`)
+
+- **backend.system_log_append_enabled** (선택, bool): `true`일 때만 여러 서버에서 `core.system_audit_log.append_system_log` 로 **`system_log` INSERT**. `false` 또는 키 생략이면 계측은 no-op(본 업무는 계속). **조회·CSV API**는 이 플래그와 무관하게 동작한다.
+- 계측이 켜진 경우에도 적재 실패는 로깅만 하고 본 요청은 중단하지 않는다(`22` §5).
+- 엔드포인트·필터·CSV 상한·정렬은 **03_API_GUIDE.md §3.4** 를 본다.
 
 ### 3.3 ETL 한도 (etl_limits)
 
@@ -277,6 +286,7 @@ Backend/
 - **`/api/projects`**: 목록·선택(JWT rotate)·생성·멤버·초대·수락/거절 — `Backend/project_server`
 - **`/api/notifications`**: 알림·읽음·초대 연동 — `Backend/notification_server`
 - **`/api/admin`**: 부서·사용자·역할·프로젝트(어드민) CRUD·초대 메일 — `Backend/admin_server` (프론트 `adminClient.js`)
+- **`/api/system-logs`**: `system_log`·조직 범위 로그인 이력 목록·정렬·페이징·CSV — `Backend/system_log_server` (프론트 **`shared/api/systemLogClient.js`**)
 
 **세부 표·함수**: **03_API_GUIDE.md** — 흐름 **06_CUSTOMER_JOURNEY.md**, 권한 **05_Permission_ARCHITECTURE.md**
 

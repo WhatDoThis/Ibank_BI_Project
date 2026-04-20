@@ -64,6 +64,7 @@
     v
 [FastAPI 단일 프로세스: Backend/api_server/main.py]
     |  /api/auth, /api/projects, /api/notifications, /api/admin
+    |  /api/system-logs (감사·로그인 이력 조회·CSV)
     |  /api/* (쿼리 스튜디오), /api/etl, /api/etl/batch
     |  /api/campaign-dashboard, /api/widget-boards, health
     v
@@ -81,7 +82,7 @@
 ### 서버 / API
 
 - **런타임**: FastAPI + uvicorn. 진입은 `python run.py back` → `Backend/api_server/main.py` 에서 라우터 조립.
-- **마운트 예**: `auth_server`, `project_server`, `notification_server`, `admin_server`, `query_studio_server`, `etl_server`, `campaign_dash_server`, `widget_board_server`, 코어 `health`/CORS 등.
+- **마운트 예**: `auth_server`, `project_server`, `notification_server`, `admin_server`, **`system_log_server`**(`/api/system-logs`), `query_studio_server`, `etl_server`, `campaign_dash_server`, `widget_board_server`, 코어 `health`/CORS 등.
 - **공유**: `Backend/core`(DB 풀, `auth_config`, `dependencies`, 로깅 등).
 
 ### DB / 스토리지
@@ -132,7 +133,7 @@
 
 - **파일**: `Env/config/config.json` — `Env/config/loader.py` 가 `config.backend`, `config.frontend` 로 로드.
 - **필수**: `backend.main_db` 블록(평면 `db_*` 키는 사용하지 않음).
-- **선택**: system_db, dash_db, etl_db, etl_limits, jwt_*, smtp_info, query_studio_peak_guard, Claude API 키 등.
+- **선택**: system_db, dash_db, etl_db, etl_limits, jwt_*, smtp_info, **`system_log_append_enabled`**(감사 `system_log` INSERT on/off), query_studio_peak_guard, Claude API 키 등.
 - **ETL 한도**: etl_limits 미설정 시 `Backend/etl_server/etl_limits.py` 기본값. ZIP 총 해제량 등은 02_BACKEND_GUIDE §3 참고.
 - **초대·메일 링크 베이스**: `auth_config.get_app_url()` 체인(`smtp_info.app_url` → `backend.app_url` → `frontend.app_url`). 환경마다 명시한다.
 
@@ -176,15 +177,15 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 
 - **로그인**: 이메일·비밀번호 후 2차 코드, `POST /api/auth/login`·`verify-login` 등.
 - **회원가입(`/signup`, 초대 코드)**: 공개 라우트. 최초 조직·계정은 DB 시드·운영 절차로 두고, 웹 공개 화면 `/create-org` 는 제공하지 않는다(백엔드 `POST /api/auth/create-org` 는 필요 시 운영 도구로 호출 가능).
-- **마이페이지**: 닉네임·비밀번호·로그인 이력 등 `PATCH /api/auth/me`·`/me/password`·`GET login-history` 등.
+- **마이페이지**: 닉네임·비밀번호·로그인 이력 등 `PATCH /api/auth/me`·`/me/password`·`GET /api/auth/me/login-history`(최근 10건 래퍼 — 내부는 `system_log_server` 조회 규칙과 동일) 등.
 
 2) **관리·알림(S8)**
 
-- 알림 벨·알림 API, 조직 관리자용 `/admin/users`·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`, 최고 관리자용 `/admin/org` 등(가드: `OrgAdminRoute`·`ProjectAdminRoute`, operator 포함·`SuperAdminRoute`).
+- 알림 벨·알림 API, 조직 관리자용 `/admin/users`·**`/admin/user-history`**(로그인·시스템 이력 통합, `tab` 쿼리)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`, 최고 관리자용 `/admin/org` 등(가드: `OrgAdminRoute`·`ProjectAdminRoute`, operator 포함·`SuperAdminRoute`).
 
 3) **관리 API 클라이언트**
 
-- 프론트 `adminClient.js` 에 roles·projects·members·invite·search 등을 둔다.
+- 프론트 `adminClient.js` 에 roles·projects·members·invite·search 등을 둔다. 통합 이력 API는 **`shared/api/systemLogClient.js`**(`GET /api/system-logs`·`login-history/org`·CSV).
 
 4) **홈(`/`)·프로젝트·가드**
 
