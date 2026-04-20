@@ -8,6 +8,7 @@
  * - .user-history__tabs / __tab: 탭 전환
  * - .user-history__filters: 필터 그리드·폼 제출(Enter)·툴바 버튼 높이
  * - .user-history__table-wrap: 테이블·상세열(th/td)·빈 상태
+ * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
  *
  * [Endpoints/Classes/Functions]
  * =======================
@@ -78,7 +79,9 @@
 
 .user-history__filter-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
+  gap: 8px;
 }
 
 /* 필터 행: admin-users 인풋·셀렉트와 동일 체감 높이·글자 크기(툴바 기본 0.875rem·보더 없음 보정) */
@@ -162,6 +165,14 @@
 .user-history__modal-list {
   margin: 0;
   padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.user-history__modal-sort {
+  margin: 0;
+  padding: 0;
   font-size: 0.8125rem;
   color: var(--color-text-muted);
   line-height: 1.5;

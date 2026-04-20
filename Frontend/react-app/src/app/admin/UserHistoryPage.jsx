@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼(Enter=적용)·시스템 상세(기능/상세)·테이블 열 정합·정렬·CSV 모달
+ * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(시스템 IP열)·정렬·CSV 모달(필터 ul·정렬 단락)
  *
  * [Dependencies]
  * =========
@@ -131,7 +131,7 @@ function buildAppliedFilterLines(applied, tab) {
   return lines.length ? lines : ['없음']
 }
 
-/** 적용된 정렬 1순위(서버 `sort_by`·`sort_dir`와 동일). */
+/** 적용된 정렬(서버 `sort_by`·`sort_dir`와 동일, 단일). */
 function buildSortLines(tab, applied) {
   const byNorm =
     tab === 'login' ? applied.sortLoginBy || 'create_dtm' : applied.sortSystemBy || 'create_dtm'
@@ -139,7 +139,7 @@ function buildSortLines(tab, applied) {
     tab === 'login' ? applied.sortLoginDir || 'desc' : applied.sortSystemDir || 'desc'
   const label = sortLabel(tab, byNorm)
   const dirKo = dirNorm === 'asc' ? '오름차순' : '내림차순'
-  return [`1. ${label} (${dirKo})`]
+  return [`${label} (${dirKo})`]
 }
 
 function formatDtm(v) {
@@ -259,6 +259,35 @@ export default function UserHistoryPage() {
     setError('')
     setPage(1)
   }, [userKey, fromD, toD, ipContains, channel, actionKind, successYn, sortLoginBy, sortLoginDir, sortSystemBy, sortSystemDir])
+
+  const resetFilters = useCallback(() => {
+    setUserKey('')
+    setFromD('')
+    setToD('')
+    setIpContains('')
+    setChannel('')
+    setActionKind('')
+    setSuccessYn('')
+    setSortLoginBy('create_dtm')
+    setSortLoginDir('desc')
+    setSortSystemBy('create_dtm')
+    setSortSystemDir('desc')
+    setApplied({
+      userKey: '',
+      fromD: '',
+      toD: '',
+      ipContains: '',
+      channel: '',
+      actionKind: '',
+      successYn: '',
+      sortLoginBy: 'create_dtm',
+      sortLoginDir: 'desc',
+      sortSystemBy: 'create_dtm',
+      sortSystemDir: 'desc',
+    })
+    setError('')
+    setPage(1)
+  }, [])
 
   const handleFiltersSubmit = useCallback(
     (e) => {
@@ -583,6 +612,14 @@ export default function UserHistoryPage() {
           <button type="submit" className="ibank-btn-toolbar" disabled={loading}>
             필터 적용
           </button>
+          <button
+            type="button"
+            className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
+            disabled={loading}
+            onClick={resetFilters}
+          >
+            초기화
+          </button>
         </div>
       </form>
 
@@ -663,13 +700,14 @@ export default function UserHistoryPage() {
                 <th>행위</th>
                 <th>상태</th>
                 <th>사용자</th>
+                <th>IP</th>
                 <th className="user-history__col-detail">상세내용</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={6} className="user-history__empty">
+                  <td colSpan={7} className="user-history__empty">
                     기록이 없습니다.
                   </td>
                 </tr>
@@ -681,6 +719,7 @@ export default function UserHistoryPage() {
                     <td>{row.action_kind || '—'}</td>
                     <td>{formatYnStatus(row.success_yn)}</td>
                     <td>{row.actor_user_email || row.actor_user_id || '—'}</td>
+                    <td>{row.client_ip_masked || '—'}</td>
                     <td className="user-history__col-detail">{formatSystemDetailCell(row)}</td>
                   </tr>
                 ))
@@ -703,8 +742,8 @@ export default function UserHistoryPage() {
               CSV 받기 확인
             </h2>
             <p className="admin-users__modal-hint">
-              아래는 <strong>필터 적용</strong> 직후 목록 API와 동일한 필터·정렬 조건입니다. CSV 열 이름·셀 표기는 화면 테이블과
-              같습니다. 확인 시 브라우저가 파일을 받아 기본 다운로드 폴더(또는 저장 위치 선택 대화상자)로 저장합니다.
+              아래는 <strong>필터·정렬 적용</strong> 내용입니다.
+              확인 시 기본 다운로드 폴더로 저장합니다.
             </p>
 
             <div className="user-history__modal-section-title">필터</div>
@@ -715,14 +754,7 @@ export default function UserHistoryPage() {
             </ul>
 
             <div className="user-history__modal-section-title">정렬</div>
-            <ul className="user-history__modal-list">
-              {sortLines.map((line, i) => (
-                <li key={`s-${i}`}>{line}</li>
-              ))}
-            </ul>
-            <p className="user-history__modal-note">
-              ※ 동일 정렬이 목록·CSV에 적용됩니다. 2순위 키(로그 ID)는 서버에서 같은 방향으로 맞춥니다.
-            </p>
+            <p className="user-history__modal-sort">{sortLines[0] || '—'}</p>
 
             <div className="user-history__modal-total">총 행수: {totalRowsLabel}</div>
             {total > CSV_MAX_ROWS ? (

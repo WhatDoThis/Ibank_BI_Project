@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+474. 2026-04-20 통합 이력: 필터 초기화·시스템 목록 IP열·CSV IP열
+473. 2026-04-20 통합 이력 CSV 모달: 정렬 블록 단락 표시
+472. 2026-04-20 통합 이력 CSV 모달: 정렬 줄 `1.` 접두 제거
 471. 2026-04-20 docs/main·README: system_log 개발 완료 반영(가이드·PRD·여정·07 §12)
 470. 2026-04-20 통합 이력 CSV 파일명: `YYYYMMDD_hhmmss` 구분자
 469. 2026-04-20 통합 이력 CSV 파일명: login_log_/system_log_+타임스탬프
@@ -474,6 +477,36 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+474. 2026-04-20 통합 이력: 필터 초기화·시스템 목록 IP열·CSV IP열
+Purpose: 필터 폼을 한 번에 비우고 기본 정렬로 되돌리는 **초기화**를 두고, 시스템 탭에서 `ip_contains` 필터와 맞추기 위해 **`client_ip_masked` 표시** 및 CSV 동일 열을 맞춤.
+
+Changes:
+
+- `UserHistoryPage.jsx`: 초기화 버튼·`resetFilters`, 시스템 테이블 IP 열
+- `user-history.css`: 필터 액션 영역 버튼 간격
+- `system_log_server/service.py`: CSV SELECT·헤더·행에 IP
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Backend/system_log_server/service.py, docs/log/log.md
+
+473. 2026-04-20 통합 이력 CSV 모달: 정렬 블록 단락 표시
+Purpose: 정렬은 항상 기준·방향 한 줄이므로 CSV 확인 모달에서 **목록(`ul`/`li`)이 아닌 단락**으로 보이게 함. 필터는 조건이 여러 개일 수 있어 `ul` 유지.
+
+Changes:
+
+- `UserHistoryPage.jsx`: 정렬 → `<p className="user-history__modal-sort">`
+- `user-history.css`: `.user-history__modal-sort` 타이포(필터 목록과 동일 톤)
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+472. 2026-04-20 통합 이력 CSV 모달: 정렬 줄 `1.` 접두 제거
+Purpose: 정렬은 단일 기준·방향만 적용되므로 CSV 확인 모달의 정렬 목록에서 불필요한 번호를 뺌.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `buildSortLines` 반환 문자열에서 `1.` 제거, 주석 정리
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, docs/log/log.md
 
 471. 2026-04-20 docs/main·README: system_log 개발 완료 반영(가이드·PRD·여정·07 §12)
 Purpose: `22`·log.md에 이미 반영된 구현을 docs/main 전반과 README에 맞춰, 잔여 과제(권한 변경 알림)와 감사 정책 메모만 07 §12에 남긴다.
