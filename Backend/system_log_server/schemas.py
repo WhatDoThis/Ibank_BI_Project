@@ -9,7 +9,7 @@ system_log·로그인 이력 목록 API용 모델.
 
 [Endpoints/Classes/Functions]
 =======================
-- SystemLogItemOut / SystemLogListOut: system_log
+- SystemLogItemOut / SystemLogListOut: system_log (`actor_user_email` 조인)
 - LoginHistoryItemOut / LoginHistoryListOut: user_login_log (me·org)
 
 [Dependencies]
@@ -33,6 +33,7 @@ class SystemLogItemOut(BaseModel):
     system_log_id: int
     create_dtm: datetime
     actor_user_id: int | None = None
+    actor_user_email: str | None = None
     request_correlation_id: str | None = None
     client_ip_masked: str | None = None
     user_agent_summary: str | None = None

@@ -1,6 +1,18 @@
 # Log
 
 ## Log Index
+470. 2026-04-20 통합 이력 CSV 파일명: `YYYYMMDD_hhmmss` 구분자
+469. 2026-04-20 통합 이력 CSV 파일명: login_log_/system_log_+타임스탬프
+468. 2026-04-20 통합 이력: 상세열·CSV 화면 정합(기능/상세·한글 헤더)
+467. 2026-04-20 통합 이력: 필터 폼 Enter 적용·적용 버튼 높이 정합
+466. 2026-04-20 통합 이력: 테이블·필터 UI 정합·actor 이메일·페이지/행위 contains
+465. 2026-04-20 통합 이력 UI: 필터 라벨·placeholder·th 최소폭
+464. 2026-04-20 ETL: 연결 테스트 예외 감사·배치 run-now/toggle/cancel 인증·emit
+463. 2026-04-20 system_log: 로그인 IP 필터·emit 행위자 검증·CSV 감사 actor
+462. 2026-04-20 system_log 점검: router 머리말 정합·register_uuid 실패 로깅
+461. 2026-04-20 system_log append: psycopg2 UUID 어댑트·로그 traceback 출력
+460. 2026-04-20 사용자 이력: 뒤로가기 `ap__back` 스타일·위치
+459. 2026-04-20 관리 헤더 우측 정렬·이력 페이지 안내 문구 축약
 458. 2026-04-20 운영 배포: localhost 기본값·기동 콘솔 안내 정리
 457. 2026-04-20 docs/report/22: §8.2·F3-6 보존 만료 처리(추후)·ReportIndex
 456. 2026-04-20 통합 이력: 날짜 필터 min/max(기준일 먼저·±92일 달력 제한)
@@ -461,6 +473,135 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+470. 2026-04-20 통합 이력 CSV 파일명: `YYYYMMDD_hhmmss` 구분자
+Purpose: 날짜·시각 사이에 `_`를 넣어 `login_log_20260420_153045.csv` 형태로 읽기 쉽게 한다.
+
+Changes:
+
+- `router.py`: `strftime("%Y%m%d_%H%M%S")`, 문서 문자열
+- `systemLogClient.js`: 폴백 파일명 동일 규칙
+
+Changed files: Backend/system_log_server/router.py, Frontend/react-app/src/shared/api/systemLogClient.js, docs/log/log.md
+
+469. 2026-04-20 통합 이력 CSV 파일명: login_log_/system_log_+타임스탬프
+Purpose: 다운로드 파일명을 `login_log_YYYYMMDDhhmmss.csv`·`system_log_YYYYMMDDhhmmss.csv`(서울 시각)로 통일하고, 프론트는 `Content-Disposition`을 우선 사용한다.
+
+Changes:
+
+- `router.py`: `_org_log_csv_attachment_filename`, CSV 응답 `Content-Disposition` 동적 설정
+- `systemLogClient.js`: 헤더에서 파일명 파싱·폴백 동일 규칙
+
+Changed files: Backend/system_log_server/router.py, Frontend/react-app/src/shared/api/systemLogClient.js, docs/log/log.md
+
+468. 2026-04-20 통합 이력: 상세열·CSV 화면 정합(기능/상세·한글 헤더)
+Purpose: 시스템 이력 상세 문자열 라벨 변경, 테이블 thead·td 폭 단절(CSS), CSV를 DB 원본 컬럼이 아닌 화면 테이블과 동일 헤더·표기로 보낸다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `formatSystemDetailCell` 라벨·상세열 `user-history__col-detail`, CSV 모달 안내
+- `user-history.css`: `.user-history__col-detail`로 nowrap/max-width 이슈 제거, 구 `cell-json`/`cell-detail` 블록 제거
+- `service.py`·`service_login_history.py`: CSV UI 헤더·표기·시스템 상세 포맷 헬퍼
+- `router.py`: CSV 엔드포인트 설명
+- `docs/log/log.md`
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Backend/system_log_server/service.py, Backend/system_log_server/service_login_history.py, Backend/system_log_server/router.py, docs/log/log.md
+
+467. 2026-04-20 통합 이력: 필터 폼 Enter 적용·적용 버튼 높이 정합
+Purpose: 필터 영역에서 인풋·셀렉트와 `필터 적용` 툴바 버튼 높이를 맞추고, Enter로 적용 버튼과 동일하게 `applyFilters`가 실행되게 한다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `user-history__filters`를 `<form>`으로 전환, `onSubmit`·`onKeyDown`(INPUT·SELECT Enter), 적용 버튼 `type="submit"`
+- `user-history.css`: 필터 행 `.admin-users__input`/`.admin-users__select`·`.user-history__filter-actions .ibank-btn-toolbar`에 `min-height`·`font-size`·`border-radius` 정합, 모듈 상단 주석 갱신
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+466. 2026-04-20 통합 이력: 테이블·필터 UI 정합·actor 이메일·페이지/행위 contains
+Purpose: 시스템 이력 컬럼명·상세(요약+detail)·로그인/시스템 필터·정렬 라벨을 화면 기준으로 통일, `contains` 플레이스홀더와 필터 동작 정합.
+
+Changes:
+
+- `system_log_server/service.py`: 목록·CSV에 `actor_user_email` 조인, `channel`·`action_kind` 필터를 LIKE 로 변경
+- `schemas.py`: `SystemLogItemOut.actor_user_email`
+- `UserHistoryPage.jsx`: 테이블 헤더·셀·필터·정렬 옵션·상태 표기·상세내용 포맷
+- `user-history.css`: 상세내용 `pre-line`
+- `system_log_server/router.py`: `user_key` Query 설명 정리
+
+Changed files: Backend/system_log_server/service.py, Backend/system_log_server/schemas.py, Backend/system_log_server/router.py, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+465. 2026-04-20 통합 이력 UI: 필터 라벨·placeholder·th 최소폭
+Purpose: 부분 일치·완전 일치를 API와 동일하게 표기하고, 긴 테이블에서 헤더 압축 완화.
+
+Changes:
+
+- `UserHistoryPage.jsx`: 사용자·IP는 부분 일치, channel·action_kind는 완전 일치로 라벨·placeholder(`contains`/`exact`)·CSV 모달 문구 정합
+- `user-history.css`: `.user-history__filters` 내 `::placeholder` 작게, `.user-history__table-wrap` 내 `th` `min-width`
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+464. 2026-04-20 ETL: 연결 테스트 예외 감사·배치 run-now/toggle/cancel 인증·emit
+Purpose: 사용자 유발 ETL API의 system_log 누락·무인증 엔드포인트 보완.
+
+Changes:
+
+- `etl_server/router.py`: 소스·저장 DB 연결 테스트 `except` 시 `emit_etl_log` success_yn=N·`error_detail` 요약
+- `etl_server/router_file.py`: 배치 `run-now`·`toggle`·실행 `cancel`에 `require_etl_infrastructure` 및 `emit_etl_log`(run_now·toggle·cancel_request)
+
+Changed files: Backend/etl_server/router.py, Backend/etl_server/router_file.py, docs/log/log.md
+
+463. 2026-04-20 system_log: 로그인 IP 필터·emit 행위자 검증·CSV 감사 actor
+Purpose: 통합 이력·계측 품질 개선(검색 정합·무효 actor_user_id 방지).
+
+Changes:
+
+- `service_login_history.py`: `ip_contains` 시 IPv4는 DB 원문과 `a.b.*.*` 마스크 표기 모두 LIKE(화면 마스킹과 검색 정합)
+- `system_log_server/router.py`: CSV 감사용 `_safe_actor_user_id`(0·비정수 → None)
+- `admin`·`query_studio`·`etl`·`notification`·`project`·`widget_board` `audit_emit.py`: `actor_user_id` 양의 정수일 때만 append(`auth`는 로그인 실패 등 None 유지)
+- `query_studio_server/router.py`: `execute_query` 계측에 `int(_perm["user_id"])` 확정
+
+Changed files: Backend/system_log_server/service_login_history.py, Backend/system_log_server/router.py, Backend/admin_server/audit_emit.py, Backend/query_studio_server/audit_emit.py, Backend/query_studio_server/router.py, Backend/etl_server/audit_emit.py, Backend/notification_server/audit_emit.py, Backend/project_server/audit_emit.py, Backend/widget_board_server/audit_emit.py, docs/log/log.md
+
+462. 2026-04-20 system_log 점검: router 머리말 정합·register_uuid 실패 로깅
+Purpose: 통합 이력·append 경로 코드 리뷰 후 문서·가시성 보완.
+
+Changes:
+
+- `system_log_server/router.py`: [Endpoints] 순서를 실제 라우트 `# 1.~# 5.` 와 동일하게 정리
+- `system_audit_log.py`: `register_uuid()` 예외 시 무시 대신 `logger.warning(..., exc_info=True)` 로 기동 단계 진단 가능하게 함
+
+Changed files: Backend/system_log_server/router.py, Backend/core/system_audit_log.py, docs/log/log.md
+
+461. 2026-04-20 system_log append: psycopg2 UUID 어댑트·로그 traceback 출력
+Purpose: `system_log_append_enabled` 가 true 인데도 행이 쌓이지 않았던 원인은 **HTTP 상관 ID(`uuid.UUID`)를 psycopg2가 기본 어댑트하지 않아** INSERT 가 `can't adapt type 'UUID'` 로 실패한 것이었다. 루트 로그 포맷터가 `exc_info` 를 붙이지 않아 터미널에 한 줄만 보였음.
+
+Changes:
+
+- `system_audit_log.py`: 모듈 로드 시 `psycopg2.extras.register_uuid()` 호출
+- `logging_setup.py`: `_AppFormatter` 가 `record.exc_info` 있으면 `formatException` 출력
+
+Changed files: Backend/core/system_audit_log.py, Backend/core/logging_setup.py, docs/log/log.md
+
+460. 2026-04-20 사용자 이력: 뒤로가기 `ap__back` 스타일·위치
+Purpose: 프로젝트 멤버 등과 동일하게 **제목 위**에 텍스트형 뒤로 링크(`ap__back`)를 두고, 툴바 보조 버튼 스타일을 제거함.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `admin-pages.css` import, `← 사용자 관리` + `ap__back`
+- `admin-users.css`: 우측 툴바 링크 전용 규칙 제거(이력 페이지에서만 쓰이던 선택자)
+- `admin-pages.css`: 파일 머리말에 `ap__back` 용도 한 줄
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+459. 2026-04-20 관리 헤더 우측 정렬·이력 페이지 안내 문구 축약
+Purpose: 사용자 관리·이력 조회 상단에서 **액션 버튼이 제목과 같은 줄 우측**에 오도록 하고, 이력 페이지 상단 설명을 **짧은 두 문장**으로 바꿈.
+
+Changes:
+
+- `admin-users.css`: `header-row` nowrap·좌측 `min-width:0`·우측 액션 `flex-shrink:0`; 좁은 화면에서만 wrap
+- `UserHistoryPage.jsx`: 힌트를 기준일 3개월·CSV 행 상한 안내만 표시
+
+Changed files: Frontend/react-app/src/app/admin/admin-users.css, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, docs/log/log.md
 
 458. 2026-04-20 운영 배포: localhost 기본값·기동 콘솔 안내 정리
 Purpose: 리눅스·도메인 운영에서 **의도 없이 localhost가 API 베이스로 박히는 빌드 경로**를 줄이고, `0.0.0.0` 바인딩인데 콘솔만 `localhost`로 오해되는 메시지를 바로잡음.

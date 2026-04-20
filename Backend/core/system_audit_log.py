@@ -16,7 +16,7 @@ ibank_system_data.public.system_log 에 append-only INSERT. 계측 실패는 로
 [Dependencies]
 =========
 - logging, uuid, dataclasses, typing
-- psycopg2.extras.Json, RealDictCursor
+- psycopg2.extras.Json, register_uuid(모듈 로드 시 — 실패 시 warning·traceback 후 UUID 컬럼 적재는 런타임 오류 가능)
 - Backend.core.db (get_db_connection_system_core), Backend.core.request_context (상관 ID 보강)
 - Env.config (선택 플래그)
 """
@@ -33,6 +33,16 @@ from psycopg2.extras import Json
 from Backend.core import db
 
 logger = logging.getLogger(__name__)
+
+try:
+    from psycopg2.extras import register_uuid
+
+    register_uuid()
+except Exception:
+    logger.warning(
+        "psycopg2 register_uuid 실패: system_log.request_correlation_id 적재 시 UUID 어댑트 오류가 날 수 있습니다.",
+        exc_info=True,
+    )
 
 CHANNEL_AUTH = "auth"
 CHANNEL_PROJECT = "project"

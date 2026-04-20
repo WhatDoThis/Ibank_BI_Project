@@ -3,7 +3,7 @@
  * 행 액션(.admin-users__actions button): shared-ui `.ibank-btn-table` 호버 톤과 정합
  * 본인 배지(이메일 옆)·비활성 액션 버튼 래퍼(title 툴팁, pointer-events로 호버 수신)
  * 409 소유 차단 패널(ownership-block·group·list)
- * 헤더 우측 `.admin-users__header-actions`: 사용자 이력 조회(Link)·사용자초대 버튼 나란히
+ * 헤더 `.admin-users__header-row`: 한 줄에 제목 블록(줄바꿈 가능)·우측 액션(이력 링크·초대). 이력 페이지 상단 뒤로가기는 `admin-pages.css`의 `ap__back`
  */
 
 .admin-users {
@@ -258,18 +258,36 @@
 
 .admin-users__header-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 12px 16px;
   margin-bottom: 8px;
+}
+
+/* 제목·안내(긴 문단)와 우측 액션을 한 줄에 유지 — 좌측은 줄바꿈만 허용 */
+.admin-users__header-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .admin-users__header-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 10px;
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+@media (max-width: 520px) {
+  .admin-users__header-row {
+    flex-wrap: wrap;
+  }
+
+  .admin-users__header-actions {
+    margin-left: auto;
+  }
 }
 
 .admin-users__modal-backdrop {

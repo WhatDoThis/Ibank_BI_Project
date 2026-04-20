@@ -16,9 +16,9 @@ Backend.etl_server.router_file (배치·폴더 연결 API 라우터)
 5. GET/POST/PATCH/DELETE /folder-connections, POST /folder-connections/test
 6. GET /folder-connections/{id}/files, patterns, columns
 7. GET /target-tables, GET /target-registry, DELETE /target-registry/{id}
-8. GET/POST /jobs, PATCH/DELETE /jobs/{id}, POST /jobs/{id}/run-now, toggle
+8. GET/POST /jobs, PATCH/DELETE /jobs/{id}, POST /jobs/{id}/run-now·toggle(require_etl_infrastructure·emit_etl_log)
 9. GET /jobs/{id}/history, history/{run_id}, skipped-files, skipped-files/history, POST skipped-files/delete, reset-ts, rollback-file, clone
-10. POST /jobs/validate-target, POST /jobs/{id}/history/{run_id}/cancel
+10. POST /jobs/validate-target, POST /jobs/{id}/history/{run_id}/cancel(require_etl_infrastructure·emit_etl_log)
 
 [Dependencies]
 =========
@@ -868,12 +868,24 @@ def get_batch_job_db_preview(batch_job_id: int):
 
 
 @router.post("/jobs/{batch_job_id}/run-now")
-def run_batch_job_now(batch_job_id: int):
+def run_batch_job_now(
+    batch_job_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """즉시 1회 실행. 이미 실행 중이면 스케줄하지 않고 메시지 반환."""
     try:
         if not batch_service.get_batch_job(batch_job_id):
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
         result = sched.run_now(batch_job_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_job_run_now",
+            action_kind="EXECUTE",
+            detail_json={
+                "batch_job_id": int(batch_job_id),
+                "x_already_running": bool(result.get("already_running")),
+            },
+        )
         if result.get("already_running"):
             return {"message": "해당 배치가 이미 실행 중입니다. 완료 후 다시 시도하세요.", "already_running": True}
         return {"message": "즉시 실행이 스케줄되었습니다."}
@@ -885,7 +897,10 @@ def run_batch_job_now(batch_job_id: int):
 
 
 @router.post("/jobs/{batch_job_id}/toggle")
-def toggle_batch_job(batch_job_id: int):
+def toggle_batch_job(
+    batch_job_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """활성/비활성 토글 후 스케줄러 add/remove."""
     try:
         job = batch_service.get_batch_job(batch_job_id)
@@ -906,6 +921,15 @@ def toggle_batch_job(batch_job_id: int):
                 sched.add_job(job, force_now=True)
         else:
             sched.remove_job(batch_job_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_job_toggle",
+            action_kind="UPDATE",
+            detail_json={
+                "batch_job_id": int(batch_job_id),
+                "x_is_active": new_active,
+            },
+        )
         return {"is_active": new_active, "message": "활성화되었습니다." if new_active else "비활성화되었습니다."}
     except HTTPException:
         raise
@@ -953,7 +977,11 @@ def get_batch_run_detail(batch_job_id: int, run_id: int):
 
 
 @router.post("/jobs/{batch_job_id}/history/{run_id}/cancel")
-def cancel_batch_run(batch_job_id: int, run_id: int):
+def cancel_batch_run(
+    batch_job_id: int,
+    run_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """실행 취소 요청. 진행 중인 run에 대해 취소 플래그 설정. (batch_run_history.cancel_requested_at 컬럼 필요)"""
     try:
         run = batch_service.get_run_detail(run_id)
@@ -966,6 +994,16 @@ def cancel_batch_run(batch_job_id: int, run_id: int):
             return {"message": "이미 완료된 실행입니다." if st else "실행을 찾을 수 없습니다."}
         batch_service.set_run_cancel_requested(run_id)
         cleared = batch_service.force_finish_run_as_cancelled(run_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_run_cancel_request",
+            action_kind="UPDATE",
+            detail_json={
+                "batch_job_id": int(batch_job_id),
+                "batch_run_id": int(run_id),
+                "x_run_finished": cleared is not None,
+            },
+        )
         if cleared is not None:
             return {"message": "취소되었습니다. 즉시 실행을 다시 누르면 새로 실행됩니다.", "run_finished": True}
         return {"message": "취소 요청되었습니다. 진행 중이던 적재는 롤백됩니다."}

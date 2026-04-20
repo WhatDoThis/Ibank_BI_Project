@@ -1,5 +1,23 @@
 /**
- * app/admin/user-history.css — UserHistoryPage 전용 (탭·필터·정렬 그리드·페이저·JSON 셀·CSV 확인 모달)
+ * user-history.css (UserHistoryPage 전용 스타일)
+ * ================================================
+ * 탭·필터(인풋·셀렉트·적용 버튼 높이 정합)·placeholder·테이블 th·JSON 셀·CSV 모달
+ *
+ * [Main Functions]
+ * ===========
+ * - .user-history__tabs / __tab: 탭 전환
+ * - .user-history__filters: 필터 그리드·폼 제출(Enter)·툴바 버튼 높이
+ * - .user-history__table-wrap: 테이블·상세열(th/td)·빈 상태
+ *
+ * [Endpoints/Classes/Functions]
+ * =======================
+ * - CSS 클래스만 (컴포넌트 없음)
+ *
+ * [Dependencies]
+ * =========
+ * - admin-users.css(.admin-users__input, .admin-users__select)
+ * - shared-ui.css(.ibank-btn-toolbar)
+ * - design-tokens (--color-*, --radius-*)
  */
 
 .user-history__tabs {
@@ -51,9 +69,32 @@
   min-width: 10.5rem;
 }
 
+/* 필터 placeholder: 작은 글씨·contains/exact 통일 (date는 브라우저마다 무시될 수 있음) */
+.user-history__filters .admin-users__input::placeholder {
+  font-size: 0.6875rem;
+  letter-spacing: -0.015em;
+  opacity: 0.88;
+}
+
 .user-history__filter-actions {
   display: flex;
   align-items: flex-end;
+}
+
+/* 필터 행: admin-users 인풋·셀렉트와 동일 체감 높이·글자 크기(툴바 기본 0.875rem·보더 없음 보정) */
+.user-history__filters .admin-users__input,
+.user-history__filters .admin-users__select {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+}
+
+.user-history__filter-actions .ibank-btn-toolbar {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  border-radius: var(--radius-pill);
+  line-height: 1.2;
 }
 
 .user-history__pager {
@@ -74,17 +115,32 @@
   margin-top: 4px;
 }
 
+/* 긴 행·가로 스크롤 시에도 헤더 셀이 과도하게 압축되지 않도록 */
+.user-history__table-wrap .admin-users__table th {
+  min-width: max(3.25rem, min-content);
+  box-sizing: border-box;
+}
+
+.user-history__table-wrap .admin-users__table td {
+  box-sizing: border-box;
+}
+
+/* 상세내용 열: admin-users 전역 td nowrap·구 cell max-width 제거 — 셀 박스 폭=테이블 열 폭으로 thead 배경 단절 방지 */
+.user-history__table-wrap .admin-users__table th.user-history__col-detail,
+.user-history__table-wrap .admin-users__table td.user-history__col-detail {
+  max-width: none;
+  min-width: 10rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  font-size: clamp(0.62rem, 0.25rem + 1vw, 0.75rem);
+}
+
 .user-history__empty {
   text-align: center;
   color: var(--color-text-muted);
   padding: 24px 12px !important;
-}
-
-.user-history__cell-json {
-  white-space: normal;
-  max-width: 28ch;
-  word-break: break-word;
-  font-size: clamp(0.62rem, 0.25rem + 1vw, 0.75rem);
 }
 
 /* CSV 확인 모달 */

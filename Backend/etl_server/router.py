@@ -19,9 +19,9 @@ FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·
 ===========
 7. GET / — 서비스 안내
 8. GET/POST/PATCH/DELETE /tables(DELETE: 공유타겟·매핑 시 400), POST /tables/{id}/refresh-column-mapping, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
-9. cleanup-expired-uploads, timezones, connections CRUD, connections test
+9. cleanup-expired-uploads, timezones, connections CRUD, connections test(성공·실패·예외 시 emit_etl_log)
 10. connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
-11. transform-rules CRUD, target-exists, target-tables, target-columns
+11. transform-rules CRUD, target-exists, target-tables, target-columns, storage-connections test(성공·실패·예외 시 emit_etl_log)
 12. tables/{id}/preview, tables/{id}/run, jobs CRUD, jobs cancel, transform/preview
 
 [Dependencies]
@@ -971,6 +971,17 @@ def test_connection(
         return out
     except Exception as e:
         logger.exception("etl_router connections/test")
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_src_connection_test",
+            action_kind="EXECUTE",
+            success_yn="N",
+            detail_json={
+                "connection_id": body.connection_id,
+                "x_ok": False,
+                "error_detail": str(e)[:500],
+            },
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1240,6 +1251,16 @@ def test_storage_connection(
         return result
     except Exception as e:
         logger.exception("etl_router storage_connection_test")
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_storage_connection_test",
+            action_kind="EXECUTE",
+            success_yn="N",
+            detail_json={
+                "x_ok": False,
+                "error_detail": str(e)[:500],
+            },
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

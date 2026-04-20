@@ -8,6 +8,7 @@
  * ap__table .ap__select: 테이블 본문과 동일 clamp 폰트(inherit), ap__modal--usage max-width 800px
  * ap__modal--usage: flex 세로·max-width 800px·min-height, ap__usage-wrap·테이블 width 100%로 본문이 모달 폭 채움
  * ap__th-actions: 작업 열 min-width 250px. ap__usage-table·ap__cell-actions--usage-nav: 사용현황 이동 버튼 한 줄
+ * ap__back: 상단 뒤로 링크(프로젝트 멤버·위젯보드·사용자 이력 조회 등)
  */
 
 .ap {

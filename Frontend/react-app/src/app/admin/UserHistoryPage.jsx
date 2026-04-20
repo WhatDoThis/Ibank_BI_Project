@@ -5,13 +5,13 @@
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터(일자 `min`/`max`·기준일 먼저 선택 시 ±92일)·정렬·탭 유지·CSV 모달
+ * 1. UserHistoryPage — 필터 폼(Enter=적용)·시스템 상세(기능/상세)·테이블 열 정합·정렬·CSV 모달
  *
  * [Dependencies]
  * =========
  * - react-router-dom (useSearchParams, Link)
  * - shared/api/systemLogClient (getLoginHistoryOrg, getSystemLogsOrg, downloadUserHistoryCsv)
- * - app/admin/admin-users.css, app/admin/user-history.css
+ * - app/admin/admin-pages.css(`ap__back` 상단 링크), app/admin/admin-users.css, app/admin/user-history.css
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -23,6 +23,7 @@ import {
   getSystemLogsOrg,
 } from '@/shared/api/systemLogClient.js'
 
+import './admin-pages.css'
 import './admin-users.css'
 import './user-history.css'
 
@@ -34,21 +35,20 @@ const CSV_MAX_ROWS = 50000
 /** 서버 `MAX_HISTORY_FILTER_SPAN_DAYS` 와 동일(시작·종료일 둘 다 있을 때) */
 const MAX_FILTER_SPAN_DAYS = 92
 
+/** 로그인 테이블 헤더(일시·사용자·결과)와 동일한 정렬 라벨, value 는 API `sort_by` */
 const LOGIN_SORT_OPTIONS = [
   { value: 'create_dtm', label: '일시' },
-  { value: 'user_login_log_id', label: '로그 ID' },
-  { value: 'login_success_yn', label: '로그인 성공 여부' },
-  { value: 'user_id', label: '사용자 ID' },
-  { value: 'user_email', label: '이메일' },
+  { value: 'user_email', label: '사용자' },
+  { value: 'login_success_yn', label: '결과' },
 ]
 
+/** 시스템 테이블 헤더와 동일한 정렬 라벨 */
 const SYSTEM_SORT_OPTIONS = [
   { value: 'create_dtm', label: '일시' },
-  { value: 'system_log_id', label: '로그 ID' },
-  { value: 'channel', label: 'channel' },
-  { value: 'action_kind', label: 'action_kind' },
-  { value: 'success_yn', label: '성공 여부' },
-  { value: 'actor_user_id', label: '행위자 user_id' },
+  { value: 'channel', label: '페이지' },
+  { value: 'action_kind', label: '행위' },
+  { value: 'success_yn', label: '상태' },
+  { value: 'actor_user_id', label: '사용자' },
 ]
 
 function sortLabel(tab, sortBy) {
@@ -116,14 +116,17 @@ function dateInputBounds(fromD, toD) {
 
 function buildAppliedFilterLines(applied, tab) {
   const lines = []
-  if (applied.userKey?.trim()) lines.push(`사용자 키워드: ${applied.userKey.trim()}`)
-  if (applied.fromD?.trim()) lines.push(`시작일: ${applied.fromD}`)
-  if (applied.toD?.trim()) lines.push(`종료일: ${applied.toD}`)
-  if (applied.ipContains?.trim()) lines.push(`IP 포함: ${applied.ipContains.trim()}`)
+  if (applied.userKey?.trim()) lines.push(`사용자: ${applied.userKey.trim()}`)
+  if (applied.fromD?.trim()) lines.push(`일시 시작: ${applied.fromD}`)
+  if (applied.toD?.trim()) lines.push(`일시 종료: ${applied.toD}`)
+  if (applied.ipContains?.trim()) lines.push(`IP: ${applied.ipContains.trim()}`)
   if (tab === 'system') {
-    if (applied.channel?.trim()) lines.push(`channel: ${applied.channel.trim()}`)
-    if (applied.actionKind?.trim()) lines.push(`action_kind: ${applied.actionKind.trim()}`)
-    if (applied.successYn?.trim()) lines.push(`success: ${applied.successYn.trim()}`)
+    if (applied.channel?.trim()) lines.push(`페이지: ${applied.channel.trim()}`)
+    if (applied.actionKind?.trim()) lines.push(`행위: ${applied.actionKind.trim()}`)
+    if (applied.successYn?.trim()) {
+      const yn = (applied.successYn || '').toUpperCase()
+      lines.push(`상태: ${yn === 'Y' ? '성공' : '실패'}`)
+    }
   }
   return lines.length ? lines : ['없음']
 }
@@ -157,6 +160,23 @@ function shortenJson(obj, max = 100) {
   } catch {
     return '—'
   }
+}
+
+function formatYnStatus(yn) {
+  const u = (yn || '').toString().toUpperCase()
+  if (u === 'Y') return '성공'
+  if (u === 'N') return '실패'
+  return '—'
+}
+
+/** 시스템 이력 상세내용: 기능(target_summary·sql_template_key·business_action) + detail_json(화면·CSV 동일 규칙) */
+function formatSystemDetailCell(row) {
+  const parts = [row?.target_summary, row?.sql_template_key, row?.business_action]
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+  const summary = parts.length ? parts.join(' · ') : '—'
+  const detailJson = shortenJson(row?.detail_json, 240)
+  return `기능: ${summary} / 상세: ${detailJson}`
 }
 
 // 1.
@@ -239,6 +259,32 @@ export default function UserHistoryPage() {
     setError('')
     setPage(1)
   }, [userKey, fromD, toD, ipContains, channel, actionKind, successYn, sortLoginBy, sortLoginDir, sortSystemBy, sortSystemDir])
+
+  const handleFiltersSubmit = useCallback(
+    (e) => {
+      e.preventDefault()
+      if (loading) return
+      applyFilters()
+    },
+    [loading, applyFilters]
+  )
+
+  const handleFiltersFormKeyDown = useCallback(
+    (e) => {
+      if (e.key !== 'Enter' || loading) return
+      const t = e.target
+      if (t.tagName === 'BUTTON') return
+      if (t.tagName === 'SELECT') {
+        window.setTimeout(() => applyFilters(), 0)
+        return
+      }
+      if (t.tagName === 'INPUT') {
+        e.preventDefault()
+        applyFilters()
+      }
+    },
+    [loading, applyFilters]
+  )
 
   const openCsvConfirm = useCallback(() => {
     setCsvError('')
@@ -343,16 +389,18 @@ export default function UserHistoryPage() {
 
   return (
     <div className="admin-users user-history">
+      <Link to="/admin/users" className="ap__back">
+        ← 사용자 관리
+      </Link>
       <div className="admin-users__header-row">
         <div>
           <h1 className="admin-users__title">사용자 이력 조회</h1>
           <p className="admin-users__hint">
-            로그인 이력은 부서 트리 범위의 `user_login_log`, 시스템 이력은 `system_log` 입니다. 필터·정렬을 바꾼 뒤 **필터 적용**을 누르면 첫 페이지부터 다시 조회합니다. **탭 전환** 시 입력·적용된 필터·정렬은 유지되고 페이지만 1로 맞춥니다. **시작일 또는 종료일**을 먼저 고르면 다른 쪽 달력은 그 날짜 기준 **최대 {MAX_FILTER_SPAN_DAYS}일(약 3개월)** 범위로만 선택되도록 막습니다(브라우저 기본 **날짜** 입력 달력). **CSV** 는 동일 조건당 **최대 {CSV_MAX_ROWS.toLocaleString('ko-KR')}행**이며, 초과 시 안내 후 내려받을 수 없습니다. 감사 데이터 **보존 기간은 2년**(운영·`07`·`22` 참고)입니다.
+            기준일(시작일 또는 종료일) 앞뒤 최대 3개월까지 필터 가능합니다.
+            <br />
+            CSV 받기의 경우 최대 {CSV_MAX_ROWS.toLocaleString('ko-KR')}행까지 가능합니다.
           </p>
         </div>
-        <Link to="/admin/users" className="ibank-btn-toolbar ibank-btn-toolbar--secondary">
-          사용자 관리로
-        </Link>
       </div>
 
       <div className="user-history__tabs" role="tablist" aria-label="이력 종류">
@@ -376,19 +424,24 @@ export default function UserHistoryPage() {
         </button>
       </div>
 
-      <div className="user-history__filters">
+      <form
+        className="user-history__filters"
+        onSubmit={handleFiltersSubmit}
+        onKeyDown={handleFiltersFormKeyDown}
+        aria-label="이력 필터"
+      >
         <label className="user-history__field">
-          사용자 키워드
+          사용자
           <input
             className="admin-users__input"
             value={userKey}
             onChange={(e) => setUserKey(e.target.value)}
-            placeholder="id·이메일 일부"
+            placeholder="contains"
             autoComplete="off"
           />
         </label>
         <label className="user-history__field">
-          시작일
+          일시 시작
           <input
             className="admin-users__input"
             type="date"
@@ -404,7 +457,7 @@ export default function UserHistoryPage() {
           />
         </label>
         <label className="user-history__field">
-          종료일
+          일시 종료
           <input
             className="admin-users__input"
             type="date"
@@ -420,46 +473,47 @@ export default function UserHistoryPage() {
           />
         </label>
         <label className="user-history__field">
-          IP 포함
+          IP
           <input
             className="admin-users__input"
             value={ipContains}
             onChange={(e) => setIpContains(e.target.value)}
-            placeholder="부분 일치"
+            placeholder="contains"
             autoComplete="off"
           />
         </label>
         {tab === 'system' ? (
           <>
             <label className="user-history__field">
-              channel
+              페이지
               <input
                 className="admin-users__input"
                 value={channel}
                 onChange={(e) => setChannel(e.target.value)}
-                placeholder="예: admin"
+                placeholder="contains"
                 autoComplete="off"
               />
             </label>
             <label className="user-history__field">
-              action_kind
+              행위
               <input
                 className="admin-users__input"
                 value={actionKind}
                 onChange={(e) => setActionKind(e.target.value)}
+                placeholder="contains"
                 autoComplete="off"
               />
             </label>
             <label className="user-history__field">
-              success
+              상태
               <select
                 className="admin-users__select"
                 value={successYn}
                 onChange={(e) => setSuccessYn(e.target.value)}
               >
                 <option value="">전체</option>
-                <option value="Y">Y</option>
-                <option value="N">N</option>
+                <option value="Y">성공</option>
+                <option value="N">실패</option>
               </select>
             </label>
           </>
@@ -472,7 +526,7 @@ export default function UserHistoryPage() {
                 className="admin-users__select"
                 value={sortLoginBy}
                 onChange={(e) => setSortLoginBy(e.target.value)}
-                aria-label="로그인 이력 정렬 기준"
+                aria-label="정렬 기준(로그인 테이블 열과 동일)"
               >
                 {LOGIN_SORT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -502,7 +556,7 @@ export default function UserHistoryPage() {
                 className="admin-users__select"
                 value={sortSystemBy}
                 onChange={(e) => setSortSystemBy(e.target.value)}
-                aria-label="시스템 이력 정렬 기준"
+                aria-label="정렬 기준(시스템 테이블 열과 동일)"
               >
                 {SYSTEM_SORT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -526,11 +580,11 @@ export default function UserHistoryPage() {
           </>
         )}
         <div className="user-history__filter-actions">
-          <button type="button" className="ibank-btn-toolbar" onClick={applyFilters} disabled={loading}>
+          <button type="submit" className="ibank-btn-toolbar" disabled={loading}>
             필터 적용
           </button>
         </div>
-      </div>
+      </form>
 
       {error ? <p className="admin-users__error">{error}</p> : null}
       {csvError && !csvConfirmOpen ? <p className="admin-users__error">{csvError}</p> : null}
@@ -592,7 +646,7 @@ export default function UserHistoryPage() {
                   <tr key={`${row.create_dtm || ''}-${row.user_id || ''}-${idx}`}>
                     <td>{formatDtm(row.create_dtm)}</td>
                     <td>{row.user_email || row.user_id || '—'}</td>
-                    <td>{(row.login_success_yn || '').toUpperCase() === 'Y' ? '성공' : '실패'}</td>
+                    <td>{formatYnStatus(row.login_success_yn)}</td>
                     <td>{row.login_trial_ip || '—'}</td>
                     <td>{row.login_trial_browser || '—'}</td>
                   </tr>
@@ -605,19 +659,17 @@ export default function UserHistoryPage() {
             <thead>
               <tr>
                 <th>일시</th>
-                <th>channel</th>
-                <th>action</th>
-                <th>business</th>
-                <th>성공</th>
-                <th>actor</th>
-                <th>요약</th>
-                <th>detail</th>
+                <th>페이지</th>
+                <th>행위</th>
+                <th>상태</th>
+                <th>사용자</th>
+                <th className="user-history__col-detail">상세내용</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={8} className="user-history__empty">
+                  <td colSpan={6} className="user-history__empty">
                     기록이 없습니다.
                   </td>
                 </tr>
@@ -627,11 +679,9 @@ export default function UserHistoryPage() {
                     <td>{formatDtm(row.create_dtm)}</td>
                     <td>{row.channel || '—'}</td>
                     <td>{row.action_kind || '—'}</td>
-                    <td>{row.business_action || '—'}</td>
-                    <td>{row.success_yn || '—'}</td>
-                    <td>{row.actor_user_id ?? '—'}</td>
-                    <td>{row.target_summary || row.sql_template_key || '—'}</td>
-                    <td className="user-history__cell-json">{shortenJson(row.detail_json, 120)}</td>
+                    <td>{formatYnStatus(row.success_yn)}</td>
+                    <td>{row.actor_user_email || row.actor_user_id || '—'}</td>
+                    <td className="user-history__col-detail">{formatSystemDetailCell(row)}</td>
                   </tr>
                 ))
               )}
@@ -653,8 +703,8 @@ export default function UserHistoryPage() {
               CSV 받기 확인
             </h2>
             <p className="admin-users__modal-hint">
-              아래는 <strong>필터 적용</strong> 직후 목록 API와 동일한 필터·정렬 조건입니다. 확인 시 브라우저가 파일을 받아
-              기본 다운로드 폴더(또는 저장 위치 선택 대화상자)로 저장합니다.
+              아래는 <strong>필터 적용</strong> 직후 목록 API와 동일한 필터·정렬 조건입니다. CSV 열 이름·셀 표기는 화면 테이블과
+              같습니다. 확인 시 브라우저가 파일을 받아 기본 다운로드 폴더(또는 저장 위치 선택 대화상자)로 저장합니다.
             </p>
 
             <div className="user-history__modal-section-title">필터</div>

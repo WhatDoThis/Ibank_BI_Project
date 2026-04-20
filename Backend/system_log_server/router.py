@@ -5,11 +5,11 @@ system_log 목록·로그인 이력(me·org) 조회.
 
 [Endpoints]
 ===========
-1. GET /api/system-logs/export.csv — system_log CSV(목록과 동일 필터·정렬·행 상한)
-2. GET /api/system-logs/login-history/org/export.csv — org 로그인 이력 CSV(동일)
-3. GET /api/system-logs — 조직 어드민, system_log 필터·정렬·페이징
-4. GET /api/system-logs/login-history/me — 본인 로그인 이력(활성 세션)
-5. GET /api/system-logs/login-history/org — 조직 어드민, 부서 트리 범위·정렬
+1. GET /api/system-logs/export.csv — system_log CSV(파일명 `system_log_YYYYMMDD_hhmmss.csv`, 동일 필터·행 상한·화면 표기)
+2. GET /api/system-logs/login-history/org/export.csv — org 로그인 이력 CSV(파일명 `login_log_YYYYMMDD_hhmmss.csv`)
+3. GET /api/system-logs/login-history/me — 본인 로그인 이력(활성 세션, 페이징)
+4. GET /api/system-logs/login-history/org — 조직 어드민, 부서 트리 범위·정렬·페이징
+5. GET /api/system-logs — 조직 어드민, system_log 필터·정렬·페이징
 
 [Dependencies]
 =========
@@ -19,9 +19,12 @@ system_log 목록·로그인 이력(me·org) 조회.
 - Backend.system_log_server.audit_emit, service, service_login_history, schemas
 
 조회·CSV 공통: `from`·`to` 가 모이면 기간 일수 상한 `MAX_HISTORY_FILTER_SPAN_DAYS`(약 3개월).
+CSV 감사 append: `_safe_actor_user_id` 로 `actor_user_id` 0·비정수 적재 방지.
+CSV 파일명: `_org_log_csv_attachment_filename` — `login_log_` / `system_log_` + Asia/Seoul `YYYYMMDD_hhmmss`.
 """
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -38,6 +41,27 @@ router = APIRouter(prefix="/api/system-logs", tags=["system-logs"])
 
 # 통합 이력·CSV: `from`·`to` 둘 다 있을 때 (종료일−시작일) 일수 상한(약 3개월).
 MAX_HISTORY_FILTER_SPAN_DAYS = 92
+
+
+def _safe_actor_user_id(actor: dict) -> int | None:
+    """CSV 감사 append용. 없거나 0 이하·비정수면 None(의미 없는 actor_user_id=0 적재 방지)."""
+    v = actor.get("user_id")
+    if v is None:
+        return None
+    try:
+        i = int(v)
+    except (TypeError, ValueError):
+        return None
+    return i if i > 0 else None
+
+
+def _org_log_csv_attachment_filename(prefix: str) -> str:
+    """조직 이력 CSV 다운로드 파일명. prefix: login_log | system_log (Asia/Seoul, `YYYYMMDD_hhmmss`)."""
+    safe = prefix.strip().lower().replace(" ", "_")
+    if safe not in ("login_log", "system_log"):
+        safe = "system_log"
+    ts = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d_%H%M%S")
+    return f"{safe}_{ts}.csv"
 
 
 def _validate_history_filter_date_range(from_dtm: date | None, to_dtm: date | None) -> None:
@@ -94,7 +118,7 @@ def export_system_logs_csv(
     sort_dir: str | None = Query(None, description="asc|desc"),
 ):
     _validate_history_filter_date_range(from_dtm, to_dtm)
-    uid = int(actor.get("user_id") or 0)
+    uid = _safe_actor_user_id(actor)
     try:
         n, body = service.export_system_logs_csv_bytes(
             conn,
@@ -117,11 +141,12 @@ def export_system_logs_csv(
         row_count=n,
         detail_json={"channel": channel, "action_kind": action_kind},
     )
+    fn = _org_log_csv_attachment_filename("system_log")
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="system_logs_export.csv"',
+            "Content-Disposition": f'attachment; filename="{fn}"',
         },
     )
 
@@ -142,7 +167,7 @@ def export_login_history_org_csv(
     sort_dir: str | None = Query(None, description="asc|desc"),
 ):
     _validate_history_filter_date_range(from_dtm, to_dtm)
-    uid = int(actor.get("user_id") or 0)
+    uid = _safe_actor_user_id(actor)
     try:
         n, body = service_login_history.export_login_history_org_csv_bytes(
             conn,
@@ -162,11 +187,12 @@ def export_login_history_org_csv(
         row_count=n,
         detail_json={},
     )
+    fn = _org_log_csv_attachment_filename("login_log")
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="login_history_export.csv"',
+            "Content-Disposition": f'attachment; filename="{fn}"',
         },
     )
 
@@ -256,7 +282,7 @@ def list_login_history_org(
 def list_system_logs(
     actor: dict = Depends(require_org_admin),
     conn=Depends(get_system_db),
-    user_key: str | None = Query(None, description="사용자 id 문자열·이메일 부분 일치"),
+    user_key: str | None = Query(None, description="사용자 id·이메일 contains"),
     from_dtm: date | None = Query(None, alias="from"),
     to_dtm: date | None = Query(None, alias="to"),
     ip_contains: str | None = Query(None),

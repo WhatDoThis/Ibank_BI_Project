@@ -2,13 +2,14 @@
 Backend.system_log_server.service_login_history (로그인 이력 조회)
 ================================================================
 user_login_log 조회·IP 마스킹. 본인(me)·조직 어드민(org·부서 트리) 경로. 적재는 auth_server 유지(계획 §3.3).
+`ip_contains` 필터는 원문 IP 부분 일치와, IPv4 4옥텟이면 `a.b.*.*` 마스크 표기와의 부분 일치를 함께 지원한다(표시·`mask_client_ip_for_audit`와 정합).
 
 [Main Functions]
 ===========
 1. fetch_login_history_masked_for_user: 레거시 형식 list[dict] (최근 N건, ISO create_dtm; IP 마스킹은 core.request_context)
 2. list_login_history_me_paged: 본인 전용 페이징·필터
 3. list_login_history_org_paged: require_org_admin · 부서 트리 스코프(정렬 `sort_by`·`sort_dir`)
-4. export_login_history_org_csv_bytes: org 목록과 동일 필터·정렬·CSV(상한 `MAX_CSV_EXPORT_ROWS`)
+4. export_login_history_org_csv_bytes: org 목록과 동일 필터·정렬·CSV(상한 `MAX_CSV_EXPORT_ROWS`, 화면 테이블과 동일 한글 헤더·표기)
 
 [Dependencies]
 =========
@@ -32,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 MAX_CSV_EXPORT_ROWS = 50_000
 
+_LOGIN_CSV_UI_HEADERS = ("일시", "사용자", "결과", "IP", "클라이언트")
+
 _LOGIN_ORG_SORT_COLUMNS: dict[str, str] = {
     "create_dtm": "L.create_dtm",
     "user_login_log_id": "L.user_login_log_id",
@@ -53,6 +56,27 @@ def _login_org_order_sql(sort_by: str | None, sort_dir: str | None) -> str:
     d_up = d.upper()
     id_dir = "ASC" if d == "asc" else "DESC"
     return f"ORDER BY {primary} {d_up}, L.user_login_log_id {id_dir}"
+
+
+def _csv_dtm_display(cd: Any) -> str:
+    """로그인 이력 CSV: 일시 `YYYY-MM-DD HH:MM:SS`(화면 `formatDtm` 에 가깝게)."""
+    if cd is None:
+        return ""
+    if hasattr(cd, "strftime"):
+        try:
+            return cd.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+    return str(cd)
+
+
+def _csv_login_success_display(yn: Any) -> str:
+    u = str(yn or "").strip().upper()
+    if u == "Y":
+        return "성공"
+    if u == "N":
+        return "실패"
+    return "—"
 
 
 _RECURSIVE_SUBTREE = """
@@ -141,8 +165,24 @@ def _apply_login_history_filters(
         params.append(end_excl)
 
     if ip_contains and str(ip_contains).strip():
-        where.append(f"{table_alias}.login_trial_ip LIKE %s")
-        params.append(f"%{str(ip_contains).strip()}%")
+        pat = f"%{str(ip_contains).strip()}%"
+        where.append(
+            f"""
+            (
+                {table_alias}.login_trial_ip LIKE %s
+                OR (
+                    {table_alias}.login_trial_ip ~ '^[0-9]{{1,3}}\\.[0-9]{{1,3}}\\.[0-9]{{1,3}}\\.[0-9]{{1,3}}$'
+                    AND (
+                        split_part({table_alias}.login_trial_ip, '.', 1)
+                        || '.' ||
+                        split_part({table_alias}.login_trial_ip, '.', 2)
+                        || '.*.*'
+                    ) LIKE %s
+                )
+            )
+            """
+        )
+        params.extend([pat, pat])
 
 
 # 2.
@@ -337,8 +377,8 @@ def export_login_history_org_csv_bytes(
     sort_dir: str | None = None,
 ) -> tuple[int, bytes]:
     """
-    org 목록과 동일 필터·정렬 CSV. COUNT > MAX_CSV_EXPORT_ROWS 이면 ValueError
-    (`CSV_EXPORT_ROW_LIMIT_EXCEEDED:총건수:상한`).
+    org 목록과 동일 필터·정렬 CSV. 헤더·셀 값은 사용자 이력 화면(로그인 탭)과 동일 규칙.
+    COUNT > MAX_CSV_EXPORT_ROWS 이면 ValueError (`CSV_EXPORT_ROW_LIMIT_EXCEEDED:총건수:상한`).
     """
     base_from, params = _build_login_history_org_base(
         actor,
@@ -373,7 +413,7 @@ def export_login_history_org_csv_bytes(
         lim = min(total, MAX_CSV_EXPORT_ROWS) if total > 0 else 0
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["create_dtm", "user_id", "user_email", "login_success_yn", "login_trial_ip", "login_trial_browser"])
+        w.writerow(list(_LOGIN_CSV_UI_HEADERS))
         if lim == 0:
             raw = "\ufeff" + buf.getvalue()
             return 0, raw.encode("utf-8")
@@ -383,16 +423,18 @@ def export_login_history_org_csv_bytes(
         rows = cur.fetchall() or []
         for r in rows:
             d = dict(r)
-            cd = d.get("create_dtm")
-            cd_out = cd.isoformat() if hasattr(cd, "isoformat") else (cd or "")
+            user_cell = str(d.get("user_email") or "").strip() or (
+                str(d.get("user_id")) if d.get("user_id") is not None else ""
+            )
+            if not user_cell:
+                user_cell = "—"
             w.writerow(
                 [
-                    cd_out,
-                    d.get("user_id"),
-                    d.get("user_email"),
-                    d.get("login_success_yn"),
-                    mask_client_ip_for_audit(d.get("login_trial_ip")),
-                    d.get("login_trial_browser"),
+                    _csv_dtm_display(d.get("create_dtm")),
+                    user_cell,
+                    _csv_login_success_display(d.get("login_success_yn")),
+                    mask_client_ip_for_audit(d.get("login_trial_ip")) or "—",
+                    d.get("login_trial_browser") or "—",
                 ]
             )
         raw = "\ufeff" + buf.getvalue()

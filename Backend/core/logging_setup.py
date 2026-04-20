@@ -1,7 +1,7 @@
 """
 Backend.core.logging_setup (앱 공통 로그 포맷)
 =============================================
-API 서버 기동 시 루트 로거를 `발생일시 / [LEVEL] 메시지` 한 줄 형식으로 맞춘다.
+API 서버 기동 시 루트 로거를 `발생일시 / [LEVEL] 메시지` 형식으로 맞춘다. logger.exception 등 exc_info 가 있으면 traceback 을 이어 붙인다.
 
 [Main Functions]
 ===========
@@ -19,11 +19,14 @@ import sys
 
 
 class _AppFormatter(logging.Formatter):
-    """`YYYY-MM-DD HH:MM:SS / [LEVEL] message` — 시각과 본문 구분이 명확."""
+    """`YYYY-MM-DD HH:MM:SS / [LEVEL] message` — 시각과 본문 구분. exc_info 있으면 traceback 이어 붙임."""
 
     def format(self, record: logging.LogRecord) -> str:
         ts = self.formatTime(record, self.datefmt)
-        return f"{ts} / [{record.levelname}] {record.getMessage()}"
+        base = f"{ts} / [{record.levelname}] {record.getMessage()}"
+        if record.exc_info:
+            return base + "\n" + self.formatException(record.exc_info)
+        return base
 
 
 # 1.

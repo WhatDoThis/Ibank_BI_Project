@@ -29,7 +29,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 16. api_join_order: POST /api/join-order (JOIN 순서, 허용 테이블은 프로젝트 매핑 병합 집합)
 17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블; DDL 완료는 워커에서 `emit_query_studio_log`·`saved_table_create`)
 18. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
-19. execute_query: POST /api/execute-query (SELECT, main_db만·성공 시 `query_execute` 계측)
+19. execute_query: POST /api/execute-query (SELECT, main_db만·성공 시 `query_execute` 계측, `user_id`는 JWT 클레임 정수로 확정)
 20. explain_sql: POST /api/explain-sql (Claude 해석)
 21. get_column_values: POST /api/get-column-values (main_db·main 매핑만)
 22. query_stats: POST /api/query-stats (COUNT·EXPLAIN, main_db만)
@@ -1465,8 +1465,7 @@ def execute_query(
             return str(obj)
 
         body_bytes = json.dumps(payload, ensure_ascii=False, default=_json_default).encode("utf-8")
-        uid_exec = _perm.get("user_id")
-        uid_exec = int(uid_exec) if uid_exec is not None else None
+        uid_exec = int(_perm["user_id"])
         pid_exec = _perm.get("project_info_id")
         emit_query_studio_log(
             uid_exec,
