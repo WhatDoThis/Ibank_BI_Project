@@ -6,14 +6,14 @@
  * [Main Functions]
  * ===========
  * 1. isGroupByColumn, joinOptionLabel, confidenceBadge, getColumnDisplayName (헬퍼)
- * 2. MainArea: gridColumns, addedTables, joinOrder, relationshipOptions, joinConditions, joinTypes, resultData, executedSql, explanation, pagination 등 props. buildRelationshipTree, buildRelationshipMermaid(relationshipDiagram)
+ * 2. MainArea: gridColumns, addedTables, joinOrder, relationshipOptions, joinConditions, joinTypes, resultData, executedSql, explanation, pagination 등 props. 테이블 관계도 모달에 관계 트리·Mermaid·JOIN 조건 통합.
  *
  * [Dependencies]
  * =========
  * - React, query_studio/utils/constants (AGG_FUNCTIONS, OPERATOR_LABELS), query_studio/utils/helpers (isDateColumn, isDateType, isDateTimeType), query_studio/utils/relationshipDiagram (buildRelationshipTree, buildRelationshipMermaid)
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
 import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relationshipDiagram'
@@ -128,10 +128,43 @@ export default function MainArea({
   const [addPivotMenuOpen, setAddPivotMenuOpen] = useState(false)
   const [addPivotAggMenuOpen, setAddPivotAggMenuOpen] = useState(false)
   const [addHavingMenuOpen, setAddHavingMenuOpen] = useState(false)
+  /** SELECT 실행 구간 경과(초, 소수 둘째 자리) — 실행 중에만 갱신 */
+  const [queryElapsedSec, setQueryElapsedSec] = useState('0.00')
+  /** 직전 완료된 실행 소요 시간(같은 화면에서 유지, 다음 실행 시작 전까지 사라지지 않음) */
+  const [lastRunElapsedSec, setLastRunElapsedSec] = useState(null)
+  const queryElapsedIntervalRef = useRef(null)
+  const queryRunT0Ref = useRef(null)
+
+  useEffect(() => {
+    if (!queryRunning) {
+      if (queryElapsedIntervalRef.current != null) {
+        clearInterval(queryElapsedIntervalRef.current)
+        queryElapsedIntervalRef.current = null
+      }
+      if (queryRunT0Ref.current != null) {
+        const sec = ((performance.now() - queryRunT0Ref.current) / 1000).toFixed(2)
+        setLastRunElapsedSec(sec)
+        queryRunT0Ref.current = null
+      }
+      return
+    }
+    setQueryElapsedSec('0.00')
+    queryRunT0Ref.current = performance.now()
+    queryElapsedIntervalRef.current = setInterval(() => {
+      if (queryRunT0Ref.current == null) return
+      setQueryElapsedSec(((performance.now() - queryRunT0Ref.current) / 1000).toFixed(2))
+    }, 50)
+    return () => {
+      if (queryElapsedIntervalRef.current != null) {
+        clearInterval(queryElapsedIntervalRef.current)
+        queryElapsedIntervalRef.current = null
+      }
+    }
+  }, [queryRunning])
   const [addHavingPopup, setAddHavingPopup] = useState(null)
   const [showQueryOptionsModal, setShowQueryOptionsModal] = useState(false)
-  const [showRelationshipDiagram, setShowRelationshipDiagram] = useState(false)
-  const [showJoinConditionsModal, setShowJoinConditionsModal] = useState(false)
+  /** 테이블 관계도 + 조인 조건 통합 모달 */
+  const [showTableRelationshipModal, setShowTableRelationshipModal] = useState(false)
   const [expandedJoinKey, setExpandedJoinKey] = useState(null)
 
   const isGroupByActive = groupBy && groupBy.length > 0
@@ -592,41 +625,39 @@ export default function MainArea({
                 초기화
               </button>
             )}
-            {onOpenSaveAsTableModal && (
-              <button type="button" className="btn btn-query-studio-secondary" onClick={onOpenSaveAsTableModal} title="실행한 쿼리 결과를 테이블로 저장">
-                결과 저장
-              </button>
-            )}
             <button
               type="button"
               className="btn btn-query-studio-secondary"
               onClick={() => setShowQueryOptionsModal(true)}
               title="WHERE·기준축·피벗·HAVING·정렬(ORDER BY) 편집"
             >
-              조건·정렬·피벗·HAVING
+              조건
             </button>
             {joinPairs.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-query-studio-secondary"
-                  onClick={() => setShowRelationshipDiagram(true)}
-                  title="현재 테이블 기준 관계도 (족보)"
-                >
-                  테이블 관계도
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-query-studio-secondary"
-                  onClick={() => setShowJoinConditionsModal(true)}
-                  title="테이블 간 JOIN 조건 편집"
-                >
-                  조인 조건
-                </button>
-              </>
+              <button
+                type="button"
+                className="btn btn-query-studio-secondary"
+                onClick={() => setShowTableRelationshipModal(true)}
+                title="테이블 관계도 및 JOIN 조건"
+              >
+                테이블 관계도
+              </button>
             )}
           </div>
           <div className="qs-toolbar__right">
+            {(queryRunning || lastRunElapsedSec != null) && (
+              <span className="qs-query-elapsed" aria-live="polite">
+                {queryRunning ? (
+                  <>
+                    쿼리 실행 중… <span className="qs-query-elapsed__value">{queryElapsedSec}</span>초
+                  </>
+                ) : (
+                  <>
+                    마지막 실행 시간 <span className="qs-query-elapsed__value">{lastRunElapsedSec}</span>초
+                  </>
+                )}
+              </span>
+            )}
             {typeof onToggleAutoExecute === 'function' && (
               <label className="qs-toolbar__auto">
                 <input type="checkbox" checked={autoExecute} onChange={onToggleAutoExecute} />
@@ -643,6 +674,17 @@ export default function MainArea({
                 ) : (
                   '실행'
                 )}
+              </button>
+            )}
+            {typeof onOpenSaveAsTableModal === 'function' && (
+              <button
+                type="button"
+                className="btn btn-primary btn-execute"
+                onClick={onOpenSaveAsTableModal}
+                disabled={queryRunning}
+                title="현재 조건의 SQL 결과를 테이블로 저장"
+              >
+                저장
               </button>
             )}
           </div>
@@ -961,7 +1003,7 @@ export default function MainArea({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="relationship-diagram-header">
-            <span id="qs-query-options-modal-title">조건·정렬·피벗·HAVING</span>
+            <span id="qs-query-options-modal-title">조건</span>
             <button type="button" className="relationship-diagram-close" onClick={() => setShowQueryOptionsModal(false)} aria-label="닫기">×</button>
           </div>
           <div className="relationship-diagram-body">
@@ -976,55 +1018,41 @@ export default function MainArea({
       </div>
     )}
 
-    {showJoinConditionsModal && joinPairs.length > 0 && (
+    {showTableRelationshipModal && joinPairs.length > 0 && (
       <div
         className="relationship-diagram-overlay"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="qs-join-conditions-modal-title"
-        onClick={() => setShowJoinConditionsModal(false)}
+        aria-labelledby="qs-table-relationship-modal-title"
+        onClick={() => setShowTableRelationshipModal(false)}
       >
         <div
-          className="relationship-diagram-modal qs-join-conditions-modal"
+          className="relationship-diagram-modal qs-table-relationship-modal"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="relationship-diagram-header">
-            <span id="qs-join-conditions-modal-title">조인 조건</span>
-            <button type="button" className="relationship-diagram-close" onClick={() => setShowJoinConditionsModal(false)} aria-label="닫기">×</button>
+            <span id="qs-table-relationship-modal-title">테이블 관계도</span>
+            <button type="button" className="relationship-diagram-close" onClick={() => setShowTableRelationshipModal(false)} aria-label="닫기">×</button>
           </div>
-          <div className="relationship-diagram-body">
-            {joinConditionsModalContent}
-          </div>
-        </div>
-      </div>
-    )}
-
-    {showRelationshipDiagram && (
-      <div
-        className="relationship-diagram-overlay"
-        role="dialog"
-        aria-modal="true"
-        aria-label="테이블 관계도"
-        onClick={() => setShowRelationshipDiagram(false)}
-      >
-        <div className="relationship-diagram-modal" onClick={(e) => e.stopPropagation()}>
-          <div className="relationship-diagram-header">
-            <span>테이블 관계도</span>
-            <button type="button" className="relationship-diagram-close" onClick={() => setShowRelationshipDiagram(false)} aria-label="닫기">×</button>
-          </div>
-          <div className="relationship-diagram-body">
-            {relationshipTree.baseTable && (
-              <p className="relationship-diagram-caption">기준 테이블: <strong>{relationshipTree.baseTable}</strong></p>
-            )}
-            <pre className="relationship-diagram-tree">{relationshipTree.lines.join('\n')}</pre>
-            {relationshipMermaid && (
-              <>
+          <div className="relationship-diagram-body qs-table-relationship-modal__body">
+            <div className="qs-query-options-modal__section">
+              <div className="bar-label qs-query-options-modal__section-label">경로·관계</div>
+              {relationshipTree.baseTable && (
+                <p className="relationship-diagram-caption">기준 테이블: <strong>{relationshipTree.baseTable}</strong></p>
+              )}
+              <pre className="relationship-diagram-tree">{relationshipTree.lines.join('\n')}</pre>
+              {relationshipMermaid && (
                 <details className="relationship-diagram-mermaid-wrap">
                   <summary>Mermaid 코드 (복사용)</summary>
                   <pre className="relationship-diagram-mermaid">{relationshipMermaid}</pre>
                 </details>
-              </>
-            )}
+              )}
+            </div>
+            <div className="qs-query-options-modal__divider" aria-hidden />
+            <div className="qs-query-options-modal__section">
+              <div className="bar-label qs-query-options-modal__section-label">JOIN 조건</div>
+              {joinConditionsModalContent}
+            </div>
           </div>
         </div>
       </div>

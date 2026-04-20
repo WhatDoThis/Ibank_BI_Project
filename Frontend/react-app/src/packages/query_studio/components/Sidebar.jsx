@@ -1,14 +1,14 @@
 /**
  * query_studio/components/Sidebar.jsx (쿼리 스튜디오 페이지 사이드바)
  * =====================================================
- * DB 상태·테이블 목록(JOIN 가능만 노출)·검색·펼치기/접기·컬럼 드래그.
+ * 테이블 목록(JOIN 가능만 노출)·검색·펼치기/접기·컬럼 드래그. 좌측 패널은 헤더 «/레일 » 로 명시적 접기·펼침(호버 의존 없음).
  * 테이블 목록은 폴더로 구분: I1 (I1_*), 쿼리 스튜디오 저장 (test_report_*), 기타.
  *
  * [Main Functions]
  * ===========
  * 1. getTableFolder: 테이블명 → 폴더(I1/쿼리빌더/기타)
  * 2. getEmptyTableListHint: 테이블 목록이 비었을 때 dbStatus.ok(연결됨/아님)에 따라 매핑 안내 vs 연결 확인 문구
- * 3. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus props. isTableAvailableOrViaParent로 필터. 테이블 행 톱니바퀴 → onOpenTableLabelsModal(table). 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
+ * 3. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus(빈 목록 힌트용), onRefreshSidebar. isTableAvailableOrViaParent로 필터. 테이블 행 톱니바퀴 → onOpenTableLabelsModal(table). 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
  *
  * [Dependencies]
  * =========
@@ -55,12 +55,12 @@ export default function Sidebar({
   loading,
   dbStatus = {},
   onOpenTableLabelsModal,
-  onRefreshTables,
-  onRefreshDbStatus
+  onRefreshSidebar
 }) {
   const [tableExpanded, setTableExpanded] = useState({})
   const [folderExpanded, setFolderExpanded] = useState({ [FOLDER_I1]: true, [FOLDER_QUERY_BUILDER]: true, [FOLDER_OTHER]: true })
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [sidebarExpanded, setSidebarExpanded] = useState(true)
 
   // 4.
   function toggleTable(tableName) {
@@ -151,21 +151,23 @@ export default function Sidebar({
           >
             {t.table_label ?? t.table_name}
           </span>
-          <span className="table-count">({cols.length}개)</span>
-          {typeof onOpenTableLabelsModal === 'function' && (
-            <button
-              type="button"
-              className="qs-table-label-gear"
-              title="이 테이블 표시명·컬럼 라벨 편집"
-              aria-label={`${t.table_name} 표시명 편집`}
-              onClick={(e) => {
-                e.stopPropagation()
-                onOpenTableLabelsModal(t.table_name)
-              }}
-            >
-              ⚙
-            </button>
-          )}
+          <div className="table-header__trailing">
+            <span className="table-count">({cols.length}개)</span>
+            {typeof onOpenTableLabelsModal === 'function' && (
+              <button
+                type="button"
+                className="qs-table-label-gear"
+                title="이 테이블 표시명·컬럼 라벨 편집"
+                aria-label={`${t.table_name} 표시명 편집`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenTableLabelsModal(t.table_name)
+                }}
+              >
+                ⚙
+              </button>
+            )}
+          </div>
         </div>
         <div className={`column-list ${expanded ? 'expanded' : ''}`}>
           {cols.map((c) => (
@@ -190,42 +192,68 @@ export default function Sidebar({
   }
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-header qs-sidebar__header">
-        <span className="qs-sidebar__title">테이블 목록</span>
-      </div>
-      <div className="sidebar-db-status-wrap qs-sidebar__status-row">
-        <span className={`sidebar-db-status ${dbStatus.ok === true ? 'ok' : dbStatus.ok === false ? 'error' : ''}`} title="API /health 결과">
-          {dbStatus.message ?? '확인 중...'}
-        </span>
-        <div className="qs-sidebar__status-actions">
-          {typeof onRefreshDbStatus === 'function' && (
-            <button type="button" className="btn-small secondary qs-sidebar__icon-btn" onClick={onRefreshDbStatus} title="DB 연결 상태 재확인">
-              상태
-            </button>
-          )}
-          {typeof onRefreshTables === 'function' && (
+    <div
+      className={`sidebar qs-sidebar-shell ${sidebarExpanded ? 'qs-sidebar-shell--expanded' : 'qs-sidebar-shell--collapsed'}`}
+    >
+      {!sidebarExpanded && (
+        <button
+          type="button"
+          className="qs-sidebar-rail"
+          aria-expanded="false"
+          aria-controls="qs-sidebar-panel"
+          id="qs-sidebar-rail-btn"
+          aria-label="테이블 목록 펼치기"
+          title="테이블 목록 펼치기"
+          onClick={() => setSidebarExpanded(true)}
+        >
+          <span className="qs-sidebar-rail__chev" aria-hidden>
+            »
+          </span>
+        </button>
+      )}
+      <div
+        id="qs-sidebar-panel"
+        className="qs-sidebar-panel"
+        role="region"
+        aria-label="테이블 목록"
+        aria-hidden={!sidebarExpanded}
+      >
+        <div className="sidebar-header qs-sidebar__header">
+          <div className="qs-sidebar__header-left">
+            {sidebarExpanded && (
+              <button
+                type="button"
+                className="qs-sidebar__icon-btn qs-sidebar__collapse-btn"
+                onClick={() => setSidebarExpanded(false)}
+                aria-label="테이블 목록 접기"
+                title="접기"
+              >
+                «
+              </button>
+            )}
+            <span className="qs-sidebar__title">테이블 목록</span>
+          </div>
+          {typeof onRefreshSidebar === 'function' && (
             <button
               type="button"
-              className="btn-small secondary qs-sidebar__icon-btn"
-              onClick={onRefreshTables}
+              className="btn-small secondary qs-sidebar__refresh-btn"
+              onClick={onRefreshSidebar}
               disabled={loading}
-              title="테이블 목록 새로고침"
+              title="DB 상태·테이블 목록 새로고침"
             >
-              {loading ? '…' : '목록'}
+              {loading ? '…' : '새로고침'}
             </button>
           )}
         </div>
-      </div>
-      <div className="sidebar-search">
-        <input
-          type="text"
-          placeholder="테이블명 검색..."
-          value={searchKeyword}
-          onChange={(e) => setSearchKeyword(e.target.value)}
-        />
-      </div>
-      <div className="sidebar-content">
+        <div className="sidebar-search">
+          <input
+            type="text"
+            placeholder="테이블명 검색..."
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+          />
+        </div>
+        <div className="sidebar-content">
         {loading && '로딩 중...'}
         {!loading && tables.length === 0 && getEmptyTableListHint(dbStatus)}
         {!loading && tables.length > 0 && (
@@ -257,6 +285,7 @@ export default function Sidebar({
             })}
           </>
         )}
+        </div>
       </div>
     </div>
   )

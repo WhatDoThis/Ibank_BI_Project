@@ -1112,14 +1112,11 @@ export default function QueryStudioPage() {
           addedTables={addedTables}
           loading={loading}
           dbStatus={dbStatus}
-          onRefreshTables={async () => {
+          onRefreshSidebar={async () => {
             setToast(null)
-            const res = await loadTables((msg) => setToast({ type: 'error', msg }))
-            if (res?.ok) setToast({ type: 'success', msg: '테이블 목록을 새로고침했습니다.' })
-          }}
-          onRefreshDbStatus={async () => {
             await loadHealth()
-            setToast({ type: 'success', msg: 'DB 상태를 확인했습니다.' })
+            const res = await loadTables((msg) => setToast({ type: 'error', msg }))
+            if (res?.ok) setToast({ type: 'success', msg: '새로고침했습니다.' })
           }}
         />
         <MainArea
