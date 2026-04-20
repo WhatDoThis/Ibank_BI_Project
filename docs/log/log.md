@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+475. 2026-04-20 사용자 이력 테이블: 셀 좌우 패딩 소폭 확대(가로 스크롤 유지)
 474. 2026-04-20 통합 이력: 필터 초기화·시스템 목록 IP열·CSV IP열
 473. 2026-04-20 통합 이력 CSV 모달: 정렬 블록 단락 표시
 472. 2026-04-20 통합 이력 CSV 모달: 정렬 줄 `1.` 접두 제거
@@ -477,6 +478,15 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+475. 2026-04-20 사용자 이력 테이블: 셀 좌우 패딩 소폭 확대(가로 스크롤 유지)
+Purpose: 시스템·로그인 이력 테이블 열이 다닥다닥해 보이는 문제를 완화한다.
+
+Changes:
+
+- `user-history.css`: `.user-history__table-wrap .admin-users__table`의 `th`/`td`에 `padding: 8px 14px`(기본 10px 가로보다 소폭 확대)
+
+Changed files: Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
 
 474. 2026-04-20 통합 이력: 필터 초기화·시스템 목록 IP열·CSV IP열
 Purpose: 필터 폼을 한 번에 비우고 기본 정렬로 되돌리는 **초기화**를 두고, 시스템 탭에서 `ip_contains` 필터와 맞추기 위해 **`client_ip_masked` 표시** 및 CSV 동일 열을 맞춤.

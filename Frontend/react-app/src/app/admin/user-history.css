@@ -7,7 +7,7 @@
  * ===========
  * - .user-history__tabs / __tab: 탭 전환
  * - .user-history__filters: 필터 그리드·폼 제출(Enter)·툴바 버튼 높이
- * - .user-history__table-wrap: 테이블·상세열(th/td)·빈 상태
+ * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
  *
  * [Endpoints/Classes/Functions]
@@ -118,14 +118,15 @@
   margin-top: 4px;
 }
 
-/* 긴 행·가로 스크롤 시에도 헤더 셀이 과도하게 압축되지 않도록 */
-.user-history__table-wrap .admin-users__table th {
-  min-width: max(3.25rem, min-content);
-  box-sizing: border-box;
-}
-
+/* 긴 행·가로 스크롤 시에도 헤더 셀이 과도하게 압축되지 않도록; 열 간 읽기 여유(기본 테이블 10px → 14px) */
+.user-history__table-wrap .admin-users__table th,
 .user-history__table-wrap .admin-users__table td {
   box-sizing: border-box;
+  padding: 8px 14px;
+}
+
+.user-history__table-wrap .admin-users__table th {
+  min-width: max(3.25rem, min-content);
 }
 
 /* 상세내용 열: admin-users 전역 td nowrap·구 cell max-width 제거 — 셀 박스 폭=테이블 열 폭으로 thead 배경 단절 방지 */
