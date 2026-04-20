@@ -3,6 +3,17 @@
  */
 import { NAV_ITEMS } from './navConfig.js'
 
+function navLabelForPath(pathname) {
+  for (const i of NAV_ITEMS) {
+    if (i.to === pathname) return i.label
+    if (i.children?.length) {
+      const ch = i.children.find((c) => c.to === pathname)
+      if (ch) return ch.label
+    }
+  }
+  return null
+}
+
 export function pageTitleFromPath(pathname) {
   if (/^\/admin\/projects\/[^/]+\/members$/.test(pathname)) {
     return '프로젝트 멤버'
@@ -10,7 +21,7 @@ export function pageTitleFromPath(pathname) {
   if (/^\/widgetboard\/\d+$/.test(pathname)) {
     return '위젯보드'
   }
-  const item = NAV_ITEMS.find((i) => i.to === pathname)
-  if (item) return item.label
+  const label = navLabelForPath(pathname)
+  if (label) return label
   return 'IBank BI'
 }

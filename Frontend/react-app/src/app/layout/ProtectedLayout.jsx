@@ -37,9 +37,6 @@ import '@/styles/ibank-scrollbars.css'
 
 const ROUTER_BASENAME = (import.meta.env.BASE_URL || '').replace(/\/$/, '') || ''
 
-const navLinkClass = ({ isActive }) =>
-  isActive ? 'ibank-sidebar-link active' : 'ibank-sidebar-link'
-
 function ProtectedLayoutContent({ me, logout }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -47,16 +44,23 @@ function ProtectedLayoutContent({ me, logout }) {
 
   const navItems = useMemo(() => {
     if (!me) return []
-    return NAV_ITEMS.filter((item) => {
-      if (item.to === '/etl' && !canAccessEtl(me)) return false
-      if (item.requiresOrgAdmin && !canAccessOrgAdmin(me)) return false
-      if (item.requiresDeptAdmin && !canAccessDeptSettings(me)) return false
-      if (item.requiresProjectAdmin && !canAccessProjectAdminPages(me)) return false
-      if (item.to === '/query-studio' && !canAccessQueryStudio(me)) return false
-      if (item.to === '/dashboard' && !canAccessDashboard(me)) return false
-      if (item.to === '/widgetboard' && !canAccessWidgetboard(me)) return false
-      return true
-    })
+    return NAV_ITEMS.map((item) => {
+      if (item.to === '/etl' && !canAccessEtl(me)) return null
+      if (item.requiresOrgAdmin && !canAccessOrgAdmin(me)) return null
+      if (item.requiresDeptAdmin && !canAccessDeptSettings(me)) return null
+      if (item.requiresProjectAdmin && !canAccessProjectAdminPages(me)) return null
+
+      if (item.children?.length) {
+        const children = item.children.filter((ch) => {
+          if (ch.to === '/query-studio' && !canAccessQueryStudio(me)) return false
+          if (ch.to === '/dashboard' && !canAccessDashboard(me)) return false
+          if (ch.to === '/widgetboard' && !canAccessWidgetboard(me)) return false
+          return true
+        })
+        return { ...item, children }
+      }
+      return item
+    }).filter(Boolean)
   }, [me])
 
   const defaultPageTitle = pageTitleFromPath(location.pathname)
@@ -99,42 +103,57 @@ function ProtectedLayoutContent({ me, logout }) {
         </NavLink>
         <nav className="ibank-sidebar-nav">
           {navItems.map((item) => {
-            const { to, label, icon, requiresProject } = item
-            const blocked = requiresProject && !hasProjectClaim(getAccessToken())
-            const linkBody = (
-              <>
-                <span className="ibank-sidebar-link__icon" aria-hidden="true">
-                  <SidebarNavIcon name={icon} />
-                </span>
-                <span className="ibank-sidebar-link__full" aria-hidden="true">
-                  {label}
-                </span>
-              </>
-            )
-            if (blocked) {
+            const renderLink = (it) => {
+              const { to, label, icon, requiresProject } = it
+              const blocked = requiresProject && !hasProjectClaim(getAccessToken())
+              const linkBody = (
+                <>
+                  <span className="ibank-sidebar-link__icon" aria-hidden="true">
+                    <SidebarNavIcon name={icon} />
+                  </span>
+                  <span className="ibank-sidebar-link__full" aria-hidden="true">
+                    {label}
+                  </span>
+                </>
+              )
+              if (blocked) {
+                return (
+                  <span
+                    key={to}
+                    className="ibank-sidebar-link ibank-sidebar-link--disabled"
+                    title={`${label} — 홈에서 프로젝트를 선택한 뒤 이용할 수 있습니다.`}
+                    role="presentation"
+                  >
+                    {linkBody}
+                  </span>
+                )
+              }
               return (
-                <span
+                <NavLink
                   key={to}
-                  className="ibank-sidebar-link ibank-sidebar-link--disabled"
-                  title={`${label} — 홈에서 프로젝트를 선택한 뒤 이용할 수 있습니다.`}
-                  role="presentation"
+                  to={to}
+                  className={({ isActive }) => (isActive ? 'ibank-sidebar-link active' : 'ibank-sidebar-link')}
+                  title={label}
+                  aria-label={label}
+                  end={to === '/'}
                 >
                   {linkBody}
-                </span>
+                </NavLink>
               )
             }
-            return (
-              <NavLink
-                key={to}
-                to={to}
-                className={navLinkClass}
-                title={label}
-                aria-label={label}
-                end={to === '/'}
-              >
-                {linkBody}
-              </NavLink>
-            )
+
+            if (item.children?.length) {
+              return (
+                <div key={item.to} className="ibank-sidebar-nav__subsection">
+                  {renderLink(item)}
+                  <div className="ibank-sidebar-nav__children" role="group" aria-label="프로젝트 작업">
+                    {item.children.map((ch) => renderLink(ch))}
+                  </div>
+                </div>
+              )
+            }
+
+            return renderLink(item)
           })}
         </nav>
       </aside>
