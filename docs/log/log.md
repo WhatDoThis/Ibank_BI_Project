@@ -1,6 +1,20 @@
 # Log
 
 ## Log Index
+458. 2026-04-20 운영 배포: localhost 기본값·기동 콘솔 안내 정리
+457. 2026-04-20 docs/report/22: §8.2·F3-6 보존 만료 처리(추후)·ReportIndex
+456. 2026-04-20 통합 이력: 날짜 필터 min/max(기준일 먼저·±92일 달력 제한)
+455. 2026-04-20 통합 이력 정책: 보존 2년·필터 기간 92일·CSV 5만행·탭 유지 문서
+454. 2026-04-20 통합 이력 정렬 UI·API sort_by/sort_dir·CSV 동기
+453. 2026-04-20 통합 이력 CSV 받기 확인 모달(필터·정렬·총 행수·취소/확인)
+452. 2026-04-20 system_log CSV export(필터 동일·2만행 상한)·FE CSV 받기
+451. 2026-04-20 Frontend: §8.1 통합 이력 페이지·systemLogClient·사용자 관리 링크
+450. 2026-04-20 docs/report/22: §6.7 롤아웃 표 → §10.1 이동(목차·§6 정리)
+449. 2026-04-20 docs/report/22: §6.7 종합 체크리스트(배포·연결·완료 범위)
+448. 2026-04-20 Backend: widget_board 초대 발송 invite_send system_log(§6.5.5)
+447. 2026-04-20 Backend: Phase2 notification_server 읽음 처리 system_log(§6.5.7)
+446. 2026-04-20 Backend: Phase2 widget_board·project 서비스 system_log(§6.5.5~6)
+445. 2026-04-20 Backend: Phase2 etl_server HTTP 라우터 system_log(연결·테이블·배치)
 444. 2026-04-20 Backend: Phase2 query_studio execute·labels·saved_table system_log
 443. 2026-04-20 Backend: Phase2 admin 부서·이관 + auth 로그인·가입·비밀번호 system_log
 442. 2026-04-20 Backend: Phase2 admin projects·roles·tables 계측·audit_emit 분리
@@ -447,6 +461,162 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+458. 2026-04-20 운영 배포: localhost 기본값·기동 콘솔 안내 정리
+Purpose: 리눅스·도메인 운영에서 **의도 없이 localhost가 API 베이스로 박히는 빌드 경로**를 줄이고, `0.0.0.0` 바인딩인데 콘솔만 `localhost`로 오해되는 메시지를 바로잡음.
+
+Changes:
+
+- `vite.config.js`: production 빌드 시 `api_base_url` 없으면 `VITE_API_BASE` 기본 빈 문자열; 설정 파일 파싱 실패 시 prod는 빈 값 유지
+- `api.js`: `VITE_API_BASE`가 비어 있을 때 **개발 모드에서만** `http://localhost:5001` 폴백
+- `api_server/main.py`: 기동 배너를 `Listen: {host}:{port}`·로컬 헬스 확인용 `127.0.0.1` 한 줄로 명시
+- `static_server/main.py`: 정적 서버 기동 메시지를 `0.0.0.0` 바인딩 설명으로 변경
+
+Changed files: Frontend/react-app/vite.config.js, Frontend/react-app/src/shared/config/api.js, Backend/api_server/main.py, Frontend/static_server/main.py, docs/log/log.md
+
+457. 2026-04-20 docs/report/22: §8.2·F3-6 보존 만료 처리(추후)·ReportIndex
+Purpose: 보존 2년 **만료 후 자동 삭제·아카이브는 미구현**임을 명시하고, 추후 배치·파티션·권한·`user_login_log` 범위 등 **체크리스트**를 `22` §8.2·F3-6에 둠. `00_ReportIndex` 22행 설명 보강.
+
+Changes:
+
+- `22_System_Log_Development_Plan.md`: §8.2, F3-6, §11 이력 한 줄
+- `00_ReportIndex.md`: 22 문서 설명
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+456. 2026-04-20 통합 이력: 날짜 필터 min/max(기준일 먼저·±92일 달력 제한)
+Purpose: 시작일·종료일 중 **먼저 선택한 쪽을 기준**으로 다른 쪽 `type=date`에 `min`/`max`를 걸어 달력에서 범위 밖 날짜를 고르지 못하게 함(서버 92일 상한과 동일).
+
+Changes:
+
+- `UserHistoryPage.jsx`: `addDaysIso`, `dateInputBounds`, 날짜 입력 `title`·힌트 문구
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, docs/log/log.md
+
+455. 2026-04-20 통합 이력 정책: 보존 2년·필터 기간 92일·CSV 5만행·탭 유지 문서
+Purpose: `system_log`·통합 이력 운영 규칙을 **보존 2년**, 조회·CSV 공통 **시작~종료 최대 92일(약 3개월)**, CSV **50,000행** 상한으로 통일하고 탭 전환 시 필터·정렬 유지를 명시.
+
+Changes:
+
+- `system_log_server/router.py`: `_validate_history_filter_date_range`, 목록·me·export 4경로 적용
+- `service.py`·`service_login_history.py`: `MAX_CSV_EXPORT_ROWS` 50,000
+- `UserHistoryPage.jsx`: 동일 기간 클라이언트 검증·`CSV_MAX_ROWS`·페이지 힌트
+- `03_API_GUIDE` §3.4, `04` §13, `07` 과제 1·3, `22` §8.1·F3-4·F3-5·§11
+
+Changed files: Backend/system_log_server/router.py, Backend/system_log_server/service.py, Backend/system_log_server/service_login_history.py, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, docs/main/03_API_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+454. 2026-04-20 통합 이력 정렬 UI·API sort_by/sort_dir·CSV 동기
+Purpose: 로그인·시스템 탭 각각 **정렬 기준·방향** 선택 후 필터 적용 시 목록·CSV 확인 모달·export가 동일 `ORDER BY`를 쓰도록 백엔드 쿼리 파라미터와 FE를 맞춤.
+
+Changes:
+
+- `system_log_server/service.py`·`service_login_history.py`: 화이트리스트 정렬 절·목록·CSV
+- `system_log_server/router.py`: GET 목록·export.csv에 `sort_by`·`sort_dir`
+- `UserHistoryPage.jsx`·`user-history.css`·`systemLogClient.js`: 탭별 정렬 UI·쿼리 전달
+- `docs/main/03_API_GUIDE.md` §3.4 쿼리 설명 보강
+
+Changed files: Backend/system_log_server/service.py, Backend/system_log_server/service_login_history.py, Backend/system_log_server/router.py, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Frontend/react-app/src/shared/api/systemLogClient.js, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+453. 2026-04-20 통합 이력 CSV 받기 확인 모달(필터·정렬·총 행수·취소/확인)
+Purpose: 로그인·시스템 탭 공통으로 CSV 저장 전 **적용 필터·정렬(없음)·총 행수**를 보여 주고, 확인 시에만 Blob 다운로드(브라우저 기본 저장 위치).
+
+Changes:
+
+- `UserHistoryPage.jsx`: 확인 모달·2만 초과 시 확인 비활성·Esc·모달 내 오류 표시
+- `user-history.css`: 모달 섹션·총 행수·안내·오류 여백
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+452. 2026-04-20 system_log CSV export(필터 동일·2만행 상한)·FE CSV 받기
+Purpose: 통합 이력 화면에서 **목록과 동일 필터**로 CSV를 받되 **무제한 방지 상한(20,000행)** 을 두고, 성공 시 `audit_csv_export` 로 `system_log` 1행 남김(22 §8.1·F3-4).
+
+Changes:
+
+- `system_log_server/service.py`: `_build_system_log_where`, `export_system_logs_csv_bytes`
+- `system_log_server/service_login_history.py`: `_build_login_history_org_base`, `export_login_history_org_csv_bytes`
+- `system_log_server/router.py`: `GET …/export.csv`, `GET …/login-history/org/export.csv`
+- `system_log_server/audit_emit.py`: `emit_csv_export_audit`
+- `UserHistoryPage.jsx`, `systemLogClient.js`: CSV 받기
+- `docs/report/22_System_Log_Development_Plan.md`: §8.1 CSV 행·F3-4
+
+Changed files: Backend/system_log_server/service.py, Backend/system_log_server/service_login_history.py, Backend/system_log_server/router.py, Backend/system_log_server/audit_emit.py, Frontend/react-app/src/shared/api/systemLogClient.js, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+451. 2026-04-20 Frontend: §8.1 통합 이력 페이지·systemLogClient·사용자 관리 링크
+Purpose: `docs/report/22` §8.1 Phase 3 — 조직 어드민용 **로그인 이력·시스템 이력** 단일 페이지(`tab=login|system`)·API 클라이언트·사용자 관리 진입.
+
+Changes:
+
+- `shared/api/systemLogClient.js`: GET `/api/system-logs`, `/api/system-logs/login-history/org`
+- `app/admin/UserHistoryPage.jsx`, `user-history.css`: 탭·필터·페이징·테이블
+- `app/routes.jsx`: `/admin/user-history` + `OrgAdminRoute`
+- `app/admin/AdminUsersPage.jsx`, `admin-users.css`: 「사용자 이력 조회」링크·헤더 액션 그룹
+
+Changed files: Frontend/react-app/src/shared/api/systemLogClient.js, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Frontend/react-app/src/app/routes.jsx, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/admin-users.css, docs/log/log.md
+
+450. 2026-04-20 docs/report/22: §6.7 롤아웃 표 → §10.1 이동(목차·§6 정리)
+Purpose: 종합 롤아웃 표가 Phase 2(§6) 범위를 넘어 §5·§7·§8과 겹치므로 **검증·문서 정합(§10)** 하위 **§10.1** 로 옮기고, §6·목차·§6.6 교차 참조를 정리한다.
+
+Changes:
+
+- `docs/report/22_System_Log_Development_Plan.md`: §6.7 제거, §10.1 추가(anchor `rollout-checklist`), §5.1·§6·§6.6·목차·§11 이력
+- `docs/log/log.md`: 본 항목
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+449. 2026-04-20 docs/report/22: §6.7 종합 체크리스트(배포·연결·완료 범위)
+Purpose: 시스템 로그 Phase 2 적용을 **단계별(S0~S5·P1·§6.5 패키지·검증·모니터링·문서·선택 리팩토링·§8 프론트)** 로 점검할 수 있도록 `22` 문서에 §6.7을 추가하고, §6.7 전부 체크가 **제품 백엔드 전체 완료와 동일하지 않음**을 명시한다.
+
+Changes:
+
+- `docs/report/22_System_Log_Development_Plan.md`: §6.7 표·리팩토링 판단 요약·§6 도입·목차·§11 이력
+- `docs/log/log.md`: 본 항목
+
+Changed files: docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+448. 2026-04-20 Backend: widget_board 초대 발송 invite_send system_log(§6.5.5)
+Purpose: §6.5.7 원칙(하위 `insert_notification` 비계측)에 맞춰 위젯 보드 **초대 알림 일괄 발송**은 상위 `send_invite_notifications` 만 `commit` 직후 기록한다.
+
+Changes:
+
+- `widget_board_server/service.py`: `invite_send` 계측, 발송 건·요청 대상 수 `detail_json`
+- `widget_board_server/audit_emit.py`: `rows_affected` 선택 인자
+- `docs/report/22_System_Log_Development_Plan.md`: §6.5.5 표에 `send_invite_notifications` 행 추가
+
+Changed files: Backend/widget_board_server/service.py, Backend/widget_board_server/audit_emit.py, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+447. 2026-04-20 Backend: Phase2 notification_server 읽음 처리 system_log(§6.5.7)
+Purpose: `docs/report/22` §6.5.7에 따라 알림 **읽음 처리** API 전용 `mark_read_one`·`mark_read_all` 에서 `commit` 성공 후 실제 갱신 행이 있을 때만 `channel=notification` 으로 `append_system_log` 한다.
+
+Changes:
+
+- `notification_server/audit_emit.py`: `emit_notification_log` 신설
+- `notification_server/service.py`: 단건·전체 읽음 `commit` 직후 계측(0건 갱신 시 생략)
+- `docs/report/22_System_Log_Development_Plan.md`: §6.5.7 비고 문구 동기
+
+Changed files: Backend/notification_server/audit_emit.py, Backend/notification_server/service.py, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+446. 2026-04-20 Backend: Phase2 widget_board·project 서비스 system_log(§6.5.5~6)
+Purpose: `docs/report/22` §6.5.5·§6.5.6에 따라 위젯 보드·프로젝트 초대 관련 **서비스** 트랜잭션 `commit` 성공 직후 `append_system_log`를 호출한다.
+
+Changes:
+
+- `widget_board_server/audit_emit.py`: `emit_widget_board_log` 신설, 보드·위젯·레이아웃·공유·초대 수락/거절
+- `widget_board_server/service.py`: 해당 변경 함수에 계측 연결
+- `project_server/audit_emit.py`: `emit_project_log` 신설
+- `project_server/service.py`: `invite_accept` / `invite_reject`
+
+Changed files: Backend/widget_board_server/audit_emit.py, Backend/widget_board_server/service.py, Backend/project_server/audit_emit.py, Backend/project_server/service.py, docs/log/log.md
+
+445. 2026-04-20 Backend: Phase2 etl_server HTTP 라우터 system_log(연결·테이블·배치)
+Purpose: `docs/report/22` §6.5.4에 따라 ETL **HTTP 라우터** 성공(및 연결 테스트 실패) 시점에 `channel=etl` 로 `append_system_log`를 호출한다. 워커·스케줄러 파일에는 삽입하지 않는다.
+
+Changes:
+
+- `etl_server/audit_emit.py`: `emit_etl_log` 신설
+- `etl_server/router.py`: 소스·저장 연결 CRUD/테스트, ETL 테이블 CRUD·컬럼매핑 갱신, 업로드 기반 생성, Job 실행·삭제·취소
+- `etl_server/router_file.py`: 폴더 연결 CRUD/테스트, 배치 Job CRUD, 타겟 레지스트리 삭제, 원격 스킵 파일 삭제
+
+Changed files: Backend/etl_server/audit_emit.py, Backend/etl_server/router.py, Backend/etl_server/router_file.py, docs/log/log.md
 
 444. 2026-04-20 Backend: Phase2 query_studio execute·labels·saved_table system_log
 Purpose: `docs/report/22` §6.5.3에 따라 쿼리 스튜디오 `execute-query`·컬럼 라벨 저장·백그라운드 저장 테이블 완료 시 `channel=query_studio` 로 `system_log` 계측한다.

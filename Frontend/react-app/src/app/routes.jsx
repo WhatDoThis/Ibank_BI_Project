@@ -1,7 +1,7 @@
 /**
  * app/routes.jsx (앱 라우트 집합 — 페이지는 auth/home/mypage/admin/layout/guards)
  * ===============================
- * app/layout/ProtectedLayout. /admin: … ETL은 EtlAccessRoute. 프로젝트 작업은 NeedProjectRoute + ProjectFeatureRoute.
+ * app/layout/ProtectedLayout. /admin: users·user-history·… ETL은 EtlAccessRoute. 프로젝트 작업은 NeedProjectRoute + ProjectFeatureRoute.
  *
  * [Main]
  * 1. AppRoutes — 전체 Route 트리
@@ -20,6 +20,7 @@ import SignupPage from '@/app/auth/SignupPage.jsx'
 import HomePage from '@/app/home/HomePage.jsx'
 import MyPage from '@/app/mypage/MyPage.jsx'
 import AdminUsersPage from '@/app/admin/AdminUsersPage.jsx'
+import UserHistoryPage from '@/app/admin/UserHistoryPage.jsx'
 import AdminOrgPage from '@/app/admin/AdminOrgPage.jsx'
 import AdminRolesPage from '@/app/admin/AdminRolesPage.jsx'
 import AdminProjectsPage from '@/app/admin/AdminProjectsPage.jsx'
@@ -45,6 +46,14 @@ export function AppRoutes() {
           element={
             <OrgAdminRoute>
               <AdminUsersPage />
+            </OrgAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/user-history"
+          element={
+            <OrgAdminRoute>
+              <UserHistoryPage />
             </OrgAdminRoute>
           }
         />

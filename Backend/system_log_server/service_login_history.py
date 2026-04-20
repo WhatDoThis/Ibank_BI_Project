@@ -7,17 +7,20 @@ user_login_log 조회·IP 마스킹. 본인(me)·조직 어드민(org·부서 �
 ===========
 1. fetch_login_history_masked_for_user: 레거시 형식 list[dict] (최근 N건, ISO create_dtm; IP 마스킹은 core.request_context)
 2. list_login_history_me_paged: 본인 전용 페이징·필터
-3. list_login_history_org_paged: require_org_admin · 부서 트리 스코프
+3. list_login_history_org_paged: require_org_admin · 부서 트리 스코프(정렬 `sort_by`·`sort_dir`)
+4. export_login_history_org_csv_bytes: org 목록과 동일 필터·정렬·CSV(상한 `MAX_CSV_EXPORT_ROWS`)
 
 [Dependencies]
 =========
-- logging, datetime, typing
+- csv, io, logging, datetime, typing
 - Backend.core.user_dvsn_codes.canon_user_dvsn
 - Backend.core.request_context.mask_client_ip_for_audit
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -26,6 +29,31 @@ from Backend.core.request_context import mask_client_ip_for_audit
 from Backend.core.user_dvsn_codes import canon_user_dvsn
 
 logger = logging.getLogger(__name__)
+
+MAX_CSV_EXPORT_ROWS = 50_000
+
+_LOGIN_ORG_SORT_COLUMNS: dict[str, str] = {
+    "create_dtm": "L.create_dtm",
+    "user_login_log_id": "L.user_login_log_id",
+    "login_success_yn": "L.login_success_yn",
+    "user_id": "L.user_id",
+    "user_email": "LOWER(COALESCE(U.user_email, ''))",
+}
+
+
+def _login_org_order_sql(sort_by: str | None, sort_dir: str | None) -> str:
+    """조직 로그인 이력 목록·CSV 공통 ORDER BY. 컬럼·방향은 화이트리스트만 허용."""
+    key = (sort_by or "create_dtm").strip().lower()
+    if key not in _LOGIN_ORG_SORT_COLUMNS:
+        key = "create_dtm"
+    d = (sort_dir or "desc").strip().lower()
+    if d not in ("asc", "desc"):
+        d = "desc"
+    primary = _LOGIN_ORG_SORT_COLUMNS[key]
+    d_up = d.upper()
+    id_dir = "ASC" if d == "asc" else "DESC"
+    return f"ORDER BY {primary} {d_up}, L.user_login_log_id {id_dir}"
+
 
 _RECURSIVE_SUBTREE = """
 (
@@ -178,28 +206,19 @@ def list_login_history_me_paged(
         cur.close()
 
 
-# 3.
-def list_login_history_org_paged(
-    conn,
+# 3. [org WHERE + FROM]
+def _build_login_history_org_base(
     actor: dict[str, Any],
     *,
     user_key: str | None,
     from_dtm: date | None,
     to_dtm: date | None,
     ip_contains: str | None,
-    page: int,
-    page_size: int,
-) -> dict[str, Any]:
-    """
-    조직 어드민용. sa_dev 전체, sa/a 는 로그인 주체(U.user_id)의 부서가 액터 부서 서브트리에 포함되는 행만.
-    """
+) -> tuple[str, list[Any]]:
+    """list_login_history_org_paged·CSV 공통 FROM…WHERE."""
     dpt = int(actor["dptmt_info_id"])
     dvsn = canon_user_dvsn(actor.get("user_dvsn"))
     full_access = dvsn == "sa_dev"
-
-    page = max(1, int(page))
-    page_size = min(50, max(1, int(page_size)))
-    offset = (page - 1) * page_size
 
     where: list[str] = []
     params: list[Any] = []
@@ -226,8 +245,41 @@ def list_login_history_org_paged(
         INNER JOIN user_info U ON U.user_id = L.user_id
         WHERE {where_sql}
     """
+    return base_from, params
+
+
+# 4.
+def list_login_history_org_paged(
+    conn,
+    actor: dict[str, Any],
+    *,
+    user_key: str | None,
+    from_dtm: date | None,
+    to_dtm: date | None,
+    ip_contains: str | None,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    """
+    조직 어드민용. sa_dev 전체, sa/a 는 로그인 주체(U.user_id)의 부서가 액터 부서 서브트리에 포함되는 행만.
+    정렬은 `sort_by`·`sort_dir`(기본 create_dtm desc).
+    """
+    page = max(1, int(page))
+    page_size = min(50, max(1, int(page_size)))
+    offset = (page - 1) * page_size
+
+    base_from, params = _build_login_history_org_base(
+        actor,
+        user_key=user_key,
+        from_dtm=from_dtm,
+        to_dtm=to_dtm,
+        ip_contains=ip_contains,
+    )
 
     count_sql = f"SELECT COUNT(*)::bigint AS c {base_from}"
+    order_sql = _login_org_order_sql(sort_by, sort_dir)
     list_sql = f"""
         SELECT
             L.login_trial_ip,
@@ -237,7 +289,7 @@ def list_login_history_org_paged(
             L.user_id,
             U.user_email
         {base_from}
-        ORDER BY L.create_dtm DESC, L.user_login_log_id DESC
+        {order_sql}
         LIMIT %s OFFSET %s
     """
 
@@ -267,6 +319,88 @@ def list_login_history_org_paged(
         return {"items": items, "total": total, "page": page, "page_size": page_size}
     except Exception:
         logger.exception("list_login_history_org_paged failed actor=%s", actor.get("user_id"))
+        raise
+    finally:
+        cur.close()
+
+
+# 5.
+def export_login_history_org_csv_bytes(
+    conn,
+    actor: dict[str, Any],
+    *,
+    user_key: str | None,
+    from_dtm: date | None,
+    to_dtm: date | None,
+    ip_contains: str | None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> tuple[int, bytes]:
+    """
+    org 목록과 동일 필터·정렬 CSV. COUNT > MAX_CSV_EXPORT_ROWS 이면 ValueError
+    (`CSV_EXPORT_ROW_LIMIT_EXCEEDED:총건수:상한`).
+    """
+    base_from, params = _build_login_history_org_base(
+        actor,
+        user_key=user_key,
+        from_dtm=from_dtm,
+        to_dtm=to_dtm,
+        ip_contains=ip_contains,
+    )
+    count_sql = f"SELECT COUNT(*)::bigint AS c {base_from}"
+    order_sql = _login_org_order_sql(sort_by, sort_dir)
+    export_sql = f"""
+        SELECT
+            L.login_trial_ip,
+            L.login_success_yn,
+            L.login_trial_browser,
+            L.create_dtm,
+            L.user_id,
+            U.user_email
+        {base_from}
+        {order_sql}
+        LIMIT %s
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(count_sql, params)
+        crow = cur.fetchone()
+        total = int(crow["c"]) if crow and crow.get("c") is not None else 0
+        if total > MAX_CSV_EXPORT_ROWS:
+            raise ValueError(
+                f"CSV_EXPORT_ROW_LIMIT_EXCEEDED:{total}:{MAX_CSV_EXPORT_ROWS}"
+            )
+        lim = min(total, MAX_CSV_EXPORT_ROWS) if total > 0 else 0
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["create_dtm", "user_id", "user_email", "login_success_yn", "login_trial_ip", "login_trial_browser"])
+        if lim == 0:
+            raw = "\ufeff" + buf.getvalue()
+            return 0, raw.encode("utf-8")
+        qparams = list(params)
+        qparams.append(lim)
+        cur.execute(export_sql, qparams)
+        rows = cur.fetchall() or []
+        for r in rows:
+            d = dict(r)
+            cd = d.get("create_dtm")
+            cd_out = cd.isoformat() if hasattr(cd, "isoformat") else (cd or "")
+            w.writerow(
+                [
+                    cd_out,
+                    d.get("user_id"),
+                    d.get("user_email"),
+                    d.get("login_success_yn"),
+                    mask_client_ip_for_audit(d.get("login_trial_ip")),
+                    d.get("login_trial_browser"),
+                ]
+            )
+        raw = "\ufeff" + buf.getvalue()
+        return len(rows), raw.encode("utf-8")
+    except ValueError:
+        raise
+    except Exception:
+        logger.exception("export_login_history_org_csv_bytes failed actor=%s", actor.get("user_id"))
         raise
     finally:
         cur.close()

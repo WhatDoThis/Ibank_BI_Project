@@ -9,6 +9,7 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
 2. select_project_tokens: 세션 유지하며 JWT에 project_info_id 반영
 3. accept_project_invite: `_parse_project_invite_payload` 검증 후 멤버 등록·초대 알림 DELETE(잔존 시 제거 후 초대중 오표시 방지)·알림 처리
 4. reject_project_invite: 동일 검증 후 알림 삭제·초대자 알림
+5. (system_log) 초대 수락·거절 commit 직후 `emit_project_log`(플래그 off 시 생략)
 
 [Dependencies]
 =========
@@ -17,6 +18,7 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
 - Backend.notification_server.service (insert_notification, fetch_notification_by_id,
   delete_notification_by_id_in_txn, notify_inviter_project_invite_resolved)
 - Backend.core.invite_expiry.invite_expired_from_payload
+- Backend.project_server.audit_emit.emit_project_log
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from Backend.notification_server.service import (
     insert_notification,
     notify_inviter_project_invite_resolved,
 )
+from Backend.project_server.audit_emit import emit_project_log
 
 
 # 1.
@@ -189,6 +192,15 @@ def accept_project_invite(
             autocommit=False,
         )
         conn.commit()
+        emit_project_log(
+            int(user_id),
+            business_action="invite_accept",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": int(pid),
+                "notification_info_id": int(nid),
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -240,6 +252,15 @@ def reject_project_invite(
             conn, inv_uid, pid, user_id, nid, False, autocommit=False
         )
         conn.commit()
+        emit_project_log(
+            int(user_id),
+            business_action="invite_reject",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": int(pid),
+                "notification_info_id": int(nid),
+            },
+        )
     except ValueError:
         conn.rollback()
         raise

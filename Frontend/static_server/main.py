@@ -7,7 +7,7 @@ React 빌드(static_dir=Frontend/react-app/dist) 시 SPA fallback: 미존재 경
 [Main Functions]
 ===========
 - _build_api_config_js: api-config.js 응답 본문 생성
-- main: 포트(PORT) 사용 중이면 PORT+1~PORT+9 순차 시도 후 TCPServer 기동
+- main: 포트(PORT) 사용 중이면 PORT+1~PORT+9 순차 시도 후 TCPServer 기동(0.0.0.0 바인딩·콘솔 안내는 localhost URL 대신 명시)
 
 [Classes]
 =======================
@@ -172,7 +172,7 @@ def main():
                 print(f"  Windows에서 포트 사용 프로세스 확인: netstat -ano | findstr :{PORT}")
                 sys.exit(1)
             raise
-    print(f"HTTP 서버: http://localhost:{try_port}")
+    print(f"HTTP 서버: 바인딩 0.0.0.0:{try_port} (외부·nginx는 실제 호스트:{try_port} 로 접속)")
     print("종료: Ctrl+C")
     try:
         httpd.serve_forever()

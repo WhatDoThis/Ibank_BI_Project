@@ -440,6 +440,8 @@ create_user_id           integer                       FK `widget_item_create_us
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `ibank_system_data.public`. **append-only** 적재 전제. 상세 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md` §2·§4** 참고.
 
+**운영 보존(제품 정책)**: `system_log` 원본은 **2년** 보존을 원칙으로 한다(만료 후 아카이브·파티션 드롭 등은 `22`·운영 런북에서 정한다).
+
 PRIMARY KEY: `system_log_pkey` (`system_log_id`) — `BIGSERIAL`.
 
 컬럼명                    타입             제약조건        설명

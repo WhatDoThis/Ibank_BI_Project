@@ -12,7 +12,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 
 [기동]
 ===========
-- `python -m Backend.api_server.main`(또는 run.py): 메인 DB 설정 확인·중립 배너(프로젝트 허용 테이블은 JWT·매핑 기준)
+- `python -m Backend.api_server.main`(또는 run.py): 메인 DB 설정 확인·콘솔에 `config.backend` 바인딩(host:port)·127.0.0.1 헬스 URL(0.0.0.0 바인딩 시 안내용)
 
 [라우터]
 ===========
@@ -169,8 +169,9 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"Database: {db_config.get('database')}@{db_config.get('host')} (연결 설정 로드됨)")
     print("프로젝트별 허용 테이블은 table_project_mapping 기준이며, 기동 시 전 스키마 테이블 수로 표시하지 않습니다.")
-    print(f"Server: http://localhost:{port}")
-    print(f"Health Check: http://localhost:{port}/health")
+    # api_host 가 0.0.0.0 이면 브라우저 URL은 localhost 가 아님 — 바인딩 주소만 표시
+    print(f"Listen: {host}:{port} (uvicorn)")
+    print(f"Health (이 호스트 기준): http://127.0.0.1:{port}/health")
     print("=" * 50)
 
     import uvicorn

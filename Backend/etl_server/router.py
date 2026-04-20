@@ -26,7 +26,7 @@ FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server.service, db_load_service, preview_service, schema_infer, transform_rules_service, router_file (load_service는 _run_file_load_in_process 내부 lazy import)
+- fastapi, Backend.etl_server.service, Backend.etl_server.audit_emit.emit_etl_log, db_load_service, preview_service, schema_infer, transform_rules_service, router_file (load_service는 _run_file_load_in_process 내부 lazy import)
 """
 
 import json
@@ -49,6 +49,7 @@ from Backend.etl_server import db_load_service
 from Backend.etl_server import preview_service
 from Backend.etl_server import schema_infer
 from Backend.etl_server import service as etl_service
+from Backend.etl_server.audit_emit import emit_etl_log
 from Backend.etl_server import transform_rules_service as transform_rules_svc
 from Backend.auth_server.permissions import require_etl_infrastructure
 from Backend.etl_server.load_service_file import normalize_column_name_for_sequence
@@ -335,7 +336,11 @@ class UpdateTableBody(BaseModel):
 
 
 @router.patch("/tables/{etl_table_id}", status_code=204)
-def update_table(etl_table_id: int, body: UpdateTableBody):
+def update_table(
+    etl_table_id: int,
+    body: UpdateTableBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """ETL 테이블 설정 일부 갱신. pk_columns, sync_mode, storage_connection_id 등."""
     try:
         etl_service.update_etl_table(
@@ -352,6 +357,12 @@ def update_table(etl_table_id: int, body: UpdateTableBody):
             clear_last_synced_at=body.clear_last_synced_at is True,
             table_label=body.table_label,
             table_dscrtn=body.table_dscrtn,
+        )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_table_update",
+            action_kind="UPDATE",
+            detail_json={"etl_table_id": int(etl_table_id)},
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -385,6 +396,18 @@ def create_table(body: CreateTableBody, payload: dict = Depends(require_etl_infr
             table_label=body.table_label,
             table_dscrtn=body.table_dscrtn,
         )
+        tgt = (body.target_table or "").strip()
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_table_create",
+            action_kind="CREATE",
+            detail_json={
+                "etl_table_id": int(etl_table_id),
+                "connection_id": int(body.connection_id),
+            },
+            table_name=tgt[:63] if tgt else None,
+            risk_tier="MED",
+        )
         return {"etl_table_id": etl_table_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -393,10 +416,19 @@ def create_table(body: CreateTableBody, payload: dict = Depends(require_etl_infr
 
 
 @router.post("/tables/{etl_table_id}/refresh-column-mapping", status_code=204)
-def refresh_table_column_mapping(etl_table_id: int):
+def refresh_table_column_mapping(
+    etl_table_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """DB 소스 ETL의 column_mapping을 소스 테이블 컬럼·타입 기준으로 다시 채워 저장. 예전에 TEXT로 잘못 저장된 타입 보정용."""
     try:
         etl_service.refresh_etl_table_column_mapping(etl_table_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_table_column_mapping_refresh",
+            action_kind="UPDATE",
+            detail_json={"etl_table_id": int(etl_table_id)},
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -405,10 +437,19 @@ def refresh_table_column_mapping(etl_table_id: int):
 
 
 @router.delete("/tables/{etl_table_id}/row", status_code=204)
-def delete_table_row_only(etl_table_id: int):
+def delete_table_row_only(
+    etl_table_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """ETL 등록 행만 삭제. 메인 DB 타겟 테이블은 유지, 업로드 파일 및 해당 행·관련 job만 삭제."""
     try:
         etl_service.delete_etl_table_row_only(etl_table_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_table_row_delete",
+            action_kind="DELETE",
+            detail_json={"etl_table_id": int(etl_table_id)},
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -417,10 +458,21 @@ def delete_table_row_only(etl_table_id: int):
 
 
 @router.delete("/tables/{etl_table_id}")
-def delete_table(etl_table_id: int):
+def delete_table(
+    etl_table_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """ETL 테이블 1건 삭제. 동일 타겟 공유·프로젝트 매핑 있으면 400. 성공 시 배치·table_master·DROP·메타 정리. 응답: target_table_dropped 등."""
     try:
-        return etl_service.delete_etl_table(etl_table_id)
+        out = etl_service.delete_etl_table(etl_table_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_table_delete",
+            action_kind="DELETE",
+            detail_json={"etl_table_id": int(etl_table_id)},
+            risk_tier="HIGH",
+        )
+        return out
     except ValueError as e:
         msg = str(e)
         if "찾을 수 없습니다" in msg:
@@ -502,6 +554,19 @@ async def upload_file(
                 table_dscrtn=(table_dscrtn or "").strip() or None,
             )
             result["etl_table_id"] = etl_table_id
+            tt = target_table.strip()
+            emit_etl_log(
+                uid,
+                business_action="etl_table_create",
+                action_kind="CREATE",
+                detail_json={
+                    "etl_table_id": int(etl_table_id),
+                    "connection_id": int(conn_id),
+                    "x_source": "upload",
+                },
+                table_name=tt[:63] if tt else None,
+                risk_tier="MED",
+            )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -847,6 +912,13 @@ def create_connection(body: CreateConnectionBody, payload: dict = Depends(requir
             server_timezone=body.server_timezone or "Asia/Seoul",
             create_user_id=int(payload["user_id"]),
         )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_src_connection_create",
+            action_kind="CREATE",
+            detail_json={"connection_id": int(connection_id)},
+            risk_tier="MED",
+        )
         return {"connection_id": connection_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -870,10 +942,13 @@ def list_connections():
 
 
 @router.post("/connections/test")
-def test_connection(body: TestConnectionBody):
+def test_connection(
+    body: TestConnectionBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """연결 테스트. connection_id 또는 host/database_name/username/password."""
     try:
-        return etl_service.test_connection(
+        out = etl_service.test_connection(
             connection_id=body.connection_id,
             host=body.host,
             port=body.port,
@@ -882,6 +957,18 @@ def test_connection(body: TestConnectionBody):
             password=body.password,
             source_type=body.source_type,
         )
+        ok = bool(out.get("ok"))
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_src_connection_test",
+            action_kind="EXECUTE",
+            success_yn="Y" if ok else "N",
+            detail_json={
+                "connection_id": body.connection_id,
+                "x_ok": ok,
+            },
+        )
+        return out
     except Exception as e:
         logger.exception("etl_router connections/test")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1009,10 +1096,20 @@ def validate_incremental_column(connection_id: int, body: ValidateIncrementalCol
 
 
 @router.delete("/connections/{connection_id}", status_code=204)
-def delete_connection(connection_id: int):
+def delete_connection(
+    connection_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """연결 해제. 해당 연결로 등록된 ETL의 타겟 테이블을 메인 DB에서 DROP한 뒤 연결·ETL 메타 삭제. 파일 업로드용 연결은 삭제 불가."""
     try:
         etl_service.delete_connection(connection_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_src_connection_delete",
+            action_kind="DELETE",
+            detail_json={"connection_id": int(connection_id)},
+            risk_tier="HIGH",
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1051,6 +1148,13 @@ def create_storage_connection(body: CreateStorageConnectionBody, payload: dict =
             server_timezone=body.server_timezone or "Asia/Seoul",
             create_user_id=int(payload["user_id"]),
         )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_storage_connection_create",
+            action_kind="CREATE",
+            detail_json={"storage_connection_id": int(storage_connection_id)},
+            risk_tier="MED",
+        )
         return {"storage_connection_id": storage_connection_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1059,7 +1163,11 @@ def create_storage_connection(body: CreateStorageConnectionBody, payload: dict =
 
 
 @router.patch("/storage-connections/{storage_connection_id}")
-def update_storage_connection(storage_connection_id: int, body: UpdateStorageConnectionBody):
+def update_storage_connection(
+    storage_connection_id: int,
+    body: UpdateStorageConnectionBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """저장 DB 연결 1건 수정. 전달된 필드만 갱신."""
     try:
         etl_service.update_storage_connection(
@@ -1074,6 +1182,12 @@ def update_storage_connection(storage_connection_id: int, body: UpdateStorageCon
             is_active=body.is_active,
             server_timezone=body.server_timezone,
         )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_storage_connection_update",
+            action_kind="UPDATE",
+            detail_json={"storage_connection_id": int(storage_connection_id)},
+        )
         return {"message": "ok"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1082,16 +1196,29 @@ def update_storage_connection(storage_connection_id: int, body: UpdateStorageCon
 
 
 @router.delete("/storage-connections/{storage_connection_id}", status_code=204)
-def delete_storage_connection(storage_connection_id: int):
+def delete_storage_connection(
+    storage_connection_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """저장 DB 연결 1건 삭제."""
     try:
         etl_service.delete_storage_connection(storage_connection_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_storage_connection_delete",
+            action_kind="DELETE",
+            detail_json={"storage_connection_id": int(storage_connection_id)},
+            risk_tier="HIGH",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/storage-connections/test")
-def test_storage_connection(body: TestStorageConnectionBody):
+def test_storage_connection(
+    body: TestStorageConnectionBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """저장 DB 연결 테스트: 접속 + CREATE TABLE + INSERT + DROP TABLE 권한 검증."""
     try:
         result = etl_service.test_storage_connection(
@@ -1101,6 +1228,14 @@ def test_storage_connection(body: TestStorageConnectionBody):
             schema_name=body.schema_name or "public",
             username=body.username,
             password=body.password or "",
+        )
+        ok = bool(result.get("ok"))
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_storage_connection_test",
+            action_kind="EXECUTE",
+            success_yn="Y" if ok else "N",
+            detail_json={"x_ok": ok},
         )
         return result
     except Exception as e:
@@ -1234,6 +1369,17 @@ def run_table_load(
             job_id = etl_service.insert_job(etl_table_id, status="running", create_user_id=uid)
             t = threading.Thread(target=_run_file_load_in_process, args=(etl_table_id, job_id), daemon=True)
             t.start()
+            emit_etl_log(
+                uid,
+                business_action="etl_job_run_enqueue",
+                action_kind="EXECUTE",
+                detail_json={
+                    "etl_table_id": int(etl_table_id),
+                    "job_id": int(job_id),
+                    "x_source_type": source_type,
+                    "x_status": "running",
+                },
+            )
             return {
                 "job_id": job_id,
                 "status": "running",
@@ -1260,6 +1406,17 @@ def run_table_load(
         job_id = etl_service.insert_job(etl_table_id, status="pending", create_user_id=uid)
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
+        emit_etl_log(
+            uid,
+            business_action="etl_job_run_enqueue",
+            action_kind="EXECUTE",
+            detail_json={
+                "etl_table_id": int(etl_table_id),
+                "job_id": int(job_id),
+                "x_source_type": source_type,
+                "x_status": "pending",
+            },
+        )
         return {
             "job_id": job_id,
             "status": "pending",
@@ -1314,12 +1471,18 @@ def get_job(job_id: int):
 
 
 @router.delete("/jobs/{job_id}")
-def delete_job(job_id: int):
+def delete_job(job_id: int, payload: dict = Depends(require_etl_infrastructure)):
     """Job 1건 삭제. etl_jobs에서 DELETE."""
     try:
         ok = etl_service.delete_job(job_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_job_delete",
+            action_kind="DELETE",
+            detail_json={"job_id": int(job_id)},
+        )
         return {"job_id": job_id, "message": "삭제되었습니다."}
     except HTTPException:
         raise
@@ -1328,7 +1491,7 @@ def delete_job(job_id: int):
 
 
 @router.post("/jobs/{job_id}/cancel")
-def cancel_job(job_id: int):
+def cancel_job(job_id: int, payload: dict = Depends(require_etl_infrastructure)):
     """실행 중·대기 중인 Job 취소. status를 cancelled로 갱신. 워커가 주기적으로 확인해 중단."""
     try:
         row = etl_service.get_job(job_id)
@@ -1338,6 +1501,12 @@ def cancel_job(job_id: int):
         if status not in ("pending", "running"):
             raise HTTPException(status_code=400, detail=f"취소할 수 없는 상태입니다: {status}")
         etl_service.update_job(job_id, "cancelled", error_message="사용자 취소")
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_job_cancel",
+            action_kind="UPDATE",
+            detail_json={"job_id": int(job_id)},
+        )
         return {"job_id": job_id, "status": "cancelled", "message": "취소 요청되었습니다."}
     except HTTPException:
         raise

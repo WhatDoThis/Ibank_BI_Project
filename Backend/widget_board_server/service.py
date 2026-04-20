@@ -14,9 +14,10 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_ty
 5. add_widget(create_user_id 저장) / patch_widget / delete_widget(행 물리 DELETE — soft 남김 없음)
 6. patch_layout
 7. upsert_share / delete_share(제외 시 create_user_id 소유자 이관)
-8. list_board_participants / list_invite_candidates / send_invite_notifications(알림 초대)
+8. list_board_participants / list_invite_candidates / send_invite_notifications(알림 초대, commit 후 `invite_send` system_log)
 9. accept_widget_board_invite / reject_widget_board_invite — `_parse_widget_board_invite_payload` 공통 검증 후 share 반영·알림 처리
 10. fetch_widget_data — saved_table 시 기간 필터·컬럼에 data_type 포함(FE 차트 축)·meta.applied_date_column(기간 필터에 사용한 날짜 컬럼)
+11. (system_log) 보드·위젯·레이아웃·공유·초대 발송/수락/거절 등 DB 변경 commit 직후 `emit_widget_board_log`(플래그 off 시 생략)
 
 [Dependencies]
 =========
@@ -29,6 +30,7 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_ty
 - Backend.core.invite_expiry.invite_expired_from_payload
 - Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, validate_table_identifier, validate_column_name, get_allowed_tables_by_project, format_value, _table_exists)
 - Backend.core.sql_safety.contains_dangerous_sql
+- Backend.widget_board_server.audit_emit.emit_widget_board_log
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ from Backend.notification_server.service import (
     user_has_pending_widget_board_invite,
 )
 from Backend.widget_board_server import schemas
+from Backend.widget_board_server.audit_emit import emit_widget_board_log
 from Backend.core.sql_safety import contains_dangerous_sql
 
 _DEFAULT_LIMIT = 500
@@ -398,7 +401,17 @@ def create_board(
         )
         row = cur.fetchone()
         conn.commit()
-        return dict(row)
+        out_row = dict(row)
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_board_create",
+            action_kind="CREATE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(out_row["widget_board_id"]),
+            },
+        )
+        return out_row
     except pg_errors.StringDataRightTruncation:
         conn.rollback()
         raise ValueError(
@@ -510,6 +523,15 @@ def patch_board(
         conn.commit()
         if not row:
             raise ValueError("보드를 찾을 수 없습니다.")
+        emit_widget_board_log(
+            uid,
+            business_action="widget_board_update",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+            },
+        )
         b2 = dict(row)
         if _board_is_active(b2):
             return get_board_detail(conn, user_id, project_id, board_id)
@@ -550,6 +572,16 @@ def delete_board(conn, user_id: int, project_id: int, board_id: int) -> None:
             conn.rollback()
             raise ValueError("보드를 찾을 수 없습니다.")
         conn.commit()
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_board_delete",
+            action_kind="DELETE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+            },
+            risk_tier="MEDIUM",
+        )
     except Exception:
         conn.rollback()
         raise
@@ -601,7 +633,18 @@ def add_widget(
         )
         row = cur.fetchone()
         conn.commit()
-        return dict(row)
+        out_w = dict(row)
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_create",
+            action_kind="CREATE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+                "widget_item_id": int(out_w["widget_item_id"]),
+            },
+        )
+        return out_w
     except Exception:
         conn.rollback()
         raise
@@ -684,7 +727,18 @@ def patch_widget(
         cur.execute(q, params)
         row = cur.fetchone()
         conn.commit()
-        return dict(row)
+        out_w = dict(row)
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_update",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+                "widget_item_id": int(widget_id),
+            },
+        )
+        return out_w
     except Exception:
         conn.rollback()
         raise
@@ -704,6 +758,17 @@ def delete_widget(conn, user_id: int, project_id: int, board_id: int, widget_id:
             (widget_id, board_id),
         )
         conn.commit()
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_delete",
+            action_kind="DELETE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+                "widget_item_id": int(widget_id),
+            },
+            risk_tier="MEDIUM",
+        )
     except Exception:
         conn.rollback()
         raise
@@ -732,6 +797,16 @@ def patch_layout(
                 (it.layout_x, it.layout_y, it.layout_w, it.layout_h, it.widget_item_id, board_id),
             )
         conn.commit()
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_layout_update",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+                "item_count": len(body.items),
+            },
+        )
     except Exception:
         conn.rollback()
         raise
@@ -764,6 +839,17 @@ def upsert_share(
             (board_id, int(body.shared_user_id), bool(body.can_edit)),
         )
         conn.commit()
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_share_upsert",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+                "shared_user_id": int(body.shared_user_id),
+                "can_edit": bool(body.can_edit),
+            },
+        )
     except Exception:
         conn.rollback()
         raise
@@ -835,6 +921,18 @@ def send_invite_notifications(
             )
             sent += 1
         conn.commit()
+        emit_widget_board_log(
+            inviter,
+            business_action="invite_send",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": pid,
+                "widget_board_id": int(board_id),
+                "sent": int(sent),
+                "invitation_targets": len(body.invitations),
+            },
+            rows_affected=int(sent),
+        )
         return {"sent": sent}
     except Exception:
         conn.rollback()
@@ -910,6 +1008,16 @@ def accept_widget_board_invite(
             autocommit=False,
         )
         conn.commit()
+        emit_widget_board_log(
+            uid,
+            business_action="invite_accept",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": pid,
+                "widget_board_id": int(board_id),
+                "notification_info_id": nid,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -964,6 +1072,16 @@ def reject_widget_board_invite(
             autocommit=False,
         )
         conn.commit()
+        emit_widget_board_log(
+            uid,
+            business_action="invite_reject",
+            action_kind="UPDATE",
+            detail_json={
+                "project_info_id": pid,
+                "widget_board_id": int(board_id),
+                "notification_info_id": nid,
+            },
+        )
     except ValueError:
         conn.rollback()
         raise
@@ -998,6 +1116,16 @@ def delete_share(conn, user_id: int, project_id: int, board_id: int, shared_user
             (board_id, tu),
         )
         conn.commit()
+        emit_widget_board_log(
+            int(user_id),
+            business_action="widget_share_delete",
+            action_kind="DELETE",
+            detail_json={
+                "project_info_id": int(project_id),
+                "widget_board_id": int(board_id),
+                "shared_user_id": tu,
+            },
+        )
     except Exception:
         conn.rollback()
         raise

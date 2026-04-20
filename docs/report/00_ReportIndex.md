@@ -32,7 +32,7 @@
 | 19_Project_Creation_Overhaul.md | **프로젝트 생성 전면 개편**: `creator_pmssn_master_id` 필수·단일 트랜잭션 `create_project_full`·타부서 `project_invite` 알림·`POST /api/projects/{id}/accept-invite`·모달 데이터 API(`users?scope=dept_tree` 등). Phase·파일 체크리스트. |
 | 20_Widget_Board_System_Design.md | **위젯 보드 분리·서버화 설계(단일 진행 문서)**: `ibank_system_data`용 **§11 psql DDL/DML(파일 없음)**, **§12 S0~S8 섹션 게이트**, localStorage 비사용·`widgetboard` 권한 1차안, 3테이블·API·FE 연동·`table_project_mapping` 정합. |
 | 21_Backend_Package_Refactoring_Inventory.md | **백엔드 패키지 리팩터링 인벤토리·체크리스트**: **§0~§4 공통**(메타·원칙·전수검사·글로벌 체크리스트·`main.py`), **§5~§13 패키지별 작업 카드**(파일 맵·연관 경로·섹션 전용 체크리스트), **§14~§15 횡단**(미등록·제거 후보), **§16~§18** 로드맵·부록(PowerShell·스모크)·문서 이력. |
-| 22_System_Log_Development_Plan.md | **시스템 로그(`system_log`) 및 `system_log_server` 개발 계획**: `07` §12 과제 3 기반 — §4 스키마는 적용 DDL과 **`docs/main/04_DB_ARCHITECTURE.md` §13** 동기. Phase 1(DB·패키지·조회 API·`core` append), Phase 2(계측·ETL 스케줄 제외), 상관 ID·UA·IP, Phase 3(UI·CSV·보존), PG 감사 옵션. |
+| 22_System_Log_Development_Plan.md | **시스템 로그(`system_log`) 및 `system_log_server` 개발 계획**: `07` §12 과제 3 기반 — §4 스키마는 적용 DDL과 **`docs/main/04_DB_ARCHITECTURE.md` §13** 동기. Phase 1(DB·패키지·조회 API·`core` append), Phase 2(계측·ETL 스케줄 제외), 상관 ID·UA·IP, Phase 3(UI·CSV·보존), **§8.2·F3-6 보존 만료 삭제·아카이브(추후 체크리스트)**, PG 감사 옵션. |
 | etc01_Backend_Learning_Flow.md | ETL 단일 스택 학습 가이드: **`Backend/etl_server`**, **`packages/etl`**, **`/api/etl`·`/api/etl/batch`**, `etlClient.js`(`etl2*`·`batch*` 함수명). 세부 구조는 **docs/main/02_BACKEND_GUIDE.md** 와 병행. |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |

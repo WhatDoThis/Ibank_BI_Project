@@ -9,7 +9,7 @@ Backend.notification_server.service (알림 CRUD)
 [Main Functions]
 ===========
 1. list_notifications / count_unread
-2. mark_read_one / mark_read_all(API용 commit 포함)
+2. mark_read_one / mark_read_all(API용 commit 포함, 성공·행 변경 시 `emit_notification_log`)
 3. fetch_notification_by_id / mark_notification_read_in_txn / delete_notification_by_id_in_txn
 4. delete_notifications_for_user_in_txn / delete_project_invite_notifications_for_project_in_txn / delete_project_invite_notifications_for_user_project_in_txn
 5. fetch_pending_project_invite_rows_for_project / pending_project_invite_exists_for_user_project
@@ -22,12 +22,15 @@ Backend.notification_server.service (알림 CRUD)
 =========
 - json(초대 JSON 검사 헬퍼)
 - (conn — system_db)
+- Backend.notification_server.audit_emit.emit_notification_log
 """
 
 from __future__ import annotations
 
 import json
 from typing import Any
+
+from Backend.notification_server.audit_emit import emit_notification_log
 
 
 # 1.
@@ -103,6 +106,14 @@ def mark_read_one(conn, user_id: int, notification_info_id: int) -> bool:
     try:
         ok = mark_notification_read_in_txn(conn, user_id, notification_info_id)
         conn.commit()
+        if ok:
+            emit_notification_log(
+                int(user_id),
+                business_action="mark_read_one",
+                action_kind="UPDATE",
+                detail_json={"notification_info_id": int(notification_info_id)},
+                rows_affected=1,
+            )
         return ok
     except Exception:
         conn.rollback()
@@ -122,6 +133,14 @@ def mark_read_all(conn, user_id: int) -> int:
         )
         n = cur.rowcount
         conn.commit()
+        if n > 0:
+            emit_notification_log(
+                int(user_id),
+                business_action="mark_read_all",
+                action_kind="UPDATE",
+                detail_json={},
+                rows_affected=int(n),
+            )
         return n
     except Exception:
         conn.rollback()

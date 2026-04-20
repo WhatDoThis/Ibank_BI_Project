@@ -22,7 +22,7 @@ Backend.etl_server.router_file (배치·폴더 연결 API 라우터)
 
 [Dependencies]
 =========
-- fastapi, Backend.etl_server.service_file, parser_file, scheduler_file, folder_adapter_file, Backend.etl_server.service (get_etl_table)
+- fastapi, Backend.etl_server.service_file, Backend.etl_server.audit_emit.emit_etl_log, parser_file, scheduler_file, folder_adapter_file, Backend.etl_server.service (get_etl_table)
 """
 
 import logging
@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from Backend.auth_server.permissions import require_etl_infrastructure
+from Backend.etl_server.audit_emit import emit_etl_log
 from Backend.etl_server import parser_file as batch_parser
 from Backend.etl_server import scheduler_file as sched
 from Backend.etl_server import service_file as batch_service
@@ -260,6 +261,13 @@ def create_folder_connection(
             s3_endpoint_url=body.endpoint_url or "",
             create_user_id=int(payload["user_id"]),
         )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_folder_connection_create",
+            action_kind="CREATE",
+            detail_json={"folder_connection_id": int(fid), "folder_type": ft},
+            risk_tier="MED",
+        )
         return {"folder_connection_id": fid, "message": "등록되었습니다."}
     except Exception as e:
         logger.exception("etl_router_file folder_connections_create")
@@ -267,7 +275,11 @@ def create_folder_connection(
 
 
 @router.patch("/folder-connections/{folder_connection_id}")
-def update_folder_connection(folder_connection_id: int, body: UpdateFolderConnectionBody):
+def update_folder_connection(
+    folder_connection_id: int,
+    body: UpdateFolderConnectionBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """폴더 연결 수정. 전송된 필드만 반영, 미전송 필드는 기존 값 유지."""
     try:
         existing = batch_service.get_folder_connection(folder_connection_id)
@@ -289,6 +301,12 @@ def update_folder_connection(folder_connection_id: int, body: UpdateFolderConnec
             s3_secret_access_key=body.secret_access_key if body.secret_access_key is not None else "",
             s3_endpoint_url=body.endpoint_url if body.endpoint_url is not None else (existing.get("s3_endpoint_url") or ""),
         )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_folder_connection_update",
+            action_kind="UPDATE",
+            detail_json={"folder_connection_id": int(folder_connection_id)},
+        )
         return {"message": "수정되었습니다."}
     except HTTPException:
         raise
@@ -300,10 +318,20 @@ def update_folder_connection(folder_connection_id: int, body: UpdateFolderConnec
 
 
 @router.delete("/folder-connections/{folder_connection_id}")
-def delete_folder_connection(folder_connection_id: int):
+def delete_folder_connection(
+    folder_connection_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """폴더 연결 삭제. CASCADE로 상세 삭제."""
     try:
         batch_service.delete_folder_connection(folder_connection_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_folder_connection_delete",
+            action_kind="DELETE",
+            detail_json={"folder_connection_id": int(folder_connection_id)},
+            risk_tier="HIGH",
+        )
         return {"message": "삭제되었습니다."}
     except Exception as e:
         logger.exception("etl_router_file folder_connections_delete")
@@ -311,7 +339,10 @@ def delete_folder_connection(folder_connection_id: int):
 
 
 @router.post("/folder-connections/test")
-def test_folder_connection(body: TestFolderConnectionBody):
+def test_folder_connection(
+    body: TestFolderConnectionBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """연결 테스트. folder_connection_id 있으면 해당 연결, 없으면 인라인 파라미터로 테스트."""
     adapter = None
     try:
@@ -344,6 +375,13 @@ def test_folder_connection(body: TestFolderConnectionBody):
         adapter.test_connection()
         if body.folder_connection_id is not None:
             batch_service.set_folder_connection_verified(body.folder_connection_id, True)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_folder_connection_test",
+            action_kind="EXECUTE",
+            success_yn="Y",
+            detail_json={"folder_connection_id": body.folder_connection_id},
+        )
         return {"ok": True, "message": "연결에 성공했습니다."}
     except HTTPException:
         raise
@@ -354,6 +392,13 @@ def test_folder_connection(body: TestFolderConnectionBody):
                 batch_service.set_folder_connection_verified(body.folder_connection_id, False)
             except Exception:
                 pass
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_folder_connection_test",
+            action_kind="EXECUTE",
+            success_yn="N",
+            detail_json={"folder_connection_id": body.folder_connection_id},
+        )
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         if adapter:
@@ -474,10 +519,20 @@ def list_batch_target_registry():
 
 
 @router.delete("/target-registry/{registry_id}")
-def delete_batch_target_registry(registry_id: int):
+def delete_batch_target_registry(
+    registry_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """ETL 목록에서 배치 유래 행 삭제. 타겟 테이블 DROP 후 레지스트리 행 삭제."""
     try:
         batch_service.delete_batch_target_registry_and_drop_table(registry_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_target_registry_delete",
+            action_kind="DELETE",
+            detail_json={"registry_id": int(registry_id)},
+            risk_tier="HIGH",
+        )
         return {"message": "삭제되었습니다."}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -566,6 +621,16 @@ def create_batch_job(
             job = batch_service.get_batch_job(batch_job_id)
             if job:
                 sched.add_job(job)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_job_create",
+            action_kind="CREATE",
+            detail_json={
+                "batch_job_id": int(batch_job_id),
+                "job_type": jtype,
+            },
+            risk_tier="MED",
+        )
         return {"batch_job_id": batch_job_id, "message": "등록되었습니다."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -633,6 +698,16 @@ def create_batch_job_from_etl_table(
             job = batch_service.get_batch_job(batch_job_id)
             if job:
                 sched.add_job(job)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_job_create_from_etl",
+            action_kind="CREATE",
+            detail_json={
+                "batch_job_id": int(batch_job_id),
+                "etl_table_id": int(body.etl_table_id),
+            },
+            risk_tier="MED",
+        )
         return {"batch_job_id": batch_job_id, "message": "배치 등록되었습니다."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -702,7 +777,11 @@ def validate_target_for_batch(body: ValidateTargetBody):
 
 
 @router.patch("/jobs/{batch_job_id}")
-def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
+def update_batch_job(
+    batch_job_id: int,
+    body: UpdateBatchJobBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """배치 Job 수정. interval_minutes 변경 시 reschedule, is_active 변경 시 add/remove job."""
     try:
         existing = batch_service.get_batch_job(batch_job_id)
@@ -722,6 +801,12 @@ def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
                     sched.add_job(job)
             else:
                 sched.remove_job(batch_job_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_job_update",
+            action_kind="UPDATE",
+            detail_json={"batch_job_id": int(batch_job_id)},
+        )
         return {"message": "수정되었습니다."}
     except HTTPException:
         raise
@@ -733,7 +818,10 @@ def update_batch_job(batch_job_id: int, body: UpdateBatchJobBody):
 
 
 @router.delete("/jobs/{batch_job_id}")
-def delete_batch_job(batch_job_id: int):
+def delete_batch_job(
+    batch_job_id: int,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """스케줄러에서 제거 후 배치 Job 삭제."""
     try:
         existing = batch_service.get_batch_job(batch_job_id)
@@ -741,6 +829,13 @@ def delete_batch_job(batch_job_id: int):
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
         sched.remove_job(batch_job_id)
         batch_service.delete_batch_job(batch_job_id)
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_job_delete",
+            action_kind="DELETE",
+            detail_json={"batch_job_id": int(batch_job_id)},
+            risk_tier="HIGH",
+        )
         return {"message": "삭제되었습니다."}
     except HTTPException:
         raise
@@ -924,7 +1019,11 @@ def list_skipped_files(batch_job_id: int):
 
 
 @router.post("/jobs/{batch_job_id}/skipped-files/delete")
-def delete_skipped_files(batch_job_id: int, body: DeleteRemoteFilesBody):
+def delete_skipped_files(
+    batch_job_id: int,
+    body: DeleteRemoteFilesBody,
+    payload: dict = Depends(require_etl_infrastructure),
+):
     """원격 폴더에서 문제 파일 삭제. 삭제 후 다음 주기에 해당 파일은 목록에서 사라짐."""
     try:
         job = batch_service.get_batch_job(batch_job_id)
@@ -934,6 +1033,18 @@ def delete_skipped_files(batch_job_id: int, body: DeleteRemoteFilesBody):
             raise HTTPException(status_code=400, detail="삭제할 파일명이 없습니다.")
         result = batch_service.delete_remote_files(
             job["folder_connection_id"], body.filenames
+        )
+        emit_etl_log(
+            int(payload["user_id"]),
+            business_action="etl_batch_remote_files_delete",
+            action_kind="DELETE",
+            detail_json={
+                "batch_job_id": int(batch_job_id),
+                "x_file_count": len(body.filenames or []),
+                "x_deleted": len(result.get("deleted") or []),
+                "x_failed": len(result.get("failed") or []),
+            },
+            risk_tier="HIGH",
         )
         return {
             "message": f"{len(result['deleted'])}건 삭제, {len(result['failed'])}건 실패",

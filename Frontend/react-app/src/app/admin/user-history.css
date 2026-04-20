@@ -1,0 +1,142 @@
+/**
+ * app/admin/user-history.css — UserHistoryPage 전용 (탭·필터·정렬 그리드·페이저·JSON 셀·CSV 확인 모달)
+ */
+
+.user-history__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.user-history__tab {
+  padding: 8px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.user-history__tab:hover {
+  border-color: var(--color-action-primary);
+  color: var(--color-text);
+}
+
+.user-history__tab--active {
+  border-color: var(--color-action-primary);
+  background: var(--primary-light);
+  color: var(--color-text);
+}
+
+.user-history__filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.user-history__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.user-history__field--sort .admin-users__select {
+  min-width: 10.5rem;
+}
+
+.user-history__filter-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.user-history__pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.user-history__pager-meta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-right: auto;
+}
+
+.user-history__table-wrap {
+  margin-top: 4px;
+}
+
+.user-history__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 24px 12px !important;
+}
+
+.user-history__cell-json {
+  white-space: normal;
+  max-width: 28ch;
+  word-break: break-word;
+  font-size: clamp(0.62rem, 0.25rem + 1vw, 0.75rem);
+}
+
+/* CSV 확인 모달 */
+.user-history__modal-csv.admin-users__modal {
+  max-width: 520px;
+}
+
+.user-history__modal-section-title {
+  margin: 14px 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-history__modal-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.user-history__modal-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.user-history__modal-total {
+  margin: 12px 0 4px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-history__modal-cap {
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  color: var(--color-danger);
+}
+
+.user-history__modal-confirm-msg {
+  margin: 12px 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.user-history__modal-note {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.user-history__modal-error {
+  margin: 10px 0 0;
+}

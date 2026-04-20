@@ -18,10 +18,12 @@
  * [Dependencies]
  * =========
  * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay)
+ * - react-router-dom Link — `/admin/user-history` 통합 이력(22 §8.1)
  * 이메일 초대: 발송 성공 시 모달을 닫은 뒤 `alert`로 완료 안내(기존에는 모달을 즉시 닫아 메시지가 보이지 않음).
  */
 
 import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import {
   getAdminInviteDepartments,
@@ -929,18 +931,26 @@ export default function AdminUsersPage() {
               : '관리 트리 내 사용자만 표시됩니다. 프로젝트·역할 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 관리자 자격(etl_yn 또는 SA_DEV)이 있는 사용자가 받을 수 있습니다.'}
           </p>
         </div>
-        {roleOpts.length ? (
-          <button
-            type="button"
-            className="ibank-btn-toolbar"
-            onClick={() => {
-              setInviteMsg('')
-              setInviteOpen(true)
-            }}
+        <div className="admin-users__header-actions">
+          <Link
+            to="/admin/user-history?tab=login"
+            className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
           >
-            사용자초대
-          </button>
-        ) : null}
+            사용자 이력 조회
+          </Link>
+          {roleOpts.length ? (
+            <button
+              type="button"
+              className="ibank-btn-toolbar"
+              onClick={() => {
+                setInviteMsg('')
+                setInviteOpen(true)
+              }}
+            >
+              사용자초대
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {inviteOpen && roleOpts.length ? (
