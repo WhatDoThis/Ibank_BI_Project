@@ -35,10 +35,10 @@ Backend.admin_server.service_users (유저·초대·부서)
 - Backend.core.user_dvsn_codes.canon_user_dvsn
 - Backend.core.db (get_db_connection_etl, get_system_table_schema)
 - Backend.admin_server.audit_emit (`emit_admin_system_log` → `append_system_log`)
+- Backend.admin_server.audit_sql_catalog (관리 DML 공용 SQL 템플릿·ETL 이관 UPDATE 문자열)
 - (ETL 메타 조회용 로컬 헬퍼 _admin_etl_q, _admin_etl_table_columns_lower, _admin_etl_select_cols — etl_server 패키지 import 회피)
 - Backend.admin_server.service_projects.validate_invite_user_project
 - Backend.auth_server.permissions (get_effective_permission_ids_for_me, is_project_participant)
-- Backend.notification_server.service.delete_notifications_for_user_in_txn
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ from typing import Any
 
 import psycopg2.errors
 
+from Backend.admin_server import audit_sql_catalog
 from Backend.admin_server import change_notify
 from Backend.admin_server import service_projects
 from Backend.admin_server.audit_emit import emit_admin_system_log as _emit_admin_system_log
@@ -62,9 +63,9 @@ from Backend.auth_server.permissions import (
     is_project_participant,
 )
 from Backend.core import auth_config
+from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 from Backend.core import db as core_db
 from Backend.core.user_dvsn_codes import canon_user_dvsn
-from Backend.notification_server.service import delete_notifications_for_user_in_txn
 
 _log = logging.getLogger(__name__)
 
@@ -548,7 +549,7 @@ def _transfer_etl_resource(
     resource_id: int,
     from_uid: int,
     to_uid: int,
-) -> None:
+) -> str | None:
     schema = _etl_schema_name()
     mapping = {
         "etl_connection": ("etl_connections", "connection_id", "updated_at"),
@@ -588,18 +589,17 @@ def _transfer_etl_resource(
         ts_set = ""
         if ts_col and ts_col in cols:
             ts_set = f", {ts_col} = NOW()"
+        q_tbl = _admin_etl_q(schema, table)
+        sql = audit_sql_catalog.sql_etl_transfer_update_statement(q_tbl, pk_col, ts_set)
         cur.execute(
-            f"""
-            UPDATE {_admin_etl_q(schema, table)}
-            SET create_user_id = %s{ts_set}
-            WHERE {pk_col} = %s AND create_user_id = %s
-            """,
+            sql,
             (to_uid, rid, from_uid),
         )
         if cur.rowcount == 0:
             etl_conn.rollback()
             raise ValueError("ETL 이관 반영에 실패했습니다.")
         etl_conn.commit()
+        return compute_sql_fingerprint_hex(sql)
     except ValueError:
         etl_conn.rollback()
         raise
@@ -1212,16 +1212,7 @@ def invite_user_by_email(
             raise ValueError("부서를 찾을 수 없습니다.")
         code = secrets.token_urlsafe(32)
         cur.execute(
-            """
-            INSERT INTO email_invite_code_master (
-                email_invite_code, invite_target_email, dptmt_info_id, invite_target_dvsn,
-                exprtn_dtm, used_yn, code_create_user_id, create_dtm,
-                invite_etl_yn, invite_project_info_id, invite_pmssn_master_id
-            ) VALUES (
-                %s, %s, %s, %s, NOW() + INTERVAL '7 days', 'N', %s, NOW(),
-                %s, %s, %s
-            )
-            """,
+            audit_sql_catalog.SQL_INVITE_EMAIL_CODE_MASTER_INSERT,
             (
                 code,
                 email_n,
@@ -1389,7 +1380,7 @@ def suspend_user(
             conn, int(target_user_id), "u", "N", for_suspend=True
         )
         cur.execute(
-            "UPDATE user_info SET user_active_yn = 'N', update_dtm = NOW() WHERE user_id = %s",
+            audit_sql_catalog.SQL_USER_SUSPEND,
             (target_user_id,),
         )
         # 순환 import 방지: auth_server.service ↔ admin_server 로딩 체인 상 모듈 최상단에서 import 금지
@@ -1435,7 +1426,7 @@ def activate_user(
             raise ValueError("사용자를 찾을 수 없습니다.")
         _assert_suspend_activate_target(actor_dvsn, row.get("user_dvsn") or "")
         cur.execute(
-            "UPDATE user_info SET user_active_yn = 'Y', update_dtm = NOW() WHERE user_id = %s",
+            audit_sql_catalog.SQL_USER_ACTIVATE,
             (target_user_id,),
         )
         conn.commit()
@@ -1494,20 +1485,29 @@ def delete_inactive_user(
 
         invalidate_all_sessions(conn, tid, do_commit=False)
         cur.execute(
-            "DELETE FROM session_log WHERE session_create_user_id = %s",
-            (tid,),
-        )
-        cur.execute("DELETE FROM user_login_log WHERE user_id = %s", (tid,))
-        delete_notifications_for_user_in_txn(conn, tid)
-        cur.execute(
-            "DELETE FROM project_ptcpnt_info WHERE ptcpnt_user_id = %s",
+            audit_sql_catalog.SQL_DELETE_SESSION_LOG_BY_SESSION_CREATOR,
             (tid,),
         )
         cur.execute(
-            "DELETE FROM email_invite_code_master WHERE code_create_user_id = %s",
+            audit_sql_catalog.SQL_DELETE_USER_LOGIN_LOG_BY_USER,
             (tid,),
         )
-        cur.execute("DELETE FROM user_info WHERE user_id = %s", (tid,))
+        cur.execute(
+            audit_sql_catalog.SQL_DELETE_NOTIFICATION_INFO_BY_USER,
+            (tid,),
+        )
+        cur.execute(
+            audit_sql_catalog.SQL_DELETE_PROJECT_PTCPNT_BY_PARTICIPANT_USER,
+            (tid,),
+        )
+        cur.execute(
+            audit_sql_catalog.SQL_DELETE_EMAIL_INVITE_BY_CODE_CREATOR,
+            (tid,),
+        )
+        cur.execute(
+            audit_sql_catalog.SQL_DELETE_USER_INFO_BY_ID,
+            (tid,),
+        )
         if cur.rowcount == 0:
             conn.rollback()
             raise ValueError("사용자를 삭제하지 못했습니다.")
@@ -1577,7 +1577,7 @@ def set_user_dvsn_admin_user(
             if nd not in ("a", "o", "u"):
                 raise ValueError("허용되지 않는 조직 역할입니다.")
         cur.execute(
-            "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
+            audit_sql_catalog.SQL_USER_ROLE_CHANGE,
             (nd, target_user_id),
         )
         conn.commit()
@@ -1644,7 +1644,7 @@ def set_user_etl_flag(
         if flag == "N":
             _raise_if_etl_registry_blocks_clearing_etl_yn(int(target_user_id))
         cur.execute(
-            "UPDATE user_info SET etl_yn = %s, update_dtm = NOW() WHERE user_id = %s",
+            audit_sql_catalog.SQL_USER_ETL_FLAG,
             (flag, target_user_id),
         )
         conn.commit()
@@ -2125,7 +2125,7 @@ def delete_department_in_org_settings(
     cur = conn.cursor()
     try:
         cur.execute(
-            "DELETE FROM dptmt_info WHERE dptmt_info_id = %s",
+            audit_sql_catalog.SQL_DEPT_DELETE,
             (tid,),
         )
         if cur.rowcount == 0:
@@ -2198,13 +2198,7 @@ def create_department(
     cur = conn.cursor()
     try:
         cur.execute(
-            """
-            INSERT INTO dptmt_info (
-                dptmt_code, dptmt_name, parent_dptmt_info_id, sort_order, use_yn,
-                dptmt_create_user_id, create_dtm, update_dtm
-            ) VALUES (%s, %s, %s, 0, 'Y', %s, NOW(), NOW())
-            RETURNING dptmt_info_id
-            """,
+            audit_sql_catalog.SQL_DEPT_CREATE_INSERT,
             (code[:80], name[:100], pid, int(actor_user_id)),
         )
         row = cur.fetchone()
@@ -2240,7 +2234,7 @@ def update_department_name(
     cur = conn.cursor()
     try:
         cur.execute(
-            "UPDATE dptmt_info SET dptmt_name = %s, update_dtm = NOW() WHERE dptmt_info_id = %s",
+            audit_sql_catalog.SQL_DEPT_UPDATE_NAME_ONLY,
             (name, dptmt_info_id),
         )
         if cur.rowcount == 0:
@@ -2920,6 +2914,7 @@ def _emit_ownership_transfer_log(
     resource_id: int,
     from_user_id: int,
     to_user_id: int,
+    sql_fingerprint: str | None = None,
 ) -> None:
     _emit_admin_system_log(
         actor_user_id,
@@ -2932,6 +2927,7 @@ def _emit_ownership_transfer_log(
             "to_user_id": int(to_user_id),
         },
         risk_tier="HIGH",
+        sql_fingerprint=sql_fingerprint,
     )
 
 
@@ -2989,13 +2985,14 @@ def transfer_resource_ownership(
             _assert_etl_infra_recipient(conn, dict(to_row), from_dpt)
             cur.close()
             cur = None
-            _transfer_etl_resource(rt, rid, fid, tid)
+            etl_fp = _transfer_etl_resource(rt, rid, fid, tid)
             _emit_ownership_transfer_log(
                 actor_user_id,
                 resource_type=rt,
                 resource_id=rid,
                 from_user_id=fid,
                 to_user_id=tid,
+                sql_fingerprint=etl_fp,
             )
             return
         if rt == "table_master":
@@ -3048,11 +3045,7 @@ def transfer_resource_ownership(
                 )
             try:
                 cur.execute(
-                    """
-                    UPDATE table_master
-                    SET create_user_id = %s, update_dtm = NOW()
-                    WHERE table_master_id = %s AND create_user_id = %s
-                    """,
+                    audit_sql_catalog.SQL_OWNERSHIP_TABLE_MASTER,
                     (tid, rid, fid),
                 )
             except psycopg2.errors.UndefinedColumn as e:
@@ -3113,10 +3106,7 @@ def transfer_resource_ownership(
                 )
             assert_invite_dptmt_allowed(conn, actor_dvsn, int(actor_dptmt), dept_pk)
             cur.execute(
-                """
-                UPDATE dptmt_info SET dptmt_create_user_id = %s, update_dtm = NOW()
-                WHERE dptmt_info_id = %s AND dptmt_create_user_id = %s
-                """,
+                audit_sql_catalog.SQL_OWNERSHIP_DPTMT_CREATOR,
                 (tid, rid, fid),
             )
             if cur.rowcount == 0:
@@ -3160,22 +3150,14 @@ def transfer_resource_ownership(
                 )
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
             cur.execute(
-                """
-                UPDATE widget_board
-                SET owner_user_id = %s, update_dtm = NOW()
-                WHERE widget_board_id = %s AND owner_user_id = %s
-                """,
+                audit_sql_catalog.SQL_OWNERSHIP_WIDGET_BOARD_OWNER,
                 (tid, rid, fid),
             )
             if cur.rowcount == 0:
                 conn.rollback()
                 raise ValueError("위젯 보드 소유 이관에 실패했습니다.")
             cur.execute(
-                """
-                UPDATE widget_item
-                SET create_user_id = %s, update_dtm = NOW()
-                WHERE widget_board_id = %s
-                """,
+                audit_sql_catalog.SQL_OWNERSHIP_WIDGET_ITEM_BY_BOARD,
                 (tid, rid),
             )
             conn.commit()
@@ -3212,11 +3194,7 @@ def transfer_resource_ownership(
                 )
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
             cur.execute(
-                """
-                UPDATE project_ptcpnt_info
-                SET invite_user_id = %s, update_dtm = NOW()
-                WHERE project_ptcpnt_info_id = %s AND invite_user_id = %s
-                """,
+                audit_sql_catalog.SQL_OWNERSHIP_PROJECT_INVITE,
                 (tid, rid, fid),
             )
             if cur.rowcount == 0:
@@ -3249,11 +3227,7 @@ def transfer_resource_ownership(
                 raise ValueError("이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다.")
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
             cur.execute(
-                """
-                UPDATE project_info
-                SET project_create_user_id = %s, update_dtm = NOW()
-                WHERE project_info_id = %s
-                """,
+                audit_sql_catalog.SQL_OWNERSHIP_PROJECT_CREATE_USER,
                 (tid, rid),
             )
             conn.commit()
@@ -3285,11 +3259,7 @@ def transfer_resource_ownership(
                 raise ValueError("이관 대상은 권한 소속 부서와 동일한 부서 사용자여야 합니다.")
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, md)
             cur.execute(
-                """
-                UPDATE pmssn_master
-                SET user_id = %s, update_dtm = NOW()
-                WHERE pmssn_master_id = %s
-                """,
+                audit_sql_catalog.SQL_OWNERSHIP_PMSSN_MASTER_USER,
                 (tid, rid),
             )
             conn.commit()
@@ -3719,7 +3689,7 @@ def update_user_management(
             if nd not in allow_ids:
                 raise ValueError("해당 부서로는 변경할 수 없습니다.")
             cur.execute(
-                "UPDATE user_info SET dptmt_info_id = %s, update_dtm = NOW() WHERE user_id = %s",
+                audit_sql_catalog.SQL_USER_INFO_SET_DPTMT_ID,
                 (nd, tid),
             )
 
@@ -3734,7 +3704,7 @@ def update_user_management(
                 mgmt_track["old_dvsn"] = td_before
                 mgmt_track["new_dvsn"] = nd
                 cur.execute(
-                    "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
+                    audit_sql_catalog.SQL_USER_ROLE_CHANGE,
                     (nd, tid),
                 )
                 if nd == "u":
@@ -3744,7 +3714,7 @@ def update_user_management(
                         mgmt_track["old_etl"] = "Y"
                         mgmt_track["new_etl"] = "N"
                     cur.execute(
-                        "UPDATE user_info SET etl_yn = 'N', update_dtm = NOW() WHERE user_id = %s",
+                        audit_sql_catalog.SQL_USER_INFO_SET_ETL_YN_FORCE_N,
                         (tid,),
                     )
 
@@ -3777,7 +3747,7 @@ def update_user_management(
                 mgmt_track["old_etl"] = prev_e
                 mgmt_track["new_etl"] = flag
             cur.execute(
-                "UPDATE user_info SET etl_yn = %s, update_dtm = NOW() WHERE user_id = %s",
+                audit_sql_catalog.SQL_USER_ETL_FLAG,
                 (flag, tid),
             )
 
@@ -3834,12 +3804,7 @@ def update_user_management(
                 for pid in add_ids:
                     _assert_pmssn_allowed_for_project(cur, pid, desired_map[pid])
                     cur.execute(
-                        """
-                        INSERT INTO project_ptcpnt_info (
-                            ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
-                        ) VALUES (%s, %s, %s, %s, NOW())
-                        ON CONFLICT (project_info_id, ptcpnt_user_id) DO NOTHING
-                        """,
+                        audit_sql_catalog.SQL_PROJECT_PTCPNT_INFO_INSERT_ON_CONFLICT,
                         (tid, int(actor_user_id), pid, desired_map[pid]),
                     )
             for pid in same_ids:
@@ -3858,19 +3823,12 @@ def update_user_management(
                 _assert_pmssn_allowed_for_project(cur, pid, desired_map[pid])
                 proj_changed = True
                 cur.execute(
-                    """
-                    UPDATE project_ptcpnt_info
-                    SET pmssn_master_id = %s, update_dtm = NOW()
-                    WHERE project_info_id = %s AND ptcpnt_user_id = %s
-                    """,
+                    audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
                     (desired_map[pid], pid, tid),
                 )
             for pid in remove_ids:
                 cur.execute(
-                    """
-                    DELETE FROM project_ptcpnt_info
-                    WHERE project_info_id = %s AND ptcpnt_user_id = %s
-                    """,
+                    audit_sql_catalog.SQL_MEMBER_REMOVE,
                     (pid, tid),
                 )
         conn.commit()

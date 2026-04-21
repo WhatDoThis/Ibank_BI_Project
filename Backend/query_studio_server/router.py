@@ -29,7 +29,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 16. api_join_order: POST /api/join-order (JOIN 순서, 허용 테이블은 프로젝트 매핑 병합 집합)
 17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블; DDL 완료는 워커에서 `emit_query_studio_log`·`saved_table_create`)
 18. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
-19. execute_query: POST /api/execute-query (SELECT, main_db만·성공 시 `query_execute` 계측, `user_id`는 JWT 클레임 정수로 확정)
+19. execute_query: POST /api/execute-query (SELECT, main_db만·성공 시 `query_execute` 계측·`sql_fingerprint`·`user_id`는 JWT 클레임 정수로 확정)
 20. explain_sql: POST /api/explain-sql (Claude 해석)
 21. get_column_values: POST /api/get-column-values (main_db·main 매핑만)
 22. query_stats: POST /api/query-stats (COUNT·EXPLAIN, main_db만)
@@ -37,7 +37,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 [Dependencies]
 =========
 - Backend.query_studio_server.audit_emit.emit_query_studio_log
-- Backend.core.db, Backend.core.sql_safety, Backend.core.dependencies(get_db·get_config·get_system_db)
+- Backend.core.db, Backend.core.sql_safety, Backend.core.sql_fingerprint.compute_sql_fingerprint_hex, Backend.core.dependencies(get_db·get_config·get_system_db)
 - Backend.auth_server.deps.require_active_access, Backend.auth_server.permissions(require_permission, compute_effective_project_permission_ids, get_user_dvsn_lower, is_project_active)
 - require_query_read_perm / require_query_execute_perm: 테스트·오버라이드용 공통 Depends 대상
 - Backend.query_studio_server.schemas, pluralize, join_path, join_metrics, relationship_inference, peak_guard
@@ -63,6 +63,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from Backend.core import db
+from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 from Backend.core.sql_safety import contains_dangerous_sql as _core_contains_dangerous_sql
 from Backend.query_studio_server import peak_guard
 from Backend.query_studio_server.relationship_inference import infer_relationships
@@ -1227,6 +1228,7 @@ def _save_table_worker():
                     business_action="saved_table_create",
                     action_kind="CREATE",
                     table_name=str(table_name)[:63] if table_name else None,
+                    sql_fingerprint=compute_sql_fingerprint_hex(str(query or "")),
                     detail_json={
                         "job_id": job_id,
                         "project_info_id": project_info_id,
@@ -1479,6 +1481,7 @@ def execute_query(
             business_action="query_execute",
             action_kind="EXECUTE",
             rows_affected=len(result),
+            sql_fingerprint=compute_sql_fingerprint_hex(query),
             detail_json={
                 "project_info_id": int(pid_exec) if pid_exec is not None else None,
                 "query_len": len(query),

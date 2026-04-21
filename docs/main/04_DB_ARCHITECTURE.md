@@ -484,7 +484,7 @@ detail_json              jsonb           NOT NULL DEFAULT '{}' 확장(JSON)
 **`sql_fingerprint` 규약(분석·재현용)** — 암호화(복호화)가 **아니다**. SQL **원문 전문을 DB에 저장하지 않는** 제품 정책 하에서, 동일·유사 실행을 묶거나 외부 DB 감사 로그와 대응할 **단방향 지문**이다.
 
 1. **DDL `varchar(64)`**: SHA-256 digest의 **소문자 16진수 64자**(접두어 없음) 한 토큰만 넣는 것을 표준으로 한다. (Python `hashlib.sha256(바이트).hexdigest()` 결과와 동일한 표기.)
-2. **입력 문자열(신규 적재가 따를 계약)**: UTF-8로 인코딩한 **정규화 SQL 한 문자열**에 대해 SHA-256을 계산한다. 정규화는 아래를 **순서 고정**으로 적용한 뒤의 문자열 전체를 해시한다(구현은 **`Backend.core` 공용 함수 한 곳**에만 두고, 도입 시 **본 줄에 모듈·함수명을 보강**한다). 규칙이 바뀌면 배포 버전별로 재현 방식이 달라질 수 있다.
+2. **입력 문자열(신규 적재가 따를 계약)**: UTF-8로 인코딩한 **정규화 SQL 한 문자열**에 대해 SHA-256을 계산한다. 정규화는 아래를 **순서 고정**으로 적용한 뒤의 문자열 전체를 해시한다. 구현: **`Backend.core.sql_fingerprint`** — `normalize_sql_for_fingerprint` → `compute_sql_fingerprint_hex`(빈 정규화면 NULL). 규칙이 바뀌면 배포 버전별로 재현 방식이 달라질 수 있다. **도메인별 계측**은 `admin_server/audit_sql_catalog.py`와 같이, `auth_server`·`project_server`·`widget_board_server`·`etl_server`·`query_studio_server` 등도 패키지 로컬 `audit_sql_catalog.py`에 **`business_action`별 대표 DML 템플릿**을 두고 지문을 계산하며, `audit_emit`은 `append_system_log` 연동과 `sql_fingerprint`·`sql_template_key` 보강만 담당한다(원문 SQL 전문은 적재하지 않음).
    - 선행·후행 공백 제거.
    - 탭·개행·캐리지 리턴을 단일 공백(`U+0020`)으로 치환한 뒤, 연속 공백을 단일 공백으로 축약.
    - SQL 키워드·식별자는 **소문자**로 통일(ASCII 범위 식별자·키워드; 유니코드 식별자는 NFC 정규형 유지 후 소문자화가 가능한 부분만 적용).

@@ -362,7 +362,7 @@
 
 | 파일 | 계측 후보 함수 | 단계 | 비고 |
 |------|----------------|------|------|
-| `service.py` | `mark_read_one`, `mark_read_all` | 2c | `commit` 성공·실제 `UPDATE` 행 있을 때만 기록(`business_action`: `mark_read_one`, `mark_read_all`). 불필요 시 플래그 off로 부하 제어. |
+| `service.py` | `mark_read_one`, `mark_read_all` | — | **미계측**(고빈도 읽음·부하·노이즈 제거). `insert_notification` 행은 **§6.5.7 두 번째 행** 정책 유지. |
 | `service.py` | `insert_notification` | — | **다 도메인에서 호출** — 여기에 넣지 말고 **발행 원인이 있는 상위 서비스**에만 집약 기록 |
 
 #### 6.5.8 `Backend/campaign_dash_server`

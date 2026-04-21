@@ -22,6 +22,7 @@ table_master 전사 목록/수정과 project별 table_project_mapping 관리 로
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
+- Backend.admin_server.audit_sql_catalog
 - typing.Any
 - system_db tables: project_info, table_master, table_project_mapping
 """
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from Backend.admin_server import audit_sql_catalog
 from Backend.admin_server.audit_emit import emit_admin_system_log
 
 
@@ -145,20 +147,12 @@ def update_table_master(
 
         if table_label is not None:
             cur.execute(
-                """
-                UPDATE table_master
-                SET table_label = %s, update_dtm = NOW()
-                WHERE table_master_id = %s
-                """,
+                audit_sql_catalog.SQL_TABLE_MASTER_SET_LABEL,
                 (table_label, table_master_id),
             )
         if table_dscrtn is not None:
             cur.execute(
-                """
-                UPDATE table_master
-                SET table_dscrtn = %s, update_dtm = NOW()
-                WHERE table_master_id = %s
-                """,
+                audit_sql_catalog.SQL_TABLE_MASTER_SET_DSCRTN,
                 (table_dscrtn, table_master_id),
             )
         conn.commit()
@@ -259,12 +253,7 @@ def add_project_table_mapping(
             raise ValueError("이미 매핑된 테이블입니다.")
 
         cur.execute(
-            """
-            INSERT INTO table_project_mapping (
-                project_info_id, table_master_id, create_dtm,
-                use_query_studio_yn, use_widgetboard_yn
-            ) VALUES (%s, %s, NOW(), 'Y', 'Y')
-            """,
+            audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_INSERT,
             (project_info_id, table_master_id),
         )
         conn.commit()
@@ -300,10 +289,7 @@ def delete_project_table_mapping(
     try:
         _assert_project_owned(cur, dptmt_info_id, project_info_id)
         cur.execute(
-            """
-            DELETE FROM table_project_mapping
-            WHERE project_info_id = %s AND table_master_id = %s
-            """,
+            audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_DELETE,
             (project_info_id, table_master_id),
         )
         if cur.rowcount == 0:

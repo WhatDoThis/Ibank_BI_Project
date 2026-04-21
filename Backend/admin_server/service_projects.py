@@ -5,7 +5,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 
 [Main Functions]
 ===========
-1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(채널 플래그 또는 레거시; 매핑은 main table_master만)·…·타부서 알림
+1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(`audit_sql_catalog` 공용 SQL)·…·타부서 알림
 2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE) — commit 성공 후 `audit_emit.emit_admin_system_log`(actor_user_id 있을 때)
 4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member / remove_member / update_member_role — 동일 계측
@@ -16,6 +16,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
+- Backend.admin_server.audit_sql_catalog
 - Backend.admin_server.change_notify
 - Backend.mail.outbound.send_project_invite_existing_user_email
 - Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
@@ -34,6 +35,7 @@ import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json
 
+from Backend.admin_server import audit_sql_catalog
 from Backend.admin_server import change_notify
 from Backend.admin_server.audit_emit import emit_admin_system_log
 from Backend.admin_server.service_roles import (
@@ -87,10 +89,7 @@ def _sync_project_table_mappings_with_usage(
             continue
         seen.add(tmid)
         cur.execute(
-            """
-            SELECT LOWER(TRIM(COALESCE(db_type, ''))) AS db_type_norm
-            FROM table_master WHERE table_master_id = %s
-            """,
+            audit_sql_catalog.SQL_TABLE_MASTER_SELECT_DB_TYPE_NORM,
             (tmid,),
         )
         trow = cur.fetchone()
@@ -110,30 +109,18 @@ def _sync_project_table_mappings_with_usage(
     ids = [x[0] for x in normalized]
     if not ids:
         cur.execute(
-            "DELETE FROM table_project_mapping WHERE project_info_id = %s",
+            audit_sql_catalog.SQL_DELETE_TABLE_PROJECT_MAPPING_BY_PROJECT,
             (int(project_info_id),),
         )
         return
     ph = ", ".join(["%s"] * len(ids))
     cur.execute(
-        f"""
-        DELETE FROM table_project_mapping
-        WHERE project_info_id = %s
-          AND table_master_id NOT IN ({ph})
-        """,
+        audit_sql_catalog.sql_delete_table_project_mapping_not_in(ph),
         (int(project_info_id), *ids),
     )
     for tmid, qyn, wyn in normalized:
         cur.execute(
-            """
-            INSERT INTO table_project_mapping (
-                project_info_id, table_master_id, create_dtm,
-                use_query_studio_yn, use_widgetboard_yn
-            ) VALUES (%s, %s, NOW(), %s, %s)
-            ON CONFLICT (project_info_id, table_master_id) DO UPDATE SET
-                use_query_studio_yn = EXCLUDED.use_query_studio_yn,
-                use_widgetboard_yn = EXCLUDED.use_widgetboard_yn
-            """,
+            audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_UPSERT_USAGE_FLAGS,
             (int(project_info_id), tmid, qyn, wyn),
         )
 
@@ -144,10 +131,7 @@ def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: li
     entries: list[dict[str, Any]] = []
     for i in ids:
         cur.execute(
-            """
-            SELECT LOWER(TRIM(COALESCE(db_type, ''))) AS db_type_norm
-            FROM table_master WHERE table_master_id = %s
-            """,
+            audit_sql_catalog.SQL_TABLE_MASTER_SELECT_DB_TYPE_NORM,
             (i,),
         )
         trow = cur.fetchone()
@@ -386,13 +370,7 @@ def create_project_full(
     cur = conn.cursor()
     try:
         cur.execute(
-            """
-            INSERT INTO project_info (
-                dptmt_info_id, project_create_user_id, project_name, project_dscrtn,
-                active_yn, create_dtm, feature_flags
-            ) VALUES (%s, %s, %s, %s, 'Y', NOW(), %s)
-            RETURNING project_info_id
-            """,
+            audit_sql_catalog.SQL_PROJECT_INFO_INSERT,
             (
                 actor_dptmt_id,
                 actor_user_id,
@@ -406,11 +384,7 @@ def create_project_full(
         _assert_pmssn_for_project(cur, pid, int(creator_pmssn_master_id))
 
         cur.execute(
-            """
-            INSERT INTO project_ptcpnt_info (
-                ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
-            ) VALUES (%s, %s, %s, %s, NOW())
-            """,
+            audit_sql_catalog.SQL_PROJECT_PTCPNT_INFO_INSERT,
             (actor_user_id, actor_user_id, pid, int(creator_pmssn_master_id)),
         )
 
@@ -419,10 +393,7 @@ def create_project_full(
         else:
             for tmid in tid_list:
                 cur.execute(
-                    """
-                    SELECT LOWER(TRIM(COALESCE(db_type, ''))) AS db_type_norm
-                    FROM table_master WHERE table_master_id = %s
-                    """,
+                    audit_sql_catalog.SQL_TABLE_MASTER_SELECT_DB_TYPE_NORM,
                     (tmid,),
                 )
                 trow = cur.fetchone()
@@ -433,15 +404,7 @@ def create_project_full(
                 if str(trow.get("db_type_norm") or "").strip() != "main":
                     continue
                 cur.execute(
-                    """
-                    INSERT INTO table_project_mapping (
-                        project_info_id, table_master_id, create_dtm,
-                        use_query_studio_yn, use_widgetboard_yn
-                    ) VALUES (%s, %s, NOW(), 'Y', 'Y')
-                    ON CONFLICT (project_info_id, table_master_id) DO UPDATE SET
-                        use_query_studio_yn = 'Y',
-                        use_widgetboard_yn = 'Y'
-                    """,
+                    audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_INSERT_UPSERT_YY,
                     (pid, tmid),
                 )
 
@@ -470,11 +433,7 @@ def create_project_full(
             if cur.fetchone():
                 raise ValueError(f"이미 멤버로 지정된 사용자입니다. (user_id={uid})")
             cur.execute(
-                """
-                INSERT INTO project_ptcpnt_info (
-                    ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
-                ) VALUES (%s, %s, %s, %s, NOW())
-                """,
+                audit_sql_catalog.SQL_PROJECT_PTCPNT_INFO_INSERT,
                 (uid, actor_user_id, pid, mid),
             )
             _notify_project_member_added_pair(
@@ -632,22 +591,21 @@ def update_project(
         sets: list[str] = []
         params: list[Any] = []
         if project_name is not None:
-            sets.append("project_name = %s")
+            sets.append(audit_sql_catalog.SQL_PROJECT_SET_PROJECT_NAME)
             params.append((project_name or "").strip())
         if project_dscrtn is not None:
-            sets.append("project_dscrtn = %s")
+            sets.append(audit_sql_catalog.SQL_PROJECT_SET_PROJECT_DSCRTN)
             params.append(project_dscrtn)
         if active_yn is not None:
-            sets.append("active_yn = %s")
+            sets.append(audit_sql_catalog.SQL_PROJECT_SET_ACTIVE_YN)
             params.append((active_yn or "")[:1])
         if feature_flags is not None:
-            sets.append("feature_flags = %s")
+            sets.append(audit_sql_catalog.SQL_PROJECT_SET_FEATURE_FLAGS)
             params.append(Json(normalize_feature_flags_for_db(feature_flags)))
         if sets:
-            sets.append("update_dtm = NOW()")
             params.append(project_info_id)
             cur.execute(
-                f"UPDATE project_info SET {', '.join(sets)} WHERE project_info_id = %s",
+                audit_sql_catalog.sql_project_info_update(sets),
                 params,
             )
         elif (
@@ -701,7 +659,7 @@ def deactivate_project(
     try:
         _assert_project_owned_allow_inactive(cur, dptmt_info_id, project_info_id)
         cur.execute(
-            "UPDATE project_info SET active_yn = 'N', update_dtm = NOW() WHERE project_info_id = %s",
+            audit_sql_catalog.SQL_PROJECT_DEACTIVATE,
             (project_info_id,),
         )
         conn.commit()
@@ -823,29 +781,17 @@ def purge_inactive_project(
 
         _purge_run_optional_sql(
             cur,
-            """
-            UPDATE user_info
-            SET invite_project_info_id = NULL,
-                invite_pmssn_master_id = NULL,
-                update_dtm = NOW()
-            WHERE invite_project_info_id = %s
-            """,
+            audit_sql_catalog.SQL_PURGE_USER_INFO_CLEAR_INVITE_PROJECT,
             (pid,),
         )
         _purge_run_optional_sql(
             cur,
-            """
-            UPDATE email_invite_code_master
-            SET invite_project_info_id = NULL,
-                invite_pmssn_master_id = NULL,
-                update_dtm = NOW()
-            WHERE invite_project_info_id = %s
-            """,
+            audit_sql_catalog.SQL_PURGE_EMAIL_INVITE_CODE_MASTER_CLEAR_INVITE_PROJECT,
             (pid,),
         )
 
         cur.execute(
-            "SELECT widget_board_id FROM widget_board WHERE project_info_id = %s ORDER BY widget_board_id",
+            audit_sql_catalog.SQL_PURGE_SELECT_WIDGET_BOARD_IDS_BY_PROJECT,
             (pid,),
         )
         for wb_row in cur.fetchall():
@@ -858,31 +804,28 @@ def purge_inactive_project(
                 cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_wb_notif")
 
         cur.execute(
-            """
-            DELETE FROM widget_item wi USING widget_board wb
-            WHERE wi.widget_board_id = wb.widget_board_id AND wb.project_info_id = %s
-            """,
+            audit_sql_catalog.SQL_PURGE_WIDGET_ITEM_USING_PROJECT,
             (pid,),
         )
         cur.execute(
-            """
-            DELETE FROM widget_board_share sh USING widget_board wb
-            WHERE sh.widget_board_id = wb.widget_board_id AND wb.project_info_id = %s
-            """,
+            audit_sql_catalog.SQL_PURGE_WIDGET_BOARD_SHARE_USING_PROJECT,
             (pid,),
         )
-        cur.execute("DELETE FROM widget_board WHERE project_info_id = %s", (pid,))
+        cur.execute(
+            audit_sql_catalog.SQL_PURGE_WIDGET_BOARD_BY_PROJECT,
+            (pid,),
+        )
 
         cur.execute(
-            "DELETE FROM table_project_mapping WHERE project_info_id = %s",
+            audit_sql_catalog.SQL_PURGE_TABLE_PROJECT_MAPPING_BY_PROJECT,
             (pid,),
         )
         cur.execute(
-            "DELETE FROM project_ptcpnt_info WHERE project_info_id = %s",
+            audit_sql_catalog.SQL_PURGE_PROJECT_PTCPNT_BY_PROJECT,
             (pid,),
         )
         cur.execute(
-            "DELETE FROM project_info WHERE project_info_id = %s",
+            audit_sql_catalog.SQL_PURGE_PROJECT_INFO_BY_ID,
             (pid,),
         )
         conn.commit()
@@ -1253,11 +1196,7 @@ def add_member(
             )
             pname_immediate = (cur.fetchone() or {}).get("project_name") or ""
             cur.execute(
-                """
-                INSERT INTO project_ptcpnt_info (
-                    ptcpnt_user_id, invite_user_id, project_info_id, pmssn_master_id, create_dtm
-                ) VALUES (%s, %s, %s, %s, NOW())
-                """,
+                audit_sql_catalog.SQL_PROJECT_PTCPNT_INFO_INSERT,
                 (target_uid, aid, pid, mid),
             )
             _notify_project_member_added_pair(
@@ -1405,10 +1344,7 @@ def update_member_role(
         pn_mu = cur.fetchone()
         pname_mu = (pn_mu or {}).get("project_name") or ""
         cur.execute(
-            """
-            UPDATE project_ptcpnt_info SET pmssn_master_id = %s, update_dtm = NOW()
-            WHERE project_info_id = %s AND ptcpnt_user_id = %s
-            """,
+            audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
             (pmssn_master_id, project_info_id, ptcpnt_user_id),
         )
         if cur.rowcount == 0:
@@ -1480,10 +1416,7 @@ def remove_member(
         )
         pname_rm = (cur.fetchone() or {}).get("project_name") or ""
         cur.execute(
-            """
-            DELETE FROM project_ptcpnt_info
-            WHERE project_info_id = %s AND ptcpnt_user_id = %s
-            """,
+            audit_sql_catalog.SQL_MEMBER_REMOVE,
             (project_info_id, ptcpnt_user_id),
         )
         if cur.rowcount == 0:

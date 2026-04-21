@@ -1,6 +1,13 @@
 # Log
 
 ## Log Index
+510. 2026-04-21 auth·query_studio·widget_board·project·etl: 감사 SQL 지문 카탈로그·emit 보강
+509. 2026-04-20 notification_server: 읽음 API system_log 계측 제거·audit_emit 삭제
+508. 2026-04-21 admin_server: project update·purge·매핑 동기화 SQL 카탈로그화
+507. 2026-04-21 admin_server: 감사 SQL 카탈로그 DRY(service_*가 동일 템플릿 execute)
+506. 2026-04-21 admin_server: 감사 SQL 지문 카탈로그 모듈 분리(audit_sql_catalog)
+505. 2026-04-21 admin_server: 관리 감사 emit 시 sql_fingerprint(액션별 SQL 템플릿)
+504. 2026-04-21 system_log: sql_fingerprint 계측(core)·이력 UI 열 스타일
 503. 2026-04-21 docs/main: 05 파일명·머리말 정합(05_PERMISSION_GUIDE)·502 문서·README
 502. 2026-04-21 통합 이력: 페이지당 10·20·50개·기본 10·탭 간 유지
 501. 2026-04-21 docs/main: 통합 이력 UI(로그 500) 00·01·06·07 반영
@@ -506,6 +513,80 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+510. 2026-04-21 auth·query_studio·widget_board·project·etl: 감사 SQL 지문 카탈로그·emit 보강
+Purpose: `system_log` 에 **원문 SQL 없이** `sql_fingerprint`·`sql_template_key` 로 실행 형태를 식별한다. 패키지 구조는 유지하고 `admin_server`와 동일하게 **도메인 로컬 `audit_sql_catalog`** 에 `business_action` 대표 템플릿을 두고 `audit_emit` 이 생략 시 지문을 채운다.
+
+Changes:
+
+- `auth_server`·`project_server`·`widget_board_server`·`etl_server`·`query_studio_server`: 각 `audit_sql_catalog.py` 신설, `audit_emit.py` 에서 `sql_fingerprint` 자동 계산·`SystemLogRow` 전달
+- `query_studio_server`: `labels_save` 등 호출부 미전달 시 카탈로그 UPSERT 템플릿으로 지문 보강
+- `docs/main/04_DB_ARCHITECTURE.md` §13: 도메인별 카탈로그 패턴 문구 보강
+
+Changed files: Backend/auth_server/audit_emit.py, Backend/auth_server/audit_sql_catalog.py, Backend/project_server/audit_emit.py, Backend/project_server/audit_sql_catalog.py, Backend/widget_board_server/audit_emit.py, Backend/widget_board_server/audit_sql_catalog.py, Backend/etl_server/audit_emit.py, Backend/etl_server/audit_sql_catalog.py, Backend/query_studio_server/audit_emit.py, Backend/query_studio_server/audit_sql_catalog.py, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+509. 2026-04-20 notification_server: 읽음 API system_log 계측 제거·audit_emit 삭제
+Purpose: 알림 **읽음**(단건·전체)은 고빈도·저가치로 `system_log`에 남기지 않고 DB `UPDATE`만 수행한다. 전용 `emit_notification_log` 모듈을 제거해 패키지를 단순화한다.
+
+Changes:
+
+- `service.py`: `mark_read_one`·`mark_read_all`에서 `append_system_log` 연동 제거, 모듈 머리말 정합
+- `audit_emit.py`: 삭제(호출부 없음)
+- `docs/report/22_System_Log_Development_Plan.md` §6.5.7: 읽음 행 **미계측**으로 표 갱신
+- `docs/main/03_API_GUIDE.md`: 계측 요약에서 알림 읽음 예외 명시
+
+Changed files: Backend/notification_server/service.py, Backend/notification_server/audit_emit.py (삭제), docs/report/22_System_Log_Development_Plan.md, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+508. 2026-04-21 admin_server: project update·purge·매핑 동기화 SQL 카탈로그화
+Purpose: `service_projects` 의 **동적 project_info UPDATE**, **프로젝트 purge** 다문, **table_project_mapping** 동기화(단일 DELETE·NOT IN DELETE·사용 플래그 UPSERT·생성 시 YY UPSERT), **table_master db_type** 조회를 `audit_sql_catalog` 상수·`sql_project_info_update`·`sql_delete_table_project_mapping_not_in` 로 이관한다. `SQL_PROJECT_PURGE_COMPOSITE` 는 분할 상수를 `; ` 로 이어 기존 지문과 동일하게 유지한다.
+
+Changes:
+
+- `audit_sql_catalog.py`: purge·project SET·매핑·SELECT·빌더 함수·머리말 용어 설명( SQL 카탈로그 DRY )
+- `service_projects.py`: 위 카탈로그 참조로 치환
+
+Changed files: Backend/admin_server/audit_sql_catalog.py, Backend/admin_server/service_projects.py, docs/log/log.md
+
+507. 2026-04-21 admin_server: 감사 SQL 카탈로그 DRY(service_*가 동일 템플릿 execute)
+Purpose: `audit_sql_catalog`의 **공용 SQL 문자열 상수**를 `service_users`·`service_roles`·`service_tables`·`service_projects`의 `cur.execute`와 공유해, 실행문과 `sql_fingerprint` 정규화 입력이 어긋나지 않게 한다. ETL 메타 이관은 `sql_etl_transfer_update_statement`로 문자열을 만들고 **실행 직후 동일 문자열로 지문**을 계산해 `ownership_transfer` 로그에 전달한다.
+
+Changes:
+
+- `audit_sql_catalog.py`: `SQL_*` 상수·`user_management` 합성 지문 보강·`sql_etl_transfer_update_statement`
+- `service_users.py`·`service_roles.py`·`service_tables.py`·`service_projects.py`: 카탈로그 상수로 DML 치환·알림 일괄 삭제는 `SQL_DELETE_NOTIFICATION_INFO_BY_USER`로 직접 실행
+
+Changed files: Backend/admin_server/audit_sql_catalog.py, Backend/admin_server/service_users.py, Backend/admin_server/service_roles.py, Backend/admin_server/service_tables.py, Backend/admin_server/service_projects.py, docs/log/log.md
+
+506. 2026-04-21 admin_server: 감사 SQL 지문 카탈로그 모듈 분리(audit_sql_catalog)
+Purpose: 앱 레벨 감사에서 흔한 **Audit catalog(registry)** 패턴으로, `business_action`→대표 DML 템플릿·해시(`lru_cache`)를 `audit_sql_catalog`에 모으고 `audit_emit`은 `append_system_log` 연동만 담당하도록 분리한다(ORM 매퍼와는 별개).
+
+Changes:
+
+- `audit_sql_catalog.py`: 템플릿 맵·분기·`admin_audit_sql_fingerprint`
+- `audit_emit.py`: 카탈로그 호출로 슬림화
+
+Changed files: Backend/admin_server/audit_sql_catalog.py, Backend/admin_server/audit_emit.py, docs/log/log.md
+
+505. 2026-04-21 admin_server: 관리 감사 emit 시 sql_fingerprint(액션별 SQL 템플릿)
+Purpose: 쿼리 스튜디오 외 **일반 관리 페이지**(사용자·부서·프로젝트·권한·테이블 매핑·소유 이관 등)에서도 `system_log.sql_fingerprint`가 비지 않도록, `emit_admin_system_log`가 `business_action`(및 `member_add`의 `x_outcome`, `ownership_transfer`의 `resource_type`)에 대응하는 **대표 DML 템플릿**을 해시해 적재한다.
+
+Changes:
+
+- `audit_emit.py`: 액션→템플릿 맵, `member_add`·`ownership_transfer` 분기, `SystemLogRow.sql_fingerprint` 전달, 템플릿별 `lru_cache`로 해시 재사용
+
+Changed files: Backend/admin_server/audit_emit.py, docs/log/log.md
+
+504. 2026-04-21 system_log: sql_fingerprint 계측(core)·이력 UI 열 스타일
+Purpose: 목록·저장소는 정상인데 **계측이 `sql_fingerprint`를 채우지 않아** 컬럼이 비어 보이던 문제를 해소한다. `04` §13 규약에 맞춘 정규화·SHA-256을 `Backend.core.sql_fingerprint`에 두고, 쿼리 스튜디오 **실행·저장 테이블 CREATE** 시 지문을 적재한다. 통합 이력 UI는 지문 열 폭·**overflow hidden**·본문과 맞는 글자 크기로 조정한다.
+
+Changes:
+
+- `sql_fingerprint.py`: `normalize_sql_for_fingerprint`, `compute_sql_fingerprint_hex`
+- `query_studio_server/audit_emit.py`·`router.py`: `emit_query_studio_log`에 지문 전달·execute·save 워커 연동
+- `04_DB_ARCHITECTURE.md`: §13 구현 모듈명 보강
+- `UserHistoryPage.jsx`·`user-history.css`: 지문 셀 `span`·스타일
+
+Changed files: Backend/core/sql_fingerprint.py, Backend/query_studio_server/audit_emit.py, Backend/query_studio_server/router.py, docs/main/04_DB_ARCHITECTURE.md, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
 
 503. 2026-04-21 docs/main: 05 파일명·머리말 정합(05_PERMISSION_GUIDE)·502 문서·README
 Purpose: 권한 문서를 `01`·`02`와 같은 **개발 가이드** 네이밍(`05_PERMISSION_GUIDE.md`)으로 맞추고, 로그 502(통합 이력 `page_size`)를 `docs/main`·`README`·`docs/README`·교차 참조에 반영한다.

@@ -1432,7 +1432,7 @@ DDL·감사 정책·`sql_fingerprint` 규약: **docs/main/04_DB_ARCHITECTURE.md*
 
 **계측(요약)** — 업무 커밋 성공 후 `append_system_log` 또는 패키지 `audit_emit`:
 
-- `admin_server`, `auth_server`, `query_studio_server`, `etl_server`(사용자 HTTP 액션), `widget_board_server`, `project_server`, `notification_server` 등.
+- `admin_server`, `auth_server`, `query_studio_server`, `etl_server`(사용자 HTTP 액션), `widget_board_server`, `project_server` 등. (`notification_server` 알림 **읽음** API는 `system_log` 미계측.)
 - HTTP: `CorrelationIdMiddleware`·contextvars로 상관 ID·IP·UA 요약 **보강** 가능.
 - **스케줄 ETL 자동 실행**은 `system_log`에 **넣지 않음**(사용자 유발만 — 04 §13과 동일).
 

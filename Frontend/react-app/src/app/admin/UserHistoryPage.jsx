@@ -734,7 +734,9 @@ export default function UserHistoryPage() {
                       className="user-history__col-fingerprint"
                       title={row.sql_fingerprint ? String(row.sql_fingerprint) : undefined}
                     >
-                      {row.sql_fingerprint || '—'}
+                      <span className="user-history__fingerprint-inner">
+                        {row.sql_fingerprint || '—'}
+                      </span>
                     </td>
                     <td className="user-history__col-detail">{formatSystemDetailCell(row)}</td>
                   </tr>

@@ -19,6 +19,7 @@ pmssn_master/pmssn_master_detail 기반 권한 옵션·목록·사용현황 조�
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
+- Backend.admin_server.audit_sql_catalog
 - (conn, SQL만)
 """
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from Backend.admin_server import audit_sql_catalog
 from Backend.admin_server.audit_emit import emit_admin_system_log
 
 
@@ -308,12 +310,7 @@ def create_custom_role(
     cur = conn.cursor()
     try:
         cur.execute(
-            """
-            INSERT INTO pmssn_master (
-                dptmt_info_id, pmssn_name, pmssn_list, system_dflt_yn, user_id, create_dtm
-            ) VALUES (%s, %s, %s, 'N', %s, NOW())
-            RETURNING pmssn_master_id
-            """,
+            audit_sql_catalog.SQL_PMSSN_MASTER_INSERT,
             (dptmt_info_id, name, pmssn_list or [], actor_user_id),
         )
         rid = int(cur.fetchone()["pmssn_master_id"])
@@ -377,12 +374,12 @@ def update_custom_role(
                     )
         if pmssn_name is not None:
             cur.execute(
-                "UPDATE pmssn_master SET pmssn_name = %s, update_dtm = NOW() WHERE pmssn_master_id = %s",
+                audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_NAME,
                 ((pmssn_name or "").strip(), pmssn_master_id),
             )
         if pmssn_list is not None:
             cur.execute(
-                "UPDATE pmssn_master SET pmssn_list = %s, update_dtm = NOW() WHERE pmssn_master_id = %s",
+                audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_LIST,
                 (pmssn_list, pmssn_master_id),
             )
         conn.commit()
@@ -436,7 +433,10 @@ def delete_custom_role(
         )
         if cur.fetchone():
             raise ValueError("프로젝트에서 사용 중인 권한은 삭제할 수 없습니다.")
-        cur.execute("DELETE FROM pmssn_master WHERE pmssn_master_id = %s", (pmssn_master_id,))
+        cur.execute(
+            audit_sql_catalog.SQL_PMSSN_MASTER_DELETE,
+            (pmssn_master_id,),
+        )
         conn.commit()
         emit_admin_system_log(
             actor_user_id,

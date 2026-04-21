@@ -11,7 +11,7 @@
  * - .user-history__pager-footer·__pager-footer__right·__page-size(10/20/50개)·__pagination: 목록 하단 건수·행 수·«‹ ›»
  * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
- * - 시스템 테이블: `col-fingerprint`(sql_fingerprint 말줄임·모노스페이스)
+ * - 시스템 테이블: `col-fingerprint`·`fingerprint-inner`(sql_fingerprint 말줄임·overflow hidden)
  *
  * [Endpoints/Classes/Functions]
  * =======================
@@ -257,16 +257,28 @@
   min-width: max(3.25rem, min-content);
 }
 
-.user-history__table-wrap .admin-users__table th.user-history__col-fingerprint,
+.user-history__table-wrap .admin-users__table th.user-history__col-fingerprint {
+  max-width: 10rem;
+  min-width: 6rem;
+  font-size: 0.8125rem;
+  vertical-align: middle;
+}
+
 .user-history__table-wrap .admin-users__table td.user-history__col-fingerprint {
-  max-width: 9rem;
-  min-width: 5rem;
+  max-width: 10rem;
+  min-width: 6rem;
+  vertical-align: middle;
+}
+
+.user-history__fingerprint-inner {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 0.8125rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: clamp(0.58rem, 0.22rem + 0.9vw, 0.72rem);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: top;
 }
 
 /* 상세내용 열: admin-users 전역 td nowrap·구 cell max-width 제거 — 셀 박스 폭=테이블 열 폭으로 thead 배경 단절 방지 */
