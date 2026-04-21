@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+500. 2026-04-21 통합 이력: 하단 페이지네이션(«‹·페이지 입력·›»)·건수 요약
 499. 2026-04-21 docs/main/07: §12 감사·알림 합본·권한 알림 완료 반영
 498. 2026-04-21 docs/main: 동기·동시성 §1.6 서술·07 포맷·report 번호 제거
 497. 2026-04-21 docs/main/03: §1.6 HTML 앵커 제거·목차를 §1 단일 링크로 통일
@@ -502,6 +503,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+500. 2026-04-21 통합 이력: 하단 페이지네이션(«‹·페이지 입력·›»)·건수 요약
+Purpose: 로그인·시스템 탭 공통으로 목록 **아래**에 일반적인 페이지 이동 UI(처음·이전·번호 입력·총 페이지·다음·끝)와 **n–m번째 / 총건** 요약을 둔다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `pageField`·`commitPageField`·`totalPages` 보정 effect, 하단 `nav`, CSV는 테이블 위 툴바로 분리
+- `user-history.css`: `__toolbar`·`__pager-footer`·`__pagination`·`__page-btn`·`__page-input` 등
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
 
 499. 2026-04-21 docs/main/07: §12 감사·알림 합본·권한 알림 완료 반영
 Purpose: 통합 이력 표와 감사 정책 메모를 한 절(12.1)로 합치고, 권한·역할 알림은 구현 완료(12.2)로 옮긴다.

@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달
+ * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달·하단 페이지네이션(«‹ 페이지/총 ›»)
  *
  * [Dependencies]
  * =========
@@ -14,7 +14,7 @@
  * - app/admin/admin-pages.css(`ap__back` 상단 링크), app/admin/admin-users.css, app/admin/user-history.css
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import {
@@ -212,6 +212,8 @@ export default function UserHistoryPage() {
   })
 
   const [page, setPage] = useState(1)
+  /** 하단 페이지 입력란 — `page`와 동기, Enter·blur 시 검증·이동 */
+  const [pageField, setPageField] = useState('1')
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(50)
@@ -408,13 +410,38 @@ export default function UserHistoryPage() {
     load()
   }, [load])
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1)
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil((Number(total) || 0) / (Number(pageSize) || 1)) || 1),
+    [total, pageSize]
+  )
+
+  useEffect(() => {
+    setPageField(String(page))
+  }, [page])
+
+  useEffect(() => {
+    setPage((p) => (p > totalPages ? totalPages : p))
+  }, [totalPages])
+
+  const commitPageField = useCallback(() => {
+    const raw = String(pageField).trim()
+    const n = parseInt(raw, 10)
+    if (Number.isNaN(n) || n < 1) {
+      setPageField(String(page))
+      return
+    }
+    const clamped = Math.min(totalPages, n)
+    setPageField(String(clamped))
+    if (clamped !== page) setPage(clamped)
+  }, [pageField, page, totalPages])
 
   const { fromMin, fromMax, toMin, toMax } = dateInputBounds(fromD, toD)
 
   const filterLines = buildAppliedFilterLines(applied, tab)
   const sortLines = buildSortLines(tab, applied)
   const totalRowsLabel = `${Number(total || 0).toLocaleString('ko-KR')}행`
+  const rowFrom = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rowTo = total === 0 ? 0 : Math.min(page * pageSize, total)
 
   return (
     <div className="admin-users user-history">
@@ -626,10 +653,7 @@ export default function UserHistoryPage() {
       {error ? <p className="admin-users__error">{error}</p> : null}
       {csvError && !csvConfirmOpen ? <p className="admin-users__error">{csvError}</p> : null}
 
-      <div className="user-history__pager">
-        <span className="user-history__pager-meta">
-          총 {total}건 · {page}/{totalPages}페이지
-        </span>
+      <div className="user-history__toolbar">
         <button
           type="button"
           className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
@@ -638,22 +662,6 @@ export default function UserHistoryPage() {
           title="적용된 필터·건수를 확인한 뒤 CSV를 브라우저 기본 다운로드 폴더로 저장합니다."
         >
           CSV 받기
-        </button>
-        <button
-          type="button"
-          className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-          disabled={loading || page <= 1}
-          onClick={() => setPage((p) => Math.max(1, p - 1))}
-        >
-          이전
-        </button>
-        <button
-          type="button"
-          className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-          disabled={loading || page >= totalPages}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          다음
         </button>
       </div>
 
@@ -734,6 +742,88 @@ export default function UserHistoryPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="user-history__pager-footer">
+        <p className="user-history__pager-footer__summary" aria-live="polite">
+          {total === 0 ? (
+            <>총 <strong>0</strong>건</>
+          ) : (
+            <>
+              총 <strong>{Number(total).toLocaleString('ko-KR')}</strong>건 ·{' '}
+              <strong>{rowFrom.toLocaleString('ko-KR')}</strong>–
+              <strong>{rowTo.toLocaleString('ko-KR')}</strong>번째 표시
+            </>
+          )}
+        </p>
+        <nav className="user-history__pagination" aria-label="페이지 이동">
+          <button
+            type="button"
+            className="user-history__page-btn"
+            disabled={loading || page <= 1}
+            onClick={() => setPage(1)}
+            aria-label="첫 페이지"
+            title="첫 페이지"
+          >
+            «
+          </button>
+          <button
+            type="button"
+            className="user-history__page-btn"
+            disabled={loading || page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            aria-label="이전 페이지"
+            title="이전 페이지"
+          >
+            ‹
+          </button>
+          <span className="user-history__page-jump">
+            <input
+              id="user-history-page-input"
+              className="user-history__page-input admin-users__input"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              aria-label="페이지 번호"
+              disabled={loading}
+              value={pageField}
+              onChange={(e) => setPageField(e.target.value.replace(/\D/g, ''))}
+              onBlur={commitPageField}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitPageField()
+                }
+              }}
+            />
+            <span className="user-history__page-slash" aria-hidden="true">
+              /
+            </span>
+            <span className="user-history__page-total" aria-label={`전체 ${totalPages}페이지`}>
+              {totalPages}
+            </span>
+          </span>
+          <button
+            type="button"
+            className="user-history__page-btn"
+            disabled={loading || page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            aria-label="다음 페이지"
+            title="다음 페이지"
+          >
+            ›
+          </button>
+          <button
+            type="button"
+            className="user-history__page-btn"
+            disabled={loading || page >= totalPages}
+            onClick={() => setPage(totalPages)}
+            aria-label="마지막 페이지"
+            title="마지막 페이지"
+          >
+            »
+          </button>
+        </nav>
       </div>
 
       {csvConfirmOpen ? (

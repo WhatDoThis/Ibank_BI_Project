@@ -7,6 +7,8 @@
  * ===========
  * - .user-history__tabs / __tab: 탭 전환
  * - .user-history__filters: 필터 그리드·폼 제출(Enter)·툴바 버튼 높이
+ * - .user-history__toolbar: CSV 등 테이블 상단 보조 액션
+ * - .user-history__pager-footer·__pagination: 목록 하단 건수 요약·«‹ 페이지입력/총페이지 ›»
  * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
  * - 시스템 테이블: `col-fingerprint`(sql_fingerprint 말줄임·모노스페이스)
@@ -101,18 +103,97 @@
   line-height: 1.2;
 }
 
-.user-history__pager {
+.user-history__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.user-history__pager-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light);
 }
 
-.user-history__pager-meta {
+.user-history__pager-footer__summary {
+  margin: 0;
   font-size: 0.8125rem;
   color: var(--color-text-muted);
-  margin-right: auto;
+  line-height: 1.45;
+}
+
+.user-history__pager-footer__summary strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-history__pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-history__page-btn {
+  box-sizing: border-box;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.user-history__page-btn:hover:not(:disabled) {
+  border-color: var(--color-action-primary);
+  color: var(--color-action-primary);
+}
+
+.user-history__page-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.user-history__page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.user-history__page-input {
+  width: 3.25rem;
+  min-height: 2.25rem;
+  padding: 4px 6px;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.user-history__page-slash {
+  user-select: none;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.user-history__page-total {
+  min-width: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
+  user-select: none;
 }
 
 .user-history__table-wrap {
