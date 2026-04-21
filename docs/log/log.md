@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+503. 2026-04-21 docs/main: 05 파일명·머리말 정합(05_PERMISSION_GUIDE)·502 문서·README
+502. 2026-04-21 통합 이력: 페이지당 10·20·50개·기본 10·탭 간 유지
+501. 2026-04-21 docs/main: 통합 이력 UI(로그 500) 00·01·06·07 반영
 500. 2026-04-21 통합 이력: 하단 페이지네이션(«‹·페이지 입력·›»)·건수 요약
 499. 2026-04-21 docs/main/07: §12 감사·알림 합본·권한 알림 완료 반영
 498. 2026-04-21 docs/main: 동기·동시성 §1.6 서술·07 포맷·report 번호 제거
@@ -503,6 +506,39 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+503. 2026-04-21 docs/main: 05 파일명·머리말 정합(05_PERMISSION_GUIDE)·502 문서·README
+Purpose: 권한 문서를 `01`·`02`와 같은 **개발 가이드** 네이밍(`05_PERMISSION_GUIDE.md`)으로 맞추고, 로그 502(통합 이력 `page_size`)를 `docs/main`·`README`·`docs/README`·교차 참조에 반영한다.
+
+Changes:
+
+- `05_Permission_ARCHITECTURE.md` → `05_PERMISSION_GUIDE.md`(제목·머리말을 본문·작업 이력·병행 문서 불릿 구조로 정리)
+- `00`·`01`·`02`·`03`·`06`·`07`: 파일명 교체 및 통합 이력 10/20/50·기본 10·탭 유지·`03` §3.4 UI 단락
+- `README.md`·`docs/README.md`, `docs/report` 17·19·21·22·23·03_AI: 권한 문서 경로 갱신
+
+Changed files: docs/main/05_PERMISSION_GUIDE.md(신규 경로·git mv), docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, README.md, docs/README.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/report/17_SystemDB_Commercialization_Implementation_Guide.md, docs/report/19_Project_Creation_Overhaul.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/report/22_System_Log_Development_Plan.md, docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/log/log.md
+
+502. 2026-04-21 통합 이력: 페이지당 10·20·50개·기본 10·탭 간 유지
+Purpose: 목록 하단 오른쪽에 **10개·20개·50개** 전환을 두고, 로그인↔시스템 탭 이동 시에도 동일 `page_size` 상태를 유지한다. 첫 진입 기본은 **10건**이며 API 응답으로 `page_size`를 덮어쓰지 않는다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `PAGE_SIZE_CHOICES`, `pageSize` 초기 10, `load`에서 setPageSize 제거, 푸터 우측 버튼 그룹
+- `user-history.css`: `__pager-footer__right`, `__page-size`, `__page-size-btn`
+- `systemLogClient.js`: 쿼리 기본 `page_size` 10
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Frontend/react-app/src/shared/api/systemLogClient.js, docs/log/log.md
+
+501. 2026-04-21 docs/main: 통합 이력 UI(로그 500) 00·01·06·07 반영
+Purpose: 로그 500에서 구현한 통합 이력 화면(하단 페이지 이동·건수 요약, CSV 상단 툴바)을 대 고객용 `docs/main` 에 맞춘다.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md` §12.1 화면·경로: 하단 내비·CSV 위치(이후 로그 502에서 page_size UI 반영)
+- `06_CUSTOMER_JOURNEY.md` §11-B2: 동일 UI 한 줄
+- `01_FRONTEND_GUIDE.md`·`00_PRD.md`: `/admin/user-history` 한 줄 보강
+
+Changed files: docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
 
 500. 2026-04-21 통합 이력: 하단 페이지네이션(«‹·페이지 입력·›»)·건수 요약
 Purpose: 로그인·시스템 탭 공통으로 목록 **아래**에 일반적인 페이지 이동 UI(처음·이전·번호 입력·총 페이지·다음·끝)와 **n–m번째 / 총건** 요약을 둔다.

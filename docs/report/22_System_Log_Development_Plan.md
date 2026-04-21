@@ -39,7 +39,7 @@
 - **법무·ISMS-P 대응 전체** → `07` §12 선택 과제와 운영 규정 문서가 주도(본 문서는 구현 계획만).
 
 **교차 참조**  
-`docs/main/07_USER_FUNCTIONAL_GUIDE.md`(§12 과제 1·3), `docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/main/05_Permission_ARCHITECTURE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`, `docs/report/21_Backend_Package_Refactoring_Inventory.md`  
+`docs/main/07_USER_FUNCTIONAL_GUIDE.md`(§12 과제 1·3), `docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/main/05_PERMISSION_GUIDE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`, `docs/report/21_Backend_Package_Refactoring_Inventory.md`  
 **프론트 UX 레퍼런스(탭·URL)**: `Frontend/react-app/src/packages/etl/ETLPage.jsx` — `useSearchParams`, `tab` 쿼리, `setSourceTypeAndUrl` 패턴.
 
 ---

@@ -42,7 +42,7 @@
 `Backend/etl_server` 단일 스택 — 절차는 동일하나 **22번대** 문서로 분리.
 
 **교차 참조**  
-`docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/main/05_Permission_ARCHITECTURE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`, `docs/report/20_Widget_Board_System_Design.md`
+`docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/main/05_PERMISSION_GUIDE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`, `docs/report/20_Widget_Board_System_Design.md`
 
 ---
 

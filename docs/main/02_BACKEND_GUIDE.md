@@ -50,7 +50,7 @@
 - 보호 API: **`Authorization: Bearer`** + `session_log.access_token_encrypt`·`refresh_exprtn_dtm` → **`require_active_access`**
 - **`POST /api/auth/logout`**: **`require_access_session_bound`**(JWT+세션만, 비활성·잠금 허용)
 - 리프레시·세션 끊김: **03_API_GUIDE.md §2.3.3**
-- 기능별 권한: **`auth_server.permissions.require_permission`**(`project_info_id`, 멤버, `pmssn_list`) — **03_API_GUIDE.md §2.3**, **05_Permission_ARCHITECTURE.md**
+- 기능별 권한: **`auth_server.permissions.require_permission`**(`project_info_id`, 멤버, `pmssn_list`) — **03_API_GUIDE.md §2.3**, **05_PERMISSION_GUIDE.md**
 
 6) **전역 예외**
 
@@ -324,7 +324,7 @@ FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
 - **`/api/admin`**: 부서·사용자·역할·프로젝트(어드민) CRUD·초대 메일 — `Backend/admin_server` (프론트 `adminClient.js`)
 - **`/api/system-logs`**: `system_log`·조직 범위 로그인 이력 목록·정렬·페이징·CSV — `Backend/system_log_server` (프론트 **`shared/api/systemLogClient.js`**)
 
-**세부 표·함수**: **03_API_GUIDE.md** — 흐름 **06_CUSTOMER_JOURNEY.md**, 권한 **05_Permission_ARCHITECTURE.md**
+**세부 표·함수**: **03_API_GUIDE.md** — 흐름 **06_CUSTOMER_JOURNEY.md**, 권한 **05_PERMISSION_GUIDE.md**
 
 ### 4.1 health
 
@@ -632,7 +632,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 (본 문서) |
 | 03_API_GUIDE.md | 모듈별 API·인증 흐름·엔드포인트 통합 레퍼런스(대용량) |
 | 04_DB_ARCHITECTURE.md | DB 스키마·제약·`system_log` 감사 규약 |
-| 05_Permission_ARCHITECTURE.md | 권한·역할 |
+| 05_PERMISSION_GUIDE.md | 권한·역할 |
 | 06_CUSTOMER_JOURNEY.md | Phase별 흐름 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 사용자 기능 |
 | 08_TERMINOLOGY.md | 용어 표준(`user_dvsn`·프로젝트 권한 등) |

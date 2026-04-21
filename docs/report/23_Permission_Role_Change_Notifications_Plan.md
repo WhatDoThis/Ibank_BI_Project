@@ -39,7 +39,7 @@
 - 실시간 WebSocket 푸시(현행은 목록 폴링·조회 기반 알림으로 충분한 전제)
 
 **교차 참조**  
-`docs/main/05_Permission_ARCHITECTURE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/report/22_System_Log_Development_Plan.md`(감사 로그와 병행), `Backend/notification_server/service.py`, `Backend/mail/`, `Backend/admin_server/service_users.py`, `Backend/admin_server/service_projects.py`, `Backend/admin_server/service_roles.py`
+`docs/main/05_PERMISSION_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/report/22_System_Log_Development_Plan.md`(감사 로그와 병행), `Backend/notification_server/service.py`, `Backend/mail/`, `Backend/admin_server/service_users.py`, `Backend/admin_server/service_projects.py`, `Backend/admin_server/service_roles.py`
 
 ---
 

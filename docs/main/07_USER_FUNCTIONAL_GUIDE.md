@@ -521,7 +521,7 @@
 1. 화면·경로
  - `/admin/user-history` — `UserHistoryPage`, 사용자 관리「사용자 이력 조회」진입.
  - `?tab=login`(기본): 로그인 이력. `?tab=system`: 시스템(`system_log`) 이력.
- - 동일 필터 폼·테이블 틀·50건 페이징, 엔터/적용, 컬럼별 정렬, CSV 받기 전 확인 모달.
+ - 동일 필터 폼·테이블 틀·**페이지당 10·20·50건**(기본 10, 로그인 탭 요청은 서버 최대 50·시스템 탭 최대 200으로 클램프) 페이징, 엔터/적용, 컬럼별 정렬. 탭을 바꿔도 **같은 `page_size`** 를 유지한다. 목록 **아래**에 처음·이전·**페이지 번호 입력**·다음·끝과 **현재 구간·총건** 요약이 붙어 있다. **CSV 받기**는 테이블 **위** 툴바에 두고, 받기 전 확인 모달은 그대로다.
 
 2. API(요약)
  - `GET /api/system-logs`, `GET /api/system-logs/login-history/org`, `GET /api/system-logs/login-history/me`, CSV `GET .../export.csv`·`GET .../login-history/org/export.csv`.

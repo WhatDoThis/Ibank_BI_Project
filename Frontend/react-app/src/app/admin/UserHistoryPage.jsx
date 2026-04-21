@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달·하단 페이지네이션(«‹ 페이지/총 ›»)
+ * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달·하단 페이지네이션(«‹ 페이지/총 ›»)·페이지당 10/20/50건(탭 전환 시 유지·기본 10)
  *
  * [Dependencies]
  * =========
@@ -34,6 +34,9 @@ const CSV_MAX_ROWS = 50000
 
 /** 서버 `MAX_HISTORY_FILTER_SPAN_DAYS` 와 동일(시작·종료일 둘 다 있을 때) */
 const MAX_FILTER_SPAN_DAYS = 92
+
+/** 목록 `page_size` 선택지(로그인 org API 최대 50·시스템 최대 200 — 공통 10·20·50) */
+const PAGE_SIZE_CHOICES = [10, 20, 50]
 
 /** 로그인 테이블 헤더(일시·사용자·결과)와 동일한 정렬 라벨, value 는 API `sort_by` */
 const LOGIN_SORT_OPTIONS = [
@@ -216,7 +219,7 @@ export default function UserHistoryPage() {
   const [pageField, setPageField] = useState('1')
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [csvBusy, setCsvBusy] = useState(false)
@@ -383,7 +386,6 @@ export default function UserHistoryPage() {
         })
         setItems(Array.isArray(data?.items) ? data.items : [])
         setTotal(Number(data?.total) || 0)
-        setPageSize(Number(data?.page_size) || 50)
       } else {
         const data = await getSystemLogsOrg({
           ...base,
@@ -395,7 +397,6 @@ export default function UserHistoryPage() {
         })
         setItems(Array.isArray(data?.items) ? data.items : [])
         setTotal(Number(data?.total) || 0)
-        setPageSize(Number(data?.page_size) || 50)
       }
     } catch (e) {
       setItems([])
@@ -756,7 +757,26 @@ export default function UserHistoryPage() {
             </>
           )}
         </p>
-        <nav className="user-history__pagination" aria-label="페이지 이동">
+        <div className="user-history__pager-footer__right">
+          <div className="user-history__page-size" role="group" aria-label="페이지당 표시 행 수">
+            {PAGE_SIZE_CHOICES.map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`user-history__page-size-btn${pageSize === n ? ' user-history__page-size-btn--active' : ''}`}
+                disabled={loading}
+                aria-pressed={pageSize === n}
+                onClick={() => {
+                  if (pageSize === n) return
+                  setPageSize(n)
+                  setPage(1)
+                }}
+              >
+                {n}개
+              </button>
+            ))}
+          </div>
+          <nav className="user-history__pagination" aria-label="페이지 이동">
           <button
             type="button"
             className="user-history__page-btn"
@@ -824,6 +844,7 @@ export default function UserHistoryPage() {
             »
           </button>
         </nav>
+        </div>
       </div>
 
       {csvConfirmOpen ? (

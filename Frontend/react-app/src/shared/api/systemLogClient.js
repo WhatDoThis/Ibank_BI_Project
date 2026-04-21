@@ -5,8 +5,8 @@
  *
  * [Main Functions]
  * ===========
- * 1. getSystemLogsOrg — system_log 목록 페이징(필터·정렬)
- * 2. getLoginHistoryOrg — 부서 트리 범위 로그인 이력 페이징(필터·정렬)
+ * 1. getSystemLogsOrg — system_log 목록 페이징(필터·정렬, 기본 page_size 10)
+ * 2. getLoginHistoryOrg — 부서 트리 범위 로그인 이력 페이징(필터·정렬, 기본 page_size 10)
  * 3. downloadUserHistoryCsv — 동일 필터·정렬 CSV(blob, 파일명 `*_YYYYMMDD_hhmmss.csv`, 상한 초과 시 400)
  *
  * [Dependencies]
@@ -57,7 +57,7 @@ function toQuery(params) {
 export async function getSystemLogsOrg(p = {}) {
   const qs = toQuery({
     page: p.page ?? 1,
-    page_size: p.page_size ?? 50,
+    page_size: p.page_size ?? 10,
     user_key: p.user_key,
     from: p.from,
     to: p.to,
@@ -76,7 +76,7 @@ export async function getSystemLogsOrg(p = {}) {
 export async function getLoginHistoryOrg(p = {}) {
   const qs = toQuery({
     page: p.page ?? 1,
-    page_size: p.page_size ?? 50,
+    page_size: p.page_size ?? 10,
     user_key: p.user_key,
     from: p.from,
     to: p.to,

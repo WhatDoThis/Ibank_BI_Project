@@ -1,6 +1,6 @@
 # 고객 여정 맵 (v4 — 알고리즘 흐름 중심)
 
-**용도**: Phase별 **알고리즘·API·내부 검증 순서**를 흐름도로 읽는 문서. 권한 세부는 **`05_Permission_ARCHITECTURE.md`**, DB·스키마는 **`04_DB_ARCHITECTURE.md`**, 서버·설정·배포 개요는 **`02_BACKEND_GUIDE.md`** 를 본다.
+**용도**: Phase별 **알고리즘·API·내부 검증 순서**를 흐름도로 읽는 문서. 권한 세부는 **`05_PERMISSION_GUIDE.md`**, DB·스키마는 **`04_DB_ARCHITECTURE.md`**, 서버·설정·배포 개요는 **`02_BACKEND_GUIDE.md`** 를 본다.
 
 **문서 정본**: 여정·흐름 설명은 **`docs/main`** 이 정본이다. 저장소의 다른 위치에 있는 개발 메모와 불일치 시 **`docs/main`** 을 따른다.
 
@@ -481,7 +481,7 @@ U          │ 불가
 ┌──────────────────────────────────────────────────┐
 │  기능별 접근 제어                                   │
 │                                                    │
-│  [require_permission 흐름 — 05_Permission 문서]     │
+│  [require_permission 흐름 — 05_PERMISSION_GUIDE]     │
 │  ├─ JWT에서 user_id, project_info_id 추출           │
 │  ├─ user_dvsn 조회                                  │
 │  ├─ sa_dev·sa·a + 프로젝트 참여자                   │
@@ -593,7 +593,7 @@ HTTP 요청 → /api/admin/*
 │  프로젝트 업무 API (쿼리·대시보드 등)                 │
 │  "이 프로젝트에서 이 기능을 쓸 수 있나"               │
 │  → project_ptcpnt_info + pmssn_list 기반              │
-│  → require_permission (05_Permission 문서)            │
+│  → require_permission (05_PERMISSION_GUIDE)            │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -736,9 +736,11 @@ PUT .../users/{id}/management (사용자 일괄 변경)
 
 조직 어드민(`OrgAdminRoute`) 전용. 사용자 관리 화면의「사용자 이력 조회」→ **`UserHistoryPage`**, 쿼리 **`tab=login`**(기본)·**`tab=system`**.
 
+로그인·시스템 탭 공통으로, 테이블 **아래**에 페이지 이동(처음·이전·번호 입력·다음·끝)과 **현재 구간·총건** 요약이 있고, 하단 오른쪽에서 **페이지당 10·20·50건**(기본 10, 탭 전환 시 유지)을 고른다. **CSV 받기**는 테이블 **위** 툴바에 둔다(2026-04 반영).
+
 ```
-GET /api/system-logs/login-history/org   (tab=login — 부서 트리 스코프·필터·정렬·50건 페이징)
-GET /api/system-logs                     (tab=system — channel·action_kind·success_yn 등 추가 필터)
+GET /api/system-logs/login-history/org   (tab=login — 부서 트리 스코프·필터·정렬·page_size≤50 페이징)
+GET /api/system-logs                     (tab=system — channel·action_kind·success_yn 등 추가 필터, page_size≤200)
 GET .../login-history/org/export.csv   | GET .../export.csv  (동일 조건 CSV, 92일·50,000행 상한 — 03 §3.4)
 
 프론트: shared/api/systemLogClient.js (getLoginHistoryOrg, getSystemLogsOrg, downloadUserHistoryCsv)

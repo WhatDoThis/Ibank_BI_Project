@@ -36,7 +36,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 ### 공통
 
 - **설정**: 환경은 `Env/config/config.json` 만 사용(.env 미사용).
-- **API**: FastAPI — health, **auth/projects/notifications/admin**, **시스템·로그인 이력 조회**(`/api/system-logs`, `system_log_server`), **쿼리 스튜디오**(`/api/*`), **ETL**(`/api/etl`, `/api/etl/batch`), **캠페인 대시보드**(`/api/campaign-dashboard`), **위젯보드**(`/api/widget-boards`). PostgreSQL 연동. 쿼리 스튜디오: join-order, save-query-as-table·status, execute-query 등.
+- **API**: FastAPI — health, **auth/projects/notifications/admin**, **시스템·로그인 이력 조회**(`/api/system-logs`, `system_log_server` — 조직 통합 이력 UI는 `page_size` 기본 10·화면 10/20/50건, 탭 간 유지), **쿼리 스튜디오**(`/api/*`), **ETL**(`/api/etl`, `/api/etl/batch`), **캠페인 대시보드**(`/api/campaign-dashboard`), **위젯보드**(`/api/widget-boards`). PostgreSQL 연동. 쿼리 스튜디오: join-order, save-query-as-table·status, execute-query 등.
 
 ---
 
@@ -111,7 +111,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 ├── requirements.txt
 ├── README.md
 ├── docs/
-│   ├── main/           # 00_PRD, 01_FRONTEND_GUIDE, 02_BACKEND_GUIDE (현행 동작 가이드)
+│   ├── main/           # 00~08 현행 가이드(예: 03_API_GUIDE, 05_PERMISSION_GUIDE, 07_USER_FUNCTIONAL_GUIDE)
 │   ├── log/            # log.md (작업 이력)
 │   ├── report/         # 보조 설계·배포·체크리스트
 │   └── README.md       # docs 폴더 안내
@@ -173,7 +173,7 @@ DB 설정이 없으면 API 서버가 "DB 설정이 없습니다" 오류를 냅�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, **03_API_GUIDE**, 04_DB_ARCHITECTURE, 05_Permission, 06_CUSTOMER_JOURNEY, 07_USER_FUNCTIONAL_GUIDE. 시스템 감사·통합 이력 설계는 **docs/report/22_System_Log_Development_Plan.md**. AI·온보딩 지도는 **docs/report/03_AI_DEVELOP_GUIDE.md** |
+| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, **03_API_GUIDE**, 04_DB_ARCHITECTURE, **05_PERMISSION_GUIDE**, 06_CUSTOMER_JOURNEY, 07_USER_FUNCTIONAL_GUIDE, 08_TERMINOLOGY. 시스템 감사·통합 이력 설계는 **docs/report/22_System_Log_Development_Plan.md**. AI·온보딩 지도는 **docs/report/03_AI_DEVELOP_GUIDE.md** |
 | **docs/README.md** | docs 폴더 구성( main / log / report ) |
 | **docs/log/log.md** | 작업 이력(목적·변경 파일) |
 | **docs/report/** | 배포·보조 설계·체크리스트(동작 정의는 docs/main 우선) |

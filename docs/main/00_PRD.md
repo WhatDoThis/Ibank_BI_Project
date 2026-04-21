@@ -7,7 +7,7 @@
 - **프론트**: 01_FRONTEND_GUIDE.md
 - **백엔드·API·설정**: 02_BACKEND_GUIDE.md, 03_API_GUIDE.md
 - **DB**: 04_DB_ARCHITECTURE.md
-- **권한·조직 역할**: 05_Permission_ARCHITECTURE.md
+- **권한·조직 역할**: 05_PERMISSION_GUIDE.md
 - **용어 표준(`user_dvsn` vs `pmssn_*`)**: 08_TERMINOLOGY.md
 - **사용자 화면 흐름**: 07_USER_FUNCTIONAL_GUIDE.md
 - **동작·계약의 기준**: **docs/main** 전체(00~08). 제품 범위·동작·API·권한·용어에 대한 **정본은 본 디렉터리뿐**이다. 저장소의 다른 위치에 개발 과정용 메모가 있더라도, 고객 안내·제품 정의와 어긋나면 **`docs/main`** 을 따른다.
@@ -164,7 +164,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 - 대부분의 업무 API 는 **Bearer access JWT** 와 `require_permission` 으로 보호한다.
 - ETL 인프라 관리는 `require_etl_infrastructure`(예: `sa_dev` 또는 `etl_yn=Y`) 로 구분한다.
 - **execute-query**: SELECT 만 허용, 금지 키워드는 문맥 기반으로 검사한다.
-- 상세 정책은 **05_Permission_ARCHITECTURE.md**, 엔드포인트 표는 **02**·**03** 을 본다.
+- 상세 정책은 **05_PERMISSION_GUIDE.md**, 엔드포인트 표는 **02**·**03** 을 본다.
 
 ---
 
@@ -182,7 +182,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 
 2) **관리·알림(S8)**
 
-- 알림 벨·알림 API, 조직 관리자용 `/admin/users`·**`/admin/user-history`**(로그인·시스템 이력 통합, `tab` 쿼리)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`, 최고 관리자용 `/admin/org` 등(가드: `OrgAdminRoute`·`ProjectAdminRoute`, operator 포함·`SuperAdminRoute`).
+- 알림 벨·알림 API, 조직 관리자용 `/admin/users`·**`/admin/user-history`**(로그인·시스템 이력 통합, `tab` 쿼리, 페이지당 10·20·50건·기본 10·탭 간 유지, 목록 하단 페이지 이동·건수 요약, CSV는 상단)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`, 최고 관리자용 `/admin/org` 등(가드: `OrgAdminRoute`·`ProjectAdminRoute`, operator 포함·`SuperAdminRoute`).
 
 3) **관리 API 클라이언트**
 
@@ -235,7 +235,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 | 02_BACKEND_GUIDE.md | 백엔드 패키지·설정·ETL·API 개요 |
 | 03_API_GUIDE.md | API·모듈 흐름 통합 레퍼런스(표·ASCII) |
 | 04_DB_ARCHITECTURE.md | system DB 등 스키마 요약 |
-| 05_Permission_ARCHITECTURE.md | 조직 역할·프로젝트 권한·ETL 정책 |
+| 05_PERMISSION_GUIDE.md | 조직 역할·프로젝트 권한·ETL 정책 |
 | 06_CUSTOMER_JOURNEY.md | 고객 여정 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 일반 사용자 기능 설명 |
 | 08_TERMINOLOGY.md | `user_dvsn`·`pmssn_*` 등 용어·표기 통일 |

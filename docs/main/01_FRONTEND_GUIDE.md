@@ -23,7 +23,7 @@
 2) **S8(관리·알림)**
 
 - `NotificationBell`·`notificationsClient`.
-- `/admin/users`(`OrgAdminRoute`)·**`/admin/user-history`**(통합 이력: `tab=login`|`tab=system`, `OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`).
+- `/admin/users`(`OrgAdminRoute`)·**`/admin/user-history`**(통합 이력: `tab=login`|`tab=system`, 페이지당 **10·20·50건**(기본 10, 탭 전환 시 유지), 테이블 하단 페이지 이동·건수 요약·CSV는 상단 툴바, `OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`).
 
 3) **`adminClient.js`**
 
@@ -279,7 +279,7 @@ Frontend/react-app/
 | 02_BACKEND_GUIDE.md | 백엔드 구조·API·설정·etl_server |
 | 03_API_GUIDE.md | 통합 API·모듈 레퍼런스(대용량, 엔드포인트·인증 흐름 상세) |
 | 04_DB_ARCHITECTURE.md | DB 스키마·제약·`system_log` 감사 규약 |
-| 05_Permission_ARCHITECTURE.md | 권한·역할·`require_permission` |
+| 05_PERMISSION_GUIDE.md | 권한·역할·`require_permission` |
 | 06_CUSTOMER_JOURNEY.md | Phase별 알고리즘·API 흐름 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 사용자 화면·기능 설명 |
 | 08_TERMINOLOGY.md | 용어 표준(`user_dvsn`·프로젝트 권한 등) |

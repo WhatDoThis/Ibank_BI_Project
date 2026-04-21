@@ -8,7 +8,7 @@
 
 **DB 적용 현황**: `ibank_system_data`(public)에 본 장의 10개 테이블·FK·시드·보조 인덱스가 **이미 반영된 상태**다. ETL 메타 테이블과 동일 DB에 공존하며, 테이블·시퀀스 소유자는 앱 계정(`ibankbi`)으로 맞춰 두었다. **전체 DDL 스크립트는 본 문서에 수록하지 않는다**(저장소·운영 DB가 단일 기준).
 
-**DB·권한 한눈에 보기**: **`docs/main/04_DB_ARCHITECTURE.md`**, **`05_Permission_ARCHITECTURE.md`**, **`06_CUSTOMER_JOURNEY.md`** — 부서 트리, 전사 공통 `table_master`/ETL, `user_dvsn` 5코드·고객 여정.
+**DB·권한 한눈에 보기**: **`docs/main/04_DB_ARCHITECTURE.md`**, **`docs/main/05_PERMISSION_GUIDE.md`**, **`docs/main/06_CUSTOMER_JOURNEY.md`** — 부서 트리, 전사 공통 `table_master`/ETL, `user_dvsn` 5코드·고객 여정.
 
 ---
 
@@ -74,7 +74,7 @@
 | | create_dtm | timestamp | 생성일시 |
 | | update_dtm | timestamp | 수정일시 |
 
-**역할·자격 (요약)**: `user_dvsn` 5코드(`sa_dev`·`sa`·`a`·`o`·`u`). ETL 관리자 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_Permission_ARCHITECTURE.md`**.
+**역할·자격 (요약)**: `user_dvsn` 5코드(`sa_dev`·`sa`·`a`·`o`·`u`). ETL 관리자 접근은 **`etl_yn='Y'`** 또는 **`sa_dev`** (`require_etl_infrastructure`). 상세는 **`docs/main/05_PERMISSION_GUIDE.md`**.
 
 **`scnd_auth_token` / `scnd_auth_expire_dtm`**: 로그인 2차 인증. 로그인 시 6자리 코드 생성 → 해싱하여 저장 → 이메일 발송 → 유저 입력 → 검증 통과 시 토큰 발급. 인증 완료 후 컬럼은 NULL로 초기화.
 
@@ -375,7 +375,7 @@ pmssn_master.pmssn_list(TEXT[]) ↔ pmssn_master_detail.pmssn_detail_name
 본 절의 구(舊) 3단계 표는 사용하지 않는다.
 
 - 역할 체계는 **`user_dvsn` 5코드(SA_DEV·SA·A·O·U)** 를 따른다.
-- 상세 권한은 **`docs/main/05_Permission_ARCHITECTURE.md`** 를 단일 기준으로 한다.
+- 상세 권한은 **`docs/main/05_PERMISSION_GUIDE.md`** 를 단일 기준으로 한다.
 
 ---
 
@@ -869,7 +869,7 @@ shared/components/
 
 ## 13. 추가 업그레이드 — ETL 전사 공통 + 테이블 마스터
 
-본 절은 **현행 정책**이다. ETL 메타(`etl_connections` 등 4종)는 **부서에 귀속하지 않으며**, `table_master` 도 **전사 공통**이다. 프로젝트별 테이블 접근은 **`table_project_mapping`** 만으로 제어한다. 권한·역할은 **`docs/main/05_Permission_ARCHITECTURE.md`** 를 본다.
+본 절은 **현행 정책**이다. ETL 메타(`etl_connections` 등 4종)는 **부서에 귀속하지 않으며**, `table_master` 도 **전사 공통**이다. 프로젝트별 테이블 접근은 **`table_project_mapping`** 만으로 제어한다. 권한·역할은 **`docs/main/05_PERMISSION_GUIDE.md`** 를 본다.
 
 ### 13.0 운영 반영 상태·권한 원칙
 

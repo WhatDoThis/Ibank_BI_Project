@@ -11,7 +11,7 @@
 
 - **구조·실행·디렉터리**: **02_BACKEND_GUIDE.md**
 - **DB 스키마**: **04_DB_ARCHITECTURE.md**
-- **권한·역할**: **05_Permission_ARCHITECTURE.md**
+- **권한·역할**: **05_PERMISSION_GUIDE.md**
 - **동작 기준**: **docs/main** 번호 문서(00~08: PRD·프론트·백엔드·본 문서·DB·권한·여정·기능·용어). 엔드포인트·인증·동작 설명은 본 디렉터리가 정본이며, 다른 위치의 작업 메모와 충돌 시 **`docs/main`** 을 따른다.
 
 **도식(ASCII) 표기**
@@ -1401,12 +1401,14 @@ GET /api/admin/projects/{id}/members
 | `from`, `to` | 날짜. **둘 다 주면** (종료−시작) 일수 **≤ 92일(약 3개월)** , 위반 시 **400** |
 | `ip_contains` | IP 부분 일치 |
 | `page` | 기본 `1` |
-| `page_size` | 기본 `50`, 최대 `200` |
+| `page_size` | 쿼리 **미지정** 시 라우터 기본 `50`, 최대 `200` |
 | `channel`, `action_kind`, `success_yn` | 필터 |
 | `sort_by` | `create_dtm` \| `system_log_id` \| `channel` \| `action_kind` \| `success_yn` \| `actor_user_id` |
 | `sort_dir` | `asc` \| `desc` (기본 `desc`) |
 
 **응답**: `{ items, total, page, page_size }`
+
+**통합 이력 UI(`/admin/user-history`)**: `Frontend/react-app/src/shared/api/systemLogClient.js` 가 목록 요청에 **`page_size` 기본 10**을 붙이고, 화면에서 **10·20·50건**만 고른다. 로그인 조직 API는 서버가 최대 **50**, 시스템 목록은 최대 **200**으로 클램프한다. 탭을 바꿔도 같은 `page_size` 를 유지하며, 응답의 `page_size` 로 선택값을 덮어쓰지 않는다.
 
 **조회 범위**
 
@@ -1439,7 +1441,7 @@ DDL·감사 정책·`sql_fingerprint` 규약: **docs/main/04_DB_ARCHITECTURE.md*
 **`GET /api/system-logs/login-history/me`**
 
 - 본인 `user_login_log`만.
-- 쿼리: 위 목록과 동일 계열(`user_key`, `from`, `to`, `ip_contains`, `page`, `page_size` 기본 50·최대 50). 기간 상한 동일(92일).
+- 쿼리: 위 목록과 동일 계열(`user_key`, `from`, `to`, `ip_contains`, `page`, `page_size` 미지정 시 기본 50·최대 50). 기간 상한 동일(92일).
 - 응답: `{ items, total, page, page_size }`.
 - `items` 필드: `login_trial_ip`(마스킹), `login_success_yn`, `login_trial_browser`, `create_dtm`(ISO). `user_id`·`user_email`은 생략(`exclude_none`).
 

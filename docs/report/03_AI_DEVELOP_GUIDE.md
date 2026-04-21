@@ -6,7 +6,7 @@
 |------|------|
 | **위치** | `docs/report/03_AI_DEVELOP_GUIDE.md` |
 | **주 목적** | 저장소 전체 코드를 업로드하지 않고도 **현재 시스템 구조**와 **확장·수정 시 어디를 열어야 하는지**를 파악해, AI 또는 신규 참여자가 정확한 구현 방향을 잡을 수 있게 한다. |
-| **와 함께 볼 문서** | **00_PRD.md**, **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**, **04_DB_ARCHITECTURE.md**, **05_Permission_ARCHITECTURE.md**(권한·역할·`require_permission`), **06_CUSTOMER_JOURNEY.md**(고객 여정). **작업 이력**: **docs/log/log.md**. **보조 설계**: **docs/report/**. |
+| **와 함께 볼 문서** | **00_PRD.md**, **01_FRONTEND_GUIDE.md**, **02_BACKEND_GUIDE.md**, **04_DB_ARCHITECTURE.md**, **05_PERMISSION_GUIDE.md**(권한·역할·`require_permission`), **06_CUSTOMER_JOURNEY.md**(고객 여정). **작업 이력**: **docs/log/log.md**. **보조 설계**: **docs/report/**. |
 | **갱신 원칙** | 아키텍처(패키지 분리·URL·DB 연결)가 바뀌면 본 문서와 00/01/02 중 해당 절을 함께 맞춘다. 날짜 타임라인은 두지 않는다. |
 
 ---
@@ -186,7 +186,7 @@ flowchart LR
 ## 9. 인증·인가 (현행 구현)
 
 - **애플리케이션 레벨**: **`/api/auth/*`** — 로그인(1·2단계)·리프레시·세션(`session_log`)·access JWT(`Backend.auth_server.security`, `deps.require_active_access` / 로그아웃만 `require_access_session_bound`). 프론트는 `shared/api/http.js` 가 `Authorization: Bearer`·401 시 refresh 1회 재시도.
-- **프로젝트·권한**: 쿼리 스튜디오·캠페인 대시보드 등은 **`require_permission(*ids)`** — JWT `project_info_id`·`project_ptcpnt_info`·`pmssn_master.pmssn_list`(상세명 정규화). **ETL** 전역은 **`require_etl_infrastructure`** (`sa_dev` 또는 `etl_yn=Y`, 레거시 `user_dvsn=etl_manager` 예외). 조직 역할 캐논은 **`Backend.core.user_dvsn_codes`**. 표·흐름도는 **05_Permission_ARCHITECTURE.md**.
+- **프로젝트·권한**: 쿼리 스튜디오·캠페인 대시보드 등은 **`require_permission(*ids)`** — JWT `project_info_id`·`project_ptcpnt_info`·`pmssn_master.pmssn_list`(상세명 정규화). **ETL** 전역은 **`require_etl_infrastructure`** (`sa_dev` 또는 `etl_yn=Y`, 레거시 `user_dvsn=etl_manager` 예외). 조직 역할 캐논은 **`Backend.core.user_dvsn_codes`**. 표·흐름도는 **05_PERMISSION_GUIDE.md**.
 - **운영**: TLS·Nginx 프록시·IP 제한은 **docs/report/DEPLOY_SERVER.md** 등과 병행 가능. 앱 인증이 이미 있으므로 “인증 없는 공개 API” 전제는 **레거시 문서 구절과 혼동하지 말 것**.
 
 ---
