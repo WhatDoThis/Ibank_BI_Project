@@ -4,7 +4,7 @@
 
 - **구현 위치**: `Frontend/react-app`
 - **작업 이력**: **docs/log/log.md**
-- **백엔드 대응·전체 지도**: **docs/report/03_AI_DEVELOP_GUIDE.md**
+- **백엔드·API·DB(동작 기준)**: **docs/main/02_BACKEND_GUIDE.md**, **03_API_GUIDE.md**, **04_DB_ARCHITECTURE.md**
 
 ---
 
@@ -276,9 +276,12 @@ Frontend/react-app/
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 (본 문서) |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·API·설정·etl_server |
 | 03_API_GUIDE.md | 통합 API·모듈 레퍼런스(대용량, 엔드포인트·인증 흐름 상세) |
-| docs/report/03_AI_DEVELOP_GUIDE.md | 시스템 아키텍처·프론트↔백 매핑·확장 시 탐색 경로 (AI·온보딩) |
+| 04_DB_ARCHITECTURE.md | DB 스키마·제약·`system_log` 감사 규약 |
+| 05_Permission_ARCHITECTURE.md | 권한·역할·`require_permission` |
+| 06_CUSTOMER_JOURNEY.md | Phase별 알고리즘·API 흐름 |
+| 07_USER_FUNCTIONAL_GUIDE.md | 사용자 화면·기능 설명 |
 
-- **`docs/report`**: 배포·보조 설계·체크리스트 — **동작 정의 기준은 `docs/main`**
+- **내부 보조 원고**: 저장소 `docs/report/` 경로는 배포 체크리스트·작업 메모 등에 쓸 수 있으나, **제품 동작·계약은 `docs/main`** 이 우선한다.
 - **문서 이력**: 본 파일에 날짜 타임라인 없음 → **docs/log/log.md**·Git
 - **현재 구조 요약**
   - API: `packages/<도메인>/api/*Client.js`, `shared/api/*`, `app/layout/navConfig.js`, `app/routes.jsx`

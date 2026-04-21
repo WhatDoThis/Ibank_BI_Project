@@ -1,6 +1,6 @@
 # 고객 여정 맵 (v4 — 알고리즘 흐름 중심)
 
-**용도**: Phase별 **알고리즘·API·내부 검증 순서**를 흐름도로 읽는 문서. 권한 세부는 **`05_Permission_ARCHITECTURE.md`**, DB는 **`04_DB_ARCHITECTURE.md`**, 구현 가이드는 **`docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`** 를 본다.
+**용도**: Phase별 **알고리즘·API·내부 검증 순서**를 흐름도로 읽는 문서. 권한 세부는 **`05_Permission_ARCHITECTURE.md`**, DB·스키마는 **`04_DB_ARCHITECTURE.md`**, 서버·설정·배포 개요는 **`02_BACKEND_GUIDE.md`** 를 본다.
 
 ---
 
@@ -335,7 +335,11 @@ ETL 자격 계정 (sa_dev 또는 etl_yn='Y') 로그인 상태
 
 ## Phase 6: 프로젝트 생성 · 테이블 매핑 · 초기 멤버(단일 트랜잭션)
 
-관리 화면 생성 모달과 동일한 기준. 시스템이 생성자에게 **기본 pmssn을 자동 부여하지 않음** — **`creator_pmssn_master_id`는 생성자가 반드시 선택**(부서에서 프로젝트에 쓸 수 있는 역할만). 상세는 **`docs/report/19_Project_Creation_Overhaul.md`**.
+관리 화면 생성 모달과 동일한 기준이다.
+
+- 시스템이 생성자에게 **기본 pmssn을 자동 부여하지 않음** — **`creator_pmssn_master_id`는 생성자가 반드시 선택**(부서에서 프로젝트에 쓸 수 있는 역할만).
+- API·화면 동선: **본 문서 Phase 6** 흐름도, **docs/main/03_API_GUIDE.md** 의 `admin`·프로젝트 절.
+- 사용자 기능 설명: **docs/main/07_USER_FUNCTIONAL_GUIDE.md**.
 
 ```
 SA_DEV / SA / A 로그인 상태

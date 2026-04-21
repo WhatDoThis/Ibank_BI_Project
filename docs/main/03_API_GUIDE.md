@@ -12,7 +12,7 @@
 - **구조·실행·디렉터리**: **02_BACKEND_GUIDE.md**
 - **DB 스키마**: **04_DB_ARCHITECTURE.md**
 - **권한·역할**: **05_Permission_ARCHITECTURE.md**
-- **AI 작업 분해**: **docs/report/03_AI_DEVELOP_GUIDE.md**
+- **동작 기준**: **docs/main** 00~07(본 문서·PRD·백엔드·DB·권한 등). 내부 작업 분해 원고는 저장소 `docs/report/` 에 둘 수 있으나 제품 계약은 **docs/main** 이 우선한다.
 
 **도식(ASCII) 표기**
 
@@ -1286,7 +1286,11 @@ GET /api/admin/projects/{id}/members
 | `add_project_table_mapping` | 매핑 추가 (main table_master만, 양 채널 Y 기본) |
 | `delete_project_table_mapping` | 매핑 삭제 |
 
-**교차 참조 (`table_master`)**: ETL이 **내장 main_db·dash_db**에 물리 테이블을 적재·갱신하면 **`Backend.etl_server.table_master_hook.upsert_table_master_after_load`** 가 동일 `system_db.table_master` 행을 UPSERT한다(`db_type`은 `main` 또는 `dash`만). 관리자 화면의 라벨·설명 수정은 위 **`service_tables`** 가 담당한다. ETL 측 상세는 **[§7.5](#75-security-and-limits)**·**[§7.6](#76-related-database-tables)**.
+#### 교차 참조 (`table_master`)
+
+- ETL이 **내장 main_db·dash_db**에 물리 테이블을 적재·갱신하면 **`Backend.etl_server.table_master_hook.upsert_table_master_after_load`** 가 동일 `system_db.table_master` 행을 UPSERT한다(`db_type`은 `main` 또는 `dash`만).
+- 관리자 화면의 라벨·설명 수정은 위 **`service_tables`** 가 담당한다.
+- ETL 측 상세는 **[§7.5](#75-security-and-limits)**·**[§7.6](#76-related-database-tables)**.
 
 #### `admin_server/router.py`
 
@@ -1329,17 +1333,86 @@ GET /api/admin/projects/{id}/members
 
 ### 3.4 `system_log_server` — `/api/system-logs` (감사 로그 조회)
 
-- **prefix**: `/api/system-logs` — `Backend/system_log_server/router.py` (`api_server/main.py`에서 `admin` 직후 등록).
-- **인가**: 조직 이력·`system_log` 목록·CSV는 `Depends(require_org_admin)` (`sa_dev`·`sa`·`a`). **`/login-history/me`만** `Depends(require_active_access)`(본인 로그인 이력).
-- **GET `/api/system-logs`**: 쿼리 `user_key`(행위자 id 문자열·이메일 부분 일치), `from`·`to`(날짜), `ip_contains`, `page`(기본 1), `page_size`(기본 50, 최대 200), `channel`, `action_kind`, `success_yn`, 선택 `sort_by`(`create_dtm`|`system_log_id`|`channel`|`action_kind`|`success_yn`|`actor_user_id`), `sort_dir`(`asc`|`desc`, 기본 desc). **`from`·`to`를 모두 주면** (종료일−시작일) 일수가 **92일(약 3개월)** 을 넘기면 **400**. 응답 `{ items, total, page, page_size }`. **GET `/api/system-logs/export.csv`**: 동일 필터·정렬로 CSV, 건수 초과 시 **400**(상한 **50,000**행, `22` §8.1). **다운로드 파일명** 기본 `system_log_YYYYMMDD_HHMMSS.csv`(Asia/Seoul, `Content-Disposition`). 조회 범위: `sa_dev`는 전체, `sa`·`a`는 `actor_user_id`가 액터 부서 하위 트리(재귀 CTE)에 속한 활성 사용자인 행만(`actor_user_id` NULL 행은 제외).
+#### 등록·prefix
 
-**설정**: `backend.system_log_append_enabled`(bool, 예시는 `false`) — `Backend/core/system_audit_log.append_system_log` 계측 INSERT on/off. 상세는 `docs/report/22_System_Log_Development_Plan.md` §5.
+- **prefix**: `/api/system-logs`
+- **코드**: `Backend/system_log_server/router.py`
+- **등록**: `api_server/main.py` 에서 `admin` 라우터 **직후** `include_router`
 
-> **계측(구현됨, `22` §6)**: `admin_server`(사용자·프로젝트·역할·테이블·부서·이관 등), `auth_server`, `query_studio_server`, `etl_server`(사용자 HTTP 액션), `widget_board_server`, `project_server`, `notification_server` 등에서 업무 커밋 성공 후 `append_system_log` 또는 패키지 `audit_emit` 경로로 기록한다. HTTP 상에서는 **`CorrelationIdMiddleware`**·contextvars로 상관 ID·IP·UA 요약이 비어 있는 행에 보강될 수 있다. **스케줄에 의한 ETL 자동 실행**은 `system_log` 에 넣지 않는다(`22` §2).
+#### 인가
 
-- **GET `/api/system-logs/login-history/me`**: `require_active_access`. 본인 `user_login_log`만. 쿼리는 위 system_log 목록과 동일 계열(`user_key`, `from`, `to`, `ip_contains`, `page`, `page_size` 기본 50·최대 50). **`from`·`to` 동시 지정 시** 일수 상한은 위와 동일(92일). 응답 `{ items, total, page, page_size }`, `items` 항목은 `login_trial_ip`(마스킹)·`login_success_yn`·`login_trial_browser`·`create_dtm`(ISO 문자열); `user_id`·`user_email`은 응답에서 생략(`exclude_none`).
-- **GET `/api/system-logs/login-history/org`**: `require_org_admin`. `user_login_log` + `user_info` 조인, **부서 트리 스코프**는 system_log 목록과 동일(`sa_dev` 전체·`sa`/`a`는 로그인 주체 사용자의 부서가 액터 부서 하위인 행). 동일 쿼리·페이징·선택 정렬 `sort_by`(`create_dtm`|`user_login_log_id`|`login_success_yn`|`user_id`|`user_email`), `sort_dir`(`asc`|`desc`). `items`에 `user_id`·`user_email` 포함. **GET `/api/system-logs/login-history/org/export.csv`**: 동일 필터·정렬 CSV(건수 상한 **50,000**행·기간 상한 동일). **다운로드 파일명** 기본 `login_log_YYYYMMDD_HHMMSS.csv`.
-- **GET `/api/auth/me/login-history`**: 레거시 래퍼 — 응답 `{ items }` 최근 10건 유지, 내부적으로 위와 동일 `service_login_history` 마스킹·SELECT 규칙 사용.
+| 경로 | Depends | 대상 |
+|------|---------|------|
+| `GET /api/system-logs`, `…/export.csv`, `GET …/login-history/org`, `…/org/export.csv` | `require_org_admin` | `sa_dev`·`sa`·`a` |
+| `GET …/login-history/me` | `require_active_access` | 본인 `user_login_log` |
+
+#### `GET /api/system-logs` (시스템 감사 목록)
+
+**쿼리**
+
+| 파라미터 | 설명 |
+|----------|------|
+| `user_key` | 행위자 id 문자열·이메일 **부분 일치** |
+| `from`, `to` | 날짜. **둘 다 주면** (종료−시작) 일수 **≤ 92일(약 3개월)** , 위반 시 **400** |
+| `ip_contains` | IP 부분 일치 |
+| `page` | 기본 `1` |
+| `page_size` | 기본 `50`, 최대 `200` |
+| `channel`, `action_kind`, `success_yn` | 필터 |
+| `sort_by` | `create_dtm` \| `system_log_id` \| `channel` \| `action_kind` \| `success_yn` \| `actor_user_id` |
+| `sort_dir` | `asc` \| `desc` (기본 `desc`) |
+
+**응답**: `{ items, total, page, page_size }`
+
+**조회 범위**
+
+- **`sa_dev`**: 전체.
+- **`sa`·`a`**: `actor_user_id` 가 액터 부서 **하위 트리**(재귀 CTE)에 속한 **활성** 사용자인 행만. `actor_user_id` **NULL** 행은 제외.
+
+#### `GET /api/system-logs/export.csv`
+
+- 목록과 **동일 필터·정렬**.
+- 총건 **50,000행** 초과 시 **400**.
+- 파일명 기본: `system_log_YYYYMMDD_HHMMSS.csv` (Asia/Seoul, `Content-Disposition`).
+
+#### 설정·계측(append)
+
+**`backend.system_log_append_enabled`** — `Env/config/config.json` 의 `backend` 블록(bool).
+
+- `false`(예시): `Backend/core/system_audit_log.append_system_log` 는 **INSERT 없이 즉시 반환**.
+- `true`: 계측 **INSERT** 수행.
+
+DDL·감사 정책·`sql_fingerprint` 규약: **docs/main/04_DB_ARCHITECTURE.md** §13. 런타임 개요: **docs/main/02_BACKEND_GUIDE.md**.
+
+**계측(요약)** — 업무 커밋 성공 후 `append_system_log` 또는 패키지 `audit_emit`:
+
+- `admin_server`, `auth_server`, `query_studio_server`, `etl_server`(사용자 HTTP 액션), `widget_board_server`, `project_server`, `notification_server` 등.
+- HTTP: `CorrelationIdMiddleware`·contextvars로 상관 ID·IP·UA 요약 **보강** 가능.
+- **스케줄 ETL 자동 실행**은 `system_log`에 **넣지 않음**(사용자 유발만 — 04 §13과 동일).
+
+#### 로그인 이력
+
+**`GET /api/system-logs/login-history/me`**
+
+- 본인 `user_login_log`만.
+- 쿼리: 위 목록과 동일 계열(`user_key`, `from`, `to`, `ip_contains`, `page`, `page_size` 기본 50·최대 50). 기간 상한 동일(92일).
+- 응답: `{ items, total, page, page_size }`.
+- `items` 필드: `login_trial_ip`(마스킹), `login_success_yn`, `login_trial_browser`, `create_dtm`(ISO). `user_id`·`user_email`은 생략(`exclude_none`).
+
+**`GET /api/system-logs/login-history/org`**
+
+- `user_login_log` + `user_info` 조인.
+- 부서 트리 스코프: 위 `system_log` 목록과 동일(`sa_dev` 전체 / `sa`·`a`는 로그인 주체 부서가 액터 부서 하위인 행).
+- `sort_by`: `create_dtm` \| `user_login_log_id` \| `login_success_yn` \| `user_id` \| `user_email`. `sort_dir`: `asc` \| `desc`.
+- `items`에 `user_id`·`user_email` 포함.
+
+**`GET /api/system-logs/login-history/org/export.csv`**
+
+- 동일 필터·정렬. 상한 **50,000행**, 기간 상한 동일.
+- 파일명 기본: `login_log_YYYYMMDD_HHMMSS.csv`.
+
+**`GET /api/auth/me/login-history`** (레거시 래퍼)
+
+- 응답 `{ items }` 최근 10건. 내부는 동일 `service_login_history` 마스킹·SELECT 규칙.
 
 ---
 
@@ -1519,7 +1592,11 @@ Star 물리 테이블·`dash_db` 기반 **캠페인 지표 HTTP API**와 **`core
 
 ### 5.3 `campaign_dash_server/router.py`
 
-라우터 **`APIRouter(prefix="/api/campaign-dashboard", tags=["campaign-dashboard"])`**. 엔드포인트는 모두 **`GET`** 이고 **`require_permission("dashboard")`** 를 공통으로 쓴다( JWT·계정·프로젝트 활성·`pmssn_list` ∩ `feature_flags` 에 `dashboard` 포함 — **§2.3** 과 동일 패턴). DB는 **`db.get_db_connection_dash()`** 로 대시보드용 스키마에 접속한다.
+#### 등록·인가·DB
+
+- 라우터 **`APIRouter(prefix="/api/campaign-dashboard", tags=["campaign-dashboard"])`**.
+- 엔드포인트는 모두 **`GET`** 이고 **`require_permission("dashboard")`** 를 공통으로 쓴다(JWT·계정·프로젝트 활성·`pmssn_list` ∩ `feature_flags` 에 `dashboard` 포함 — **§2.3** 과 동일 패턴).
+- DB는 **`db.get_db_connection_dash()`** 로 대시보드용 스키마에 접속한다.
 
 #### 엔드포인트
 
@@ -1701,7 +1778,11 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
   └─────────────────────────────────────┘
 ```
 
-**설계 요약**: 읽기 전용 대시보드 API로 **`_star_1`(발송 팩트)** 와 **`_star_2`(회원 스냅샷)** 만 다룬다. 권한 → 프로젝트 매핑 → 식별자 검증에 더해 **`_star_1` 강제**로 임의 테이블 경로를 줄인다. `/summary`·`/trend` 는 **`dashboard_service`** 에 위임하고, demographics·hourly·member-summary·trend-multi 는 라우터에서 JSONB·SQL을 직접 구성하는 **하이브리드** 구조다.
+#### 설계 요약
+
+- 읽기 전용 대시보드 API로 **`_star_1`(발송 팩트)** 와 **`_star_2`(회원 스냅샷)** 만 다룬다.
+- 권한 → 프로젝트 매핑 → 식별자 검증에 더해 **`_star_1` 강제**로 임의 테이블 경로를 줄인다.
+- `/summary`·`/trend` 는 **`dashboard_service`** 에 위임하고, demographics·hourly·member-summary·trend-multi 는 라우터에서 JSONB·SQL을 직접 구성하는 **하이브리드** 구조다.
 
 ---
 
@@ -1727,7 +1808,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 - **`campaign_dash_server`**: **§5.1** 흐름 · **§5.3** 엔드포인트·내부함수·보안. **`campaign_dash_server/router.py`**, **02_BACKEND_GUIDE.md** 병행.
 
-- **`widget_board_server`**: **§6.2** — `system_db` 메타·`/api/widget-boards`(초대·참여·공유). **`widget_board_server/router.py`**, 설계 **docs/report/20_Widget_Board_System_Design.md**.
+- **`widget_board_server`**: **§6.2** — `system_db` 메타·`/api/widget-boards`(초대·참여·공유·레이아웃). **`widget_board_server/router.py`** — 엔드포인트·권한·저장 구조는 **본 문서 §6.2** 가 기준이다.
 
 ---
 
@@ -1827,17 +1908,39 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 └─────────────────────────────┘       └───────────────────────────┘
 ```
 
-**설계 요약**: HTTP 라우터는 **조회·카운트·읽음 처리**만 담당하고, **알림 적재 책임은 호출 측(admin·project·widget_board 등)** 에 둔다. `insert_notification`은 `service`에만 있고 라우터에 노출되지 않으므로 **외부 HTTP로 알림 직접 생성은 불가**하다. 트랜잭션 내 호출(`autocommit=False`)과 API 직접 호출(`autocommit=True`) 두 경로를 지원하며, `*_in_txn` 접미사 함수는 모두 호출자가 commit/rollback을 제어한다.
+#### 설계 요약
+
+- HTTP 라우터는 **조회·카운트·읽음 처리**만 담당하고, **알림 적재 책임은 호출 측(admin·project·widget_board 등)** 에 둔다.
+- `insert_notification`은 `service`에만 있고 라우터에 노출되지 않으므로 **외부 HTTP로 알림 직접 생성은 불가**하다.
+- 트랜잭션 내 호출(`autocommit=False`)과 API 직접 호출(`autocommit=True`) 두 경로를 지원한다.
+- `*_in_txn` 접미사 함수는 모두 **호출자가 commit/rollback** 을 제어한다.
 
 ---
 
 ### 6.2 `widget_board_server`
 
-라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**. `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다. JWT에 **`project_info_id`(작업 프로젝트)** 가 있어야 한다(없으면 **403**). **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`.
+#### 등록·라우터·DB
 
-**접근 정책**: 보드를 **읽을** 수 있는 주체는 (1) **소유자**, (2) **`widget_board_share`에 등록된 사용자**, (3) **`share_scope = project`** 이고 동일 프로젝트 **`project_ptcpnt_info` 참여자**인 경우(읽기 전용 캔버스). **편집**은 소유자 또는 `widget_board_share.can_edit = true` 인 사용자만. **`share_scope`** 는 `POST`/`PATCH` 바디에서 **`private`**(기본·초대·공유 행 위주) 또는 **`project`** 로 설정한다. **초대**는 **`widget_board_invite` 알림** → 수락 시 `widget_board_share` 행이 생기는 흐름을 병행한다. 목록 API는 `share_scope=project` 인 보드 중 **위젯보드 권한이 없는** 비공유 참여자에게는 노출하지 않도록 필터한다(`list_boards`). **비활성 보드**는 소유자만 목록에 노출되며, 소유자가 아닌 사용자에게는 "찾을 수 없음" 처리된다.
+- 라우터 **`APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])`**.
+- `api_server/main.py` 에서 **`include_router(..., dependencies=[Depends(require_permission("widgetboard"))])`** 로 등록된다.
+- JWT에 **`project_info_id`(작업 프로젝트)** 가 없으면 **403**.
+- **메타·레이아웃**은 **`get_system_db`** (`ibank_system_data` 등)의 `widget_board`, `widget_item`, `widget_board_share`.
 
-**위젯 데이터**(`saved_table` / `query`): 소스 테이블·쿼리는 **현재 프로젝트에 매핑된 리소스만** 허용한다. `saved_table`은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_type=main)` 로만 허용하며 dash_db 테이블은 사용하지 않는다. SQL 금지어 검사는 **`Backend.core.sql_safety`** 를 `query_studio_server` 와 공유한다. `saved_table` 조회 시 `data_config`의 `dateStart`·`dateEnd`·`dateGrain`·`dateColumn`으로 기간 필터를 적용하고, 응답 `columns`에 `data_type`을 포함하며 `meta.applied_date_column`을 반환한다.
+#### 접근 정책
+
+- **읽기**: (1) **소유자**, (2) **`widget_board_share`에 등록된 사용자**, (3) **`share_scope = project`** 이고 동일 프로젝트 **`project_ptcpnt_info` 참여자**(읽기 전용 캔버스).
+- **편집**: 소유자 또는 `widget_board_share.can_edit = true` 인 사용자만.
+- **`share_scope`**: `POST`/`PATCH` 바디에서 **`private`**(기본·초대·공유 행 위주) 또는 **`project`**.
+- **초대**: **`widget_board_invite` 알림** → 수락 시 `widget_board_share` 행 생성.
+- **목록**: `share_scope=project` 인 보드 중 **위젯보드 권한이 없는** 비공유 참여자에게는 노출하지 않는다(`list_boards`).
+- **비활성 보드**: 소유자만 목록에 노출; 비소유자는 "찾을 수 없음" 처리.
+
+#### 위젯 데이터 (`saved_table` / `query`)
+
+- 소스 테이블·쿼리는 **현재 프로젝트에 매핑된 리소스만** 허용한다.
+- `saved_table`: `get_allowed_tables_by_project(..., usage_widgetboard=True, db_type=main)` 만 허용; dash_db 테이블은 사용하지 않는다.
+- SQL 금지어 검사는 **`Backend.core.sql_safety`** 를 `query_studio_server` 와 공유한다.
+- `saved_table` 조회 시 `data_config`의 `dateStart`·`dateEnd`·`dateGrain`·`dateColumn`으로 기간 필터; 응답 `columns`에 `data_type`, `meta.applied_date_column` 반환.
 
 #### `router.py` — 엔드포인트
 
@@ -1902,7 +2005,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 |------|------|
 | `BOARD_DSCRTN_MAX_LEN` | board_dscrtn 허용 문자 수 (기본 1000) |
 
-프론트: **`Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx`**(캔버스), **`WidgetboardListPage.jsx`**(목록), **`api/widgetBoardClient.js`**. 설계 상세는 **docs/report/20_Widget_Board_System_Design.md**.
+프론트: **`Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx`**(캔버스), **`WidgetboardListPage.jsx`**(목록), **`api/widgetBoardClient.js`**. API·권한·데이터 흐름은 **본 문서 §6.2** 를 본다.
 
 ### 6.3 `query_studio_server`
 

@@ -11,7 +11,7 @@ Backend.system_log_server.service (system_log 목록 조회)
 [Endpoints/Classes/Functions]
 =======================
 - list_system_logs_paged(conn, actor, …) → dict (total, items, page, page_size)
-- export_system_logs_csv_bytes(conn, actor, …) → (row_count, bytes) 화면 7열 CSV(일시~IP·상세)
+- export_system_logs_csv_bytes(conn, actor, …) → (row_count, bytes) 화면 8열 CSV(일시~IP·SQL 지문·상세)
 - _format_system_log_detail_for_csv·_csv_dtm_display 등 CSV 표시 헬퍼
 - _build_system_log_where(actor, …) → (where_sql, params)
 - _system_log_order_sql(sort_by, sort_dir) → ORDER BY 절
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 MAX_CSV_EXPORT_ROWS = 50_000
 
-_SYSTEM_LOG_CSV_UI_HEADERS = ("일시", "페이지", "행위", "상태", "사용자", "IP", "상세내용")
+_SYSTEM_LOG_CSV_UI_HEADERS = ("일시", "페이지", "행위", "상태", "사용자", "IP", "SQL 지문", "상세내용")
 
 # system_log 목록·CSV: 행위자 이메일 표시용 user_info 조인(1:1).
 _JOIN_ACTOR_USER = "LEFT JOIN user_info actor_u ON actor_u.user_id = sl.actor_user_id"
@@ -365,6 +365,7 @@ def export_system_logs_csv_bytes(
             sl.actor_user_id,
             actor_u.user_email AS actor_user_email,
             sl.client_ip_masked,
+            sl.sql_fingerprint,
             sl.target_summary,
             sl.sql_template_key,
             sl.business_action,
@@ -407,6 +408,7 @@ def export_system_logs_csv_bytes(
                     _csv_success_yn_display(d.get("success_yn")),
                     _csv_actor_user_display(d),
                     d.get("client_ip_masked") or "—",
+                    d.get("sql_fingerprint") or "—",
                     _format_system_log_detail_for_csv(d),
                 ]
             )

@@ -107,7 +107,7 @@
 
 **DB·스키마**: `ibank_system_data.public`  
 **OWNER(적용 스크립트 기준)**: `ibankbi`  
-**문서 정본**: 컬럼·인덱스·NULL 규칙은 **`docs/main/04_DB_ARCHITECTURE.md` §13** 과 동일하게 유지한다. 저장소에 별도 `.sql` 파일을 두지 않는 경우 **운영 적용 스크립트**를 이 절과 04를 기준으로 맞춘다.
+**문서 정본**: 컬럼·인덱스·NULL 규칙은 **`docs/main/04_DB_ARCHITECTURE.md` §13** 과 동일하게 유지한다. 저장소에 별도 `.sql` 파일을 두지 않는 경우 **운영 적용 스크립트**를 이 절과 04를 기준으로 맞춘다. **`sql_fingerprint` 정규화·해시 절차·`detail_json` 예약 키** 등 분석용 서술도 **04 §13** 이 정본이며, 본 보고서 §4 표는 구현 추적용 요약이다.
 
 ### 4.1 컬럼(DDL 순서)
 
@@ -130,7 +130,7 @@
 | `success_yn` | `varchar(1)` | NOT NULL DEFAULT `'Y'` | |
 | `http_status` | `smallint` | NULL | |
 | `error_code` | `varchar(80)` | NULL | |
-| `sql_fingerprint` | `varchar(64)` | NULL | 원문 비저장·지문(sha256 hex 등) |
+| `sql_fingerprint` | `varchar(64)` | NULL | 단방향 SQL 지문 — SHA-256 소문자 hex **64자**(접두어 없음). `04` §13 `sql_fingerprint` 규약과 동일. |
 | `sql_template_key` | `varchar(120)` | NULL | `channel.operation` 형식 요약 키 |
 | `risk_tier` | `varchar(10)` | NULL | `HIGH` / `MED` / `LOW` |
 | `target_summary` | `varchar(500)` | NULL | |
@@ -144,7 +144,7 @@
 | `affected_user_id` | int | 영향 받은 사용자 ID (정지·역할 변경 등) |
 | `old_value` | any | 변경 전 값 (스칼라 또는 짧은 JSON) |
 | `new_value` | any | 변경 후 값 |
-| `sql_fingerprint` | string | `sha256:` 접두 + hex (execute-query 등) |
+| `sql_fingerprint` | string | (선택) 컬럼 `sql_fingerprint`와 **동일 토큰**(소문자 SHA-256 hex 64자)만 허용. 컬럼만 쓰는 것을 원칙. |
 | `etl_table_id` | int | ETL 관련 액션 시 |
 | `project_info_id` | int | 프로젝트 관련 액션 시 |
 | `widget_board_id` | int | 위젯보드 관련 액션 시 |

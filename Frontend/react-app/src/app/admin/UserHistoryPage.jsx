@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(시스템 IP열)·정렬·CSV 모달(필터 ul·정렬 단락)
+ * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달
  *
  * [Dependencies]
  * =========
@@ -701,13 +701,14 @@ export default function UserHistoryPage() {
                 <th>상태</th>
                 <th>사용자</th>
                 <th>IP</th>
+                <th className="user-history__col-fingerprint">SQL 지문</th>
                 <th className="user-history__col-detail">상세내용</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={7} className="user-history__empty">
+                  <td colSpan={8} className="user-history__empty">
                     기록이 없습니다.
                   </td>
                 </tr>
@@ -720,6 +721,12 @@ export default function UserHistoryPage() {
                     <td>{formatYnStatus(row.success_yn)}</td>
                     <td>{row.actor_user_email || row.actor_user_id || '—'}</td>
                     <td>{row.client_ip_masked || '—'}</td>
+                    <td
+                      className="user-history__col-fingerprint"
+                      title={row.sql_fingerprint ? String(row.sql_fingerprint) : undefined}
+                    >
+                      {row.sql_fingerprint || '—'}
+                    </td>
                     <td className="user-history__col-detail">{formatSystemDetailCell(row)}</td>
                   </tr>
                 ))

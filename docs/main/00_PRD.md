@@ -9,13 +9,12 @@
 - **DB**: 04_DB_ARCHITECTURE.md
 - **권한·역할**: 05_Permission_ARCHITECTURE.md
 - **사용자 화면 흐름**: 07_USER_FUNCTIONAL_GUIDE.md
-- **온보딩·개발 지도**: docs/report/03_AI_DEVELOP_GUIDE.md
+- **동작·계약의 기준**: **docs/main** 전체(00~07). 저장소 `docs/report/` 경로의 문서는 **내부 보조**(배포 체크리스트·작업 메모 등)로 둘 수 있으며, 고객 공개·제품 정의와 충돌 시 **docs/main** 이 우선한다.
 
 **비고**
 
 - docs/main 은 **현재 동작**을 기준으로 쓴다.
 - 날짜별 작업 이력은 docs/log/log.md, 코드 이력은 Git을 본다.
-- docs/report 는 배포·설계·체크리스트 등 **보조** 문서다.
 
 ---
 
@@ -46,7 +45,7 @@
 - **쿼리 스튜디오**: 테이블·JOIN·집계·피벗·실행·페이지네이션·Claude SQL 해석. FK 기반으로 JOIN 가능 테이블을 제한한다.
 - **대시보드(/dashboard)**: 캠페인 대시보드 단일 UI. Star 물리 테이블·dash_db·API `/api/campaign-dashboard`. `/campaign-dashboard` 는 `/dashboard` 로 리다이렉트.
 - **위젯보드(/widgetboard)**: 드래그 앤 드롭 그리드. 쿼리 스튜디오·위젯 보드 API 연동.
-- **ETL(/etl)**: 파일·외부 DB → PostgreSQL 적재. 저장 DB 선택·매핑·동기화 모드·배치·폴더(SFTP/S3) 배치 등. 상세는 02·08·09·14 등 report 문서.
+- **ETL(/etl)**: 파일·외부 DB → PostgreSQL 적재. 저장 DB 선택·매핑·동기화 모드·배치·폴더(SFTP/S3) 배치 등. 스키마·제약은 **04_DB_ARCHITECTURE.md**, 서버·모듈·한도는 **02_BACKEND_GUIDE.md** 를 본다.
 - **설정**: `.env` 없이 `Env/config/config.json` 만 사용한다.
 
 ---
@@ -96,7 +95,7 @@
 ### 배포 / 인프라
 
 - **로컬**: `python run.py front` — 빌드 후 정적 서버(`config.frontend.static_port`, 기본 8080). `python run.py serve` 는 빌드 없이 dist 만 서빙.
-- **Linux 예시**: 루트 `deploy.sh` 로 빌드·서비스 재기동. Nginx 등으로 `/ibank-bi/` 와 API 프록시(`/report_api/` 등) 분리. 상세는 docs/report/DEPLOY_SERVER.md.
+- **Linux 예시**: 루트 `deploy.sh` 로 빌드·서비스 재기동. Nginx 등으로 `/ibank-bi/` 와 API 프록시 경로를 분리한다. 배포·프록시·서비스 구성은 **docs/main/02_BACKEND_GUIDE.md** 및 사내 런북을 본다.
 
 ---
 
@@ -124,7 +123,7 @@
 
 ### 협업 / 툴
 
-- Git 저장소, docs/main·docs/report·docs/log 문서화.
+- Git 저장소, **docs/main**(제품 문서)·docs/log(작업 이력) 문서화.
 - (팀 표준에 따라) 이슈·코드리뷰·CI 는 저장소 정책에 따른다.
 
 ---
@@ -215,7 +214,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 
 ### ETL
 
-- 소스: 파일 / DB / 폴더 배치. 동기화: Full / Incremental / Diff(PK 기준). Job 큐·워커 동시 처리 상한 등은 02·report 08·14 참고.
+- 소스: 파일 / DB / 폴더 배치. 동기화: Full / Incremental / Diff(PK 기준). Job 큐·워커 동시 처리 상한·배치 테이블 DDL은 **02_BACKEND_GUIDE.md**·**04_DB_ARCHITECTURE.md** 를 본다.
 - **저장 DB**: 기본 DB(`storage_connection_id` null) 또는 등록 연결. FormData·JSON 규칙은 프로젝트 컨벤션(storageDb.js)과 동일.
 
 ### 공통(SPA·빌드 외)

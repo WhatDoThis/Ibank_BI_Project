@@ -9,6 +9,7 @@
  * - .user-history__filters: 필터 그리드·폼 제출(Enter)·툴바 버튼 높이
  * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
+ * - 시스템 테이블: `col-fingerprint`(sql_fingerprint 말줄임·모노스페이스)
  *
  * [Endpoints/Classes/Functions]
  * =======================
@@ -127,6 +128,18 @@
 
 .user-history__table-wrap .admin-users__table th {
   min-width: max(3.25rem, min-content);
+}
+
+.user-history__table-wrap .admin-users__table th.user-history__col-fingerprint,
+.user-history__table-wrap .admin-users__table td.user-history__col-fingerprint {
+  max-width: 9rem;
+  min-width: 5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: clamp(0.58rem, 0.22rem + 0.9vw, 0.72rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
 }
 
 /* 상세내용 열: admin-users 전역 td nowrap·구 cell max-width 제거 — 셀 박스 폭=테이블 열 폭으로 thead 배경 단절 방지 */

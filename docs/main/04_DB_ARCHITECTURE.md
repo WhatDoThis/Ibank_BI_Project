@@ -1,6 +1,6 @@
 # DB 스키마 정의 (ibank_system_data · ibank_etl_data)
 
-**용도**: `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의. **`system_log`** 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md`** 참고. 구현·배포 절차는 **docs/report/17_SystemDB_Commercialization_Implementation_Guide.md**, **docs/main/02_BACKEND_GUIDE.md** 를 본다.
+**용도**: `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의. 감사 테이블 **`system_log`** 의 DDL·저장 규약·지문 규칙은 **본 문서 §13**에 둔다. 런타임 설정·서버 구동 개요는 **docs/main/02_BACKEND_GUIDE.md** 를 본다.
 
 ---
 
@@ -59,7 +59,7 @@ server_timezones (독립 — ibank_etl_data.public)
 
 ---
 
-**초기화·시드 주의**: `user_info` / `dptmt_info` 등을 TRUNCATE CASCADE 하면 **`pmssn_master` 시스템 기본 4행**까지 함께 삭제될 수 있다. `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md` 의 시드 절을 유지한다. 초기화 후에는 **`pmssn_master` 재시드**가 필요하다.
+**초기화·시드 주의**: `user_info` / `dptmt_info` 등을 TRUNCATE CASCADE 하면 **`pmssn_master` 시스템 기본 4행**까지 함께 삭제될 수 있다. 운영 초기화 절차를 쓸 때는 **`pmssn_master` 재시드**(기본 역할 4행)를 반드시 포함한다. 서버·설정 개요는 **docs/main/02_BACKEND_GUIDE.md** 를 본다.
 
 ---
 
@@ -438,9 +438,17 @@ create_user_id           integer                       FK `widget_item_create_us
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 13. system_log (시스템 감사·추적 로그)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`ibank_system_data.public`. **append-only** 적재 전제. 상세 설계·계측 범위는 **`docs/report/22_System_Log_Development_Plan.md` §2·§4** 참고. **HTTP 조회·CSV**는 `Backend/system_log_server`, **INSERT 계측**은 `Backend/core/system_audit_log.py`(및 각 패키지 `audit_emit`)가 담당한다.
+`ibank_system_data.public`. **append-only** 적재 전제 — 애플리케이션 계정은 **INSERT만** 하며 임의 UPDATE·DELETE는 하지 않는다(정리·아카이브는 운영 DBA·정책 절차). **HTTP 조회·CSV**는 `Backend/system_log_server`, **INSERT 계측**은 `Backend/core/system_audit_log.py`(및 각 패키지 `audit_emit`)가 담당한다.
 
-**운영 보존(제품 정책)**: `system_log` 원본은 **2년** 보존을 원칙으로 한다(만료 후 아카이브·파티션 드롭 등은 `22`·운영 런북에서 정한다).
+**계측 범위(요약)**
+
+- **ETL 스케줄에 의한 자동 실행**은 기록하지 않는다.
+- 사용자가 화면·API에서 저장·수동 실행·연결 테스트·업로드 확정 등을 유발한 경우에 한해 기록한다.
+- **한 HTTP 요청(한 사용자 액션)당** 원칙적으로 **한 행**이다.
+- `action_kind`: 대분류(`CREATE`·`UPDATE`·`DELETE`·`EXECUTE`·`LOGIN`·`EXPORT` 등); 세부 식별은 `business_action` 컬럼.
+- `channel`: `Backend/core/system_audit_log.py` 의 `CHANNEL_*` 상수와 동일한 문자열(`auth`, `admin`, `query_studio`, `etl`, `widget_board`, `project`, `notification`, `campaign_dash`, `system_log` 등).
+
+**운영 보존(제품 정책)**: `system_log` 원본은 **2년** 보존을 원칙으로 한다(만료 후 아카이브·파티션 드롭 등은 **운영 런북**에서 정한다).
 
 PRIMARY KEY: `system_log_pkey` (`system_log_id`) — `BIGSERIAL`.
 
@@ -463,11 +471,37 @@ rows_affected            integer         NULL          영향 행 수
 success_yn               varchar(1)      NOT NULL DEFAULT Y 성공 여부
 http_status              smallint        NULL          HTTP 응답 코드
 error_code               varchar(80)     NULL          애플리케이션 오류 코드
-sql_fingerprint          varchar(64)     NULL          SQL 정규화 지문(sha256 hex 등)
+sql_fingerprint          varchar(64)     NULL          SQL 지문(단방향·아래 `sql_fingerprint` 규약)
 sql_template_key         varchar(120)    NULL          요약 키(channel.operation 형식)
 risk_tier                varchar(10)     NULL          HIGH / MED / LOW
 target_summary           varchar(500)    NULL          대상 요약
 detail_json              jsonb           NOT NULL DEFAULT '{}' 확장(JSON)
+
+**`sql_fingerprint` 규약(분석·재현용)** — 암호화(복호화)가 **아니다**. SQL **원문 전문을 DB에 저장하지 않는** 제품 정책 하에서, 동일·유사 실행을 묶거나 외부 DB 감사 로그와 대응할 **단방향 지문**이다.
+
+1. **DDL `varchar(64)`**: SHA-256 digest의 **소문자 16진수 64자**(접두어 없음) 한 토큰만 넣는 것을 표준으로 한다. (Python `hashlib.sha256(바이트).hexdigest()` 결과와 동일한 표기.)
+2. **입력 문자열(신규 적재가 따를 계약)**: UTF-8로 인코딩한 **정규화 SQL 한 문자열**에 대해 SHA-256을 계산한다. 정규화는 아래를 **순서 고정**으로 적용한 뒤의 문자열 전체를 해시한다(구현은 **`Backend.core` 공용 함수 한 곳**에만 두고, 도입 시 **본 줄에 모듈·함수명을 보강**한다). 규칙이 바뀌면 배포 버전별로 재현 방식이 달라질 수 있다.
+   - 선행·후행 공백 제거.
+   - 탭·개행·캐리지 리턴을 단일 공백(`U+0020`)으로 치환한 뒤, 연속 공백을 단일 공백으로 축약.
+   - SQL 키워드·식별자는 **소문자**로 통일(ASCII 범위 식별자·키워드; 유니코드 식별자는 NFC 정규형 유지 후 소문자화가 가능한 부분만 적용).
+   - 작은따옴표·큰따옴표로 둘러싼 **문자열·숫자 리터럴** 구간은 내용·길이와 무관하게 **`?` 단일 토큰**으로 치환(빈 문자열 `''` 포함).
+   - 블록 주석 `/* … */`·행 주석 `-- …`(줄 끝까지) 제거.
+3. **NULL**: 계측이 아직 본 컬럼을 채우지 않는 경로가 있으면 **NULL**일 수 있다. 값이 있는 행만 위 표준과 비교·재현한다.
+
+**`detail_json` 예약 키(요약)** — 값은 가능한 스칼라로, 개인정보는 넣지 않는다. 예약 키 외 확장은 **`x_` 접두** 권장.
+
+| 키 | 설명 |
+|---|---|
+| `target_table` | 대상 테이블명 |
+| `affected_user_id` | 영향 받은 사용자 ID |
+| `old_value` | 변경 전 값(스칼라 또는 짧은 JSON) |
+| `new_value` | 변경 후 값 |
+| `sql_fingerprint` | (선택) 컬럼 `sql_fingerprint`와 **동일 토큰**(소문자 SHA-256 hex 64자)만. **원칙은 컬럼만 사용**. |
+| `etl_table_id` | ETL 테이블 관련 액션 시 |
+| `project_info_id` | 프로젝트 관련 액션 시 |
+| `widget_board_id` | 위젯 보드 관련 액션 시 |
+| `file_name` | 업로드 파일명 |
+| `error_detail` | 실패 시 요약(개인정보 제외) |
 
 OWNER: 적용 스크립트 기준 **`ibankbi`**.
 

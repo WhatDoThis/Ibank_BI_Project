@@ -212,4 +212,4 @@ SA/A도 **템플릿·기능 스위치에 없으면** 쿼리·대시 등 **그대
 
 ---
 
-**부록**: 시스템 DB **DDL 적용 순서·상용화 섹션 게이트** 등 운영 문서는 `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md` — **권한 판별 규칙은 본 문서(§0~§6)가 기준**이다.
+**부록**: 시스템 DB **DDL 적용 순서** 등 운영 절차는 **docs/main/02_BACKEND_GUIDE.md** 및 사내 런북을 본다. **권한 판별 규칙은 본 문서(§0~§6)가 기준**이다.

@@ -1,6 +1,11 @@
 # Log
 
 ## Log Index
+480. 2026-04-20 docs/main: 가독성 점검(장문 불릿·표 분리, 02·03·04·06·07)
+479. 2026-04-20 docs/main/03: §3.4 system_log_server 가독성(소제·표·문단)
+478. 2026-04-20 docs/main: 고객 문서에서 report 의존 제거·`system_log` 정본 04 일원화
+477. 2026-04-20 docs: `sql_fingerprint` 규약(04·22 정합)
+476. 2026-04-20 통합 이력: 시스템 `sql_fingerprint` 표시·CSV
 475. 2026-04-20 사용자 이력 테이블: 셀 좌우 패딩 소폭 확대(가로 스크롤 유지)
 474. 2026-04-20 통합 이력: 필터 초기화·시스템 목록 IP열·CSV IP열
 473. 2026-04-20 통합 이력 CSV 모달: 정렬 블록 단락 표시
@@ -478,6 +483,60 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+480. 2026-04-20 docs/main: 가독성 점검(장문 불릿·표 분리, 02·03·04·06·07)
+Purpose: `docs/main` 전역에서 **한 줄·한 불릿 과밀** 구간을 찾아 §3.4와 같은 톤(`####`·짧은 불릿·표 보조)으로 정리.
+
+Changes:
+
+- `03_API_GUIDE.md`: admin `table_master` 교차 참조, campaign_dash §5.3, 캠페인 보안 설계 요약, notification·widget_board §6.1·§6.2
+- `04_DB_ARCHITECTURE.md`: §13 계측 범위 요약 불릿화
+- `02_BACKEND_GUIDE.md`: `include_router` 순서 목록화, `etl_tables` 표+필드 절, system_db 감사 문단·smtp_info
+- `06_CUSTOMER_JOURNEY.md`: Phase 6 도입 문단 분리
+- `07_USER_FUNCTIONAL_GUIDE.md`: ISMS-P 2.9.4 불릿 분리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+479. 2026-04-20 docs/main/03: §3.4 system_log_server 가독성(소제·표·문단)
+Purpose: 한 줄에 몰아 쓴 감사 API 설명을 **같은 문서의 admin 절**처럼 `####`·표·짧은 불릿으로 나누어 읽기 쉽게 함.
+
+Changes:
+
+- `03_API_GUIDE.md`: §3.4 재구성(등록·인가·목록·CSV·append·로그인 이력)
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+478. 2026-04-20 docs/main: 고객 문서에서 report 의존 제거·`system_log` 정본 04 일원화
+Purpose: **docs/main** 을 고객 공개·제품 계약 기준으로 두고, 필수 내용을 **report 참조 없이** 본문에 두도록 정리함. `system_log` 계측·지문·`detail_json` 은 **04 §13** 에 완결.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: 서두·§13·시드 주의·`sql_fingerprint`/`detail_json` 규약(22 참조 제거)
+- `00_PRD.md`, `01_FRONTEND_GUIDE.md`, `02_BACKEND_GUIDE.md`, `03_API_GUIDE.md`, `05`, `06`, `07`: `docs/report` 필수 참조 제거 또는 main 우선·내부 보조 명시
+- `22_System_Log_Development_Plan.md`: §4 정본이 04임을 한 줄 보강
+
+Changed files: docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+477. 2026-04-20 docs: `sql_fingerprint` 규약(04·22 정합)
+Purpose: 지문이 **암호화가 아닌 단방향 SHA-256 hex 64자(접두어 없음)** 임을 DB 아키텍처에 명시하고, 정규화·NULL 가능성을 적어 분석 시 혼동을 줄임. `22` 표·`detail_json` 예약 행을 동일 계약으로 맞춤.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: §13 `sql_fingerprint` 규약 블록 추가·컬럼 설명 갱신
+- `22_System_Log_Development_Plan.md`: 컬럼 표·`detail_json` 예약 키 설명 정합
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+476. 2026-04-20 통합 이력: 시스템 `sql_fingerprint` 표시·CSV
+Purpose: 감사 목록·다운로드에서 **SQL 지문**(`sql_fingerprint`)을 IP와 상세 사이에 노출해, 적재된 지문이 있을 때 화면·CSV로 확인 가능하게 함.
+
+Changes:
+
+- `UserHistoryPage.jsx`: 시스템 테이블 열·빈 행 colspan
+- `user-history.css`: `.user-history__col-fingerprint` 스타일
+- `system_log_server/service.py`: CSV SELECT·헤더·행에 `sql_fingerprint`
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Backend/system_log_server/service.py, docs/log/log.md
 
 475. 2026-04-20 사용자 이력 테이블: 셀 좌우 패딩 소폭 확대(가로 스크롤 유지)
 Purpose: 시스템·로그인 이력 테이블 열이 다닥다닥해 보이는 문제를 완화한다.

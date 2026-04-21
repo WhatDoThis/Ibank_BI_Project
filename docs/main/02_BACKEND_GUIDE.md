@@ -4,9 +4,9 @@
 
 - **주요 구현 위치**: `Backend/core`, `Backend/api_server`(호스트), `auth_server`, `project_server`, `notification_server`, `admin_server`, `system_log_server`, `query_studio_server`, `etl_server`, `campaign_dash_server`, `widget_board_server`
 - **작업 이력**: **docs/log/log.md**
-- **레이어·의존·탐색**: **docs/report/03_AI_DEVELOP_GUIDE.md**
+- **레이어·의존·디렉터리**: 본 문서 §2·**03_API_GUIDE.md**(모듈·엔드포인트)·**04_DB_ARCHITECTURE.md**(FK·스키마)
 - **API·인증 흐름 통합**: **03_API_GUIDE.md**
-- **ETL 운영·COPY·모달 보조**: **docs/report/08_ETL_Phase_Implement_Guide.md**
+- **ETL 운영·COPY·모달 필드**: 본 문서 ETL·`etl_server` 절·**03_API_GUIDE.md**·**04_DB_ARCHITECTURE.md** `ibank_etl_data`
 - **부록 A**: 스택·이력은 log/Git, 본문은 현행 구조만
 
 ---
@@ -17,7 +17,14 @@
 
 1) **호스트·라우터 (`api_server/main.py`)**
 
-- **FastAPI** REST — `include_router` 순서: health → auth → project → notification → admin → **system_log_server**(`/api/system-logs`) → **query_studio_server** → **etl_server**(전 라우트 `require_etl_infrastructure`) → **campaign_dash_server**(`require_permission("dashboard")`) → **widget_board_server**(`require_permission("widgetboard")`)
+- **FastAPI** REST — `include_router` 순서(앞에서 먼저 매칭):
+
+  1. health → auth → project → notification → admin  
+  2. **system_log_server** (`/api/system-logs`)  
+  3. **query_studio_server**  
+  4. **etl_server** (전 라우트 `require_etl_infrastructure`)  
+  5. **campaign_dash_server** (`require_permission("dashboard")`)  
+  6. **widget_board_server** (`require_permission("widgetboard")`)
 
 2) **PostgreSQL 용도**
 
@@ -46,7 +53,7 @@
 
 6) **전역 예외**
 
-- 404/500 → `error`·`message` JSON — **docs/report/03_AI_DEVELOP_GUIDE.md §10**
+- 404/500 → `error`·`message` JSON 페이로드(FastAPI `HTTPException`·전역 핸들러 관례, **`Backend/api_server`** 기준)
 
 ### 1.2 기술 스택
 
@@ -60,7 +67,7 @@
 ### 1.3 실행 방식
 
 - **로컬**: `python run.py back` → API 서버만 기동
-- **배포**: 루트 **deploy.sh**(빌드 + report-api/report-front 재시작) — **docs/report/DEPLOY_SERVER.md**
+- **배포**: 루트 **deploy.sh**(빌드·서비스 재기동) — Nginx 프록시·서비스 유닛 등 **사내 런북**을 본다(본 문서는 로컬 실행·포트만 요약).
 - **접속(API 베이스)**: `config.frontend.api_base_url` 예: 로컬 `http://localhost:5001`, 배포 `https://도메인/report_api`
 
 ---
@@ -208,16 +215,33 @@ Backend/
 |--------|------|
 | **etl_connections** | 소스 연결 정보(연결명, source_type, host, port, database_name, schema_name, username, encrypted_password). |
 | **etl_storage_connections** | 저장 DB(적재 대상 PostgreSQL) 등록. connection_name, host, port, database_name, schema_name, username, encrypted_password, is_active. `etl_server`에서 사용. |
-| **etl_tables** | 작업 정의(connection_id, source_table, target_table, description, file_type, file_path, pk_columns, incremental_column, sync_mode(full\|incremental\|**diff**), status, batch_size, batch_interval_seconds, **storage_connection_id**, **column_mapping**, **on_row_error**, **index_definitions** JSONB, **diff_delete_orphans** 등). on_row_error: 'fail'\|'skip'. index_definitions: 타겟 테이블 인덱스 정의(적재 후 자동 생성). |
+| **etl_tables** | ETL **작업 정의** 한 행(소스·타겟·sync_mode·배치·스토리지·변환·인덱스 JSON 등). 상세 필드는 아래 절. |
 | **etl_transform_rules** | 변환 룰(etl_table_id, source_column, target_column, rule_type, rule_config, apply_order, is_active). |
 | **etl_jobs** | Job 이력(job_id, etl_table_id, status, started_at, finished_at, rows_processed, total_rows, error_message, notice). |
 
-위 5종 외에 배치 관련 테이블(`batch_folder_connections`, `batch_folder_sftp`, `batch_folder_s3`, `batch_jobs`, `batch_run_history`, `etl_batch_target_registry`, `batch_loaded_keys`)이 있다. 상세 DDL은 **docs/report/09_ETL_SFTP_Connection.md**를 본다.
+#### `etl_tables` 행에 담기는 주요 필드
+
+- 연결·대상: `connection_id`, `source_table`, `target_table`, `description`, `file_type`, `file_path`, `pk_columns`, `incremental_column`
+- 동기: `sync_mode` = `full` \| `incremental` \| **`diff`**, `status`, `batch_size`, `batch_interval_seconds`
+- 저장·매핑: **`storage_connection_id`**, **`column_mapping`**, **`on_row_error`**(`fail` \| `skip`), **`index_definitions`** JSONB(적재 후 타겟 인덱스 자동 생성), **`diff_delete_orphans`** 등
+
+위 5종 외에 배치 관련 테이블(`batch_folder_connections`, `batch_folder_sftp`, `batch_folder_s3`, `batch_jobs`, `batch_run_history`, `etl_batch_target_registry`, `batch_loaded_keys`)이 있다. 컬럼·제약·FK는 **docs/main/04_DB_ARCHITECTURE.md** 의 `ibank_etl_data`·배치 절을 본다.
 
 - batch_size: DB 적재 시 한 번에 가져올 행 수. NULL/0이면 전체. batch_interval_seconds: 배치 간 대기(초). 0이면 대기 없음.
 - **batch_jobs**(폴더 배치): **on_file_error** 'stop'\|'continue'(파일 1건 실패 시 run 중단 vs 다음 파일 계속). **index_definitions** JSONB(타겟 인덱스 정의).
 
-동일 **시스템 DB**에 `user_info`·`dptmt_info`·`project_info`·`pmssn_master`·`table_master`·`table_project_mapping` 등 상용화 메타가 함께 존재한다. 감사용 **`system_log`**(append-only)·**`user_login_log`** 등도 이 DB에 둔다 — DDL·인덱스는 **04_DB_ARCHITECTURE.md §13**, 계측·채널·UI 계획은 **docs/report/22_System_Log_Development_Plan.md**. 조회·CSV HTTP는 **`system_log_server`**, 적재는 각 도메인 서버에서 **`core.system_audit_log.append_system_log`**(또는 패키지 `audit_emit`) 호출.
+동일 **시스템 DB**에 상용 메타가 함께 존재한다.
+
+- 예: `user_info`, `dptmt_info`, `project_info`, `pmssn_master`, `table_master`, `table_project_mapping`
+- 감사: **`system_log`**(append-only), **`user_login_log`** 등
+
+**문서 매핑**
+
+- DDL·인덱스·계측 범위·`detail_json`·`sql_fingerprint`: **docs/main/04_DB_ARCHITECTURE.md** §13  
+- HTTP 조회·CSV: **docs/main/03_API_GUIDE.md** §3.4  
+- 런타임 설정: 본 문서·`Env/config` 의 `config.json`
+
+**구현**: 조회·CSV는 **`system_log_server`**; 적재는 각 도메인에서 **`core.system_audit_log.append_system_log`**(또는 패키지 `audit_emit`) 호출.
 
 FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
 
@@ -230,7 +254,9 @@ FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
 ### 3.2.2 인증·메일 (backend)
 
 - **jwt_secret**, **jwt_pre_auth_expire_minutes**, **jwt_access_expire_minutes**, **jwt_refresh_expire_days**: access/refresh·2차 인증 pre 토큰. `jwt_secret` 비어 있으면 기동 시 검증 실패 가능.
-- **smtp_info** (선택 객체): **smtp_host**, **smtp_port**, **smtp_user**, **smtp_password**, **smtp_from**, **app_url**(초대·가입 링크용 공개 SPA 베이스, 없으면 `backend.app_url` → `frontend.app_url` 순). **smtp_host가 비어 있으면** 실제 SMTP 발송 없이 로그 폴백만(`Backend.core.auth_config.is_smtp_skipped`). 개발·운영 구분 없이 동일 규칙.
+- **smtp_info** (선택 객체)
+  - 필드: **smtp_host**, **smtp_port**, **smtp_user**, **smtp_password**, **smtp_from**, **app_url**(초대·가입 링크용 공개 SPA 베이스; 없으면 `backend.app_url` → `frontend.app_url` 순)
+  - **smtp_host가 비어 있으면** 실제 SMTP 발송 없이 로그 폴백만(`Backend.core.auth_config.is_smtp_skipped`). 개발·운영 구분 없이 동일 규칙.
 
 ### 3.2.3 ETL 저장 DB · 쿼리 스튜디오 피크 가드
 
@@ -519,7 +545,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | **파일** | - | DROP → CREATE → 전체 INSERT. **전체 교체.** |
 | **DB** | **full** | DROP → CREATE → 전체 INSERT. **전체 교체.** |
 | **DB** | **incremental** | 테이블 유지. last_synced_at 이후만 조회 후 **Upsert.** |
-| **DB** | **diff** | 테이블 유지. 소스/타겟 PK 집합 비교 후 신규 행 INSERT·선택 시 타겟만 DELETE orphan. last_synced_at 갱신 없음. 최초 적재는 full 후 전환. 상세 **docs/report/14_ETL_PK_DIFF.md**. |
+| **DB** | **diff** | 테이블 유지. 소스/타겟 PK 집합 비교 후 신규 행 INSERT·선택 시 타겟만 DELETE orphan. last_synced_at 갱신 없음. 최초 적재는 full 후 전환. PK·diff 적재 규칙은 **docs/main/04_DB_ARCHITECTURE.md** 및 ETL 서비스(`etl_server`) 구현을 본다. |
 
 ### 6.6 모듈 의존
 
@@ -595,10 +621,12 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 01_FRONTEND_GUIDE.md | 프론트엔드 구조·패키지·라우트·추가 기능 정밀 명세 |
 | 02_BACKEND_GUIDE.md | 백엔드 구조·기술 스택·API·설정·etl_server 가이드 명세 (본 문서) |
 | 03_API_GUIDE.md | 모듈별 API·인증 흐름·엔드포인트 통합 레퍼런스(대용량) |
-| docs/report/03_AI_DEVELOP_GUIDE.md | 레이어·의존 방향·DB 연결 매트릭스·확장 체크리스트 (AI·온보딩) |
+| 04_DB_ARCHITECTURE.md | DB 스키마·제약·`system_log` 감사 규약 |
+| 05_Permission_ARCHITECTURE.md | 권한·역할 |
+| 06_CUSTOMER_JOURNEY.md | Phase별 흐름 |
+| 07_USER_FUNCTIONAL_GUIDE.md | 사용자 기능 |
 
-- **`docs/report`**: 배포·실행 로그·보조 설계
-- **동작 정의 기준**: 본 문서·**00_PRD**·**01_FRONTEND_GUIDE**·**docs/report/03_AI_DEVELOP_GUIDE.md**
+- **동작 정의 기준**: **docs/main**의 **00~07**(본 문서·PRD·API·DB·권한·여정·사용자 가이드). 저장소 `docs/report/` 는 내부 보조 원고로만 쓴다.
 
 **문서 이력**: 본 파일에 날짜 타임라인 없음 → **docs/log/log.md**·Git
 
