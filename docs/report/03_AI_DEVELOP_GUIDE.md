@@ -70,7 +70,7 @@ flowchart LR
 |------|------|-------------------------|
 | `db.py` | 메인·시스템·dash_db 연결 풀, `get_allowed_tables`(JWT `project_info_id` 있으면 `table_project_mapping`·`table_master` 기반, 없으면 메인 스키마 전체 목록 호환), 테이블/컬럼 검증 | `query_studio_server`, `etl_server`, `campaign_dash_server`, `auth_server`, `admin_server`, `dependencies`, `dashboard_service`, 스크립트 |
 | `dependencies.py` | FastAPI `get_db`, `get_config` | `query_studio_server/router`, `api_server/routers/health` |
-| `auth_config.py` | JWT·SMTP·`get_app_url` | `auth_server`, `email_service` |
+| `auth_config.py` | JWT·SMTP·`get_app_url` | `auth_server`, `Backend.mail` |
 | `logging_setup.py` | 루트 로깅 포맷 구성 | `api_server/main`(기동 시) |
 | `dashboard_service.py` | 캠페인/일자/워크플로우/채널 집계·차트·필터 | `campaign_dash_server` |
 

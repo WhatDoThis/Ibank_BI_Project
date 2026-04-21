@@ -1,125 +1,17 @@
 """
-Backend.auth_server.email_service (인증·초대 메일 발송)
-=====================================================
-SMTP 발송: `backend.smtp_info.smtp_host`(또는 레거시 평면 `smtp_host`)가 **비어 있지 않으면** 항상 실제 SMTP로 발송(개발·운영 구분 없음). host가 비었을 때만 서버 로그에 본문 출력 폴백(문서 17 §2.7).
+Backend.auth_server.email_service (호환용 재export)
+====================================
+구현은 **`Backend.mail`** 패키지로 이전되었다. 기존 `from Backend.auth_server import email_service` 경로를 깨지 않기 위해 동일 이름을 재export한다. **신규 코드는 `Backend.mail`을 직접 import**한다.
 
 [Main Functions]
 ===========
-1. send_email: smtp_host 있으면 SMTP(465 SSL / 그 외 STARTTLS→실패 시 평문 재시도); host 없으면 로그 폴백만
-2. send_login_code_email: 2차 인증 코드
-3. send_invite_email: 초대 가입 URL + 부서·조직 역할·ETL·프로젝트 권한(선택 키워드 인자)
+- send_email, send_login_code_email, send_invite_email → Backend.mail
 
 [Dependencies]
 =========
-- smtplib, ssl, logging
-- Backend.core.auth_config
+- Backend.mail
 """
 
-import logging
-import smtplib
-import ssl
-from email.message import EmailMessage
+from Backend.mail import send_email, send_invite_email, send_login_code_email
 
-from Backend.core import auth_config
-
-_log = logging.getLogger(__name__)
-
-
-# 1.
-def send_email(subject: str, body_text: str, to_addrs: list[str]) -> None:
-    if not to_addrs:
-        return
-    settings = auth_config.get_smtp_settings()
-    if auth_config.is_smtp_skipped():
-        _log.warning(
-            "auth_email console_fallback reason=no_smtp_host to=%s subject=%s\n%s",
-            to_addrs,
-            subject,
-            body_text,
-        )
-        return
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = settings["from_addr"] or "no-reply@localhost"
-    msg["To"] = ", ".join(to_addrs)
-    msg.set_content(body_text)
-
-    host = settings["host"]
-    port = settings["port"]
-    user = settings["user"]
-    password = settings["password"]
-
-    # --- 465: 처음부터 SSL ---
-    if port == 465:
-        ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(host, port, context=ctx) as smtp:
-            if user:
-                smtp.login(user, password)
-            smtp.send_message(msg)
-        return
-
-    # --- 그 외 포트: 1차 STARTTLS(인증서 검증 스킵) 시도 ---
-    try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        with smtplib.SMTP(host, port, timeout=10) as smtp:
-            smtp.starttls(context=ctx)
-            if user:
-                smtp.login(user, password)
-            smtp.send_message(msg)
-            return
-    except Exception as ex:
-        _log.warning("auth_email starttls_fail fallback_plain host=%s port=%s: %s", host, port, ex)
-
-    # --- 2차: 새 소켓으로 평문 발송 ---
-    with smtplib.SMTP(host, port, timeout=10) as smtp:
-        if user:
-            smtp.login(user, password)
-        smtp.send_message(msg)
-
-
-# 2.
-def send_login_code_email(to_email: str, code: str) -> None:
-    send_email(
-        subject="[Ibank BI] 로그인 인증 코드",
-        body_text=f"인증 코드: {code}\n5분 이내에 입력해 주세요.",
-        to_addrs=[to_email],
-    )
-
-
-# 3.
-def send_invite_email(
-    to_email: str,
-    signup_url: str,
-    *,
-    department_name: str | None = None,
-    org_role_ko: str | None = None,
-    include_etl_y: bool = False,
-    project_name: str | None = None,
-    project_permission_name: str | None = None,
-) -> None:
-    lines: list[str] = ["IBank BI 가입 초대입니다.", ""]
-    if department_name:
-        lines.append(f"초대 부서: {department_name}")
-    if org_role_ko:
-        lines.append(f"부여될 조직 역할: {org_role_ko}")
-    if include_etl_y:
-        lines.append("ETL(데이터 연동·저장) 권한: 가입 후 활성화됩니다.")
-    if project_name and project_permission_name:
-        lines.append(f"가입 후 함께 참여할 프로젝트: {project_name}")
-        lines.append(f"해당 프로젝트 권한 템플릿: {project_permission_name}")
-    elif project_name:
-        lines.append(f"가입 후 함께 참여할 프로젝트: {project_name}")
-    lines.extend(
-        [
-            "",
-            "아래 링크에서 이 메일 주소로 가입해 주세요. (초대 코드 유효 기간: 약 7일)",
-            signup_url,
-        ]
-    )
-    send_email(
-        subject="[Ibank BI] 초대",
-        body_text="\n".join(lines),
-        to_addrs=[to_email],
-    )
+__all__ = ["send_email", "send_invite_email", "send_login_code_email"]

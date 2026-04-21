@@ -5,12 +5,14 @@
 - **구현 위치**: `Frontend/react-app`
 - **작업 이력**: **docs/log/log.md**
 - **백엔드·API·DB(동작 기준)**: **docs/main/02_BACKEND_GUIDE.md**, **03_API_GUIDE.md**, **04_DB_ARCHITECTURE.md**
+- **용어(`user_dvsn` vs `pmssn_*`)**: **docs/main/08_TERMINOLOGY.md**
+- **동시 저장·API 동기 처리**: **docs/main/03_API_GUIDE.md** §1.6 (본 문서에서는 반복하지 않음)
 
 ---
 
 ## 1. 프론트엔드 개요
 
-### 1.1 역할
+### 1.1 문서가 다루는 범위
 
 1) **인증(S5/S6/S7)**
 
@@ -280,8 +282,9 @@ Frontend/react-app/
 | 05_Permission_ARCHITECTURE.md | 권한·역할·`require_permission` |
 | 06_CUSTOMER_JOURNEY.md | Phase별 알고리즘·API 흐름 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 사용자 화면·기능 설명 |
+| 08_TERMINOLOGY.md | 용어 표준(`user_dvsn`·프로젝트 권한 등) |
 
-- **내부 보조 원고**: 저장소 `docs/report/` 경로는 배포 체크리스트·작업 메모 등에 쓸 수 있으나, **제품 동작·계약은 `docs/main`** 이 우선한다.
+- **문서 정본**: UI·동작·연동 설명은 **`docs/main`** 과 일치해야 한다. 개발 과정용 메모가 있더라도 **제품 동작·계약 문장은 `docs/main`** 이 우선한다.
 - **문서 이력**: 본 파일에 날짜 타임라인 없음 → **docs/log/log.md**·Git
 - **현재 구조 요약**
   - API: `packages/<도메인>/api/*Client.js`, `shared/api/*`, `app/layout/navConfig.js`, `app/routes.jsx`

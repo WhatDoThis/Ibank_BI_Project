@@ -2,6 +2,10 @@
 
 **용도**: Phase별 **알고리즘·API·내부 검증 순서**를 흐름도로 읽는 문서. 권한 세부는 **`05_Permission_ARCHITECTURE.md`**, DB·스키마는 **`04_DB_ARCHITECTURE.md`**, 서버·설정·배포 개요는 **`02_BACKEND_GUIDE.md`** 를 본다.
 
+**문서 정본**: 여정·흐름 설명은 **`docs/main`** 이 정본이다. 저장소의 다른 위치에 있는 개발 메모와 불일치 시 **`docs/main`** 을 따른다.
+
+**동시 요청·저장**: HTTP 요청이 동기로 처리되는지·동시에 같은 행을 고칠 때 DB가 어떻게 보이는지는 `03_API_GUIDE.md` §1.6 을 본다(본 문서에서는 반복하지 않음).
+
 ---
 
 ## 역할 범례
@@ -769,17 +773,19 @@ POST /api/admin/roles (커스텀 역할 생성)
 │     (dptmt_info_id=actor부서, system_dflt_yn='N')  │
 └──────────────────────────────────────────────────┘
 
-PUT /api/admin/roles/{id} (역할 수정)
+PUT /api/admin/roles/{id} (권한 수정)
 │
 ▼
 ┌──────────────────────────────────────────────────┐
 │  [update_custom_role]                              │
 │  ├─ system_dflt_yn='Y' → "시스템 기본 수정 불가"   │
-│  ├─ dptmt_info_id ≠ actor 부서 → "타 부서 역할"   │
+│  ├─ dptmt_info_id ≠ actor 부서 → "타 부서 권한"   │
+│  ├─ 배정(project_ptcpnt_info) 있음 + pmssn_list 변경 │
+│  │   시도 → "상세 권한 목록 변경 불가"(권한명은 OK) │
 │  └─ pmssn_master UPDATE (pmssn_name, pmssn_list)   │
 └──────────────────────────────────────────────────┘
 
-DELETE /api/admin/roles/{id} (역할 삭제)
+DELETE /api/admin/roles/{id} (권한 삭제)
 │
 ▼
 ┌──────────────────────────────────────────────────┐
@@ -787,7 +793,7 @@ DELETE /api/admin/roles/{id} (역할 삭제)
 │  ├─ 시스템 기본 → 거부                              │
 │  ├─ 타 부서 → 거부                                  │
 │  ├─ project_ptcpnt_info에서 사용 중 → 거부          │
-│  │   "프로젝트에서 사용 중인 역할은 삭제 불가"      │
+│  │   "프로젝트에서 사용 중인 권한은 삭제 불가"      │
 │  └─ pmssn_master DELETE                              │
 └──────────────────────────────────────────────────┘
 

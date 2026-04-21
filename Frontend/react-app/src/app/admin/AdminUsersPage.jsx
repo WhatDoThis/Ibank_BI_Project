@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
- * SA_DEV 전사 사용자 목록(부서·역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator).
+ * SA_DEV 전사 사용자 목록(부서·조직 역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator). change-options: `user_dvsn_options`, `projects[].pmssn_options`.
  * 본인 행: 이메일 옆「본인」배지. 활성: 목록·변경·정지. 비활성: 활성·삭제만(본인은 활성만·비활성화 시 호버 안내). 작업물 패널은 활성이면서 목록을 연 경우만 표시. 삭제 409 시 모달은 안내만(목록 열기 없음).
  * 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글. 프로젝트 참여는 표(프로젝트명+권한배지 한 줄·부서명 우측 정렬·선택) + project_department_display·행 그룹 구분.
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
@@ -56,7 +56,7 @@ function formatDtm(v) {
   }
 }
 
-/** GET change-options projects[].project_department_display (없으면 대시) */
+/** GET change-options: `user_dvsn_options`, `projects[].pmssn_options`, `projects[].project_department_display`(없으면 대시) */
 function projectChangeDeptLabel(p) {
   const v = p?.project_department_display
   if (v != null && String(v).trim() !== '') return String(v).trim()
@@ -243,7 +243,7 @@ export default function AdminUsersPage() {
       const needP = Number.isFinite(pid) && pid >= 1
       const needM = Number.isFinite(mid) && mid >= 1
       if (needP !== needM) {
-        setInviteMsg('U 초대 시 프로젝트와 역할(pmssn)은 둘 다 선택하거나 둘 다 비웁니다.')
+        setInviteMsg('U 초대 시 프로젝트와 프로젝트 권한(pmssn)은 둘 다 선택하거나 둘 다 비웁니다.')
         return
       }
     }
@@ -471,8 +471,8 @@ export default function AdminUsersPage() {
         set.add(pid)
         if (!roles[pid]) {
           const project = (changeCtx?.options?.projects || []).find((p) => Number(p.project_info_id) === pid)
-          const firstRole = Number(project?.role_options?.[0]?.pmssn_master_id || 0)
-          if (firstRole > 0) roles[pid] = firstRole
+          const firstPmssnId = Number(project?.pmssn_options?.[0]?.pmssn_master_id || 0)
+          if (firstPmssnId > 0) roles[pid] = firstPmssnId
         }
       } else {
         set.delete(pid)
@@ -518,7 +518,7 @@ export default function AdminUsersPage() {
       )
       if (!ok) return
     }
-    if (!confirmCrud('해당 사용자의 부서/역할/프로젝트 참여를 변경할까요?')) return
+    if (!confirmCrud('해당 사용자의 부서·조직 역할·프로젝트 참여(배정 권한)을 변경할까요?')) return
     setChangeErr('')
     setChangeLoading(true)
     try {
@@ -901,7 +901,7 @@ export default function AdminUsersPage() {
         ))}
         {Array.isArray(detail.allowed_assets) && detail.allowed_assets.length ? (
           <div className="admin-users__ownership-allowed">
-            <strong>역할·ETL 자격 유지 시 그대로 두는 항목</strong>
+            <strong>조직 역할·ETL 자격 유지 시 그대로 두는 항목</strong>
             <ul>
               {detail.allowed_assets.map((a) => (
                 <li key={a.type}>
@@ -927,8 +927,8 @@ export default function AdminUsersPage() {
           <h1 className="admin-users__title">사용자 관리</h1>
           <p className="admin-users__hint">
             {actorDvsn === 'sa_dev'
-              ? 'SA_DEV는 전사 사용자를 부서·역할 순으로 봅니다. SA·A는 관리 트리 내 사용자만 표시됩니다. 정지 전 이관 필요 자산(프로젝트·역할·ETL 등록)이 있으면 안내합니다.'
-              : '관리 트리 내 사용자만 표시됩니다. 프로젝트·역할 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 관리자 자격(etl_yn 또는 SA_DEV)이 있는 사용자가 받을 수 있습니다.'}
+              ? 'SA_DEV는 전사 사용자를 부서·조직 역할 순으로 봅니다. SA·A는 관리 트리 내 사용자만 표시됩니다. 정지 전 이관 필요 자산(프로젝트·커스텀 권한·ETL 등록)이 있으면 안내합니다.'
+              : '관리 트리 내 사용자만 표시됩니다. 프로젝트·권한 템플릿 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 관리자 자격(etl_yn 또는 SA_DEV)이 있는 사용자가 받을 수 있습니다.'}
           </p>
         </div>
         <div className="admin-users__header-actions">
@@ -971,7 +971,7 @@ export default function AdminUsersPage() {
             </h2>
             <p className="admin-users__modal-hint">
               {canSetEtlOnInvite
-                ? '부서(sa_dev는 전체, sa·a는 본인 부서 트리)를 선택한 뒤 역할·옵션을 지정합니다.'
+                ? '부서(sa_dev는 전체, sa·a는 본인 부서 트리)를 선택한 뒤 조직 역할·옵션을 지정합니다.'
                 : 'a(Admin)은 본인 부서 트리 내로만 초대할 수 있습니다.'}
             </p>
             <form className="admin-users__invite-form admin-users__modal-form" onSubmit={handleInviteSubmit}>
@@ -1045,7 +1045,7 @@ export default function AdminUsersPage() {
                     </select>
                   </label>
                   <label className="admin-users__field">
-                    프로젝트 역할 (pmssn)
+                    프로젝트 권한 (pmssn)
                     <select
                       value={invitePmssnId}
                       onChange={(e) => setInvitePmssnId(e.target.value)}
@@ -1119,13 +1119,13 @@ export default function AdminUsersPage() {
                   </select>
                 </label>
                 <label className="admin-users__field">
-                  역할
+                  조직 역할
                   <select
                     className="admin-users__select"
                     value={changeForm.user_dvsn}
                     onChange={(e) => setChangeForm((p) => ({ ...p, user_dvsn: e.target.value }))}
                   >
-                    {(changeCtx.options?.role_options || []).map((r) => (
+                    {(changeCtx.options?.user_dvsn_options || []).map((r) => (
                       <option key={String(r.value)} value={String(r.value)}>
                         {formatUserDvsnDisplay(r.value)}
                       </option>
@@ -1188,7 +1188,7 @@ export default function AdminUsersPage() {
                             const disabled = !assignable && !selected
                             const selectedRoleId = Number(changeForm.project_roles?.[pid] || 0)
                             const selectedRoleName =
-                              (p.role_options || []).find((r) => Number(r.pmssn_master_id) === selectedRoleId)
+                              (p.pmssn_options || []).find((r) => Number(r.pmssn_master_id) === selectedRoleId)
                                 ?.pmssn_name || (selected ? p.pmssn_name || '권한 미선택' : '')
                             const rowGroupStart = projIdx > 0 ? ' admin-users__proj-tr--group-start' : ''
                             const rowGroupEndMain = !selected ? ' admin-users__proj-tr--group-end' : ''
@@ -1239,7 +1239,7 @@ export default function AdminUsersPage() {
                                           disabled={!assignable}
                                         >
                                           <option value="">— 권한 선택 —</option>
-                                          {(p.role_options || []).map((r) => (
+                                          {(p.pmssn_options || []).map((r) => (
                                             <option key={String(r.pmssn_master_id)} value={String(r.pmssn_master_id)}>
                                               {r.pmssn_name || r.pmssn_master_id}
                                             </option>
@@ -1330,12 +1330,12 @@ export default function AdminUsersPage() {
             </p>
             <p className="admin-users__modal-hint">
               {transferCtx.etlInfra
-                ? '조건: 동일 부서·활성·(ETL 관리자 자격 etl_yn=Y 또는 SA_DEV 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
+                ? '조건: 동일 부서·활성·(ETL 관리자 자격 etl_yn=Y 또는 SA_DEV 조직 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
                 : transferCtx.resourceType === 'table_master'
                   ? '조건: 매핑 프로젝트에서 query.execute(저장 테이블과 동일) 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
                   : transferCtx.resourceType === 'dptmt_creator'
-                    ? '조건: 해당 부서와 동일 부서 트리(상·하위) 소속·활성·부서 추가 가능 역할(SA 또는 SA_DEV)·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
-                    : '조건: 동일 부서 + 활성·SA_DEV·SA·A 역할이 관리 범위 내.'}
+                    ? '조건: 해당 부서와 동일 부서 트리(상·하위) 소속·활성·부서 추가 가능 조직 역할(SA 또는 SA_DEV)·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
+                    : '조건: 동일 부서 + 활성·SA_DEV·SA·A 조직 역할이 관리 범위 내.'}
             </p>
             {transferErr ? <p className="admin-users__error">{transferErr}</p> : null}
             {transferLoading ? (
@@ -1399,9 +1399,9 @@ export default function AdminUsersPage() {
                 <th>하위부서</th>
                 <th>이메일</th>
                 <th>닉네임</th>
-                <th>역할</th>
+                <th>조직 역할</th>
                 <th
-                  title="ETL API(etl_db) 관리 자격: SA_DEV 또는 user_info.etl_yn=Y. 프로젝트 pmssn(예: project_all)과 별개입니다."
+                  title="ETL API(etl_db) 관리 자격: SA_DEV 또는 user_info.etl_yn=Y. 프로젝트 권한(pmssn, 예: project_all)과 별개입니다."
                 >
                   ETL 관리
                 </th>

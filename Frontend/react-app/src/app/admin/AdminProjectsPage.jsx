@@ -346,7 +346,7 @@ export default function AdminProjectsPage() {
       return
     }
     if (creatorPmssnId == null || Number(creatorPmssnId) <= 0) {
-      setError('생성자 프로젝트 권한(역할)을 선택하세요.')
+      setError('생성자 프로젝트 권한을 선택하세요.')
       return
     }
     const badDept = []
@@ -362,7 +362,7 @@ export default function AdminProjectsPage() {
     }
     setHighlightDeptUserIds(new Set(badDept))
     if (badDept.length) {
-      setError('체크한 부서 내 참여자에게 역할을 선택하세요.')
+      setError('체크한 부서 내 참여자에게 프로젝트 권한을 선택하세요.')
       return
     }
     const badExt = []
@@ -377,7 +377,7 @@ export default function AdminProjectsPage() {
     }
     setHighlightExtKeys(new Set(badExt))
     if (badExt.length) {
-      setError('타부서 초대 대상에게 역할을 선택하세요.')
+      setError('타부서 초대 대상에게 프로젝트 권한을 선택하세요.')
       return
     }
     const tableMaps = buildTableMappingsPayload()
@@ -683,7 +683,7 @@ export default function AdminProjectsPage() {
 
                 {isCreate ? (
                   <div className="ap__create-section">
-                    <div className="ap__create-section-title">내 프로젝트 역할</div>
+                    <div className="ap__create-section-title">내 프로젝트 권한</div>
                     <label className="ap__label">
                       생성 시 본인에게 부여할 권한 <span className="ap__req">*</span>
                       <select
@@ -829,7 +829,7 @@ export default function AdminProjectsPage() {
                         <tr>
                           <th>이메일</th>
                           <th>닉네임</th>
-                          <th>역할</th>
+                          <th>프로젝트 권한</th>
                           <th>권한</th>
                           <th>선택</th>
                         </tr>
@@ -928,7 +928,7 @@ export default function AdminProjectsPage() {
                         <tr>
                           <th>이메일</th>
                           <th>부서</th>
-                          <th>역할</th>
+                          <th>프로젝트 권한</th>
                           <th />
                         </tr>
                       </thead>

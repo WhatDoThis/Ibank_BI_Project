@@ -16,6 +16,8 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
+- Backend.admin_server.change_notify
+- Backend.mail.outbound.send_project_invite_existing_user_email
 - Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
 - Backend.core.invite_expiry.invite_expired_from_payload
 - json
@@ -32,12 +34,14 @@ import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json
 
+from Backend.admin_server import change_notify
 from Backend.admin_server.audit_emit import emit_admin_system_log
 from Backend.admin_server.service_roles import (
     _attach_user_department_display,
     _user_department_display_from_join,
 )
 from Backend.core.invite_expiry import invite_expired_from_payload
+from Backend.mail.outbound import send_project_invite_existing_user_email
 from Backend.notification_server.service import (
     delete_notification_by_id_in_txn,
     delete_project_invite_notifications_for_project_in_txn,
@@ -297,14 +301,14 @@ def _assert_pmssn_for_project(cur, project_info_id: int, pmssn_master_id: int) -
     )
     mrow = cur.fetchone()
     if not mrow:
-        raise ValueError("역할을 찾을 수 없습니다.")
+        raise ValueError("권한을 찾을 수 없습니다.")
     mdpt = mrow.get("dptmt_info_id")
     sysd = (mrow.get("system_dflt_yn") or "").upper() == "Y"
     if sysd and mdpt is None:
         return
     if mdpt is not None and int(mdpt) == pdpt:
         return
-    raise ValueError("이 프로젝트에 부여할 수 없는 역할입니다.")
+    raise ValueError("이 프로젝트에 부여할 수 없는 권한입니다.")
 
 
 # 2.
@@ -480,6 +484,7 @@ def create_project_full(
             seen_u.add(uid)
 
         invites_sent = 0
+        ext_invite_email_targets: list[tuple[int, str]] = []
         for inv in ext_list:
             iuid = int(inv.get("user_id") or 0)
             imid = int(inv.get("pmssn_master_id") or 0)
@@ -546,6 +551,7 @@ def create_project_full(
                 payload,
                 autocommit=False,
             )
+            ext_invite_email_targets.append((iuid, invite_expires_at))
             invites_sent += 1
 
         conn.commit()
@@ -560,6 +566,20 @@ def create_project_full(
             },
             risk_tier="MED",
         )
+        inviter_label = user_display_label_for_notification(
+            conn, int(actor_user_id), max_len=80
+        )
+        for iuid_mail, exp_iso in ext_invite_email_targets:
+            if int(iuid_mail) == int(actor_user_id):
+                continue
+            em_u = change_notify.fetch_user_email_for_notify(conn, int(iuid_mail))
+            if em_u:
+                send_project_invite_existing_user_email(
+                    em_u,
+                    project_name=pname,
+                    inviter_label=inviter_label,
+                    invite_expires_at=exp_iso,
+                )
         return {
             "project_info_id": pid,
             "members_added": members_added,
@@ -1321,6 +1341,17 @@ def add_member(
             },
             risk_tier="MED",
         )
+        if aid != target_uid:
+            em_inv = change_notify.fetch_user_email_for_notify(conn, target_uid)
+            if em_inv:
+                send_project_invite_existing_user_email(
+                    em_inv,
+                    project_name=str(pname),
+                    inviter_label=user_display_label_for_notification(
+                        conn, aid, max_len=80
+                    ),
+                    invite_expires_at=invite_expires_at,
+                )
         return {"outcome": "invite_sent"}
     except ValueError:
         conn.rollback()
@@ -1368,6 +1399,12 @@ def update_member_role(
         prev_row = cur.fetchone()
         prev_mid = int(prev_row["pmssn_master_id"]) if prev_row else None
         cur.execute(
+            "SELECT project_name FROM project_info WHERE project_info_id = %s",
+            (int(project_info_id),),
+        )
+        pn_mu = cur.fetchone()
+        pname_mu = (pn_mu or {}).get("project_name") or ""
+        cur.execute(
             """
             UPDATE project_ptcpnt_info SET pmssn_master_id = %s, update_dtm = NOW()
             WHERE project_info_id = %s AND ptcpnt_user_id = %s
@@ -1388,6 +1425,22 @@ def update_member_role(
                 "new_pmssn_master_id": int(pmssn_master_id),
             },
         )
+        if prev_mid is None or int(pmssn_master_id) != int(prev_mid):
+            old_lab = (
+                change_notify.fetch_pmssn_name(conn, int(prev_mid))
+                if prev_mid is not None
+                else "—"
+            )
+            new_lab = change_notify.fetch_pmssn_name(conn, int(pmssn_master_id))
+            change_notify.notify_project_pmssn_changed(
+                conn,
+                actor_user_id,
+                int(ptcpnt_user_id),
+                str(pname_mu),
+                old_lab,
+                new_lab,
+                project_info_id=int(project_info_id),
+            )
     except ValueError:
         conn.rollback()
         raise

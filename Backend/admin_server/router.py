@@ -6,7 +6,7 @@ Backend.admin_server.router (/api/admin)
 [Endpoints]
 ===========
 1. users, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, transfer-ownership, users/{id}/change-options|management(409), users/{id}/suspend|activate|DELETE(비활성만·409)
-2. roles CRUD, roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
+2. roles CRUD(역할 수정 시 배정 있으면 pmssn_list 변경 400), roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
 3. projects CRUD·GET purge-preview·DELETE purge(비활성 물리 삭제·위젯보드 연쇄), projects/{id}/members·invites
 4. table master 조회/수정, project table mapping 관리
 5. invite-codes, org, org/departments GET/POST/PATCH/DELETE (SA_DEV 전체·루트/하위 / SA 트리·하위만)
@@ -539,7 +539,7 @@ def admin_org_departments_delete(
 def admin_roles_list(
     scope: str | None = Query(
         None,
-        description="project_assignable: 시스템 기본+부서 커스텀(프로젝트 멤버 역할 선택용)",
+        description="project_assignable: 시스템 기본+부서 커스텀(프로젝트 멤버 권한 템플릿 선택용)",
     ),
     actor: dict = Depends(get_authenticated_user_row),
     conn=Depends(get_system_db),

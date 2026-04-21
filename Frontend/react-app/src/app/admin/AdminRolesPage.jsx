@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황(사용자 부서 열·요약 행은 프로젝트명/사용자명 일반 텍스트, 이동은 작업 열 `프로젝트`/`권한` 버튼). 생성자 열은 이메일 셀 패턴(본인만 배지).
+ * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황(사용자 부서 열·요약 행은 프로젝트명/사용자명 일반 텍스트, 이동은 작업 열 `프로젝트`/`권한` 버튼). 생성자 열은 이메일 셀 패턴(본인만 배지). 사용 중(usage_count>0) 커스텀 권한은 상세 목록 편집·전송 없이 권한명만 저장(`ap__notice--locked`). 수정 실패는 모달 `editError`·스냅샷으로 폼 복구.
  *
  * [Main Functions]
  * ===========
@@ -108,6 +108,10 @@ export default function AdminRolesPage() {
   const [createBusy, setCreateBusy] = useState(false)
 
   const [edit, setEdit] = useState(null)
+  const [editInUse, setEditInUse] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [editSnapshotName, setEditSnapshotName] = useState('')
+  const [editSnapshotPmssnList, setEditSnapshotPmssnList] = useState([])
   const [editName, setEditName] = useState('')
   const [editPmssnList, setEditPmssnList] = useState([])
   const [editSelectedPermission, setEditSelectedPermission] = useState('')
@@ -203,10 +207,12 @@ export default function AdminRolesPage() {
       window.alert('이미 적용되었습니다.')
       return
     }
+    setEditError('')
     setEditPmssnList((prev) => [...prev, picked])
   }
 
   function removePermissionFromEditList(value) {
+    setEditError('')
     setEditPmssnList((prev) => prev.filter((x) => x !== value))
   }
 
@@ -242,26 +248,41 @@ export default function AdminRolesPage() {
 
   function openEdit(row) {
     if (isSystem(row)) return
+    const name = row.pmssn_name || ''
+    const list = pmssnListToArray(row.pmssn_list)
     setEdit(row.pmssn_master_id)
-    setEditName(row.pmssn_name || '')
-    setEditPmssnList(pmssnListToArray(row.pmssn_list))
+    setEditInUse(Number(row?.usage_count || 0) > 0)
+    setEditError('')
+    setEditSnapshotName(name)
+    setEditSnapshotPmssnList(list)
+    setEditName(name)
+    setEditPmssnList(list)
     setEditSelectedPermission(permissionOptions[0]?.value || '')
+  }
+
+  function closeEditModal() {
+    setEdit(null)
+    setEditInUse(false)
+    setEditError('')
+    setEditSnapshotName('')
+    setEditSnapshotPmssnList([])
   }
 
   async function handleSaveEdit(e) {
     e.preventDefault()
     if (edit == null) return
     setBusyId(edit)
-    setError('')
+    setEditError('')
     try {
-      await putAdminRole(edit, {
-        pmssn_name: editName.trim(),
-        pmssn_list: editPmssnList,
-      })
-      setEdit(null)
+      const body = { pmssn_name: editName.trim() }
+      if (!editInUse) body.pmssn_list = editPmssnList
+      await putAdminRole(edit, body)
+      closeEditModal()
       await load()
     } catch (e) {
-      setError(e?.message || '수정 실패')
+      setEditError(e?.message || '수정 실패')
+      setEditName(editSnapshotName)
+      setEditPmssnList([...editSnapshotPmssnList])
     } finally {
       setBusyId(null)
     }
@@ -616,16 +637,29 @@ export default function AdminRolesPage() {
           <div className="ap__modal ap__modal--edit" role="dialog" aria-modal="true" aria-labelledby="pmssn-edit-title">
             <h3 id="pmssn-edit-title">권한 수정</h3>
             <form onSubmit={handleSaveEdit}>
+              {editError ? <p className="ap__error">{editError}</p> : null}
               <label className="ap__label">
                 권한명
                 <input
                   className="ap__input"
                   value={editName}
-                  onChange={(ev) => setEditName(ev.target.value)}
+                  onChange={(ev) => {
+                    setEditError('')
+                    setEditName(ev.target.value)
+                  }}
                   required
                   maxLength={100}
                 />
               </label>
+              {editInUse ? (
+                <div className="ap__notice--locked" role="status">
+                  <span className="ap__notice--locked-badge">사용 중 · 배정됨</span>
+                  <p className="ap__notice--locked-text">
+                    이 권한은 프로젝트에 배정되어 사용 중입니다. 상세 권한 목록은 변경할 수 없으며 권한명만 수정할 수
+                    있습니다.
+                  </p>
+                </div>
+              ) : null}
               <label className="ap__label">
                 권한 상세 목록
                 <div className="ap__row">
@@ -634,6 +668,7 @@ export default function AdminRolesPage() {
                     value={editSelectedPermission}
                     onChange={(ev) => setEditSelectedPermission(ev.target.value)}
                     style={{ flex: 1, minWidth: 220 }}
+                    disabled={editInUse || busyId != null}
                   >
                     {permissionOptions.length === 0 ? <option value="">선택 가능한 항목이 없습니다.</option> : null}
                     {permissionOptions.map((opt) => (
@@ -642,7 +677,12 @@ export default function AdminRolesPage() {
                       </option>
                     ))}
                   </select>
-                  <button type="button" className="ibank-btn-table" onClick={addPermissionToEditList} disabled={busyId != null}>
+                  <button
+                    type="button"
+                    className="ibank-btn-table"
+                    onClick={addPermissionToEditList}
+                    disabled={editInUse || busyId != null}
+                  >
                     추가
                   </button>
                 </div>
@@ -671,7 +711,7 @@ export default function AdminRolesPage() {
                                 type="button"
                                 className="ibank-btn-table ibank-btn-table--danger"
                                 onClick={() => removePermissionFromEditList(value)}
-                                disabled={busyId != null}
+                                disabled={editInUse || busyId != null}
                               >
                                 x
                               </button>
@@ -683,14 +723,17 @@ export default function AdminRolesPage() {
                   </table>
                 ) : null}
               </div>
-              <p className="ap__hint" style={{ marginTop: 0 }}>
-                권한 상세는 위 셀렉트에 있는 항목만 추가할 수 있습니다. x로 제거한 항목은 저장 시 목록에서 빠지며, 다시 넣으려면 셀렉트에서 선택하세요.
-              </p>
+              {!editInUse ? (
+                <p className="ap__hint" style={{ marginTop: 0 }}>
+                  권한 상세는 위 셀렉트에 있는 항목만 추가할 수 있습니다. x로 제거한 항목은 저장 시 목록에서 빠지며,
+                  다시 넣으려면 셀렉트에서 선택하세요.
+                </p>
+              ) : null}
               <div className="ap__row ap__modal-actions">
                 <button
                   type="button"
                   className="ibank-btn-toolbar ibank-btn-toolbar--secondary"
-                  onClick={() => setEdit(null)}
+                  onClick={closeEditModal}
                   disabled={busyId != null}
                 >
                   취소

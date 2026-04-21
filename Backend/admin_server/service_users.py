@@ -1,7 +1,7 @@
 """
 Backend.admin_server.service_users (유저·초대·부서)
 ================================================
-동일 부서 유저 목록, 전역 검색, 초대, 정지/활성, 역할(슈퍼), 초대코드 목록, org.
+동일 부서 유저 목록, 전역 검색, 초대, 정지/활성, 조직 역할(슈퍼), 초대코드 목록, org.
 초대 메일 링크는 auth_config.get_app_url() + `/signup`; 공개 베이스는 smtp_info.app_url·backend.app_url·frontend.app_url 중 설정(환경별·localhost 고정 없음).
 
 [Main Functions]
@@ -10,7 +10,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 1b. list_users_for_admin_ui(sa_dev 전역·부서명/정렬·ETL 목록용)
 1c. list_users_dept_tree_for_project_create(프로젝트 생성 모달·본인 제외·부서 트리·정렬)
 2. search_users_by_email (operator 시 동일 부서만; 전역 검색 시 exclude_dptmt_zero 로 개발부서 0번 제외)
-3. invite_user_by_email (초대 역할·부서 트리·ETL·U+프로젝트, 초대 메일에 부서·역할·프로젝트 권한 명시, UndefinedColumn 시 DDL 안내)
+3. invite_user_by_email (초대 조직 역할·부서 트리·ETL·U+프로젝트, 초대 메일에 부서·조직 역할·프로젝트 권한 명시, UndefinedColumn 시 DDL 안내)
 3b. list_departments_for_invite / assert_invite_dptmt_allowed
 3c. _invite_org_role_label_ko / _fetch_invite_email_labels (초대 메일 본문용 부서·프로젝트·권한 템플릿명)
 4. suspend_user / activate_user / delete_inactive_user — commit 후 `audit_emit.emit_admin_system_log`(플래그 on 시)
@@ -19,18 +19,19 @@ Backend.admin_server.service_users (유저·초대·부서)
 7. list_invite_codes_for_dept
 8. get_department / update_department_name — commit 후 `emit_admin_system_log`(dept_update)
 9. list_departments_for_org_settings / create_department(dept_create) / update_department_in_org_settings(dept_update|dept_invalidate) / delete_department_in_org_settings(dept_delete) — 동일
-10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 역할) 검사
-11. get_user_work_assets — 생성·참여·초대자(invite_user_id) 프로젝트 참여, 커스텀 역할, 등록 부서, table_master·etl_db·연쇄 안내
+10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 커스텀 권한) 검사
+11. get_user_work_assets — 생성·참여·초대자(invite_user_id) 프로젝트 참여, 커스텀 권한, 등록 부서, table_master·etl_db·연쇄 안내
 12. list_ownership_transfer_targets / list_department_creator_transfer_targets — 이관 수신(일반: sa_dev·sa·a / 부서생성자: sa·sa만, 동일 부서 수직 트리·SA→sa_dev 제외)
 12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
 13. transfer_resource_ownership — project·project_invite(project_ptcpnt_info)·pmssn_master·table_master·dptmt_creator·ETL 메타 이관 — 성공 시 `ownership_transfer` 계측
-14. ownership_guards 연동 — 정지·삭제 시 project_invite_rows 포함(초대자 이관 전 NOT NULL)·그 외 목표 역할·ETL 매트릭스(409)
-15. get_user_change_options / update_user_management — 부서·역할·ETL·프로젝트 참여 변경·projects[].project_department_display(소속 부서: 최상위 이름(-), 하위 상위(자기))(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·역할 u 시 etl_yn N)
+14. ownership_guards 연동 — 정지·삭제 시 project_invite_rows 포함(초대자 이관 전 NOT NULL)·그 외 목표 조직 역할·ETL 매트릭스(409)
+15. get_user_change_options / update_user_management — 부서·조직 역할·ETL·프로젝트 참여·권한 배정 변경·`user_dvsn_options`·`projects[].pmssn_options`·projects[].project_department_display(소속 부서: 최상위 이름(-), 하위 상위(자기))(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·조직 역할 u 시 etl_yn N)
 
 [Dependencies]
 =========
 - secrets, logging, psycopg2.errors(UndefinedColumn → 안내용 ValueError)
-- Backend.auth_server.email_service, Backend.core.auth_config
+- Backend.admin_server.change_notify
+- Backend.mail (send_invite_email), Backend.core.auth_config
 - Backend.core.user_dvsn_codes.canon_user_dvsn
 - Backend.core.db (get_db_connection_etl, get_system_table_schema)
 - Backend.admin_server.audit_emit (`emit_admin_system_log` → `append_system_log`)
@@ -48,13 +49,14 @@ from typing import Any
 
 import psycopg2.errors
 
+from Backend.admin_server import change_notify
 from Backend.admin_server import service_projects
 from Backend.admin_server.audit_emit import emit_admin_system_log as _emit_admin_system_log
 from Backend.admin_server.ownership_guards import (
     ManagementBlockedError,
     build_ownership_violation_payload,
 )
-from Backend.auth_server import email_service
+from Backend.mail import send_invite_email
 from Backend.auth_server.permissions import (
     get_effective_permission_ids_for_me,
     is_project_participant,
@@ -80,7 +82,7 @@ _INVITE_DVSN_LABEL_KO: dict[str, str] = {
     "u": "일반 사용자 (U)",
 }
 
-# 프로젝트·부서 커스텀 역할 생성자 이관 허용 수신자(05 문서: 프로젝트/역할 생성 가능 역할)
+# 프로젝트·부서 커스텀 권한 생성자 이관 허용 수신자(05 문서: 프로젝트/권한 생성 가능 조직 역할)
 _OWNERSHIP_TRANSFER_ELIGIBLE: frozenset[str] = frozenset({"sa_dev", "sa", "a"})
 _DVSN_RANK: dict[str, int] = {"u": 1, "o": 2, "a": 3, "sa": 4, "sa_dev": 5}
 
@@ -497,7 +499,7 @@ def _evaluate_ownership_target_or_raise(
     *,
     for_suspend: bool,
 ) -> None:
-    """목표 역할·ETL(또는 정지) 기준 소유 불가 시 ManagementBlockedError."""
+    """목표 조직 역할·ETL(또는 정지) 기준 소유 불가 시 ManagementBlockedError."""
     cur = conn.cursor()
     try:
         projects, pmssn, tms, departments, project_invites, widget_boards = (
@@ -537,7 +539,7 @@ def _assert_etl_infra_recipient(
     etl_yn = (to_row.get("etl_yn") or "").strip().upper()
     if etl_yn != "Y" and td != "sa_dev":
         raise ValueError(
-            "ETL 이관 대상은 ETL 관리자 자격(etl_yn=Y)이 있거나 SA_DEV 역할이어야 합니다."
+            "ETL 이관 대상은 ETL 관리자 자격(etl_yn=Y)이 있거나 SA_DEV 조직 역할이어야 합니다."
         )
 
 
@@ -895,7 +897,7 @@ def list_users_for_admin_ui(
     actor_dvsn: str,
     actor_dptmt_id: int,
 ) -> list[dict[str, Any]]:
-    """sa_dev는 전사 user, 그 외 어드민은 본인 부서 트리(본인+하위). 정렬: 부서 트리 그룹 → 역할(sa_dev·sa·a·o·u) → 동일 역할 시 etl Y 우선 → 이메일."""
+    """sa_dev는 전사 user, 그 외 어드민은 본인 부서 트리(본인+하위). 정렬: 부서 트리 그룹 → 조직 역할(sa_dev·sa·a·o·u) → 동일 조직 역할 시 etl Y 우선 → 이메일."""
     ad = (actor_dvsn or "").strip().lower()
     cur = conn.cursor()
     try:
@@ -1095,7 +1097,7 @@ def _validate_invite_target_for_actor(actor_dvsn: str, invite_target_dvsn: str) 
     if not allowed:
         raise ValueError("초대 권한이 없습니다.")
     if td not in allowed:
-        raise ValueError(f"해당 역할로는 '{td}' 역할 초대가 허용되지 않습니다.")
+        raise ValueError(f"현재 조직 역할로는 '{td}' 조직 역할로의 초대가 허용되지 않습니다.")
     return td
 
 
@@ -1136,7 +1138,7 @@ def _fetch_invite_email_labels(
             proj_name = (pr or {}).get("pn")
             cur.execute(
                 """
-                SELECT COALESCE(NULLIF(TRIM(COALESCE(pmssn_name, '')), ''), '(역할명 없음)') AS mn
+                SELECT COALESCE(NULLIF(TRIM(COALESCE(pmssn_name, '')), ''), '(권한명 없음)') AS mn
                 FROM pmssn_master WHERE pmssn_master_id = %s
                 """,
                 (int(pmssn_id),),
@@ -1185,10 +1187,10 @@ def invite_user_by_email(
     pmssn_id = invite_pmssn_master_id
     if target_role != "u":
         if proj_id is not None or pmssn_id is not None:
-            raise ValueError("프로젝트·역할 지정은 u(일반 사용자) 초대일 때만 가능합니다.")
+            raise ValueError("프로젝트·프로젝트 권한 지정은 u(일반 사용자) 초대일 때만 가능합니다.")
     else:
         if (proj_id is None) ^ (pmssn_id is None):
-            raise ValueError("프로젝트와 역할(pmssn_master_id)은 함께 지정하거나 비워야 합니다.")
+            raise ValueError("프로젝트와 프로젝트 권한(pmssn_master_id)은 함께 지정하거나 비워야 합니다.")
         if proj_id is not None and pmssn_id is not None:
             service_projects.validate_invite_user_project(
                 conn, dptmt_id, int(proj_id), int(pmssn_id)
@@ -1274,7 +1276,7 @@ def invite_user_by_email(
         url = f"{base.rstrip('/')}/signup?code={code}"
         dept_label, proj_label, pmssn_label = _fetch_invite_email_labels(conn, dptmt_id, proj_id, pmssn_id)
         try:
-            email_service.send_invite_email(
+            send_invite_email(
                 email_n,
                 url,
                 department_name=dept_label,
@@ -1353,13 +1355,13 @@ def _assert_suspend_activate_target(actor_dvsn: str, target_user_dvsn: str) -> N
         return
     if ad == "sa":
         if td in ("sa", "sa_dev"):
-            raise ValueError("해당 역할은 이 API로 정지·활성 처리할 수 없습니다.")
+            raise ValueError("해당 조직 역할은 이 API로 정지·활성 처리할 수 없습니다.")
         if td not in ("a", "o", "u"):
             raise ValueError("대상 사용자를 정지·활성 처리할 수 없습니다.")
         return
     if ad == "sa_dev":
         if td in ("sa", "sa_dev"):
-            raise ValueError("해당 역할은 이 API로 정지·활성 처리할 수 없습니다.")
+            raise ValueError("해당 조직 역할은 이 API로 정지·활성 처리할 수 없습니다.")
         return
     raise ValueError("정지·활성 처리 권한이 없습니다.")
 
@@ -1402,6 +1404,7 @@ def suspend_user(
             target_summary=f"target_user_id={int(target_user_id)}",
             detail_json={"affected_user_id": int(target_user_id)},
         )
+        change_notify.notify_user_suspended(conn, actor_user_id, int(target_user_id))
     except ValueError:
         conn.rollback()
         raise
@@ -1443,6 +1446,7 @@ def activate_user(
             target_summary=f"target_user_id={int(target_user_id)}",
             detail_json={"affected_user_id": int(target_user_id)},
         )
+        change_notify.notify_user_activated(conn, actor_user_id, int(target_user_id))
     except ValueError:
         conn.rollback()
         raise
@@ -1462,7 +1466,7 @@ def delete_inactive_user(
 ) -> None:
     """
     비활성(user_active_yn≠Y) 사용자만 user_info 행 DELETE.
-    정지·활성과 동일한 액터·대상 역할 규칙, 정지와 동일 소유 매트릭스(409) 통과 필요. 본인 삭제 불가.
+    정지·활성과 동일한 액터·대상 조직 역할 규칙, 정지와 동일 소유 매트릭스(409) 통과 필요. 본인 삭제 불가.
     """
     tid = int(target_user_id)
     aid = int(actor_user_id)
@@ -1538,10 +1542,10 @@ def set_user_dvsn_admin_user(
 ) -> None:
     nd = (new_dvsn or "").strip().lower()
     if nd not in ("a", "o", "u"):
-        raise ValueError("user_dvsn은 a, o, u 중 하나여야 합니다.")
+        raise ValueError("user_dvsn(조직 역할)은 a, o, u 중 하나여야 합니다.")
     ad = (actor_dvsn or "").strip().lower()
     if ad not in ("a", "sa", "sa_dev"):
-        raise ValueError("역할 변경 권한이 없습니다.")
+        raise ValueError("조직 역할 변경 권한이 없습니다.")
     _assert_target_exists_or_same_dept(conn, actor_dptmt, actor_dvsn, target_user_id)
     cur = conn.cursor()
     try:
@@ -1554,7 +1558,7 @@ def set_user_dvsn_admin_user(
             raise ValueError("사용자를 찾을 수 없습니다.")
         cur_td = (row.get("user_dvsn") or "").strip().lower()
         if cur_td in ("sa", "sa_dev"):
-            raise ValueError("해당 역할은 이 API로 변경할 수 없습니다.")
+            raise ValueError("해당 조직 역할은 이 API로 변경할 수 없습니다.")
         if ad == "a":
             if cur_td not in ("o", "u"):
                 raise ValueError("부서 관리자는 운영자·일반 사용자만 변경할 수 있습니다.")
@@ -1562,16 +1566,16 @@ def set_user_dvsn_admin_user(
                 raise ValueError("부서 관리자는 o·u만 부여할 수 있습니다.")
         elif ad == "sa":
             if cur_td in ("sa", "sa_dev"):
-                raise ValueError("대상 사용자 역할을 변경할 수 없습니다.")
+                raise ValueError("대상 사용자의 조직 역할을 변경할 수 없습니다.")
             if cur_td not in ("a", "o", "u"):
-                raise ValueError("대상 사용자 역할을 변경할 수 없습니다.")
+                raise ValueError("대상 사용자의 조직 역할을 변경할 수 없습니다.")
             if nd not in ("a", "o", "u"):
-                raise ValueError("허용되지 않는 역할입니다.")
+                raise ValueError("허용되지 않는 조직 역할입니다.")
         elif ad == "sa_dev":
             if cur_td in ("sa", "sa_dev"):
-                raise ValueError("해당 역할은 이 API로 변경할 수 없습니다.")
+                raise ValueError("해당 조직 역할은 이 API로 변경할 수 없습니다.")
             if nd not in ("a", "o", "u"):
-                raise ValueError("허용되지 않는 역할입니다.")
+                raise ValueError("허용되지 않는 조직 역할입니다.")
         cur.execute(
             "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
             (nd, target_user_id),
@@ -1588,6 +1592,10 @@ def set_user_dvsn_admin_user(
                 "new_value": nd,
             },
         )
+        if cur_td != nd:
+            change_notify.notify_org_role_changed(
+                conn, actor_user_id, int(target_user_id), cur_td, nd
+            )
     except ValueError:
         conn.rollback()
         raise
@@ -1651,6 +1659,10 @@ def set_user_etl_flag(
                 "new_value": flag,
             },
         )
+        if prev_etl != flag:
+            change_notify.notify_etl_access_changed(
+                conn, actor_user_id, int(target_user_id), prev_etl, flag
+            )
     except ValueError:
         conn.rollback()
         raise
@@ -1767,7 +1779,7 @@ def list_departments_for_org_settings(
     conn, actor_dvsn: str, actor_dptmt_id: int
 ) -> list[dict[str, Any]]:
     """
-    부서 관리 화면 목록. dptmt_info_id=0 행은 제외(어떤 역할도 미표시).
+    부서 관리 화면 목록. dptmt_info_id=0 행은 제외(어떤 조직 역할도 미표시).
     SA_DEV: 전체(사용/미사용 포함). sa: 본인 소속 부서 루트 하위 트리(use_yn 무관).
     member_count: 소속 user_info 행 수. display_label·tier_label: 셀렉트용 상·하위 표시.
     creator_email: dptmt_create_user_id LEFT JOIN user_info(빈 문자열·미매칭은 NULL).
@@ -1923,7 +1935,7 @@ def _assert_department_clear_for_invalidate_or_remove(conn, tid: int) -> None:
         row = cur.fetchone()
         n = int((row.get("c", 0) if row else 0) or 0)
         if n > 0:
-            reasons.append(f"부서 역할(pmssn_master) {n}건")
+            reasons.append(f"부서 커스텀 권한(pmssn_master) {n}건")
     finally:
         cur.close()
 
@@ -3123,7 +3135,7 @@ def transfer_resource_ownership(
             raise ValueError("비활성 사용자에게는 이관할 수 없습니다.")
         if canon_user_dvsn(to_row.get("user_dvsn")) not in _OWNERSHIP_TRANSFER_ELIGIBLE:
             raise ValueError(
-                "이관 가능한 역할은 sa_dev·Super Admin(sa)·Admin(a) 만입니다."
+                "이관 가능한 조직 역할은 sa_dev·Super Admin(sa)·Admin(a) 만입니다."
             )
         to_dpt = int(to_row["dptmt_info_id"])
         if rt == "widget_board":
@@ -3263,14 +3275,14 @@ def transfer_resource_ownership(
             )
             mrow = cur.fetchone()
             if not mrow:
-                raise ValueError("역할을 찾을 수 없습니다.")
+                raise ValueError("권한을 찾을 수 없습니다.")
             if (mrow.get("sy") or "").upper() == "Y":
-                raise ValueError("시스템 기본 역할은 이관할 수 없습니다.")
+                raise ValueError("시스템 기본 권한은 이관할 수 없습니다.")
             if int(mrow["user_id"]) != fid:
-                raise ValueError("해당 사용자가 등록자가 아닌 역할입니다.")
+                raise ValueError("해당 사용자가 등록자가 아닌 권한입니다.")
             md = int(mrow["dptmt_info_id"] or 0)
             if md and to_dpt != md:
-                raise ValueError("이관 대상은 역할 소속 부서와 동일한 부서 사용자여야 합니다.")
+                raise ValueError("이관 대상은 권한 소속 부서와 동일한 부서 사용자여야 합니다.")
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, md)
             cur.execute(
                 """
@@ -3319,9 +3331,9 @@ def _assert_target_role_manageable(actor_dvsn: str, target_dvsn: str) -> None:
     ad = canon_user_dvsn(actor_dvsn)
     td = canon_user_dvsn(target_dvsn)
     if not ad or not td:
-        raise ValueError("허용되지 않은 역할 코드입니다.")
+        raise ValueError("허용되지 않은 조직 역할 코드입니다.")
     if _DVSN_RANK.get(td, 0) > _DVSN_RANK.get(ad, 0):
-        raise ValueError("본인보다 상위 역할 사용자는 변경할 수 없습니다.")
+        raise ValueError("본인보다 상위 조직 역할 계정은 변경할 수 없습니다.")
 
 
 def _list_departments_for_change(conn, actor_dvsn: str, actor_dptmt_id: int) -> list[dict[str, Any]]:
@@ -3395,7 +3407,7 @@ def _default_project_member_pmssn(cur) -> int:
     )
     rows = cur.fetchall()
     if not rows:
-        raise ValueError("프로젝트 기본 역할(pmssn_master)이 없습니다.")
+        raise ValueError("프로젝트 기본 권한(pmssn_master)이 없습니다.")
     for r in rows:
         if (r.get("pmssn_name") or "").strip() == "뷰어":
             return int(r["pmssn_master_id"])
@@ -3417,7 +3429,7 @@ def _count_active_sa_in_department(cur, dptmt_info_id: int) -> int:
     return int(row.get("cnt") or 0)
 
 
-def _list_project_role_options(cur, project_info_id: int) -> list[dict[str, Any]]:
+def _list_project_pmssn_options(cur, project_info_id: int) -> list[dict[str, Any]]:
     cur.execute(
         "SELECT dptmt_info_id FROM project_info WHERE project_info_id = %s",
         (int(project_info_id),),
@@ -3470,7 +3482,7 @@ def _enrich_change_option_projects_department_display(
     conn,
     project_rows: list[dict[str, Any]],
 ) -> None:
-    """change-options의 projects 행에 project_department_display 부여(최상위 부서: 이름(-), 하위: 상위(자기))."""
+    """change-options의 projects[] 행에 project_department_display 부여(최상위 부서: 이름(-), 하위: 상위(자기))."""
     ids: set[int] = set()
     for r in project_rows:
         did = r.get("dptmt_info_id")
@@ -3598,7 +3610,7 @@ def get_user_change_options(
     cur2 = conn.cursor()
     try:
         for pid, obj in proj_by_id.items():
-            obj["role_options"] = _list_project_role_options(cur2, pid)
+            obj["pmssn_options"] = _list_project_pmssn_options(cur2, pid)
     finally:
         cur2.close()
     ad_actor = (actor_dvsn or "").strip().lower()
@@ -3624,7 +3636,7 @@ def get_user_change_options(
         "last_sa_in_department": last_sa_in_department,
         "last_sa_department_name": dptmt_name or str(target_dptmt or ""),
         "departments": _list_departments_for_change(conn, actor_dvsn, actor_dptmt),
-        "role_options": [
+        "user_dvsn_options": [
             {"value": v, "label": v}
             for v in _role_change_allowed_for_actor(actor_dvsn)
         ],
@@ -3669,6 +3681,16 @@ def update_user_management(
             raise ValueError("사용자를 찾을 수 없습니다.")
         _assert_target_role_manageable(actor_dvsn, target.get("user_dvsn") or "")
 
+        mgmt_track: dict[str, Any] = {
+            "dvsn": False,
+            "etl": False,
+            "old_dvsn": None,
+            "new_dvsn": None,
+            "old_etl": None,
+            "new_etl": None,
+        }
+        proj_changed = False
+
         cur_etl = str(target.get("etl_yn") or "N").strip().upper()
         if cur_etl not in ("Y", "N"):
             cur_etl = "N"
@@ -3706,13 +3728,21 @@ def update_user_management(
             nd = canon_user_dvsn(user_dvsn)
             allowed = set(_role_change_allowed_for_actor(actor_dvsn))
             if nd not in allowed:
-                raise ValueError("해당 역할로는 변경할 수 없습니다.")
+                raise ValueError("허용되지 않는 조직 역할로는 변경할 수 없습니다.")
             if td_before != nd:
+                mgmt_track["dvsn"] = True
+                mgmt_track["old_dvsn"] = td_before
+                mgmt_track["new_dvsn"] = nd
                 cur.execute(
                     "UPDATE user_info SET user_dvsn = %s, update_dtm = NOW() WHERE user_id = %s",
                     (nd, tid),
                 )
                 if nd == "u":
+                    # 조직 역할 u 전환 시 DB에서 etl_yn 강제 N — 일괄 알림 요약에 ETL 변경도 포함(2.5·액션 표)
+                    if cur_etl == "Y":
+                        mgmt_track["etl"] = True
+                        mgmt_track["old_etl"] = "Y"
+                        mgmt_track["new_etl"] = "N"
                     cur.execute(
                         "UPDATE user_info SET etl_yn = 'N', update_dtm = NOW() WHERE user_id = %s",
                         (tid,),
@@ -3728,7 +3758,11 @@ def update_user_management(
             if ad_etl == "sa":
                 _assert_target_in_managed_tree(conn, actor_dptmt, tid)
             cur.execute(
-                "SELECT user_dvsn FROM user_info WHERE user_id = %s",
+                """
+                SELECT user_dvsn,
+                       UPPER(TRIM(COALESCE(etl_yn, 'N'))) AS etl_yn_u
+                FROM user_info WHERE user_id = %s
+                """,
                 (tid,),
             )
             erow = cur.fetchone()
@@ -3737,6 +3771,11 @@ def update_user_management(
             td_etl = (erow.get("user_dvsn") or "").strip().lower()
             if td_etl == "sa_dev":
                 raise ValueError("SA_DEV 계정의 etl_yn은 변경할 수 없습니다.")
+            prev_e = str(erow.get("etl_yn_u") or "N").strip().upper()
+            if prev_e != flag:
+                mgmt_track["etl"] = True
+                mgmt_track["old_etl"] = prev_e
+                mgmt_track["new_etl"] = flag
             cur.execute(
                 "UPDATE user_info SET etl_yn = %s, update_dtm = NOW() WHERE user_id = %s",
                 (flag, tid),
@@ -3767,7 +3806,7 @@ def update_user_management(
             )
             current_rows = [dict(r) for r in cur.fetchall()]
             current = {int(r["project_info_id"]) for r in current_rows}
-            current_role = {
+            current_pmssn_by_project = {
                 int(r["project_info_id"]): int(r["pmssn_master_id"])
                 for r in current_rows
                 if r.get("pmssn_master_id") is not None
@@ -3775,6 +3814,7 @@ def update_user_management(
             remove_ids = sorted(current - desired)
             add_ids = sorted(desired - current)
             same_ids = sorted(current & desired)
+            proj_changed = bool(add_ids or remove_ids)
             ad = (actor_dvsn or "").strip().lower()
             if add_ids:
                 ph = ", ".join(["%s"] * len(add_ids))
@@ -3803,7 +3843,7 @@ def update_user_management(
                         (tid, int(actor_user_id), pid, desired_map[pid]),
                     )
             for pid in same_ids:
-                if int(current_role.get(pid, 0)) == int(desired_map[pid]):
+                if int(current_pmssn_by_project.get(pid, 0)) == int(desired_map[pid]):
                     continue
                 if ad != "sa_dev":
                     cur.execute(
@@ -3816,6 +3856,7 @@ def update_user_management(
                     if int(prow["dptmt_info_id"]) != int(actor_dptmt):
                         raise ValueError("타부서 프로젝트 권한은 변경할 수 없습니다.")
                 _assert_pmssn_allowed_for_project(cur, pid, desired_map[pid])
+                proj_changed = True
                 cur.execute(
                     """
                     UPDATE project_ptcpnt_info
@@ -3840,6 +3881,19 @@ def update_user_management(
             target_summary=f"target_user_id={tid}",
             detail_json={"affected_user_id": tid},
         )
+        if mgmt_track["dvsn"] or mgmt_track["etl"] or proj_changed:
+            change_notify.notify_user_management_changed(
+                conn,
+                actor_user_id,
+                tid,
+                dvsn_changed=bool(mgmt_track["dvsn"]),
+                etl_changed=bool(mgmt_track["etl"]),
+                proj_changed=proj_changed,
+                old_dvsn=mgmt_track["old_dvsn"],
+                new_dvsn=mgmt_track["new_dvsn"],
+                old_etl=mgmt_track["old_etl"],
+                new_etl=mgmt_track["new_etl"],
+            )
     except ValueError:
         conn.rollback()
         raise

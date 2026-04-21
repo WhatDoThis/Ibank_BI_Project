@@ -303,7 +303,7 @@ export default function AdminProjectMembersPage() {
     }
     setHighlightDeptUserIds(new Set(badDept))
     if (badDept.length) {
-      setError('체크한 부서 내 참여자에게 역할을 선택하세요.')
+      setError('체크한 부서 내 참여자에게 프로젝트 권한을 선택하세요.')
       return
     }
     const badExt = []
@@ -318,7 +318,7 @@ export default function AdminProjectMembersPage() {
     }
     setHighlightExtKeys(new Set(badExt))
     if (badExt.length) {
-      setError('타부서 초대 목록에서 역할을 선택하세요.')
+      setError('타부서 초대 목록에서 프로젝트 권한을 선택하세요.')
       return
     }
     if (!membersPayload.length && !extPayload.length) {
@@ -540,7 +540,7 @@ export default function AdminProjectMembersPage() {
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">부서 내 참여자 추가</div>
                   <p className="ap__hint" style={{ marginTop: 0 }}>
-                    부서 트리에 속한 사용자만 표시됩니다. 체크 후 역할을 선택하세요.
+                    부서 트리에 속한 사용자만 표시됩니다. 체크 후 프로젝트 권한을 선택하세요.
                   </p>
                   <div className="ap__member-pick-body">
                     <table className="ap__table ap__table--compact">
@@ -548,7 +548,7 @@ export default function AdminProjectMembersPage() {
                         <tr>
                           <th>이메일</th>
                           <th>닉네임</th>
-                          <th>역할</th>
+                          <th>프로젝트 권한</th>
                           <th>프로젝트 권한</th>
                           <th>선택</th>
                         </tr>
@@ -617,7 +617,7 @@ export default function AdminProjectMembersPage() {
                 <div className="ap__create-section">
                   <div className="ap__create-section-title">타부서 참여자 초대</div>
                   <p className="ap__hint" style={{ marginTop: 0 }}>
-                    이메일 검색으로 사용자를 찾은 뒤 목록에 담고 역할을 지정하세요. 알림 수락 후 멤버가 됩니다.
+                    이메일 검색으로 사용자를 찾은 뒤 목록에 담고 프로젝트 권한을 지정하세요. 알림 수락 후 멤버가 됩니다.
                   </p>
                   <div className="ap__ext-search">
                     <input

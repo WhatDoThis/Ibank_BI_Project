@@ -125,7 +125,7 @@ def _csv_actor_user_display(d: dict[str, Any]) -> str:
     return "—"
 
 
-_RECURSIVE_SUBTREE = """
+_SL_RECURSIVE_SUBTREE = """
 (
     WITH RECURSIVE sub AS (
         SELECT dptmt_info_id FROM dptmt_info WHERE dptmt_info_id = %s
@@ -167,7 +167,7 @@ def _build_system_log_where(
             AND EXISTS (
                 SELECT 1
                 FROM user_info u_scope
-                INNER JOIN {_RECURSIVE_SUBTREE} scope ON scope.dptmt_info_id = u_scope.dptmt_info_id
+                INNER JOIN {_SL_RECURSIVE_SUBTREE} scope ON scope.dptmt_info_id = u_scope.dptmt_info_id
                 WHERE u_scope.user_id = sl.actor_user_id
                   AND UPPER(TRIM(COALESCE(u_scope.user_active_yn, 'Y'))) = 'Y'
             )

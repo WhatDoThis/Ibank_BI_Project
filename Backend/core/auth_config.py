@@ -3,7 +3,7 @@ Backend.core.auth_config (인증·메일·JWT 설정 읽기)
 =================================================
 Env/config/config.json 의 backend 에서 JWT·SMTP·app_url 을 읽고, SPA 공개 베이스 URL은 **frontend.app_url** 을 보조 출처로 사용한다.
 SMTP는 **backend.smtp_info** 우선, 없으면 레거시 **backend** 평면 키(smtp_*·app_url)로 읽는다.
-상용화 auth_server 및 email_service 에서 사용.
+상용화 auth_server 및 `Backend.mail`(SMTP 발송)에서 사용.
 
 [Main Functions]
 ===========

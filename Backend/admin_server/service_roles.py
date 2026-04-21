@@ -1,8 +1,9 @@
 """
-Backend.admin_server.service_roles (부서 커스텀 역할)
+Backend.admin_server.service_roles (부서 커스텀 프로젝트 권한)
 ==================================================
-pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 사용현황/생성·수정·삭제를 제공한다.
-시스템 기본 역할은 수정·삭제 불가, 조회 스코프는 시스템 기본+본인 부서 커스텀으로 제한한다.
+pmssn_master/pmssn_master_detail 기반 권한 옵션·목록·사용현황 조회와 커스텀 권한 생성·수정·삭제를 제공한다.
+시스템 기본 권한은 수정·삭제 불가, 조회 스코프는 시스템 기본+본인 부서 커스텀으로 제한한다.
+프로젝트 멤버에 배정된 커스텀 권한은 pmssn_list(상세 권한) 변경만 금지하고 권한명 변경은 허용한다.
 
 [Main Functions]
 ===========
@@ -12,7 +13,7 @@ pmssn_master/pmssn_master_detail 기반 역할·권한 옵션 조회와 역할 �
 4. list_role_project_participants(user_department_display)
 5. list_user_role_usages(user_department_display·ptcpnt_user_id 반환)
 6. create_custom_role — commit 후 `audit_emit.emit_admin_system_log`
-7. update_custom_role — 동일
+7. update_custom_role — 사용 중(project_ptcpnt_info)이면 pmssn_list 변경만 거부(권한명은 허용)
 8. delete_custom_role — 동일
 
 [Dependencies]
@@ -26,6 +27,20 @@ from __future__ import annotations
 from typing import Any
 
 from Backend.admin_server.audit_emit import emit_admin_system_log
+
+
+def _pmssn_list_sorted_key(value: Any) -> tuple[str, ...]:
+    """pmssn_list(text[] 등)를 순서 무관 비교용 튜플로 정규화한다."""
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        items = [str(x).strip() for x in value if str(x).strip()]
+        return tuple(sorted(items))
+    if isinstance(value, str):
+        parts = [p.strip() for p in value.replace(",", "\n").splitlines() if p.strip()]
+        return tuple(sorted(parts)) if parts else ()
+    s = str(value).strip()
+    return (s,) if s else ()
 
 
 def _user_department_display_from_join(
@@ -124,14 +139,14 @@ def _assert_accessible_role(conn, dptmt_info_id: int, pmssn_master_id: int) -> d
         )
         row = cur.fetchone()
         if not row:
-            raise ValueError("권한(역할)을 찾을 수 없습니다.")
+            raise ValueError("권한을 찾을 수 없습니다.")
         is_system_default = (
             (row.get("system_dflt_yn") or "").upper() == "Y"
             and row.get("dptmt_info_id") is None
         )
         is_dept_custom = int(row.get("dptmt_info_id") or 0) == dptmt_info_id
         if not is_system_default and not is_dept_custom:
-            raise ValueError("접근할 수 없는 권한(역할)입니다.")
+            raise ValueError("접근할 수 없는 권한입니다.")
         return dict(row)
     finally:
         cur.close()
@@ -289,7 +304,7 @@ def create_custom_role(
 ) -> int:
     name = (pmssn_name or "").strip()
     if not name:
-        raise ValueError("역할명이 필요합니다.")
+        raise ValueError("권한명이 필요합니다.")
     cur = conn.cursor()
     try:
         cur.execute(
@@ -335,18 +350,31 @@ def update_custom_role(
     try:
         cur.execute(
             """
-            SELECT pmssn_master_id, dptmt_info_id, system_dflt_yn
+            SELECT pmssn_master_id, dptmt_info_id, system_dflt_yn, pmssn_list
             FROM pmssn_master WHERE pmssn_master_id = %s
             """,
             (pmssn_master_id,),
         )
         row = cur.fetchone()
         if not row:
-            raise ValueError("역할을 찾을 수 없습니다.")
+            raise ValueError("권한을 찾을 수 없습니다.")
         if (row.get("system_dflt_yn") or "").upper() == "Y":
-            raise ValueError("시스템 기본 역할은 수정할 수 없습니다.")
+            raise ValueError("시스템 기본 권한은 수정할 수 없습니다.")
         if int(row["dptmt_info_id"] or 0) != dptmt_info_id:
-            raise ValueError("다른 부서의 역할입니다.")
+            raise ValueError("다른 부서의 권한입니다.")
+        if pmssn_list is not None:
+            new_key = _pmssn_list_sorted_key(pmssn_list)
+            old_key = _pmssn_list_sorted_key(row.get("pmssn_list"))
+            if new_key != old_key:
+                cur.execute(
+                    "SELECT 1 FROM project_ptcpnt_info WHERE pmssn_master_id = %s LIMIT 1",
+                    (pmssn_master_id,),
+                )
+                if cur.fetchone():
+                    raise ValueError(
+                        "프로젝트에 배정된 권한은 상세 권한 목록을 변경할 수 없습니다. "
+                        "멤버에게 배정된 권한을 다른 권한으로 바꾼 뒤 수정하세요."
+                    )
         if pmssn_name is not None:
             cur.execute(
                 "UPDATE pmssn_master SET pmssn_name = %s, update_dtm = NOW() WHERE pmssn_master_id = %s",
@@ -397,17 +425,17 @@ def delete_custom_role(
         )
         row = cur.fetchone()
         if not row:
-            raise ValueError("역할을 찾을 수 없습니다.")
+            raise ValueError("권한을 찾을 수 없습니다.")
         if (row.get("system_dflt_yn") or "").upper() == "Y":
-            raise ValueError("시스템 기본 역할은 삭제할 수 없습니다.")
+            raise ValueError("시스템 기본 권한은 삭제할 수 없습니다.")
         if int(row["dptmt_info_id"] or 0) != dptmt_info_id:
-            raise ValueError("다른 부서의 역할입니다.")
+            raise ValueError("다른 부서의 권한입니다.")
         cur.execute(
             "SELECT 1 FROM project_ptcpnt_info WHERE pmssn_master_id = %s LIMIT 1",
             (pmssn_master_id,),
         )
         if cur.fetchone():
-            raise ValueError("프로젝트에서 사용 중인 역할은 삭제할 수 없습니다.")
+            raise ValueError("프로젝트에서 사용 중인 권한은 삭제할 수 없습니다.")
         cur.execute("DELETE FROM pmssn_master WHERE pmssn_master_id = %s", (pmssn_master_id,))
         conn.commit()
         emit_admin_system_log(

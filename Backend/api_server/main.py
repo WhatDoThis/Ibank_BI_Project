@@ -21,7 +21,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 3. project_router: /api/projects — Backend.project_server.router
 4. notification_router: /api/notifications — Backend.notification_server.router
 5. admin_router: /api/admin — Backend.admin_server.router
-6. system_log_router: /api/system-logs — Backend.system_log_server.router (system_log 목록·`/login-history/me|org`)
+6. system_log_router: /api/system-logs — Backend.system_log_server.router (system_log 목록·`/login-history/me|org`; **라우터 레벨 Depends 미적용**, `/login-history/me`는 `require_active_access`, 그 외는 엔드포인트별 `require_org_admin`)
 7. query_studio_router: /api/* — Backend.query_studio_server.router (엔드포인트별 require_permission)
 8. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
 9. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
@@ -104,6 +104,9 @@ app.include_router(auth_router)
 app.include_router(project_router)
 app.include_router(notification_router)
 app.include_router(admin_router)
+# system_log_router: 라우터 레벨 Depends(require_org_admin) 미적용.
+# /login-history/me 는 require_active_access(일반 사용자 본인 이력),
+# 나머지는 엔드포인트별 require_org_admin 개별 적용.
 app.include_router(system_log_router)
 app.include_router(query_studio_router)
 app.include_router(

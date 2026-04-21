@@ -7,13 +7,14 @@
 - **레이어·의존·디렉터리**: 본 문서 §2·**03_API_GUIDE.md**(모듈·엔드포인트)·**04_DB_ARCHITECTURE.md**(FK·스키마)
 - **API·인증 흐름 통합**: **03_API_GUIDE.md**
 - **ETL 운영·COPY·모달 필드**: 본 문서 ETL·`etl_server` 절·**03_API_GUIDE.md**·**04_DB_ARCHITECTURE.md** `ibank_etl_data`
+- **용어(`user_dvsn` vs `pmssn_*`)**: **08_TERMINOLOGY.md**
 - **부록 A**: 스택·이력은 log/Git, 본문은 현행 구조만
 
 ---
 
 ## 1. 백엔드 개요
 
-### 1.1 역할
+### 1.1 문서가 다루는 범위
 
 1) **호스트·라우터 (`api_server/main.py`)**
 
@@ -54,6 +55,11 @@
 6) **전역 예외**
 
 - 404/500 → `error`·`message` JSON 페이로드(FastAPI `HTTPException`·전역 핸들러 관례, **`Backend/api_server`** 기준)
+
+7) HTTP 요청·동시 저장(요약)
+
+- 대부분의 관리·조회 API는 동기로 한 요청 안에서 DB 트랜잭션을 끝낸다.
+- 두 요청이 같은 행을 고치면 버전 락 없이 나중 커밋이 남는(LWW) 경우가 있다. 알림·메일·감사가 어떻게 겹치는지·용어 설명은 **03_API_GUIDE.md** §1.6 을 본다.
 
 ### 1.2 기술 스택
 
@@ -99,13 +105,17 @@ Backend/
 │       ├── __init__.py            # health_router, query_studio_router 재export
 │       └── health.py
 │
+├── mail/                          # 공용 SMTP·발송 메시지 (HTTP 아님; auth·admin 등에서 import)
+│   ├── smtp_transport.py          # send_email (465/STARTTLS·로그 폴백)
+│   └── outbound.py                # send_login_code_email, send_invite_email (+ 향후 분리 템플릿)
+│
 ├── auth_server/                   # /api/auth — 로그인·2FA·refresh·me·가입·비밀번호
 │   ├── router.py                  # 엔드포인트 매핑
 │   ├── service.py                 # 가입·로그인·세션·비밀번호·프로필
 │   ├── deps.py                    # JWT 검증·세션 바인딩·활성 검사 Depends
 │   ├── permissions.py             # 프로젝트·ETL 권한 검증·require_permission 팩토리
 │   ├── security.py                # bcrypt·JWT·OTP·비밀번호 정책
-│   ├── email_service.py           # SMTP 발송 (로그인 코드·초대)
+│   ├── email_service.py           # Backend.mail 재export (기존 import 경로 호환)
 │   └── schemas.py                 # Pydantic 요청 모델
 │
 ├── project_server/                # /api/projects — 목록·선택(JWT)·초대 수락/거절
@@ -274,7 +284,7 @@ FK 트리·컬럼 정의는 **04_DB_ARCHITECTURE.md** 를 본다.
 ### 3.2.6 시스템 감사 로그 계측 (`system_log_append_enabled`)
 
 - **backend.system_log_append_enabled** (선택, bool): `true`일 때만 여러 서버에서 `core.system_audit_log.append_system_log` 로 **`system_log` INSERT**. `false` 또는 키 생략이면 계측은 no-op(본 업무는 계속). **조회·CSV API**는 이 플래그와 무관하게 동작한다.
-- 계측이 켜진 경우에도 적재 실패는 로깅만 하고 본 요청은 중단하지 않는다(`22` §5).
+- 계측이 켜진 경우에도 `system_log` 적재 실패는 로깅만 하고 본 업무 요청은 중단하지 않는다.
 - 엔드포인트·필터·CSV 상한·정렬은 **03_API_GUIDE.md §3.4** 를 본다.
 
 ### 3.3 ETL 한도 (etl_limits)
@@ -494,7 +504,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 
 ## 6. etl_server 상세
 
-### 6.1 역할
+### 6.1 모듈 책임
 
 - **`router.py`**: `/api/etl` 진입 — `service`, `load_service`, `db_load_service`, `preview_service`, `schema_infer`, `transform_rules_service` 호출
 - **`service.py`**
@@ -625,8 +635,9 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 | 05_Permission_ARCHITECTURE.md | 권한·역할 |
 | 06_CUSTOMER_JOURNEY.md | Phase별 흐름 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 사용자 기능 |
+| 08_TERMINOLOGY.md | 용어 표준(`user_dvsn`·프로젝트 권한 등) |
 
-- **동작 정의 기준**: **docs/main**의 **00~07**(본 문서·PRD·API·DB·권한·여정·사용자 가이드). 저장소 `docs/report/` 는 내부 보조 원고로만 쓴다.
+- **동작 정의 기준**: **docs/main**의 **00~08**(PRD·프론트·백엔드·API·DB·권한·여정·사용자 가이드·용어). 개발 과정용 메모와 불일치 시 **`docs/main`** 이 정본이다.
 
 **문서 이력**: 본 파일에 날짜 타임라인 없음 → **docs/log/log.md**·Git
 

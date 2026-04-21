@@ -2,6 +2,10 @@
 
 **용도**: `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의. 감사 테이블 **`system_log`** 의 DDL·저장 규약·지문 규칙은 **본 문서 §13**에 둔다. 런타임 설정·서버 구동 개요는 **docs/main/02_BACKEND_GUIDE.md** 를 본다.
 
+**문서 정본**: 스키마·감사 규약은 **`docs/main`** 본 문서가 정본이다. 저장소의 다른 위치에 있는 개발 메모와 불일치 시 **`docs/main`** 을 따른다.
+
+**동시 트랜잭션·저장**: 애플리케이션이 동기로 요청을 처리하는지·같은 행을 두 세션이 고칠 때 어떤 일이 나는지는 `03_API_GUIDE.md` §1.6 을 본다(본 문서에서는 반복하지 않음).
+
 ---
 
 ```
@@ -59,7 +63,7 @@ server_timezones (독립 — ibank_etl_data.public)
 
 ---
 
-**초기화·시드 주의**: `user_info` / `dptmt_info` 등을 TRUNCATE CASCADE 하면 **`pmssn_master` 시스템 기본 4행**까지 함께 삭제될 수 있다. 운영 초기화 절차를 쓸 때는 **`pmssn_master` 재시드**(기본 역할 4행)를 반드시 포함한다. 서버·설정 개요는 **docs/main/02_BACKEND_GUIDE.md** 를 본다.
+**초기화·시드 주의**: `user_info` / `dptmt_info` 등을 TRUNCATE CASCADE 하면 **`pmssn_master` 시스템 기본 4행**까지 함께 삭제될 수 있다. 운영 초기화 절차를 쓸 때는 **`pmssn_master` 재시드**(시스템 기본 프로젝트 권한 4행)를 반드시 포함한다. 서버·설정 개요는 **docs/main/02_BACKEND_GUIDE.md** 를 본다.
 
 ---
 
@@ -233,7 +237,7 @@ PRIMARY KEY: `PK_PMSSN_MASTER` (`pmssn_master_id`).
 ───────────────────────  ──────────────  ────────────  ─────────────────
 pmssn_master_id          integer         NOT NULL PK   nextval `pmssn_master_pmssn_master_id_seq`
 dptmt_info_id            integer                       FK `FK_dptmt_info_TO_pmssn_master` → `dptmt_info(dptmt_info_id)` (NULL=시스템 템플릿)
-pmssn_name               varchar(100)    NOT NULL      역할 이름
+pmssn_name               varchar(100)    NOT NULL      권한명(표시명)
 pmssn_list               text[]          NULL DEFAULT '{}' 권한 키 배열
 system_dflt_yn           varchar(1)      DEFAULT N   시스템 기본 여부
 user_id                  integer                       FK `FK_user_info_TO_pmssn_master_creator` → `user_info(user_id)` (생성자)

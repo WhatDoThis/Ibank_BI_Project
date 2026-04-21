@@ -9,6 +9,7 @@
  * ap__modal--usage: flex 세로·max-width 800px·min-height, ap__usage-wrap·테이블 width 100%로 본문이 모달 폭 채움
  * ap__th-actions: 작업 열 min-width 250px. ap__usage-table·ap__cell-actions--usage-nav: 사용현황 이동 버튼 한 줄
  * ap__back: 상단 뒤로 링크(프로젝트 멤버·위젯보드·사용자 이력 조회 등)
+ * ap__notice--locked: 권한 수정 모달·배정 사용 중 안내(뱃지+강조 박스)
  */
 
 .ap {
@@ -64,6 +65,39 @@
   border-radius: var(--radius-card);
   color: var(--color-action-primary);
   font-size: 0.875rem;
+}
+
+/* 권한 수정: 프로젝트에 배정된 커스텀 권한 — 상세 목록 잠금 안내 */
+.ap__notice--locked {
+  margin: 4px 0 18px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(230, 81, 0, 0.35);
+  border-left: 4px solid #e65100;
+  background: linear-gradient(135deg, rgba(255, 183, 77, 0.2) 0%, rgba(255, 213, 160, 0.14) 100%);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.ap__notice--locked-badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #bf360c;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(230, 81, 0, 0.35);
+  border-radius: 999px;
+}
+
+.ap__notice--locked-text {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--color-text);
 }
 
 .ap__form-block {
@@ -477,6 +511,11 @@
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.ap__modal--edit .ap__notice--locked {
+  margin-top: 0;
+  margin-bottom: 14px;
 }
 
 .ap__modal--create {

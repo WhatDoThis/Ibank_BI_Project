@@ -1,7 +1,7 @@
 /**
  * app/admin/adminAccess.js (조직 어드민 UI 판별)
  * ======================================
- * user_dvsn 허용값: sa_dev, sa, a, o, u 만. 그 외는 canonUserDvsn 이 빈 문자열 → 메뉴·권한 없음.
+ * user_dvsn(조직 역할) 허용값: sa_dev, sa, a, o, u 만. 그 외는 canonUserDvsn 이 빈 문자열 → 메뉴·접근 없음.
  * 백엔드 user_dvsn_codes·require_org_admin 과 동일 집합.
  *
  * [Main Functions]

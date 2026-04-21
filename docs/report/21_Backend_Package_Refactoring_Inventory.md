@@ -195,13 +195,13 @@
 | `deps.py` | `require_active_access`, `require_access_session_bound`, `get_access_payload`(레거시·라우터 미사용) |
 | `permissions.py` | `require_permission`, `require_etl_infrastructure` |
 | `security.py` | 암호·JWT |
-| `email_service.py` | SMTP |
+| `email_service.py` | `Backend.mail` 재export(shim); 신규 코드는 `Backend.mail` 직접 import |
 | `schemas.py` | DTO |
 
 ### 연관 경로
 
 
-`core/auth_config.py`, `core/dependencies.py`, `core/user_dvsn_codes.py`, `Frontend/.../auth`, `03_API_GUIDE.md` §2
+`core/auth_config.py`, `Backend/mail/`(`smtp_transport`·`outbound`), `core/dependencies.py`, `core/user_dvsn_codes.py`, `Frontend/.../auth`, `03_API_GUIDE.md` 인증 절
 
 ### 7.1 `router.py` → `service`·권한 매핑 (인벤토리 표)
 

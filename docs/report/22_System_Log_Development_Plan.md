@@ -82,7 +82,7 @@
 ### 3.2 런타임 등록(예상)
 
 - **prefix**: `/api/system-logs` — 독립 라우터로 `main.py`에 등록.  
-- **권한**: `main.py`에서 `dependencies=[Depends(require_org_admin)]` 일괄 적용. SA_DEV는 전체 조회, SA·A는 부서 트리 필터를 **service 레이어**에서 적용.
+- **권한**: `/login-history/me`는 `require_active_access`(일반 사용자 본인 이력)이므로 **라우터 레벨 일괄 `require_org_admin`을 적용하지 않는다**. 조직 어드민 전용 엔드포인트(목록·org 이력·CSV)는 **엔드포인트별** `Depends(require_org_admin)`을 적용한다. SA_DEV는 전체 조회, SA·A는 부서 트리 필터를 service 레이어에서 적용.
 
 ### 3.3 로그인 이력 조회 백엔드의 `system_log_server` 통합(권장)
 
@@ -181,9 +181,9 @@
 | P1-1 | `system_log` DDL 적용·권한(OWNER/GRANT) | 운영 기록 |
 | P1-2 | `core/system_audit_log.py` — append 전용 함수 | `append_system_log(*, conn=None, row: SystemLogRow)`. conn이 system_db 풀이면 해당 트랜잭션에 포함, 아니거나 None이면 내부에서 `get_db_connection_system_core()` 획득 후 독립 commit. 적재 실패 시 `logger.exception` + 본 업무 미중단. |
 | P1-3 | `Backend/system_log_server/` 생성 | `router.py`, `service.py`, `schemas.py` |
-| P1-4 | 목록 조회 API | GET `/api/system-logs`, query: `user_key`, `from`, `to`, `ip_contains`, `page`, `page_size=50`, `channel`, `action_kind`, `success_yn`. **기본 정렬** `create_dtm DESC`(최신 먼). 선택 정렬 파라미터는 구현 단계에서 확장 가능. 권한: `require_org_admin` 라우터 레벨 Depends. |
+| P1-4 | 목록 조회 API | GET `/api/system-logs`, query: `user_key`, `from`, `to`, `ip_contains`, `page`, `page_size=50`, `channel`, `action_kind`, `success_yn`. **기본 정렬** `create_dtm DESC`(최신 먼). 선택 정렬 파라미터는 구현 단계에서 확장 가능. 권한: 해당 엔드포인트에 `Depends(require_org_admin)`(라우터 레벨 일괄 적용 없음). |
 | P1-5 | admin_server에 계측 2~3건 시범 삽입 | `suspend_user`, `create_project_full` 등에서 `append_system_log` 호출. E2E 검증: INSERT 후 `GET /api/system-logs?user_key=...&channel=admin` 으로 방금 삽입한 행이 필터·페이징되어 조회되는지까지 확인. |
-| P1-6 | `api_server/main.py` 라우터 등록 + 문서 반영 | `include_router(system_log_router, dependencies=[Depends(require_org_admin)])`. 02·03·04 문서 갱신. |
+| P1-6 | `api_server/main.py` 라우터 등록 + 문서 반영 | `include_router(system_log_router)` — 라우터 레벨 Depends 미적용(`/login-history/me`는 `require_active_access`만). 조직 어드민 엔드포인트는 개별 `Depends(require_org_admin)`. 02·03·04 문서 갱신. |
 | P1-7 | 로그인 이력 **조회** 이전 | `auth_server`의 `fetch_login_history_masked` 등 **읽기 전용** 로직을 **`system_log_server`** 로 이전(복사 후 정리). `GET /api/system-logs/login-history/me`·`.../org`(가칭) 추가. `auth` 라우터의 `/me/login-history`는 §3.3 래퍼 정책. |
 
 **구현 메모**
@@ -470,7 +470,7 @@ Python `contextvars.ContextVar`는 스레드 간 자동 전파되지 않는다. 
 |:----:|------|-----------|------|
 | 1 | DB·권한 | [ ] **S0**: `system_log` DDL·인덱스·GRANT가 대상 DB에 적용되었고 `04` §13과 서술이 맞는가 | §5.1 |
 | 2 | 코드·기동 | [ ] **P1-2**: `core/system_audit_log.py`가 배포되어 있고, **`system_log_append_enabled` 없음/false 시** `append_system_log`가 **no-op**인가 | §5 구현 메모 |
-| 3 | 라우터 연결 | [ ] **P1-6**: `api_server/main.py`에 `system_log_router`가 등록되어 있고 prefix·`require_org_admin` 등 **권한 Depends**가 계획과 같은가 | `02`·`03` |
+| 3 | 라우터 연결 | [ ] **P1-6**: `api_server/main.py`에 `system_log_router`가 등록되어 있고 prefix·**엔드포인트별** `require_org_admin` / `require_active_access`(`/login-history/me`)가 계획과 같은가 | `02`·`03` |
 | 4 | 조회 API | [ ] **P1-4·P1-7**: `GET /api/system-logs`·로그인 이력 하위 경로가 **스모크(200·빈 목록 허용)** 되는가 | §5 Exit |
 | 5 | 무중단 단계 | [ ] **S1~S3**: 플래그 off로 조회 API만 노출한 채 배포·로그인 이력 경로 전환 등 **§5.1 표** 순서를 지켰는가 | 릴리즈 노트에 S 단계 기록 |
 | 6 | 계측 켜기 | [ ] **S4**: 스테이징→카나리→전역으로 **`system_log_append_enabled=true`** 전환했고, 이상 시 **S4만 되돌림** 경로를 팀이 공유하는가 | §5.1 롤백 |

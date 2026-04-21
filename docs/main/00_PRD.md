@@ -1,20 +1,22 @@
 # 제품 요구사항 정의서 (PRD)
 
-**역할**: 제품 범위·시스템 구조·설정·기능을 **한눈에** 요약한다.
+**문서 목적**: 제품 범위·시스템 구조·설정·기능을 **한눈에** 요약한다.
 
 **세부 명세**는 아래 문서를 본다.
 
 - **프론트**: 01_FRONTEND_GUIDE.md
 - **백엔드·API·설정**: 02_BACKEND_GUIDE.md, 03_API_GUIDE.md
 - **DB**: 04_DB_ARCHITECTURE.md
-- **권한·역할**: 05_Permission_ARCHITECTURE.md
+- **권한·조직 역할**: 05_Permission_ARCHITECTURE.md
+- **용어 표준(`user_dvsn` vs `pmssn_*`)**: 08_TERMINOLOGY.md
 - **사용자 화면 흐름**: 07_USER_FUNCTIONAL_GUIDE.md
-- **동작·계약의 기준**: **docs/main** 전체(00~07). 저장소 `docs/report/` 경로의 문서는 **내부 보조**(배포 체크리스트·작업 메모 등)로 둘 수 있으며, 고객 공개·제품 정의와 충돌 시 **docs/main** 이 우선한다.
+- **동작·계약의 기준**: **docs/main** 전체(00~08). 제품 범위·동작·API·권한·용어에 대한 **정본은 본 디렉터리뿐**이다. 저장소의 다른 위치에 개발 과정용 메모가 있더라도, 고객 안내·제품 정의와 어긋나면 **`docs/main`** 을 따른다.
 
 **비고**
 
 - docs/main 은 **현재 동작**을 기준으로 쓴다.
 - 날짜별 작업 이력은 docs/log/log.md, 코드 이력은 Git을 본다.
+- 여러 관리자가 같은 설정을 거의 동시에 저장할 때의 DB·감사·알림 동작은 **03_API_GUIDE.md** §1.6 을 본다.
 
 ---
 
@@ -233,9 +235,10 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 | 02_BACKEND_GUIDE.md | 백엔드 패키지·설정·ETL·API 개요 |
 | 03_API_GUIDE.md | API·모듈 흐름 통합 레퍼런스(표·ASCII) |
 | 04_DB_ARCHITECTURE.md | system DB 등 스키마 요약 |
-| 05_Permission_ARCHITECTURE.md | 역할·권한·ETL 정책 |
+| 05_Permission_ARCHITECTURE.md | 조직 역할·프로젝트 권한·ETL 정책 |
 | 06_CUSTOMER_JOURNEY.md | 고객 여정 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 일반 사용자 기능 설명 |
+| 08_TERMINOLOGY.md | `user_dvsn`·`pmssn_*` 등 용어·표기 통일 |
 
 ---
 

@@ -12,7 +12,7 @@
 - **구조·실행·디렉터리**: **02_BACKEND_GUIDE.md**
 - **DB 스키마**: **04_DB_ARCHITECTURE.md**
 - **권한·역할**: **05_Permission_ARCHITECTURE.md**
-- **동작 기준**: **docs/main** 00~07(본 문서·PRD·백엔드·DB·권한 등). 내부 작업 분해 원고는 저장소 `docs/report/` 에 둘 수 있으나 제품 계약은 **docs/main** 이 우선한다.
+- **동작 기준**: **docs/main** 번호 문서(00~08: PRD·프론트·백엔드·본 문서·DB·권한·여정·기능·용어). 엔드포인트·인증·동작 설명은 본 디렉터리가 정본이며, 다른 위치의 작업 메모와 충돌 시 **`docs/main`** 을 따른다.
 
 **도식(ASCII) 표기**
 
@@ -25,7 +25,7 @@
 
 아래 번호 순서대로 읽으면 된다.
 
-1. **[§1 API 호스트·공유 코어](#1-api-호스트공유-코어-api_server-core)** — 앱 기동, 로깅, DB 풀, sql_safety, invite_expiry, `auth_config`·역할 코드
+1. **[§1 API 호스트·공유 코어](#1-api-호스트공유-코어-api_server-core)** — 앱 기동, 로깅, DB 풀, sql_safety, invite_expiry, `auth_config`·역할 코드 · §1.6 동기·비동기·동시성(동일 절 본문)
 2. **[§2 auth_server](#2-auth_server-인증세션권한-게이트)** — 로그인·토큰·`require_active_access`·`require_permission`·refresh/정지 연동
 3. **[§3 admin_server](#3-admin_server-조직프로젝트-관리)** — 초대~생성~멤버, 소유 가드, 이관·정지
 4. **[§4 project_server](#4-project_server-프로젝트-목록선택초대-응답)** — 목록, `select`, 타부서 초대 수락·거절
@@ -302,6 +302,48 @@ widget_board (데이터) ─────→ _MAIN_DB_POOL 또는 _DASH_DB_POOL (
 
 ---
 
+### 1.6 동기·비동기 처리·동시성 (요청 스레드·백그라운드·경쟁)
+
+- 이 절의 목적: 화면에서 호출하는 대부분의 API가 요청 한 번 안에서 어떻게 끝나는지, ETL·쿼리 저장처럼 응답을 먼저 보내고 뒤에서 돌아가는 부분이 있는지, 두 사람이 같은 행을 거의 동시에 고치면 DB·감사·알림이 어떻게 보일지 한곳에 정리한다.
+- 용어(이 절에서만 풀어 쓴다. 다른 `docs/main` 문서에서는 같은 설명을 반복하지 않고 이 절을 가리킨다):
+ - 동기 처리: HTTP 요청을 받은 스레드가 DB 작업부터 JSON 응답까지 이어서 처리하는 방식이다.
+ - 백그라운드(HTTP와 분리): 응답을 먼저 보내고, 다른 스레드나 워커가 큐 등에서 나머지 작업을 이어 한다.
+ - last-write-wins(LWW): 행에 버전 조건 없이 두 트랜잭션이 연달아 `UPDATE` 하면, PostgreSQL 기본 격리 수준(Read Committed)에서 나중에 커밋된 값만 남는 현상이다. 이것만으로는 낙관적 락이 들어간 것이 아니다.
+ - 낙관적 락(optimistic locking): 저장 시 `WHERE id=? AND version=?` 처럼 직전에 읽은 버전과 맞을 때만 갱신하고, 이미 다른 사람이 고쳤으면 409 등으로 돌려보내는 설계다. 일반 관리 `UPDATE` 경로에는 없다.
+ - 비관적 락에 가까운 선점: `SELECT … FOR UPDATE` 또는 `SKIP LOCKED` 로 한 세션만 행·잡을 가져가 동시 실행을 막는 방식이다.
+
+관리 권한·역할 변경 뒤의 앱 알림·이메일
+- 조직 역할(`user_dvsn`)·ETL·사용자 일괄 관리·프로젝트 멤버 권한 변경, 계정 활성·정지, 타부서 프로젝트 초대 안내 메일 등은 업무 DB `commit` 이 끝난 뒤 같은 요청 스레드에서 `admin_server.change_notify` 와 `Backend/mail`(예: `send_plain_notice_email_try`, `send_project_invite_existing_user_email`)를 호출한다.
+- `notification_info` 행은 `insert_notification(..., autocommit=True)` 로 바로 확정되는 경우가 많다. SMTP 전송 오류는 try/except 와 로그로만 처리되며, 이미 커밋된 DB 변경이나 API 성공 응답을 되돌리지는 않는다.
+
+1. 동기로 끝나는 것(대부분의 화면 기능)
+ - 관리·인증·프로젝트 API: `admin_server`·`auth_server`·`project_server` 라우터가 `psycopg2` 커서로 SQL을 실행하고 같은 스레드에서 응답을 만든다. 트랜잭션·권한 검사를 한 흐름으로 묶기 쉽다.
+ - 요청 스코프 DB: `get_system_db` 등으로 연결을 받았다가 요청이 끝나면 풀에 돌려보낸다.
+ - 감사 append·대부분의 메일: 동기 호출이며, 메일 실패만 본 요청의 성공과 분리하는 패턴을 쓴다.
+
+2. HTTP와 분리되는 것(장시간·큐가 필요한 부분)
+ - ETL 잡 큐·배치: `queue_worker` 와 스레드 풀이 HTTP 밖에서 돌며, `SELECT … FOR UPDATE SKIP LOCKED` 로 동일 잡이 동시에 두 번 실행되지 않게 한다.
+ - ETL 스케줄: APScheduler 가 정해진 주기로 깨운다.
+ - 쿼리 스튜디오 “쿼리를 테이블로 저장”: 큐에 job 을 넣은 뒤 즉시 반환하고, 별도 워커 스레드가 `CREATE TABLE` 을 수행한다.
+ - 코어 DB 풀·`peak_guard`: 짧은 구간만 `threading.Lock` 등으로 보호한다.
+
+3. 두 관리자가 같은 사용자 행을 거의 동시에 저장할 때
+ - DB: 낙관적 락이 없으면 둘 다 성공 응답일 수 있어도 최종 값은 나중 커밋(LWW)이다.
+ - 감사: `system_log` 등에 요청마다 한 줄씩 남으면 시간 순서로 누가 언제 무엇을 보냈는지 추적할 수 있다. 화면이 자동으로 “당신이 넣은 값은 버려졌습니다”라고 알려 주지는 않는다.
+ - 당사자 알림·메일: 성공한 저장마다 발송 로직이 돌면 두 통이 나갈 이론적 가능은 있다.
+
+4. 비슷한 동시 작업을 점검할 때(한 줄 메모)
+ - 사용자 일괄 관리·역할 전용 API·프로젝트 멤버 권한: 행 버전 없으면 LWW 에 가깝다.
+ - ETL 동일 잡 동시 실행 시도: 선점 한쪽만 진행된다.
+ - 로그인·세션: 본 문서 §2.
+
+5. 정책을 더 빡세게 할 때(선택 참고)
+ - UI 에서 저장 중 이중 클릭 막기·저장 후 목록 다시 읽기.
+ - 필요한 소수의 테이블에만 `version` 컬럼이나 `UPDATE … WHERE version=?` 를 두는 낙관적 락, 또는 `SELECT FOR UPDATE` 를 쓰는 비관적 락.
+ - 알림·메일만 메시지 큐로 빼는 것은 재시도·실패 처리 합의 뒤에 검토한다.
+
+---
+
 ## 2. `auth_server` — 인증·세션·권한 게이트
 
 로그인·토큰·세션 바인딩·`require_active_access` / `require_permission` / `require_etl_infrastructure` 등 **다른 라우터가 공통으로 거는 게이트**의 기준이다.
@@ -422,13 +464,16 @@ widget_board (데이터) ─────→ _MAIN_DB_POOL 또는 _DASH_DB_POOL (
 | `MeUpdateBody` | 닉네임 수정 요청 |
 | `PasswordChangeBody` | 비밀번호 변경 요청 |
 
-#### `auth_server/email_service.py`
+#### `Backend/mail/` (공용 메일 패키지)
 
-| 함수 | 기능 |
-|------|------|
-| `send_email` | SMTP 발송 (미설정 시 로그 폴백) |
-| `send_login_code_email` | 2차 인증 코드 메일 |
-| `send_invite_email` | 초대 가입 URL 메일(본문에 초대 부서·조직 역할·ETL·프로젝트 권한 템플릿 선택 반영) |
+| 모듈·함수 | 기능 |
+|-----------|------|
+| `mail.smtp_transport.send_email` | SMTP 발송 (미설정 시 로그 폴백) |
+| `mail.outbound.send_login_code_email` | 2차 인증 코드 메일 |
+| `mail.outbound.send_invite_email` | 초대 가입 URL 메일(본문에 초대 부서·조직 역할·ETL·프로젝트 권한 템플릿 선택 반영) |
+| `mail.__init__` | 위 함수 재export — `from Backend.mail import send_email` 권장 |
+
+`auth_server/email_service.py`는 **`Backend.mail` 동일 API 재export**만 한다(레거시 `from Backend.auth_server import email_service` 호환).
 
 #### `auth_server/service.py`
 
@@ -1229,7 +1274,7 @@ GET /api/admin/projects/{id}/members
 | `list_department_creator_transfer_targets` | 부서 생성자 이관 후보 (수직 트리 내 `sa`·`sa_dev`만, Admin 제외) |
 | `list_table_master_transfer_targets` | 테이블 마스터 이관 후보 (수직 트리 SA/A + 매핑 프로젝트 참여자 query.execute + sa_dev) |
 | `transfer_resource_ownership` | 이관 실행 (`project`·`project_invite`·`pmssn_master`·`table_master`(ETL 연쇄)·`dptmt_creator`·`widget_board`·ETL 메타 포함) |
-| `get_user_change_options` | 변경 옵션 (`can_manage_etl_yn`·마지막 SA 경고·`projects[].project_department_display`(상위(자기)) 포함) |
+| `get_user_change_options` | 변경 옵션 (`user_dvsn_options`·`projects[].pmssn_options`·`can_manage_etl_yn`·마지막 SA 경고·`projects[].project_department_display`(상위(자기)) 포함) |
 | `update_user_management` | 일괄 변경 (부서·역할·ETL·프로젝트 참여. `ownership_guards` 409. `u` 시 `etl_yn` N 강제. `project_assignments`로 역할별 개별 지정 가능) |
 
 #### `admin_server/service_roles.py`
@@ -1238,12 +1283,12 @@ GET /api/admin/projects/{id}/members
 |------|------|
 | `list_roles_for_dept` | 시스템 기본 + 부서 커스텀 (`creator_email`·`usage_count`) |
 | `list_permission_options_for_dept` | 부여 가능 권한 키 목록 |
-| `list_role_usages` | 역할 사용 현황 (프로젝트·사용자) |
-| `list_role_project_participants` | 역할·프로젝트별 참여자 |
-| `list_user_role_usages` | 사용자별 프로젝트·역할 요약 |
-| `create_custom_role` | 커스텀 역할 생성 |
-| `update_custom_role` | 커스텀 역할 수정 (시스템 기본 불가) |
-| `delete_custom_role` | 커스텀 역할 삭제 (사용 중 불가) |
+| `list_role_usages` | 권한 사용 현황 (프로젝트·사용자) |
+| `list_role_project_participants` | 권한·프로젝트별 참여자 |
+| `list_user_role_usages` | 사용자별 프로젝트·배정 권한 요약 |
+| `create_custom_role` | 커스텀 권한 생성 |
+| `update_custom_role` | 커스텀 권한 수정 (시스템 기본 불가; `project_ptcpnt_info` 배정이 있으면 `pmssn_list` 내용 변경만 400) |
+| `delete_custom_role` | 커스텀 권한 삭제 (사용 중 불가) |
 
 #### `admin_server/service_projects.py`
 

@@ -6,7 +6,7 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 [Classes]
 ===========
 - InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(project_invite·dptmt_creator), UserManageUpdateBody(etl_yn 선택)
-- RoleCreateBody, RoleUpdateBody, ProjectMemberAssignBody, ProjectFeatureFlags, TableMappingEntry, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
+- RoleCreateBody, RoleUpdateBody(pmssn_list 설명·배정 시 변경 불가), ProjectMemberAssignBody, ProjectFeatureFlags, TableMappingEntry, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 
@@ -48,7 +48,7 @@ class InviteBody(BaseModel):
 class UserRoleBody(BaseModel):
     user_dvsn: str = Field(
         ...,
-        description="a·o·u — 호출자 역할에 따른 제한",
+        description="a·o·u — 호출자 조직 역할(user_dvsn)에 따른 제한",
     )
 
 
@@ -67,7 +67,10 @@ class RoleCreateBody(BaseModel):
 
 class RoleUpdateBody(BaseModel):
     pmssn_name: str | None = Field(None, max_length=100)
-    pmssn_list: list[str] | None = None
+    pmssn_list: list[str] | None = Field(
+        default=None,
+        description="생략 시 상세 목록 미변경. 프로젝트 멤버 배정이 있으면 목록 변경 요청은 400",
+    )
 
 
 class ProjectMemberAssignBody(BaseModel):

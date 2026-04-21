@@ -25,6 +25,7 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 - Backend.admin_server.service_projects.validate_invite_user_project
 - Backend.auth_server.audit_emit.emit_auth_system_log
 - Backend.auth_server.security, Backend.core.auth_config, Backend.core.db.safe_rollback
+- Backend.mail.send_login_code_email
 """
 
 from __future__ import annotations
@@ -36,7 +37,8 @@ from typing import Any
 import jwt
 
 from Backend.admin_server import service_projects as admin_projects
-from Backend.auth_server import email_service, permissions as auth_permissions, security
+from Backend.auth_server import permissions as auth_permissions, security
+from Backend.mail import send_login_code_email
 from Backend.auth_server.audit_emit import emit_auth_system_log
 from Backend.core import auth_config, db
 
@@ -274,7 +276,7 @@ def login_send_code(
     finally:
         cur.close()
     try:
-        email_service.send_login_code_email(email_n, code)
+        send_login_code_email(email_n, code)
     except Exception as e:
         _log.exception("auth_login_code_email_fail")
     pre = security.create_pre_auth_token(row["user_id"])

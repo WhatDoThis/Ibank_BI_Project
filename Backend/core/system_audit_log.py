@@ -5,7 +5,7 @@ ibank_system_data.public.system_log 에 append-only INSERT. 계측 실패는 로
 
 [Main Functions]
 ===========
-1. is_system_log_append_enabled: config.backend.system_log_append_enabled (없으면 False)
+1. is_system_log_append_enabled: config.backend.system_log_append_enabled (없으면 False, **모듈 최초 1회만** Env 로드)
 2. append_system_log: 단일 INSERT (conn 없으면 system_db 풀에서 연결·commit·close; 상관 ID·client_ip_masked·user_agent_summary 는 행에 없으면 request_context에서 보강)
 
 [Endpoints/Classes/Functions]
@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 try:
     from psycopg2.extras import register_uuid
 
+    # ⚠️ 이 모듈을 import하면 psycopg2 전역에 UUID 어댑터가 등록됩니다(모듈 사이드이펙트).
     register_uuid()
 except Exception:
     logger.warning(
@@ -54,16 +55,22 @@ CHANNEL_CAMPAIGN_DASH = "campaign_dash"
 CHANNEL_WIDGET_BOARD = "widget_board"
 CHANNEL_SYSTEM_LOG = "system_log"
 
+_APPEND_ENABLED: bool | None = None
+
 
 # 1.
 def is_system_log_append_enabled() -> bool:
-    """backend.system_log_append_enabled — 키 없거나 로드 실패 시 False."""
+    """backend.system_log_append_enabled — 키 없거나 로드 실패 시 False. 최초 1회만 config 읽기."""
+    global _APPEND_ENABLED
+    if _APPEND_ENABLED is not None:
+        return _APPEND_ENABLED
     try:
         from Env import config
 
-        return bool(getattr(config.backend, "system_log_append_enabled", False))
+        _APPEND_ENABLED = bool(getattr(config.backend, "system_log_append_enabled", False))
     except Exception:
-        return False
+        _APPEND_ENABLED = False
+    return _APPEND_ENABLED
 
 
 @dataclass

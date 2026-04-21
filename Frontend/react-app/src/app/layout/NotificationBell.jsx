@@ -39,6 +39,15 @@ import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 import './notification-bell.css'
 
 const POLL_MS = 60_000
+
+/** 관리 변경 알림(noti_type) — 제목 외 짧은 안내(본문 JSON은 숨김) */
+const ADMIN_NOTI_TYPE_HINT = {
+  org_role_changed: '조직 역할이 변경되었습니다.',
+  etl_access_changed: 'ETL 자격이 변경되었습니다.',
+  user_mgmt_changed: '계정·프로젝트 배정 등 관리 설정이 변경되었습니다.',
+  project_pmssn_changed: '프로젝트 권한(배정)이 변경되었습니다.',
+  user_activated: '계정이 활성화되었습니다.',
+}
 const INVITE_RESOLVED_STORAGE_KEY = 'ibank_bi_invite_resolved'
 const PANEL_TOAST_MS = 5200
 
@@ -117,6 +126,15 @@ function shouldShowNotiContentBody(notiType, raw) {
       'actor_user_id',
       'target_user_id',
       'widget_board_id',
+      'old_user_dvsn',
+      'new_user_dvsn',
+      'old_etl_yn',
+      'new_etl_yn',
+      'dvsn_changed',
+      'etl_changed',
+      'proj_changed',
+      'old_pmssn_name',
+      'new_pmssn_name',
     ])
     const onlyInternalMeta = keys.every((k) => internalKeys.has(k))
     return !onlyInternalMeta
@@ -535,6 +553,11 @@ export function NotificationBell() {
                           {inviteAcceptedMap[nidKey] === 'needs_select'
                             ? PROJECT_INVITE_HINT_DONE_NEEDS_HOME
                             : PROJECT_INVITE_HINT_DONE}
+                        </div>
+                      ) : null}
+                      {ADMIN_NOTI_TYPE_HINT[row.noti_type] ? (
+                        <div className="nb-item__meta nb-item__meta--invite-hint" role="note">
+                          {ADMIN_NOTI_TYPE_HINT[row.noti_type]}
                         </div>
                       ) : null}
                       <div className="nb-item__meta">{formatDtm(row.create_dtm)}</div>

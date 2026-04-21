@@ -1,6 +1,25 @@
 # Log
 
 ## Log Index
+499. 2026-04-21 docs/main/07: §12 감사·알림 합본·권한 알림 완료 반영
+498. 2026-04-21 docs/main: 동기·동시성 §1.6 서술·07 포맷·report 번호 제거
+497. 2026-04-21 docs/main/03: §1.6 HTML 앵커 제거·목차를 §1 단일 링크로 통일
+496. 2026-04-21 docs/main 전반: `docs/report` 경로 언급 제거·문서 정본 문구 통일
+495. 2026-04-21 docs/main/03: §1.6에서 docs/report 링크 제거·권한 알림 동작 본문 통합
+494. 2026-04-21 docs/main/03: §1.6 동기·비동기·동시성(관리 API·ETL·체크리스트)
+493. 2026-04-21 update_user_management: 역할 u 전환 시 암묵 ETL N을 일괄 알림 요약에 반영
+492. 2026-04-21 권한·역할 변경 알림(23): change_notify·메일·프로젝트 초대 메일
+491. 2026-04-21 Backend/mail 패키지 분리·auth·admin·문서 연동
+490. 2026-04-21 docs/report/23: 검토 반영(커밋·알림 순서·Phase6 주석·용어 링크)
+489. 2026-04-21 docs/report/23: project_invite 이메일 본 개발 필수로 격상
+488. 2026-04-21 docs/report/23: 타부서 project_invite 이메일 보강(섹션 8.1)
+487. 2026-04-21 docs/report/23: 본인 실행 시 알림·이메일 생략 정책 반영
+486. 2026-04-21 docs/report: 권한·역할 변경 알림 개발계획(23)·ReportIndex
+485. 2026-04-21 권한 수정 모달: 배정 사용 중 안내 강조(ap__notice--locked)
+484. 2026-04-21 용어 통일: 08_TERMINOLOGY·change-options 키·admin 문구·docs/main 연동
+483. 2026-04-21 권한 수정: 문구 권한 통일·모달 전용 오류·실패 시 폼 초기화
+482. 2026-04-21 admin 역할: 사용 중 pmssn_list 수정 백엔드 차단·권한 관리 UI·문서
+481. 2026-04-20 system_log: append 플래그 캐시·CTE 상수명·CSV emit 로깅·22 Depends 정정
 480. 2026-04-20 docs/main: 가독성 점검(장문 불릿·표 분리, 02·03·04·06·07)
 479. 2026-04-20 docs/main/03: §3.4 system_log_server 가독성(소제·표·문단)
 478. 2026-04-20 docs/main: 고객 문서에서 report 의존 제거·`system_log` 정본 04 일원화
@@ -483,6 +502,200 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+499. 2026-04-21 docs/main/07: §12 감사·알림 합본·권한 알림 완료 반영
+Purpose: 통합 이력 표와 감사 정책 메모를 한 절(12.1)로 합치고, 권한·역할 알림은 구현 완료(12.2)로 옮긴다.
+
+Changes:
+
+- `07_USER_FUNCTIONAL_GUIDE.md` §12 재구성(12.1 합본·12.2 완료·12.3 잔여 없음·선택 과제 2 문구 정리)
+
+Changed files: docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+498. 2026-04-21 docs/main: 동기·동시성 §1.6 서술·07 포맷·report 번호 제거
+Purpose: 대 고객용 문서에 친절한 단락·용어(한 번 정의)·07 스타일 목록을 반영하고, `docs/report` 번호 인용을 제거한다.
+
+Changes:
+
+- `03_API_GUIDE.md` §1.6 재구성(용어 블록·번호 목록·`22` 제거)
+- `07` §11.1 항목 5·§12 정리, `02` §1.1 항목 7·`02` §3.2.6 문구, `00`·`01`·`04`·`05`·`06`·`08` 한 줄 교차 참조
+
+Changed files: docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md, 03_API_GUIDE.md, 04_DB_ARCHITECTURE.md, 05_Permission_ARCHITECTURE.md, 06_CUSTOMER_JOURNEY.md, 07_USER_FUNCTIONAL_GUIDE.md, 08_TERMINOLOGY.md, docs/log/log.md
+
+497. 2026-04-21 docs/main/03: §1.6 HTML 앵커 제거·목차를 §1 단일 링크로 통일
+Purpose: 다른 `docs/main` 과 같이 Raw HTML 앵커 없이 유지한다.
+
+Changes:
+
+- `03_API_GUIDE.md`: `<a id="sec-1-6-sync-async-concurrency">` 삭제, 목차 §1.6은 §1 본문 안내 문구만
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+496. 2026-04-21 docs/main 전반: `docs/report` 경로 언급 제거·문서 정본 문구 통일
+Purpose: 대 고객용 `docs/main` 에서 `docs/report` 디렉터리를 가리키지 않고, 정본은 `docs/main` 이라는 규칙만 남긴다.
+
+Changes:
+
+- 00·01·02·03: 병행 문단에서 `docs/report/` 삭제·문구 정리; 01·02 문서 표에 `08_TERMINOLOGY` 행 추가
+- 04~08: 서두에 **문서 정본** 한 줄 추가
+
+Changed files: docs/main/00_PRD.md, 01_FRONTEND_GUIDE.md, 02_BACKEND_GUIDE.md, 03_API_GUIDE.md, 04_DB_ARCHITECTURE.md, 05_Permission_ARCHITECTURE.md, 06_CUSTOMER_JOURNEY.md, 07_USER_FUNCTIONAL_GUIDE.md, 08_TERMINOLOGY.md, docs/log/log.md
+
+495. 2026-04-21 docs/main/03: §1.6에서 docs/report 링크 제거·권한 알림 동작 본문 통합
+Purpose: 대 고객용 `docs/main` 에서 `docs/report` 개별 파일로 링크하지 않고, 권한·역할 변경 부가 I/O 동작을 §1.6 본문에 직접 기술한다.
+
+Changes:
+
+- `03_API_GUIDE.md` §1.6 도입 단락·표(감사·알림·SMTP 행) 문구 정리
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+494. 2026-04-21 docs/main/03: §1.6 동기·비동기·동시성(관리 API·ETL·체크리스트)
+Purpose: 시스템 전반의 동기/비동기 적용을 문서화하고, 동시 관리자 편집(LWW)·알림 중복 가능성·보편적 강화 방향을 정리한다.
+
+Changes:
+
+- `03_API_GUIDE.md`에 §1.6(적용 목록 표·동시 수정 예·체크리스트·방향성) 및 목차 링크
+
+Changed files: docs/main/03_API_GUIDE.md, docs/log/log.md
+
+493. 2026-04-21 update_user_management: 역할 u 전환 시 암묵 ETL N을 일괄 알림 요약에 반영
+Purpose: 계획서 2.5(ETL·역할 변경 시 알림)에 맞춰 `user_dvsn`을 u로 바꿀 때 강제되는 `etl_yn=N`을 `mgmt_track`에 반영한다.
+
+Changes:
+
+- `user_dvsn` u 전환 직전 `cur_etl=='Y'`이면 `mgmt_track`에 ETL 변경 플래그·old/new 설정
+
+Changed files: Backend/admin_server/service_users.py, docs/log/log.md
+
+492. 2026-04-21 권한·역할 변경 알림(23): change_notify·메일·프로젝트 초대 메일
+Purpose: docs/report/23 계획에 따라 조직 역할·ETL·일괄 관리·프로젝트 권한·정지/활성 알림 및 타부서 project_invite 이메일을 구현한다.
+
+Changes:
+
+- `change_notify.py` 신설, `mail/outbound`에 초대·안내 메일 함수
+- `service_users`·`service_projects` 커밋 후 알림/메일 후킹
+- `NotificationBell.jsx` 신규 noti_type 안내
+
+Changed files: Backend/admin_server/change_notify.py, Backend/admin_server/service_users.py, Backend/admin_server/service_projects.py, Backend/mail/outbound.py, Backend/mail/__init__.py, Frontend/react-app/src/app/layout/NotificationBell.jsx, docs/log/log.md
+
+491. 2026-04-21 Backend/mail 패키지 분리·auth·admin·문서 연동
+Purpose: SMTP·메일 본문을 `auth_server`에서 분리해 `Backend/mail` 공용 패키지로 두고, 인증·관리는 `Backend.mail`을 import하도록 한다. `auth_server/email_service`는 레거시 import 호환용 shim으로 유지한다.
+
+Changes:
+
+- `Backend/mail/__init__.py`, `smtp_transport.py`, `outbound.py` 신설
+- `auth_server/email_service.py` → `Backend.mail` 재export
+- `auth_server/service.py`, `admin_server/service_users.py` → `Backend.mail` 직접 import
+- `core/auth_config.py` 주석, `docs/main/02_BACKEND_GUIDE.md`, `03_API_GUIDE.md`, `docs/report/{03_AI,21,23}*.md`
+
+Changed files: Backend/mail/__init__.py, Backend/mail/smtp_transport.py, Backend/mail/outbound.py, Backend/auth_server/email_service.py, Backend/auth_server/service.py, Backend/admin_server/service_users.py, Backend/core/auth_config.py, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/report/03_AI_DEVELOP_GUIDE.md, docs/report/21_Backend_Package_Refactoring_Inventory.md, docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/log/log.md
+
+490. 2026-04-21 docs/report/23: 검토 반영(커밋·알림 순서·Phase6 주석·용어 링크)
+Purpose: 개발 착수 시 오해 소지가 있는 원칙(커밋 후 알림)을 실제 트랜잭션 패턴과 정합하고, `project_invite` 이메일은 `email_service` 직호출 가능함을 명시한다.
+
+Changes:
+
+- 섹션 4 원칙 1: 이메일은 커밋 후, `insert_notification`은 동일 `conn` 트랜잭션 내 가능함을 분리 서술
+- 섹션 6: `change_notify`와 P1-5 이메일 호출 구분
+- 절 1 용어표: 깨진 내부 앵커를 절 2.3 참고로 단순화
+
+Changed files: docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/log/log.md
+
+489. 2026-04-21 docs/report/23: project_invite 이메일 본 개발 필수로 격상
+Purpose: 타부서 기존 회원 프로젝트 초대 이메일을 권장·비범위가 아닌 이번 개발 범위·Exit 기준에 포함한다.
+
+Changes:
+
+- `23_Permission_Role_Change_Notifications_Plan.md`: 제목·요약·범위·2.6·표·원칙 8·Phase·검증·8.1 제거·문서 이력
+- `00_ReportIndex.md`: 23번 설명 갱신
+
+Changed files: docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+488. 2026-04-21 docs/report/23: 타부서 project_invite 이메일 보강(섹션 8.1)
+Purpose: 기존 회원 타부서 프로젝트 초대가 앱 알림만 있는 현행을 정리하고, 수락·거절 유도를 위한 이메일 보강을 권장 구현으로 문서화한다.
+
+Changes:
+
+- `23_Permission_Role_Change_Notifications_Plan.md`: 목차, 섹션 8.1, 섹션 9·10
+- `00_ReportIndex.md`: 23번 설명 한 줄 보강
+
+Changed files: docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+487. 2026-04-21 docs/report/23: 본인 실행 시 알림·이메일 생략 정책 반영
+Purpose: 실행자와 변경 대상이 동일할 때는 사용자가 이미 인지하므로 앱·이메일 알림을 보내지 않도록 개발 계획서를 수정한다.
+
+Changes:
+
+- `23_Permission_Role_Change_Notifications_Plan.md`: 표 하단 문단·설계 원칙 7·P1-2·검증 체크리스트·문서 이력
+
+Changed files: docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/log/log.md
+
+486. 2026-04-21 docs/report: 권한·역할 변경 알림 개발계획(23)·ReportIndex
+Purpose: 조직 역할·ETL·프로젝트 권한·정지/활성 변경 시 앱 내 알림+이메일 설계를 문서화하고 `service_roles` 사용 중 `pmssn_list` 차단을 반영한다.
+
+Changes:
+
+- `docs/report/23_Permission_Role_Change_Notifications_Plan.md` 신설(Phase·액션표·비범위·검증)
+- `docs/report/00_ReportIndex.md` 23번 행 추가
+
+Changed files: docs/report/23_Permission_Role_Change_Notifications_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+485. 2026-04-21 권한 수정 모달: 배정 사용 중 안내 강조(ap__notice--locked)
+Purpose: 프로젝트에 배정된 권한 수정 시 **사용 중** 안내를 `ap__hint` 대신 뱃지·좌측 강조선·배경이 있는 블록으로 올려 시인성을 높임.
+
+Changes:
+
+- `admin-pages.css`: `ap__notice--locked*` 클래스
+- `AdminRolesPage`: 안내를 권한명 아래·상세 목록 위로 배치
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, docs/log/log.md
+
+484. 2026-04-21 용어 통일: 08_TERMINOLOGY·change-options 키·admin 문구·docs/main 연동
+Purpose: `user_dvsn`은 **조직 역할**, `pmssn_*`는 **프로젝트 권한**으로 한글·에러·가이드를 맞추고, `GET .../change-options` 응답 키를 `user_dvsn_options`·`projects[].pmssn_options`로 분리한다.
+
+Changes:
+
+- `docs/main/08_TERMINOLOGY.md` 신설, 00·01·02·05·07·03 표/머리말 연동
+- `get_user_change_options`: 키 rename, `_list_project_pmssn_options`, 사용자 메시지 정리
+- `AdminUsersPage`·`adminAccess`·`service_projects`·`schemas`·`router` 문구
+
+Changed files: docs/main/08_TERMINOLOGY.md, docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, Backend/admin_server/service_users.py, Backend/admin_server/service_projects.py, Backend/admin_server/schemas.py, Backend/admin_server/router.py, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, Frontend/react-app/src/app/admin/adminAccess.js, docs/log/log.md
+
+483. 2026-04-21 권한 수정: 문구 권한 통일·모달 전용 오류·실패 시 폼 초기화
+Purpose: 사용자 메시지에서 **역할** 대신 **권한** 용어를 쓰고, `PUT` 실패 안내는 목록 상단이 아닌 **수정 모달 내부**에 표시하며 저장 실패 시 모달 입력을 **열 때 값으로 되돌림**.
+
+Changes:
+
+- `service_roles.py`: ValueError·모듈 설명을 권한 중심 문구로 정리(배정 시 상세 변경 불가 문장 포함)
+- `AdminRolesPage`: `editError`·스냅샷(`editSnapshot*`), 실패 시 `setError` 미사용·폼 복구
+- `05`·`06` 문서: 동일 정책 서술 정합
+
+Changed files: Backend/admin_server/service_roles.py, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, docs/main/03_API_GUIDE.md, docs/main/05_Permission_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/log/log.md
+
+482. 2026-04-21 admin 역할: 사용 중 pmssn_list 수정 백엔드 차단·권한 관리 UI·문서
+Purpose: 프로젝트에 배정된 커스텀 권한(`pmssn_master`)의 **상세 권한 목록**이 임의로 바뀌지 않도록 서버에서 검증하고, `/admin/roles` 수정 모달에서 사용 중일 때 상세 편집을 비활성화한다.
+
+Changes:
+
+- `update_custom_role`: `project_ptcpnt_info` 존재 시 정규화 후 달라진 `pmssn_list`만 거부(역할명 변경은 허용, 동일 목록 재전송은 허용)
+- `AdminRolesPage`: `editInUse`·저장 시 `pmssn_list` 미전송, 안내 문구
+- API/권한 문서: 03·06·05 반영, `RoleUpdateBody` OpenAPI 설명
+
+Changed files: Backend/admin_server/service_roles.py, Backend/admin_server/schemas.py, Backend/admin_server/router.py, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, docs/main/03_API_GUIDE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/05_Permission_ARCHITECTURE.md, docs/log/log.md
+
+481. 2026-04-20 system_log: append 플래그 캐시·CTE 상수명·CSV emit 로깅·22 Depends 정정
+Purpose: `system_log_append_enabled` 조회를 **모듈 1회 캐시**로 줄이고, CTE SQL 상수명 grep 혼동 방지, CSV 감사 append 실패 시 **무음 삼킴 대신 로깅**, 계획서·`main.py`에 **라우터 레벨 org_admin 미적용** 정책을 명시.
+
+Changes:
+
+- `system_audit_log.py`: `_APPEND_ENABLED` 캐시, `register_uuid` 전 UUID 사이드이펙트 주석
+- `audit_emit.py`: `logger.exception` on append 실패
+- `api_server/main.py`: `system_log_router` 등록 직전 주석·머리말 [라우터] 6. 정합
+- `service.py` / `service_login_history.py`: `_SL_*` / `_LH_*` CTE 상수명
+- `22_System_Log_Development_Plan.md`: §3.2·P1-4·P1-6·체크리스트 권한 서술 정정
+
+Changed files: Backend/core/system_audit_log.py, Backend/system_log_server/audit_emit.py, Backend/api_server/main.py, Backend/system_log_server/service.py, Backend/system_log_server/service_login_history.py, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
 
 480. 2026-04-20 docs/main: 가독성 점검(장문 불릿·표 분리, 02·03·04·06·07)
 Purpose: `docs/main` 전역에서 **한 줄·한 불릿 과밀** 구간을 찾아 §3.4와 같은 톤(`####`·짧은 불릿·표 보조)으로 정리.
