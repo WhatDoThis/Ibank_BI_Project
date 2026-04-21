@@ -495,6 +495,7 @@ export default function AdminProjectsPage() {
     setBusyId(projectInfoId)
     try {
       await patchAdminProject(projectInfoId, body)
+      notifyParticipatingProjectsChanged()
       const sel = me?.project_info_id
       if (sel != null && Number(sel) === Number(projectInfoId)) {
         await refreshMe()

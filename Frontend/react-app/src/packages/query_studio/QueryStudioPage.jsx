@@ -9,6 +9,7 @@
  * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출 (main_db만)
  * 3. QueryStudioPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
  * 4. /me project_info_id 변경(헤더 프로젝트 전환): resetBuilderState·테이블 재로드·안내 토스트
+ * 5. 탭 복귀(visibility)·참여 프로젝트 목록 갱신(nonce): 테이블·매핑 반영을 위해 listTables 재호출(빌더 상태 유지)
  *
  * [Dependencies]
  * =========
@@ -29,6 +30,25 @@ import { PageHeader } from '@/app/layout/PageHeader.jsx'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 
 const DEFAULT_PAGE_SIZE = 100
+
+/** 조인으로 새 테이블이 붙을 때 확인창을 띄울 최소 크기(pg_total_relation_size, 바이트) */
+const LARGE_JOIN_TABLE_BYTES = 100 * 1024 * 1024
+
+function getOversizedTablesForJoin(newTableNames, tablesList, thresholdBytes) {
+  const out = []
+  for (const name of newTableNames) {
+    const meta = tablesList.find((t) => t.table_name === name)
+    const bytes = meta?.size_bytes
+    if (!meta || typeof bytes !== 'number' || bytes < thresholdBytes) continue
+    out.push({
+      table_name: name,
+      label: meta.table_label ?? name,
+      size: meta.size ?? null,
+      size_bytes: bytes,
+    })
+  }
+  return out
+}
 
 // 1.
 function isGroupByColumn(groupBy, table, column) {
@@ -92,6 +112,8 @@ export default function QueryStudioPage() {
   const [saveAsTableName, setSaveAsTableName] = useState('')
   const [saveAsTableSubmitting, setSaveAsTableSubmitting] = useState(false)
   const [showJoinImpossibleModal, setShowJoinImpossibleModal] = useState(false)
+  /** 대용량 테이블 조인 확인: { tables: [{ table_name, label, size, size_bytes }] } */
+  const [largeTableJoinConfirm, setLargeTableJoinConfirm] = useState(null)
   const [showColumnLabelsModal, setShowColumnLabelsModal] = useState(false)
   const [autoExecute, setAutoExecute] = useState(true)
   /** 선택된 컬럼 기준: 테이블별 테이블 라벨 draft */
@@ -109,6 +131,7 @@ export default function QueryStudioPage() {
   const [countLoading, setCountLoading] = useState(false)
 
   const lastSuccessWorkspaceRef = useRef(null)
+  const largeJoinProceedRef = useRef(null)
 
   const tableRelationships = useMemo(() => {
     const resolved = {}
@@ -307,6 +330,18 @@ export default function QueryStudioPage() {
     return () => clearTimeout(t)
   }, [])
 
+  const cancelLargeTableJoin = useCallback(() => {
+    largeJoinProceedRef.current = null
+    setLargeTableJoinConfirm(null)
+  }, [])
+
+  const confirmLargeTableJoin = useCallback(() => {
+    const fn = largeJoinProceedRef.current
+    largeJoinProceedRef.current = null
+    setLargeTableJoinConfirm(null)
+    fn?.()
+  }, [])
+
   /** toastMessage 없으면 토스트 없음 — 헤더 프로젝트 전환 시 초기 단계용 */
   const resetBuilderState = useCallback((toastType, toastMessage) => {
     lastSuccessWorkspaceRef.current = null
@@ -339,8 +374,10 @@ export default function QueryStudioPage() {
     if (toastMessage) showToast(toastType, toastMessage)
   }, [showToast])
 
-  const { me } = useAuth()
+  const { me, participatingProjectsNonce } = useAuth()
   const prevProjectIdRef = useRef(undefined)
+  const participatingProjectsNonceRef = useRef(null)
+  const prevVisibilityRef = useRef(typeof document !== 'undefined' ? document.visibilityState : 'visible')
 
   useEffect(() => {
     if (me == null) return
@@ -375,6 +412,56 @@ export default function QueryStudioPage() {
     }
   }, [me, me?.project_info_id, resetBuilderState, loadHealth, loadTables, showToast, setDbStatus])
 
+  /** 헤더 등에서 참여 프로젝트 목록이 갱신된 뒤(매핑 변경 등) 테이블 목록만 서버와 동기화 */
+  useEffect(() => {
+    if (participatingProjectsNonceRef.current === null) {
+      participatingProjectsNonceRef.current = participatingProjectsNonce
+      return
+    }
+    if (participatingProjectsNonceRef.current === participatingProjectsNonce) return
+    participatingProjectsNonceRef.current = participatingProjectsNonce
+    let cancelled = false
+    ;(async () => {
+      await loadHealth()
+      const res = await loadTables((msg) => {
+        if (!cancelled) setToast({ type: 'error', msg })
+      })
+      if (cancelled) return
+      if (res.ok === false && res.error) {
+        setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [participatingProjectsNonce, loadHealth, loadTables, setDbStatus])
+
+  /** 다른 탭(관리 화면 등)에서 돌아왔을 때 매핑·테이블 목록 반영 */
+  useEffect(() => {
+    let cancelled = false
+    const onVisibility = () => {
+      const next = document.visibilityState
+      const wasHidden = prevVisibilityRef.current === 'hidden'
+      prevVisibilityRef.current = next
+      if (next !== 'visible' || !wasHidden) return
+      ;(async () => {
+        await loadHealth()
+        const res = await loadTables((msg) => {
+          if (!cancelled) setToast({ type: 'error', msg })
+        })
+        if (cancelled) return
+        if (res.ok === false && res.error) {
+          setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
+        }
+      })()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [loadHealth, loadTables, setDbStatus])
+
   const syncAggFuncs = useCallback((cols, gb) => {
     if (!gb || gb.length === 0) {
       return cols.map((c) => ({ ...c, aggFunc: null }))
@@ -407,8 +494,8 @@ export default function QueryStudioPage() {
           if (addedTables.includes(intermediateParent)) {
             newAddedTables = [...addedTables, columnInfo.table]
             intermediateParent = null
-} else {
-          newAddedTables = [...addedTables, intermediateParent, columnInfo.table]
+          } else {
+            newAddedTables = [...addedTables, intermediateParent, columnInfo.table]
           }
         } else {
           setShowJoinImpossibleModal(true)
@@ -435,23 +522,51 @@ export default function QueryStudioPage() {
           }
         }
       }
-      const tableAliasMap = {}
-      newAddedTables.forEach((t, i) => {
-        tableAliasMap[t] = 't' + (i + 1)
-      })
-      const alias = tableAliasMap[columnInfo.table] || 't1'
-      const isGB = isGroupByColumn(groupBy, columnInfo.table, columnInfo.column)
-      const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
-      setAddedTables(newAddedTables)
-      setGridColumns((prev) => syncAggFuncs([...prev, { table: columnInfo.table, column: columnInfo.column, alias, type: columnInfo.type, aggFunc, label: columnInfo.label ?? columnInfo.column }], groupBy))
-      setCurrentPage(1)
-      if (intermediateParent) {
-        showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${columnInfo.table}'를 추가했습니다`)
-      } else {
-        showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
+
+      const newNames = newAddedTables.filter((t) => !addedTables.includes(t))
+      const oversized = getOversizedTablesForJoin(newNames, tables, LARGE_JOIN_TABLE_BYTES)
+
+      const proceed = () => {
+        const tableAliasMap = {}
+        newAddedTables.forEach((t, i) => {
+          tableAliasMap[t] = 't' + (i + 1)
+        })
+        const alias = tableAliasMap[columnInfo.table] || 't1'
+        const isGB = isGroupByColumn(groupBy, columnInfo.table, columnInfo.column)
+        const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
+        setAddedTables(newAddedTables)
+        setGridColumns((prev) =>
+          syncAggFuncs(
+            [
+              ...prev,
+              {
+                table: columnInfo.table,
+                column: columnInfo.column,
+                alias,
+                type: columnInfo.type,
+                aggFunc,
+                label: columnInfo.label ?? columnInfo.column,
+              },
+            ],
+            groupBy
+          )
+        )
+        setCurrentPage(1)
+        if (intermediateParent) {
+          showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${columnInfo.table}'를 추가했습니다`)
+        } else {
+          showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
+        }
       }
+
+      if (!tableAlreadyAdded && oversized.length > 0) {
+        largeJoinProceedRef.current = proceed
+        setLargeTableJoinConfirm({ tables: oversized })
+        return
+      }
+      proceed()
     },
-    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions]
+    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables]
   )
 
   const addTableColumns = useCallback(
@@ -506,35 +621,47 @@ export default function QueryStudioPage() {
         }
       }
 
-      const tableAliasMap = {}
-      newAddedTables.forEach((t, i) => {
-        tableAliasMap[t] = 't' + (i + 1)
-      })
-      const alias = tableAliasMap[tableName] || 't1'
+      const newNames = newAddedTables.filter((t) => !addedTables.includes(t))
+      const oversized = getOversizedTablesForJoin(newNames, tables, LARGE_JOIN_TABLE_BYTES)
 
-      const newGridEntries = toAdd.map((c) => {
-        const isGB = isGroupByColumn(groupBy, tableName, c.name)
-        const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
-        return {
-          table: tableName,
-          column: c.name,
-          alias,
-          type: c.type,
-          aggFunc,
-          label: c.label ?? c.name,
+      const proceed = () => {
+        const tableAliasMap = {}
+        newAddedTables.forEach((t, i) => {
+          tableAliasMap[t] = 't' + (i + 1)
+        })
+        const alias = tableAliasMap[tableName] || 't1'
+
+        const newGridEntries = toAdd.map((c) => {
+          const isGB = isGroupByColumn(groupBy, tableName, c.name)
+          const aggFunc = groupBy.length > 0 && !isGB ? 'COUNT' : null
+          return {
+            table: tableName,
+            column: c.name,
+            alias,
+            type: c.type,
+            aggFunc,
+            label: c.label ?? c.name,
+          }
+        })
+
+        setAddedTables(newAddedTables)
+        setGridColumns((prev) => syncAggFuncs([...prev, ...newGridEntries], groupBy))
+        setCurrentPage(1)
+
+        const tableMeta = tables.find((t) => t.table_name === tableName)
+        const displayLabel = tableMeta?.table_label ?? tableName
+        showToast('success', `'${displayLabel}' 컬럼 ${toAdd.length}개를 추가했습니다`)
+        if (intermediateParent && !tableAlreadyAdded) {
+          showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${tableName}'를 추가했습니다`)
         }
-      })
-
-      setAddedTables(newAddedTables)
-      setGridColumns((prev) => syncAggFuncs([...prev, ...newGridEntries], groupBy))
-      setCurrentPage(1)
-
-      const tableMeta = tables.find((t) => t.table_name === tableName)
-      const displayLabel = tableMeta?.table_label ?? tableName
-      showToast('success', `'${displayLabel}' 컬럼 ${toAdd.length}개를 추가했습니다`)
-      if (intermediateParent && !tableAlreadyAdded) {
-        showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${tableName}'를 추가했습니다`)
       }
+
+      if (!tableAlreadyAdded && oversized.length > 0) {
+        largeJoinProceedRef.current = proceed
+        setLargeTableJoinConfirm({ tables: oversized })
+        return
+      }
+      proceed()
     },
     [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables]
   )
@@ -1246,6 +1373,45 @@ export default function QueryStudioPage() {
                 <button type="button" className="btn-small secondary" onClick={() => setShowColumnLabelsModal(false)}>취소</button>
                 <button type="button" className="btn-small primary" onClick={saveColumnLabelsAndClose} disabled={columnLabelsSaving}>
                   {columnLabelsSaving ? '저장 중…' : '저장'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {largeTableJoinConfirm && (
+        <div
+          className="relationship-diagram-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="대용량 테이블 조인 확인"
+          onClick={cancelLargeTableJoin}
+        >
+          <div className="relationship-diagram-modal join-impossible-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="relationship-diagram-header">
+              <span>대용량 테이블 조인</span>
+              <button type="button" className="relationship-diagram-close" onClick={cancelLargeTableJoin} aria-label="닫기">
+                ×
+              </button>
+            </div>
+            <div className="relationship-diagram-body">
+              <p className="join-impossible-message">
+                아래 테이블은 전체 크기가 약 {LARGE_JOIN_TABLE_BYTES / (1024 * 1024)}MB 이상입니다. 조인하면 스캔·메모리 부하가 커질 수 있습니다. 그래도
+                추가할까요?
+              </p>
+              <ul className="large-join-confirm-list" style={{ margin: '8px 0', paddingLeft: 20 }}>
+                {largeTableJoinConfirm.tables.map((row) => (
+                  <li key={row.table_name}>
+                    <strong>{row.label}</strong> ({row.table_name}) — {row.size ?? '용량 정보 없음'}
+                  </li>
+                ))}
+              </ul>
+              <div className="save-as-table-actions" style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn-small secondary" onClick={cancelLargeTableJoin}>
+                  취소
+                </button>
+                <button type="button" className="btn-small primary" onClick={confirmLargeTableJoin}>
+                  추가
                 </button>
               </div>
             </div>

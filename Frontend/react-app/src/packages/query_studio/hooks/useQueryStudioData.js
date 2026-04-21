@@ -42,9 +42,21 @@ export function useQueryStudioData() {
           const name = t.table_name
           try {
             const desc = await describeTable(name)
-            return { table_name: name, size: t?.size, table_label: t?.table_label ?? name, columns: desc?.columns || [] }
+            return {
+              table_name: name,
+              size: t?.size,
+              size_bytes: t?.size_bytes,
+              table_label: t?.table_label ?? name,
+              columns: desc?.columns || [],
+            }
           } catch {
-            return { table_name: name, size: t?.size, table_label: t?.table_label ?? name, columns: [] }
+            return {
+              table_name: name,
+              size: t?.size,
+              size_bytes: t?.size_bytes,
+              table_label: t?.table_label ?? name,
+              columns: [],
+            }
           }
         })
       )

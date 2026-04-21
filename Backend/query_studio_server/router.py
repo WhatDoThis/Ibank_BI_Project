@@ -675,19 +675,26 @@ def list_tables(
         tables = []
         for tname in allowed_names:
             size_pretty = None
+            size_bytes = None
             try:
                 cur.execute(
-                    "SELECT pg_size_pretty(pg_total_relation_size(%s::regclass)) AS size",
-                    (f"{schema}.{tname}",),
+                    "SELECT pg_total_relation_size(%s::regclass) AS size_bytes, "
+                    "pg_size_pretty(pg_total_relation_size(%s::regclass)) AS size",
+                    (f"{schema}.{tname}", f"{schema}.{tname}"),
                 )
                 size_row = cur.fetchone() or {}
                 size_pretty = size_row.get("size")
+                raw_bytes = size_row.get("size_bytes")
+                if raw_bytes is not None:
+                    size_bytes = int(raw_bytes)
             except Exception:
                 size_pretty = None
+                size_bytes = None
             row_meta = allowed_map.get(tname) or {}
             tables.append({
                 "table_name": tname,
                 "size": size_pretty,
+                "size_bytes": size_bytes,
                 "table_label": _resolve_table_display_label(tname, user_labels, file_labels, row_meta),
                 "table_dscrtn": row_meta.get("table_dscrtn"),
             })
