@@ -1,7 +1,8 @@
 """
 Backend.query_studio_server.relationship_inference (관계 추론)
 =====================================================
-DB 허용 테이블 + 컬럼 정보로 관계 추론 (pluralize + 확장: 복수형이 테이블명 일부). report 라우터에서 infer_relationships 사용.
+DB 허용 테이블 + 컬럼 정보로 관계 추론 (pluralize + 확장: 복수형이 테이블명 일부).
+컬럼 dict에 column_comment 가 있으면(저장 테이블 col_n + COMMENT) 물리명 대신 코멘트 문자열로 부모 _id 추론, from_column 은 물리명 유지.
 
 [Main Functions]
 ===========
@@ -66,22 +67,38 @@ def infer_relationships(allowed_tables, table_columns, existing_keys=None):
         else:
             cols_as_dict[t] = list(raw) if raw else []
 
+    raw_by_table = table_columns or {}
+
+    def _logical_for_inference(table_name: str, physical: str):
+        raw = raw_by_table.get(table_name) or []
+        if raw and isinstance(raw[0], dict):
+            for c in raw:
+                if (c or {}).get("column_name") == physical:
+                    cm = (c or {}).get("column_comment") or ""
+                    cm = str(cm).strip()
+                    if cm:
+                        return cm, True
+                    break
+        return physical, False
+
     out = []
     for table_name in allowed_tables:
         cols = cols_as_dict.get(table_name, [])
         for col_name in cols:
-            if col_name == "id" or not col_name.endswith("_id"):
+            logical, used_comment = _logical_for_inference(table_name, col_name)
+            if logical == "id" or not str(logical).endswith("_id"):
                 continue
-            parent = _find_parent_table(col_name, allowed_tables)
+            parent = _find_parent_table(logical, allowed_tables)
             if not parent:
-                parent = find_parent_table_extended(col_name, table_name, allowed_tables, cols_as_dict)
+                parent = find_parent_table_extended(logical, table_name, allowed_tables, cols_as_dict)
             if not parent:
                 continue
             key = (table_name, col_name, parent, "id")
             if key in existing_keys:
                 continue
             existing_keys.add(key)
-            role = (col_name[:-3] if col_name.endswith("_id") and len(col_name) > 3 else None)
+            role = (logical[:-3] if str(logical).endswith("_id") and len(str(logical)) > 3 else None)
+            hint = f"{col_name}({logical})" if used_comment and col_name != logical else col_name
             out.append({
                 "from_table": table_name,
                 "from_column": col_name,
@@ -90,9 +107,9 @@ def infer_relationships(allowed_tables, table_columns, existing_keys=None):
                 "from_columns": [col_name],
                 "to_columns": ["id"],
                 "role": role,
-                "source": "inferred",
+                "source": "inferred_comment" if used_comment else "inferred",
                 "confidence": "HIGH",
-                "reason": f"_id 추론: {col_name} → {parent}.id",
+                "reason": (f"컬럼 코멘트 기반 _id 추론: {hint} → {parent}.id" if used_comment else f"_id 추론: {col_name} → {parent}.id"),
                 "relationship_type": "N:1",
             })
     return out

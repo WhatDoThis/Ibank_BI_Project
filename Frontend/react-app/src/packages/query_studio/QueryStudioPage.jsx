@@ -6,10 +6,10 @@
  * [Main Functions]
  * ===========
  * 1. 상태: addedTables, gridColumns, filters, orderBy, groupBy, pivot, havings, joinMode, relationshipOptions, joinConditions, joinTypes, joinOrderData, resultData, explanation, pagination. SQL 문자열은 빌더 상태로부터 useMemo(workspaceSql)로 항상 최신 반영. 실행 성공 시 lastSuccessWorkspaceRef 스냅샷, 실패 시 빌더·결과 원상복구
- * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). listTables, describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출 (main_db만)
+ * 2. runExecuteQuery, runExplainSql, 초기화(clearAll). describeTable, tableRelationships, joinOrder, executeQuery, explainSql, saveQueryAsTable API 호출 (main_db만)
  * 3. QueryStudioPage: Sidebar, MainArea에 props 전달. generateSQL, generateCountSQL, canAddTableSafely, validateJoinPath, getReachableTables 등 utils 연동
  * 4. /me project_info_id 변경(헤더 프로젝트 전환): resetBuilderState·테이블 재로드·안내 토스트
- * 5. 탭 복귀(visibility)·참여 프로젝트 목록 갱신(nonce): 테이블·매핑 반영을 위해 listTables 재호출(빌더 상태 유지)
+ * 5. 참여 프로젝트 목록 갱신(nonce): 테이블 목록만 loadTables(빌더·실행 결과 유지)
  *
  * [Dependencies]
  * =========
@@ -18,12 +18,19 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './queryStudio.css'
-import { listTables, describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/query_studio/api/queryStudioClient.js'
+import { describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/query_studio/api/queryStudioClient.js'
+import { getTableRelationshipsMode } from '@/shared/config/api.js'
 import { useQueryStudioData } from './hooks/useQueryStudioData'
-import { generateSQL, generateCountSQL, generateDistinctPivotSQL } from './utils/sqlBuilder'
-import { canAddTableByColumn, findIntermediateParent } from './utils/joinRules'
+import {
+  generateSQL,
+  generateCountSQL,
+  generateDistinctPivotSQL,
+  getResultColumnKey,
+  buildSaveTableColumnPlan,
+  buildSaveTableMaterializedSelect,
+} from './utils/sqlBuilder'
+import { findAttachPlan } from './utils/joinRules'
 import { canAddTableSafely, validateJoinPath, getReachableTables } from './utils/safetyCheck'
-import { AGG_FUNCTIONS } from './utils/constants'
 import Sidebar from './components/Sidebar'
 import MainArea from './components/MainArea'
 import { PageHeader } from '@/app/layout/PageHeader.jsx'
@@ -48,6 +55,37 @@ function getOversizedTablesForJoin(newTableNames, tablesList, thresholdBytes) {
     })
   }
   return out
+}
+
+/** GET table-relationships 응답 relationships[] → relationshipOptions 맵 */
+function buildRelationshipOptionsFromRels(rels) {
+  const opts = {}
+  const seen = new Set()
+  for (const r of rels || []) {
+    const fromTable = r.from_table
+    const toTable = r.to_table
+    const prevCol = r.from_column
+    const currCol = r.to_column
+    if (prevCol === 'id' && currCol === 'id') continue
+    const push = (key, prev, curr) => {
+      const optKey = `${key}::${prev}::${curr}`
+      if (seen.has(optKey)) return
+      seen.add(optKey)
+      if (!opts[key]) opts[key] = []
+      opts[key].push({
+        prevColumn: prev,
+        currColumn: curr,
+        confidence: r.confidence,
+        reason: r.reason,
+        relationship_type: r.relationship_type,
+        role: r.role,
+        source: r.source,
+      })
+    }
+    push(`${fromTable}||${toTable}`, prevCol, currCol)
+    push(`${toTable}||${fromTable}`, currCol, prevCol)
+  }
+  return opts
 }
 
 // 1.
@@ -121,7 +159,7 @@ export default function QueryStudioPage() {
   /** 선택된 컬럼 기준: 테이블별 컬럼 라벨 draft */
   const [columnLabelsByTableDraft, setColumnLabelsByTableDraft] = useState({}) // { tableName: { columnName: label } }
   const [columnLabelsSaving, setColumnLabelsSaving] = useState(false)
-  const [joinMode, setJoinMode] = useState('all') // 'fk' | 'column' | 'all'
+  const [joinMode, setJoinMode] = useState(() => getTableRelationshipsMode()) // config: frontend.table_relationships_mode (예: all)
   const [relationshipOptions, setRelationshipOptions] = useState({}) // { key: [ { prevColumn, currColumn, confidence?, reason? } ] }
   const [joinConditions, setJoinConditions] = useState({}) // { key: [ { prevColumn, currColumn }, ... ] } 복합 조건
   const [joinTypes, setJoinTypes] = useState({}) // { key: 'LEFT'|'INNER'|'RIGHT' }
@@ -132,6 +170,8 @@ export default function QueryStudioPage() {
 
   const lastSuccessWorkspaceRef = useRef(null)
   const largeJoinProceedRef = useRef(null)
+  /** table-relationships 병렬 요청 시 마지막 응답만 반영 */
+  const relationshipFetchGenRef = useRef(0)
 
   const tableRelationships = useMemo(() => {
     const resolved = {}
@@ -207,6 +247,19 @@ export default function QueryStudioPage() {
     pivotRowAggs,
   ])
 
+  const loadRelationshipOptions = useCallback(() => {
+    const gen = ++relationshipFetchGenRef.current
+    return fetchTableRelationships(joinMode)
+      .then((relData) => {
+        if (gen !== relationshipFetchGenRef.current) return
+        setRelationshipOptions(buildRelationshipOptionsFromRels(relData?.relationships || []))
+      })
+      .catch(() => {
+        if (gen !== relationshipFetchGenRef.current) return
+        setRelationshipOptions({})
+      })
+  }, [joinMode])
+
   useEffect(() => {
     let cancelled = false
     let toastTimeout = null
@@ -231,41 +284,8 @@ export default function QueryStudioPage() {
 
   useEffect(() => {
     if (!tables.length) return
-    let cancelled = false
-    fetchTableRelationships(joinMode)
-      .then((relData) => {
-        if (cancelled) return
-        const rels = relData?.relationships || []
-        const opts = {}
-        const seen = new Set()
-        rels.forEach((r) => {
-          const fromTable = r.from_table
-          const toTable = r.to_table
-          const prevCol = r.from_column
-          const currCol = r.to_column
-          if (prevCol === 'id' && currCol === 'id') return
-          const push = (key, prev, curr) => {
-            const optKey = `${key}::${prev}::${curr}`
-            if (seen.has(optKey)) return
-            seen.add(optKey)
-            if (!opts[key]) opts[key] = []
-            opts[key].push({
-              prevColumn: prev,
-              currColumn: curr,
-              confidence: r.confidence,
-              reason: r.reason,
-              relationship_type: r.relationship_type,
-              role: r.role
-            })
-          }
-          push(`${fromTable}||${toTable}`, prevCol, currCol)
-          push(`${toTable}||${fromTable}`, currCol, prevCol)
-        })
-        setRelationshipOptions(opts)
-      })
-      .catch(() => setRelationshipOptions({}))
-    return () => { cancelled = true }
-  }, [joinMode, tables])
+    void loadRelationshipOptions()
+  }, [joinMode, tables, loadRelationshipOptions])
 
   useEffect(() => {
     if (addedTables.length < 2) {
@@ -377,7 +397,6 @@ export default function QueryStudioPage() {
   const { me, participatingProjectsNonce } = useAuth()
   const prevProjectIdRef = useRef(undefined)
   const participatingProjectsNonceRef = useRef(null)
-  const prevVisibilityRef = useRef(typeof document !== 'undefined' ? document.visibilityState : 'visible')
 
   useEffect(() => {
     if (me == null) return
@@ -436,32 +455,6 @@ export default function QueryStudioPage() {
     }
   }, [participatingProjectsNonce, loadHealth, loadTables, setDbStatus])
 
-  /** 다른 탭(관리 화면 등)에서 돌아왔을 때 매핑·테이블 목록 반영 */
-  useEffect(() => {
-    let cancelled = false
-    const onVisibility = () => {
-      const next = document.visibilityState
-      const wasHidden = prevVisibilityRef.current === 'hidden'
-      prevVisibilityRef.current = next
-      if (next !== 'visible' || !wasHidden) return
-      ;(async () => {
-        await loadHealth()
-        const res = await loadTables((msg) => {
-          if (!cancelled) setToast({ type: 'error', msg })
-        })
-        if (cancelled) return
-        if (res.ok === false && res.error) {
-          setDbStatus((prev) => (prev.ok === null ? { ok: false, message: 'DB 연결 안됨' } : prev))
-        }
-      })()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      cancelled = true
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [loadHealth, loadTables, setDbStatus])
-
   const syncAggFuncs = useCallback((cols, gb) => {
     if (!gb || gb.length === 0) {
       return cols.map((c) => ({ ...c, aggFunc: null }))
@@ -484,23 +477,14 @@ export default function QueryStudioPage() {
       let intermediateParent = null
       if (tableAlreadyAdded) {
         newAddedTables = addedTables
-      } else if (canAddTableByColumn(addedTables, columnInfo.table, relationshipOptions)) {
-        newAddedTables = [...addedTables, columnInfo.table]
       } else {
-        const lastTable = addedTables[addedTables.length - 1]
-        intermediateParent = findIntermediateParent(lastTable, columnInfo.table, relationshipOptions)
-        if (intermediateParent) {
-          // 중간 부모가 이미 경로에 있으면 끼우지 않음 → 순환 참조 방지 (A, B 넣은 뒤 C 넣을 때 A 다시 넣지 않음)
-          if (addedTables.includes(intermediateParent)) {
-            newAddedTables = [...addedTables, columnInfo.table]
-            intermediateParent = null
-          } else {
-            newAddedTables = [...addedTables, intermediateParent, columnInfo.table]
-          }
-        } else {
+        const plan = findAttachPlan(addedTables, columnInfo.table, relationshipOptions)
+        if (!plan) {
           setShowJoinImpossibleModal(true)
           return
         }
+        newAddedTables = plan.newAddedTables
+        intermediateParent = plan.intermediateParent
       }
       if (!tableAlreadyAdded) {
         const safetyCheck = canAddTableSafely(
@@ -546,6 +530,11 @@ export default function QueryStudioPage() {
                 type: columnInfo.type,
                 aggFunc,
                 label: columnInfo.label ?? columnInfo.column,
+                ...(columnInfo.logical_key || columnInfo.outputKey
+                  ? { outputKey: String(columnInfo.logical_key || columnInfo.outputKey).trim() }
+                  : {}),
+                ...(columnInfo.source_table ? { sourceTable: columnInfo.source_table } : {}),
+                ...(columnInfo.source_column ? { sourceColumn: columnInfo.source_column } : {}),
               },
             ],
             groupBy
@@ -557,6 +546,7 @@ export default function QueryStudioPage() {
         } else {
           showToast('success', `${columnInfo.column} 컬럼이 추가되었습니다`)
         }
+        if (!tableAlreadyAdded) void loadRelationshipOptions()
       }
 
       if (!tableAlreadyAdded && oversized.length > 0) {
@@ -566,7 +556,7 @@ export default function QueryStudioPage() {
       }
       proceed()
     },
-    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables]
+    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables, loadRelationshipOptions]
   )
 
   const addTableColumns = useCallback(
@@ -587,22 +577,14 @@ export default function QueryStudioPage() {
 
       if (tableAlreadyAdded) {
         newAddedTables = addedTables
-      } else if (canAddTableByColumn(addedTables, tableName, relationshipOptions)) {
-        newAddedTables = [...addedTables, tableName]
       } else {
-        const lastTable = addedTables[addedTables.length - 1]
-        intermediateParent = findIntermediateParent(lastTable, tableName, relationshipOptions)
-        if (intermediateParent) {
-          if (addedTables.includes(intermediateParent)) {
-            newAddedTables = [...addedTables, tableName]
-            intermediateParent = null
-          } else {
-            newAddedTables = [...addedTables, intermediateParent, tableName]
-          }
-        } else {
+        const plan = findAttachPlan(addedTables, tableName, relationshipOptions)
+        if (!plan) {
           setShowJoinImpossibleModal(true)
           return
         }
+        newAddedTables = plan.newAddedTables
+        intermediateParent = plan.intermediateParent
       }
 
       if (!tableAlreadyAdded) {
@@ -641,6 +623,9 @@ export default function QueryStudioPage() {
             type: c.type,
             aggFunc,
             label: c.label ?? c.name,
+            ...(c.logical_key ? { outputKey: String(c.logical_key).trim() } : {}),
+            ...(c.source_table ? { sourceTable: c.source_table } : {}),
+            ...(c.source_column ? { sourceColumn: c.source_column } : {}),
           }
         })
 
@@ -654,6 +639,7 @@ export default function QueryStudioPage() {
         if (intermediateParent && !tableAlreadyAdded) {
           showToast('success', `'${intermediateParent}' 테이블을 거쳐 '${tableName}'를 추가했습니다`)
         }
+        if (!tableAlreadyAdded) void loadRelationshipOptions()
       }
 
       if (!tableAlreadyAdded && oversized.length > 0) {
@@ -663,7 +649,7 @@ export default function QueryStudioPage() {
       }
       proceed()
     },
-    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables]
+    [gridColumns, addedTables, groupBy, syncAggFuncs, showToast, relationshipOptions, tables, loadRelationshipOptions]
   )
 
   const runExecuteQuery = useCallback(async () => {
@@ -1016,7 +1002,9 @@ export default function QueryStudioPage() {
         showToast('warning', '⏳ 피벗 값을 조회 중...')
         const res = await apiExecuteQuery(sql)
         const data = res.data || []
-        const values = data.map((row) => row[`${alias}.${column}`] ?? row[column] ?? row[Object.keys(row)[0]]).filter((v) => v != null)
+        const pivotCol = { table, column, alias }
+        const rk = getResultColumnKey(pivotCol, [], dateGranularity)
+        const values = data.map((row) => row[rk] ?? row[`${alias}.${column}`] ?? row[column] ?? row[Object.keys(row)[0]]).filter((v) => v != null)
         if (values.length === 0) {
           showToast('error', '피벗 값을 찾을 수 없습니다')
           return
@@ -1123,7 +1111,28 @@ export default function QueryStudioPage() {
     }
     setSaveAsTableSubmitting(true)
     try {
-      const res = await saveQueryAsTable(name, workspaceSql)
+      const saveOpts = {
+        groupBy,
+        dateGranularity,
+        havings,
+        pivot,
+        pivotRowAggs,
+        joinConfigs,
+        joinOrder: joinOrderData?.join_order,
+      }
+      const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, saveOpts)
+      const sqlForSave = generateSQL(
+        gridColumns,
+        addedTables,
+        filters,
+        orderBy,
+        currentPage,
+        pageSize,
+        tableRelationships,
+        { ...saveOpts, saveAsTableSelectKeys: innerKeys }
+      )
+      const materializedSql = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
+      const res = await saveQueryAsTable(name, materializedSql, column_comment_hints)
       setShowSaveAsTableModal(false)
       setSaveAsTableName('')
       showToast('success', res.message || '저장이 대기열에 등록되었습니다. 백그라운드에서 처리됩니다.')
@@ -1156,7 +1165,24 @@ export default function QueryStudioPage() {
     } finally {
       setSaveAsTableSubmitting(false)
     }
-  }, [saveAsTableName, workspaceSql, showToast])
+  }, [
+    saveAsTableName,
+    showToast,
+    gridColumns,
+    addedTables,
+    filters,
+    orderBy,
+    currentPage,
+    pageSize,
+    tableRelationships,
+    groupBy,
+    dateGranularity,
+    havings,
+    pivot,
+    pivotRowAggs,
+    joinConfigs,
+    joinOrderData,
+  ])
 
   const clearAll = useCallback(() => {
     resetBuilderState('success', '초기화되었습니다')

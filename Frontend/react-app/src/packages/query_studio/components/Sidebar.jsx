@@ -74,7 +74,18 @@ export default function Sidebar({
 
   // 6.
   function onColumnDragStart(e, tableName, column) {
-    e.dataTransfer.setData('application/json', JSON.stringify({ table: tableName, column: column.name, type: column.type, label: column.label }))
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        table: tableName,
+        column: column.name,
+        type: column.type,
+        label: column.label,
+        ...(column.logical_key ? { logical_key: column.logical_key } : {}),
+        ...(column.source_table ? { source_table: column.source_table } : {}),
+        ...(column.source_column ? { source_column: column.source_column } : {}),
+      })
+    )
     e.dataTransfer.effectAllowed = 'copy'
     e.currentTarget.classList.add('dragging')
   }
@@ -82,7 +93,14 @@ export default function Sidebar({
   // 7.
   function onTableDragStart(e, tableRow) {
     const cols = tableRow.columns || []
-    const columns = cols.map((c) => ({ name: c.name, type: c.type, label: c.label }))
+    const columns = cols.map((c) => ({
+      name: c.name,
+      type: c.type,
+      label: c.label,
+      ...(c.logical_key ? { logical_key: c.logical_key } : {}),
+      ...(c.source_table ? { source_table: c.source_table } : {}),
+      ...(c.source_column ? { source_column: c.source_column } : {}),
+    }))
     e.dataTransfer.setData(
       'application/json',
       JSON.stringify({ dragKind: 'table', table: tableRow.table_name, columns })

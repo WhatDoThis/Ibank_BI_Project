@@ -969,12 +969,6 @@
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.join-conditions-pair__rel-type {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--color-action-primary);
-  margin-right: 4px;
-}
 .join-conditions-pair__join-type {
   padding: 4px 8px;
   font-size: var(--font-size-hint);

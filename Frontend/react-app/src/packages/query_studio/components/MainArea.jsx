@@ -5,7 +5,7 @@
  *
  * [Main Functions]
  * ===========
- * 1. isGroupByColumn, joinOptionLabel, confidenceBadge, getColumnDisplayName (헬퍼)
+ * 1. isGroupByColumn, joinOptionLabel, getColumnDisplayName (헬퍼)
  * 2. MainArea: gridColumns, addedTables, joinOrder, relationshipOptions, joinConditions, joinTypes, resultData, executedSql, explanation, pagination 등 props. 테이블 관계도 모달에 관계 트리·Mermaid·JOIN 조건 통합.
  *
  * [Dependencies]
@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
+import { getResultColumnKey } from '../utils/sqlBuilder'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
 import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relationshipDiagram'
 
@@ -36,15 +37,7 @@ const JOIN_TYPE_OPTIONS = [
   { value: 'RIGHT', label: 'RIGHT JOIN' }
 ]
 
-// 3.
-function confidenceBadge(confidence) {
-  if (confidence === 'HIGH') return { char: '🟢', title: '높음 (FK)' }
-  if (confidence === 'MEDIUM') return { char: '🟡', title: '중간 (동일 컬럼·타입)' }
-  if (confidence === 'LOW') return { char: '🔴', title: '낮음' }
-  return { char: '⚪', title: '' }
-}
-
-// 4. 라벨 우선, 없으면 컬럼명. 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시
+// 3. 라벨 우선, 없으면 컬럼명. 같은 이름 컬럼이 여러 개 있으면 테이블(alias)로 구분해 표시
 function getColumnDisplayName(col, gridColumns) {
   if (!col) return ''
   const g = gridColumns?.find((c) => c.table === col.table && c.column === col.column)
@@ -244,11 +237,36 @@ export default function MainArea({
     return getColumnDisplayName(c, gridColumns)
   }
 
-  const joinPairs = joinOrder && joinOrder.length >= 1
-    ? joinOrder.filter((s) => s.from_table).map((s) => ({ prevTable: s.from_table, currTable: s.table || s.to_table }))
-    : (addedTables.length >= 2
-        ? addedTables.slice(0, -1).map((prev, i) => ({ prevTable: prev, currTable: addedTables[i + 1] }))
-        : [])
+  const joinPairs = (() => {
+    if (joinOrder?.some((s) => s && s.from_table)) {
+      return joinOrder.filter((s) => s.from_table).map((s) => ({ prevTable: s.from_table, currTable: s.table || s.to_table }))
+    }
+    if (addedTables.length < 2) return []
+    const stepByTable = {}
+    ;(joinOrder || []).forEach((s) => {
+      if (s && s.table) stepByTable[s.table] = s
+    })
+    const pairs = []
+    for (let i = 1; i < addedTables.length; i++) {
+      const currTable = addedTables[i]
+      const step = stepByTable[currTable]
+      let prevTable = step?.from_table
+      if (!prevTable) {
+        for (let j = i - 1; j >= 0; j--) {
+          const p = addedTables[j]
+          const k1 = `${p}||${currTable}`
+          const k2 = `${currTable}||${p}`
+          if ((relationshipOptions[k1] || []).length || (relationshipOptions[k2] || []).length) {
+            prevTable = p
+            break
+          }
+        }
+      }
+      if (!prevTable) prevTable = addedTables[i - 1]
+      pairs.push({ prevTable, currTable })
+    }
+    return pairs
+  })()
 
   const hasImpossibleJoin = joinPairs.some(({ prevTable, currTable }) => {
     const key = `${prevTable}||${currTable}`
@@ -851,11 +869,13 @@ export default function MainArea({
                   resultData.map((row, ri) => (
                     <tr key={ri}>
                       {gridColumns.map((c) => {
-                        let key = `${c.alias}.${c.column}`
-                        if (isGroupByActive && !isGroupByColumn(groupBy, c.table, c.column) && c.aggFunc) {
-                          key = `${c.aggFunc}(${c.alias}.${c.column})`
-                        }
-                        const val = row[key] ?? row[`${c.aggFunc}(${c.column})`] ?? row[c.column] ?? 'NULL'
+                        const key = getResultColumnKey(c, groupBy, dateGranularity)
+                        const val =
+                          row[key] ??
+                          row[`${c.aggFunc}(${c.alias}.${c.column})`] ??
+                          row[`${c.aggFunc}(${c.column})`] ??
+                          row[c.column] ??
+                          'NULL'
                         return <td key={key}>{String(val)}</td>
                       })}
                     </tr>
@@ -893,12 +913,35 @@ export default function MainArea({
                   resultData.map((row, ri) => (
                     <tr key={ri} className="data-row">
                       {groupBy.map((g) => {
-                        const alias = gridColumns.find((c) => c.table === g.table)?.alias
-                        const val = row[`${alias}.${g.column}`] ?? row[g.column] ?? 'NULL'
+                        const gc = gridColumns.find((c) => c.table === g.table && c.column === g.column)
+                        const alias = gc?.alias || gridColumns.find((c) => c.table === g.table)?.alias
+                        const gCol = {
+                          table: g.table,
+                          column: g.column,
+                          alias: alias || 't1',
+                          outputKey: gc?.outputKey,
+                        }
+                        const val =
+                          row[getResultColumnKey(gCol, groupBy, dateGranularity)] ??
+                          row[`${alias}.${g.column}`] ??
+                          row[g.column] ??
+                          'NULL'
                         return <td key={`${g.table}.${g.column}`}>{val}</td>
                       })}
                       {pivotRowAggs.map((agg) => {
-                        const val = row[`${agg.aggFunc}(${agg.column})`] ?? 'NULL'
+                        const gc = gridColumns.find((c) => c.table === agg.table && c.column === agg.column)
+                        const aggAlias = gc?.alias
+                        const aggCol = {
+                          table: agg.table,
+                          column: agg.column,
+                          alias: aggAlias || 't1',
+                          aggFunc: agg.aggFunc,
+                          outputKey: gc?.outputKey,
+                        }
+                        const val =
+                          row[getResultColumnKey(aggCol, groupBy, dateGranularity)] ??
+                          row[`${agg.aggFunc}(${agg.column})`] ??
+                          'NULL'
                         return <td key={`${agg.table}.${agg.column}.${agg.aggFunc}`}>{val}</td>
                       })}
                       {pivot.values.map((v) => (

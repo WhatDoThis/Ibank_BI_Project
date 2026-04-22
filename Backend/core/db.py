@@ -630,10 +630,22 @@ def get_all_tables_columns_with_types(table_names, project_info_id: int):
         placeholders = ", ".join(["%s"] * len(raw_names))
         cur.execute(
             """
-            SELECT table_name, column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name IN (""" + placeholders + """)
-            ORDER BY table_name, ordinal_position
+            SELECT c.table_name, c.column_name, c.data_type,
+                   (
+                       SELECT pg_catalog.col_description(a.attrelid, a.attnum)
+                       FROM pg_catalog.pg_attribute a
+                       JOIN pg_catalog.pg_class cl ON a.attrelid = cl.oid
+                       JOIN pg_catalog.pg_namespace ns ON cl.relnamespace = ns.oid
+                       WHERE ns.nspname = c.table_schema
+                         AND cl.relname = c.table_name
+                         AND a.attname::text = c.column_name
+                         AND a.attnum > 0
+                         AND NOT a.attisdropped
+                       LIMIT 1
+                   ) AS column_comment
+            FROM information_schema.columns c
+            WHERE c.table_schema = %s AND c.table_name IN (""" + placeholders + """)
+            ORDER BY c.table_name, c.ordinal_position
             """,
             (schema,) + tuple(raw_names),
         )
@@ -642,7 +654,11 @@ def get_all_tables_columns_with_types(table_names, project_info_id: int):
             t = row["table_name"]
             if t not in out:
                 out[t] = []
-            out[t].append({"column_name": row["column_name"], "data_type": row["data_type"]})
+            cm = row.get("column_comment")
+            entry = {"column_name": row["column_name"], "data_type": row["data_type"]}
+            if cm is not None and str(cm).strip():
+                entry["column_comment"] = str(cm).strip()
+            out[t].append(entry)
         for t in raw_names:
             if t not in out:
                 out[t] = []

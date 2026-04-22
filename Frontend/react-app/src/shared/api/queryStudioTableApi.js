@@ -9,7 +9,6 @@
  * - listTables(opts?: { mappingUsage?: 'query_studio'|'widgetboard' })
  * - describeTable(tableName, opts?: { mappingUsage?: 'query_studio'|'widgetboard' })
  * - executeQuery(query) — main_db만
- * - queryStats(query)
  *
  * [Dependencies]
  * =========
@@ -38,9 +37,4 @@ export async function describeTable(tableName, opts = {}) {
 // 3.
 export async function executeQuery(query) {
   return request('POST', '/api/execute-query', { query })
-}
-
-// 4.
-export async function queryStats(query) {
-  return request('POST', '/api/query-stats', { query })
 }

@@ -7,18 +7,28 @@
  * 1. 백엔드(report.py): FK만 조인 관계로 내려줌. 컬럼/타입 기반에서 _id 컬럼은
  *    직접 A-B 관계로 내리지 않음 → 부모 테이블 없으면/있어도 _id로 두 테이블 직접 조인 불가.
  * 2. 프론트(joinRules.js): relationshipOptions에 있는 쌍만 "조인 가능".
- *    - canAddTableByColumn: 관계 없으면 테이블 자동 추가(자동 join) 안 함.
+ *    - findAttachPlan: 경로 내 임의 테이블과 직접·공통부모(1단)로 붙을 수 없으면 자동 추가 불가.
  *    - isTableAvailable: 관계 없으면 사이드바/드롭다운 리스트에 안 보이게.
  *
  * [테스트 대상]
- * - canAddTableByColumn(addedTables, newTable, relationshipOptions)
+ * - findAttachPlan(addedTables, newTable, relationshipOptions)
  * - isTableAvailable(tableName, addedTables, tableRelationships)
  */
 import { describe, it, expect } from 'vitest'
-import { canAddTableByColumn, findIntermediateParent, isTableAvailable, isTableAvailableOrViaParent } from '../utils/joinRules'
+import {
+  findAttachPlan,
+  findIntermediateParent,
+  isTableAvailable,
+  isTableAvailableOrViaParent,
+} from '../utils/joinRules'
+
+/** findAttachPlan 성공 여부 (= 컬럼 추가 시 해당 테이블 자동 경로 추가 가능) */
+function canAddTableByColumn(addedTables, newTable, relationshipOptions) {
+  return findAttachPlan(addedTables, newTable, relationshipOptions) != null
+}
 
 describe('조인 규칙 (join rules)', () => {
-  describe('canAddTableByColumn - 컬럼 추가 시 테이블 자동 추가 허용 여부', () => {
+  describe('findAttachPlan 기반 — 컬럼 추가 시 테이블 자동 추가 허용 여부', () => {
     it('첫 테이블은 무조건 허용', () => {
       expect(canAddTableByColumn([], 'workflow', {})).toBe(true)
       expect(canAddTableByColumn([], 'campaigns', {})).toBe(true)
@@ -44,14 +54,25 @@ describe('조인 규칙 (join rules)', () => {
       expect(canAddTableByColumn(['campaigns'], 'workflows', {})).toBe(false)
     })
 
-    it('부모 기준만 있을 때: workflow->campaigns/channels 허용, campaigns->channels 거부', () => {
+    it('부모 기준만 있을 때: workflow 기준·campaigns 기준 모두 channels 공통부모(workflow)로 허용', () => {
       const onlyParentBased = {
         'workflow||campaigns': [{ prevColumn: 'id', currColumn: 'workflow_id' }],
         'workflow||channels': [{ prevColumn: 'id', currColumn: 'workflow_id' }]
       }
       expect(canAddTableByColumn(['workflow'], 'campaigns', onlyParentBased)).toBe(true)
       expect(canAddTableByColumn(['workflow'], 'channels', onlyParentBased)).toBe(true)
-      expect(canAddTableByColumn(['campaigns'], 'channels', onlyParentBased)).toBe(false)
+      expect(canAddTableByColumn(['campaigns'], 'channels', onlyParentBased)).toBe(true)
+    })
+
+    it('findAttachPlan: 직접 엣지가 여러 개면 confidence 높은 쪽 기준으로 붙음', () => {
+      const opts = {
+        'A||X': [{ prevColumn: 'id', currColumn: 'a_id', confidence: 'LOW' }],
+        'B||X': [{ prevColumn: 'id', currColumn: 'b_id', confidence: 'HIGH' }],
+      }
+      const plan = findAttachPlan(['A', 'B'], 'X', opts)
+      expect(plan).not.toBeNull()
+      expect(plan.newAddedTables).toEqual(['A', 'B', 'X'])
+      expect(plan.intermediateParent).toBe(null)
     })
   })
 
@@ -87,14 +108,22 @@ describe('조인 규칙 (join rules)', () => {
       expect(isTableAvailable('workflow', ['workflow'], {})).toBe(true)
     })
 
-    it('tableRelationships에 last->테이블 있으면 노출', () => {
+    it('tableRelationships에 경로 내 임의 테이블→대상 있으면 노출', () => {
       const rel = { workflow: { campaigns: { prevColumn: 'id', currColumn: 'workflow_id' } } }
       expect(isTableAvailable('campaigns', ['workflow'], rel)).toBe(true)
     })
 
-    it('tableRelationships에 테이블->last 있으면 노출', () => {
+    it('tableRelationships에 대상→경로 내 테이블 있으면 노출', () => {
       const rel = { campaigns: { workflow: { prevColumn: 'workflow_id', currColumn: 'id' } } }
       expect(isTableAvailable('workflow', ['campaigns'], rel)).toBe(true)
+    })
+
+    it('마지막이 아닌 앞쪽 테이블과만 엣지 있어도 노출', () => {
+      const rel = {
+        A: { X: { prevColumn: 'id', currColumn: 'a_id' } },
+        B: {},
+      }
+      expect(isTableAvailable('X', ['A', 'B'], rel)).toBe(true)
     })
 
     it('관계 없으면 노출 안 함 (리스트에서 제외)', () => {

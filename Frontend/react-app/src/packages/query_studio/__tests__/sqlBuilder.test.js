@@ -8,7 +8,14 @@
  * - opts 형식: { joinConfigs, dateGranularity } 전달 시 정상 동작
  */
 import { describe, it, expect } from 'vitest'
-import { generateDistinctPivotSQL } from '../utils/sqlBuilder'
+import {
+  generateDistinctPivotSQL,
+  generateSQL,
+  getResultColumnKey,
+  buildSaveTableColumnPlan,
+  buildSaveTableMaterializedSelect,
+  savePhysicalColumnName,
+} from '../utils/sqlBuilder'
 
 const baseGridColumns = [
   { table: 'ibank_1', column: 'campaign_label', alias: 't1', type: 'varchar' },
@@ -17,6 +24,129 @@ const baseGridColumns = [
 const addedTables = ['ibank_1']
 const filters = []
 const tableRelationships = {}
+
+describe('generateSQL · getResultColumnKey (물리테이블_컬럼)', () => {
+  it('모든 컬럼은 AS "테이블명_컬럼명" 이고 id는 결과 키가 campaigns_id', () => {
+    const grid = [{ table: 'campaigns', column: 'id', alias: 't1', type: 'bigint' }]
+    const sql = generateSQL(grid, ['campaigns'], [], [], 1, 100, { campaigns: {} }, { joinConfigs: {} })
+    expect(sql).toContain('"campaigns_id"')
+    expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_id')
+  })
+  it('gridColumn.outputKey 가 있으면 SELECT·getResultColumnKey 가 그 키를 씀', () => {
+    const grid = [{ table: 'test_report_x', column: 'col_1', alias: 't1', type: 'bigint', outputKey: 'campaigns_id' }]
+    const sql = generateSQL(grid, ['test_report_x'], [], [], 1, 100, { test_report_x: {} }, { joinConfigs: {} })
+    expect(sql).toContain('"campaigns_id"')
+    expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_id')
+  })
+
+  it('test_report_* col_n 은 outputKey 없이 label(코멘트 기반)만 있어도 AS·키가 논리명', () => {
+    const grid = [{ table: 'test_report_test_5', column: 'col_1', alias: 't1', type: 'bigint', label: 'campaigns_id' }]
+    const sql = generateSQL(grid, ['test_report_test_5'], [], [], 1, 100, { test_report_test_5: {} }, { joinConfigs: {} })
+    expect(sql).toContain('t1."col_1" AS "campaigns_id"')
+    expect(sql).not.toContain('test_report_test_5_col_1')
+    expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_id')
+  })
+
+  it('비 id 컬럼도 동일 규칙으로 별칭·키가 맞음', () => {
+    const grid = [{ table: 'campaigns', column: 'label', alias: 't1', type: 'varchar' }]
+    const sql = generateSQL(grid, ['campaigns'], [], [], 1, 100, { campaigns: {} }, { joinConfigs: {} })
+    expect(sql).toContain('"campaigns_label"')
+    expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_label')
+  })
+
+  it('join_order 없을 때: 쿠폰–배송 직접 엣지 없어도 배송은 캠페인(t1)에 붙음', () => {
+    const grid = [
+      { table: 'campaigns', column: 'id', alias: 't1', type: 'bigint' },
+      { table: 'test_coupons_data', column: 'coupon_id', alias: 't2', type: 'varchar' },
+      { table: 'test_deliveries_data', column: 'id', alias: 't3', type: 'bigint' },
+    ]
+    const rel = {
+      campaigns: {
+        test_coupons_data: { prevColumn: 'id', currColumn: 'campaign_id' },
+        test_deliveries_data: { prevColumn: 'id', currColumn: 'campaign_id' },
+      },
+      test_coupons_data: {
+        campaigns: { prevColumn: 'campaign_id', currColumn: 'id' },
+      },
+      test_deliveries_data: {
+        campaigns: { prevColumn: 'campaign_id', currColumn: 'id' },
+      },
+    }
+    const sql = generateSQL(
+      grid,
+      ['campaigns', 'test_coupons_data', 'test_deliveries_data'],
+      [],
+      [],
+      1,
+      100,
+      rel,
+      { joinConfigs: {} }
+    )
+    expect(sql).toMatch(/JOIN "test_deliveries_data" AS t3 ON t1\."id" = t3\."campaign_id"/)
+  })
+})
+
+describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
+  it('저장용 물리 컬럼명·메타 행 순서가 inner SELECT 키와 맞음', () => {
+    const grid = [
+      { table: 'campaigns', column: 'id', alias: 't1', type: 'bigint' },
+      { table: 'campaigns', column: 'label', alias: 't1', type: 'varchar' },
+    ]
+    const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(grid, [], {}, {})
+    expect(innerKeys).toEqual(['campaigns_id', 'campaigns_label'])
+    expect(column_comment_hints[0].physical_name).toBe(savePhysicalColumnName(1))
+    expect(column_comment_hints[0].logical_key).toBe('campaigns_id')
+    const sqlForSave = generateSQL(grid, ['campaigns'], [], [], 1, 100, { campaigns: {} }, {
+      joinConfigs: {},
+      saveAsTableSelectKeys: innerKeys,
+    })
+    const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
+    expect(wrapped).toContain('_qs_inner."campaigns_id" AS "col_1"')
+    expect(wrapped).toContain('_qs_inner."campaigns_label" AS "col_2"')
+  })
+
+  it('2차 저장: 1차 test_report 의 col_n + label 로 inner 키가 논리명이면 래핑·COMMENT 힌트 일치', () => {
+    const grid = [{ table: 'test_report_test_5', column: 'col_1', alias: 't1', type: 'bigint', label: 'campaigns_id' }]
+    const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(grid, [], {}, {})
+    expect(innerKeys).toEqual(['campaigns_id'])
+    expect(column_comment_hints[0].logical_key).toBe('campaigns_id')
+    const sqlForSave = generateSQL(grid, ['test_report_test_5'], [], [], 1, 100, { test_report_test_5: {} }, {
+      joinConfigs: {},
+      saveAsTableSelectKeys: innerKeys,
+    })
+    const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
+    expect(wrapped).toContain('_qs_inner."campaigns_id" AS "col_1"')
+  })
+
+  it('같은 결과 별칭이 겹치면 innerKeys 는 _1 접미사, COMMENT 는 각각 원본 테이블_컬럼', () => {
+    const grid = [
+      { table: 'campaigns', column: 'id', alias: 't1', outputKey: 'dup', type: 'bigint' },
+      { table: 'labels', column: 'id', alias: 't2', outputKey: 'dup', type: 'bigint' },
+    ]
+    const rel = { campaigns: {}, labels: {} }
+    const joinCfg = { 'campaigns||labels': { joinType: 'LEFT', conditions: [{ prevColumn: 'id', currColumn: 'id' }] } }
+    const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(grid, [], {}, {})
+    expect(innerKeys).toEqual(['dup', 'dup_1'])
+    expect(column_comment_hints[0].logical_key).toBe('campaigns_id')
+    expect(column_comment_hints[1].logical_key).toBe('labels_id')
+    const sqlForSave = generateSQL(grid, ['campaigns', 'labels'], [], [], 1, 100, rel, {
+      joinConfigs: joinCfg,
+      saveAsTableSelectKeys: innerKeys,
+    })
+    const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
+    expect(wrapped).toContain('_qs_inner."dup" AS "col_1"')
+    expect(wrapped).toContain('_qs_inner."dup_1" AS "col_2"')
+  })
+
+  it('피벗 저장 시 column_comment_hints.logical_key 는 모두 null (PG COMMENT 미적용)', () => {
+    const grid = [{ table: 'ibank_1', column: 'status', alias: 't1', type: 'varchar', aggFunc: 'COUNT' }]
+    const groupBy = [{ table: 'ibank_1', column: 'delivery_date' }]
+    const pivot = { table: 'ibank_1', column: 'status', values: ['A', 'B'] }
+    const { column_comment_hints } = buildSaveTableColumnPlan(grid, groupBy, {}, { pivot, pivotRowAggs: [] })
+    expect(column_comment_hints.length).toBe(4)
+    expect(column_comment_hints.every((h) => h.logical_key == null)).toBe(true)
+  })
+})
 
 describe('generateDistinctPivotSQL (피벗 축 값 조회)', () => {
   it('날짜 컬럼 + dateGranularity 연(YYYY) → TO_CHAR((col)::timestamptz, YYYY) 포함', () => {
@@ -36,6 +166,7 @@ describe('generateDistinctPivotSQL (피벗 축 값 조회)', () => {
     expect(sql).not.toBeNull()
     expect(sql).toContain('::timestamptz')
     expect(sql).toContain("TO_CHAR((t1.\"delivery_date\")::timestamptz, 'YYYY')")
+    expect(sql).toContain('AS "ibank_1_delivery_date"')
     expect(sql).toMatch(/ORDER BY\s+TO_CHAR\(\(t1\."delivery_date"\)::timestamptz,\s*'YYYY'\)/i)
     expect(sql).toContain('SELECT DISTINCT')
   })
@@ -90,6 +221,7 @@ describe('generateDistinctPivotSQL (피벗 축 값 조회)', () => {
     expect(sql).not.toBeNull()
     expect(sql).not.toContain('TO_CHAR')
     expect(sql).toContain('t1."campaign_label"')
+    expect(sql).toContain('AS "ibank_1_campaign_label"')
   })
 
   it('걸린 조건(filters)이 있으면 WHERE 절에 포함', () => {

@@ -70,6 +70,10 @@ class JoinOrderRequest(BaseModel):
 class SaveQueryAsTableRequest(BaseModel):
     table_name: str = Field(..., description="생성할 테이블명 (영문/숫자/언더스코어)")
     query: str = Field(..., description="실행했던 SELECT 쿼리 (결과가 해당 테이블에 저장됨)")
+    column_comment_hints: Optional[List[dict]] = Field(
+        default=None,
+        description="저장 시 col_n에 붙일 COMMENT 힌트(physical_name, logical_key 등). 큐·워커에서만 사용.",
+    )
 
 
 # 8.

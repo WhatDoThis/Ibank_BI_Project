@@ -162,17 +162,24 @@ export function canAddTableSafely(
   }
 
   if (addedTables.length > 0 && !intermediateParent) {
-    const lastTable = addedTables[addedTables.length - 1]
-    const manyToManyCheck = detectManyToMany(lastTable, newTable, relationshipOptions)
-
-    if (manyToManyCheck.isManyToMany) {
-      return {
-        ok: false,
-        reason: 'N:N 관계는 허용되지 않습니다',
-        detail: manyToManyCheck.reason,
-        suggestion: manyToManyCheck.suggestion,
-        severity: 'error',
-        data: manyToManyCheck
+    for (const t of addedTables) {
+      const keyA = `${t}||${newTable}`
+      const keyB = `${newTable}||${t}`
+      const hasDirect = Boolean(
+        (relationshipOptions[keyA] && relationshipOptions[keyA].length > 0) ||
+          (relationshipOptions[keyB] && relationshipOptions[keyB].length > 0)
+      )
+      if (!hasDirect) continue
+      const manyToManyCheck = detectManyToMany(t, newTable, relationshipOptions)
+      if (manyToManyCheck.isManyToMany) {
+        return {
+          ok: false,
+          reason: 'N:N 관계는 허용되지 않습니다',
+          detail: manyToManyCheck.reason,
+          suggestion: manyToManyCheck.suggestion,
+          severity: 'error',
+          data: manyToManyCheck
+        }
       }
     }
   }
@@ -195,35 +202,76 @@ export function validateJoinPath(addedTables, relationshipOptions, opts = {}) {
     })
   }
 
-  const pairsToCheck = joinOrder && joinOrder.length >= 1
-    ? joinOrder.filter((s) => s.from_table).map((s) => ({ prev: s.from_table, curr: s.table || s.to_table }))
-    : addedTables.slice(0, -1).map((prev, i) => ({ prev, curr: addedTables[i + 1] }))
+  const hasUsableJoinOrder = Array.isArray(joinOrder) && joinOrder.some((s) => s && s.from_table)
 
-  for (const { prev, curr } of pairsToCheck) {
-    const key1 = `${prev}||${curr}`
-    const key2 = `${curr}||${prev}`
-
-    const hasRelation =
-      (relationshipOptions[key1] && relationshipOptions[key1].length > 0) ||
-      (relationshipOptions[key2] && relationshipOptions[key2].length > 0)
-
-    if (!hasRelation) {
-      issues.push({
-        type: 'NO_RELATIONSHIP',
-        severity: 'error',
-        message: `${prev}와 ${curr} 사이에 관계가 없습니다`,
-        data: { prev, curr }
-      })
+  /** join_order가 없을 때: 각 테이블이 앞선 테이블들 중 하나와라도 관계가 있으면 통과(공통 부모·스타 조인). */
+  function findJoinParentForValidation(i) {
+    const curr = addedTables[i]
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = addedTables[j]
+      const key1 = `${prev}||${curr}`
+      const key2 = `${curr}||${prev}`
+      if (
+        (relationshipOptions[key1] && relationshipOptions[key1].length > 0) ||
+        (relationshipOptions[key2] && relationshipOptions[key2].length > 0)
+      ) {
+        return prev
+      }
     }
+    return null
+  }
 
-    const manyToManyCheck = detectManyToMany(prev, curr, relationshipOptions)
-    if (manyToManyCheck.isManyToMany) {
-      issues.push({
-        type: 'MANY_TO_MANY',
-        severity: 'warning',
-        message: `${prev}와 ${curr}가 N:N 관계입니다`,
-        data: manyToManyCheck
-      })
+  if (hasUsableJoinOrder) {
+    const pairsToCheck = joinOrder.filter((s) => s.from_table).map((s) => ({ prev: s.from_table, curr: s.table || s.to_table }))
+    for (const { prev, curr } of pairsToCheck) {
+      const key1 = `${prev}||${curr}`
+      const key2 = `${curr}||${prev}`
+
+      const hasRelation =
+        (relationshipOptions[key1] && relationshipOptions[key1].length > 0) ||
+        (relationshipOptions[key2] && relationshipOptions[key2].length > 0)
+
+      if (!hasRelation) {
+        issues.push({
+          type: 'NO_RELATIONSHIP',
+          severity: 'error',
+          message: `${prev}와 ${curr} 사이에 관계가 없습니다`,
+          data: { prev, curr }
+        })
+      }
+
+      const manyToManyCheck = detectManyToMany(prev, curr, relationshipOptions)
+      if (manyToManyCheck.isManyToMany) {
+        issues.push({
+          type: 'MANY_TO_MANY',
+          severity: 'warning',
+          message: `${prev}와 ${curr}가 N:N 관계입니다`,
+          data: manyToManyCheck
+        })
+      }
+    }
+  } else {
+    for (let i = 1; i < addedTables.length; i++) {
+      const curr = addedTables[i]
+      const prev = findJoinParentForValidation(i)
+      if (!prev) {
+        issues.push({
+          type: 'NO_RELATIONSHIP',
+          severity: 'error',
+          message: `'${curr}'와 그보다 앞에 둔 테이블들 사이에 관계 옵션이 없습니다`,
+          data: { curr, earlierTables: addedTables.slice(0, i) }
+        })
+        continue
+      }
+      const manyToManyCheck = detectManyToMany(prev, curr, relationshipOptions)
+      if (manyToManyCheck.isManyToMany) {
+        issues.push({
+          type: 'MANY_TO_MANY',
+          severity: 'warning',
+          message: `${prev}와 ${curr}가 N:N 관계입니다`,
+          data: manyToManyCheck
+        })
+      }
     }
   }
 

@@ -1,7 +1,7 @@
 """
 Frontend.static_server.main (정적 HTTP 서버 진입점)
 ==================================================
-루트(/) 접속 시 index.html 자동 표시. /api-config.js 로 frontend.api_base_url 주입.
+루트(/) 접속 시 index.html 자동 표시. /api-config.js 로 frontend.api_base_url·table_relationships_mode 주입.
 React 빌드(static_dir=Frontend/react-app/dist) 시 SPA fallback: 미존재 경로 → index.html.
 
 [Main Functions]
@@ -48,13 +48,16 @@ if _port_val is None or _port_val == '':
     raise ValueError('Env/config/config.json 에 frontend.static_port 가 없거나 비어 있습니다.')
 PORT = int(_port_val)
 API_BASE_URL = _require_frontend('api_base_url', 'api_base_url')
+TABLE_RELATIONSHIPS_MODE = (
+    str(getattr(config.frontend, 'table_relationships_mode', None) or 'all').strip().lower() or 'all'
+)
 
 
-def _build_api_config_js(api_base_url):
-    """api-config.js 응답 본문 생성. Env/config frontend.api_base_url 과 동기화."""
+def _build_api_config_js(api_base_url, table_relationships_mode):
+    """api-config.js 응답 본문 생성. Env/config frontend.api_base_url · table_relationships_mode 와 동기화."""
     return (
-        "// Env/config frontend.api_base_url 에서 주입\n"
-        f"window.APP_CONFIG = {{ apiBaseUrl: {repr(api_base_url)} }};\n"
+        "// Env/config frontend.api_base_url · table_relationships_mode 에서 주입\n"
+        f"window.APP_CONFIG = {{ apiBaseUrl: {repr(api_base_url)}, tableRelationshipsMode: {repr(table_relationships_mode)} }};\n"
     ).encode("utf-8")
 
 
@@ -121,7 +124,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         # config.json의 frontend.api_base_url 을 프론트에 주입 (Env/config 와 동기화)
         if self.path == "/api-config.js" or self.path == "api-config.js":
-            body = _build_api_config_js(API_BASE_URL)
+            body = _build_api_config_js(API_BASE_URL, TABLE_RELATIONSHIPS_MODE)
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

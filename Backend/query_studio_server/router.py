@@ -57,7 +57,7 @@ from pathlib import Path
 
 import psycopg2
 from psycopg2 import sql as pg_sql
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import Json, RealDictCursor
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
@@ -353,8 +353,8 @@ def _resolve_table_display_label(table_name, user_data, file_data, row_meta=None
     return DEFAULT_TABLE_LABELS.get(table_name) or table_name
 
 
-def _resolve_column_display_label(table_name, column_name, user_data, file_data):
-    """유저 JSON → 파일 → 테이블별/공통 기본 → 물리명."""
+def _resolve_column_display_label(table_name, column_name, user_data, file_data, meta_row=None):
+    """유저 JSON → 파일 → 테이블별/공통 기본 → PG 컬럼 코멘트(logical_key) → 물리명."""
     uc = (user_data.get("column_labels") or {}).get(table_name, {}).get(column_name)
     if uc is not None and str(uc).strip():
         return str(uc).strip()
@@ -364,7 +364,14 @@ def _resolve_column_display_label(table_name, column_name, user_data, file_data)
     by_table = DEFAULT_COLUMN_LABELS_BY_TABLE.get(table_name, {}).get(column_name)
     if by_table:
         return by_table
-    return COMMON_COLUMN_LABELS.get(column_name) or column_name
+    cm = COMMON_COLUMN_LABELS.get(column_name)
+    if cm:
+        return cm
+    if meta_row and meta_row.get("logical_key"):
+        lk = str(meta_row["logical_key"]).strip()
+        if lk:
+            return lk
+    return column_name
 
 
 # 3.
@@ -762,12 +769,23 @@ def describe_table(
             col_type = row["data_type"]
             if row["character_maximum_length"]:
                 col_type += f"({row['character_maximum_length']})"
+            col_comment = _get_pg_column_comment(cur, schema, table_name, col_name)
+            mrow = (
+                {"logical_key": str(col_comment).strip()}
+                if col_comment and str(col_comment).strip()
+                else None
+            )
             columns.append({
                 "name": col_name,
                 "type": col_type,
                 "nullable": row["is_nullable"] == "YES",
                 "default": row["column_default"],
-                "label": _resolve_column_display_label(table_name, col_name, user_labels, file_labels),
+                "label": _resolve_column_display_label(
+                    table_name, col_name, user_labels, file_labels, meta_row=mrow if mrow else None
+                ),
+                "logical_key": (mrow.get("logical_key") if mrow else None),
+                "source_table": None,
+                "source_column": None,
             })
         return {"table_name": table_name, "columns": columns, "count": len(columns)}
     except HTTPException:
@@ -872,7 +890,7 @@ def table_relationships(
     _perm: dict = Depends(require_query_read_perm),
     conn=Depends(get_db),
     cfg=Depends(get_config),
-    mode: str = Query("fk", description="fk=FK만(문서기본), all=FK+_id추론"),
+    mode: str = Query("fk", description="fk=FK만, all=FK+_id추론+컬럼코멘트 힌트"),
 ):
     """개선된 관계 분석. mode=all은 peak_guard(설정 시)로 분당 한도·동시 계산·TTL 캐시 적용."""
     try:
@@ -1000,6 +1018,54 @@ _worker_poll_interval = 3
 _save_table_worker_last_conn_err_log = 0.0
 _save_table_worker_conn_err_interval_sec = 60
 _save_table_worker_conn_err_sleep_sec = 10
+
+def _get_pg_column_comment(cur, table_schema: str, table_name: str, column_name: str) -> str | None:
+    """pg_catalog 기준 컬럼 코멘트. 없으면 None."""
+    cur.execute(
+        """
+        SELECT pg_catalog.col_description(a.attrelid, a.attnum) AS col_description
+        FROM pg_catalog.pg_attribute a
+        JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+        JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = %s AND c.relname = %s AND a.attname = %s
+          AND a.attnum > 0 AND NOT a.attisdropped
+        """,
+        (table_schema, table_name, column_name),
+    )
+    r = cur.fetchone()
+    if not r:
+        return None
+    if isinstance(r, dict):
+        v = r.get("col_description")
+    else:
+        v = r[0]
+    return v if v is None else str(v)
+
+
+def _apply_one_saved_column_pg_comment(cur, table_schema: str, table_name: str, entry: dict) -> None:
+    """저장 컬럼에 원본 논리명(테이블_컬럼)을 COMMENT로 남김. 이미 코멘트가 있으면 건너뜀."""
+    if not isinstance(entry, dict):
+        return
+    phys = (entry.get("physical_name") or "").strip()
+    if not phys:
+        return
+    lk = (entry.get("logical_key") or "").strip()
+    st = entry.get("source_table")
+    sc = entry.get("source_column")
+    st = str(st).strip() if st is not None and str(st).strip() else ""
+    sc = str(sc).strip() if sc is not None and str(sc).strip() else ""
+    comment_text = lk if lk else (f"{st}_{sc}" if st and sc else "")
+    if not comment_text:
+        return
+    existing = _get_pg_column_comment(cur, table_schema, table_name, phys)
+    if existing is not None and str(existing).strip():
+        return
+    stmt = pg_sql.SQL("COMMENT ON COLUMN {}.{}.{} IS %s").format(
+        pg_sql.Identifier(table_schema),
+        pg_sql.Identifier(table_name),
+        pg_sql.Identifier(phys),
+    )
+    cur.execute(stmt, (comment_text,))
 
 
 # 16.
@@ -1130,6 +1196,12 @@ def _ensure_queue_table(conn):
                 "ADD COLUMN IF NOT EXISTS create_user_id INT4"
             ).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
         )
+        cur.execute(
+            pg_sql.SQL(
+                "ALTER TABLE {schema_table} "
+                "ADD COLUMN IF NOT EXISTS column_comment_hints JSONB"
+            ).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
+        )
         conn.commit()
     finally:
         cur.close()
@@ -1150,7 +1222,7 @@ def _save_table_worker():
             cur = conn_sel.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 pg_sql.SQL("""
-                    SELECT id, table_name, query, project_info_id, create_user_id
+                    SELECT id, table_name, query, project_info_id, create_user_id, column_comment_hints
                     FROM {schema_table}
                     WHERE status = 'queued'
                     ORDER BY created_at
@@ -1168,6 +1240,13 @@ def _save_table_worker():
             table_name = row["table_name"]
             query = row["query"]
             project_info_id = int(row["project_info_id"])
+            hints_raw = row.get("column_comment_hints")
+            cm_list = hints_raw
+            if isinstance(cm_list, str):
+                try:
+                    cm_list = json.loads(cm_list)
+                except json.JSONDecodeError:
+                    cm_list = None
             save_create_uid = row.get("create_user_id")
             save_create_uid = int(save_create_uid) if save_create_uid is not None else None
             cur = conn_sel.cursor(cursor_factory=RealDictCursor)
@@ -1189,6 +1268,22 @@ def _save_table_worker():
                 cur_create.execute(f"SET statement_timeout = '{timeout}s'")
                 cur_create.execute(pg_sql.SQL("CREATE TABLE {} AS ({})").format(pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)))
                 conn_create.commit()
+                if isinstance(cm_list, list) and len(cm_list) > 0:
+                    prev_ac = getattr(conn_create, "autocommit", False)
+                    conn_create.autocommit = True
+                    try:
+                        for ent in cm_list:
+                            try:
+                                _apply_one_saved_column_pg_comment(cur_create, schema, table_name, ent)
+                            except Exception as _cmt_e:
+                                logging.getLogger(__name__).warning(
+                                    "saved_table_column_comment_skip table=%s col=%s: %s",
+                                    table_name,
+                                    (ent or {}).get("physical_name") if isinstance(ent, dict) else None,
+                                    str(_cmt_e).split("\n")[0][:200],
+                                )
+                    finally:
+                        conn_create.autocommit = prev_ac
                 cur_create.close()
                 conn_create.close()
                 conn_create = None
@@ -1232,6 +1327,7 @@ def _save_table_worker():
                     detail_json={
                         "job_id": job_id,
                         "project_info_id": project_info_id,
+                        "column_comment_hint_rows": (len(cm_list) if isinstance(cm_list, list) else 0),
                     },
                     risk_tier="MED",
                 )
@@ -1353,17 +1449,22 @@ def save_query_as_table(
         if dangerous:
             return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
 
+        hints_payload = body.column_comment_hints
+        if hints_payload is not None and not isinstance(hints_payload, list):
+            return JSONResponse(status_code=400, content={"error": "column_comment_hints는 JSON 배열이어야 합니다."})
+
         _ensure_queue_table(conn)
         job_id = uuid.uuid4()
         schema = db.get_table_schema()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
+            hints_val = Json(hints_payload) if hints_payload else None
             cur.execute(
                 pg_sql.SQL("""
-                    INSERT INTO {schema_table} (id, table_name, project_info_id, query, status, create_user_id)
-                    VALUES (%s, %s, %s, %s, 'queued', %s)
+                    INSERT INTO {schema_table} (id, table_name, project_info_id, query, status, create_user_id, column_comment_hints)
+                    VALUES (%s, %s, %s, %s, 'queued', %s, %s)
                 """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
-                (str(job_id), table_name, int(project_info_id), query, save_user_id),
+                (str(job_id), table_name, int(project_info_id), query, save_user_id, hints_val),
             )
             conn.commit()
         finally:

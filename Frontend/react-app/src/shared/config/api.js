@@ -25,6 +25,12 @@ const _viteBaseStr =
 const DEFAULT_API_BASE =
   _viteBaseStr || (import.meta.env.DEV ? 'http://localhost:5001' : '');
 
+const _viteRelMode = import.meta.env.VITE_TABLE_RELATIONSHIPS_MODE;
+const _viteRelModeStr =
+  _viteRelMode != null && String(_viteRelMode).trim() && String(_viteRelMode) !== 'undefined'
+    ? String(_viteRelMode).trim().toLowerCase()
+    : '';
+
 /**
  * Backend API 기본 URL 반환.
  * - 정적 서빙 시: api-config.js(config.json 기반) 로 주입된 window.APP_CONFIG.apiBaseUrl (리눅스 운영의 정본)
@@ -37,4 +43,19 @@ export function getApiBase() {
     return window.APP_CONFIG.apiBaseUrl;
   }
   return DEFAULT_API_BASE;
+}
+
+/**
+ * GET /api/table-relationships 의 mode 쿼리 값.
+ * - 정적 서빙: api-config.js 의 window.APP_CONFIG.tableRelationshipsMode (보통 all, Env/config frontend.table_relationships_mode)
+ * - Vite: 빌드 시 config.json → VITE_TABLE_RELATIONSHIPS_MODE, 없으면 all
+ * @returns {string}
+ */
+export function getTableRelationshipsMode() {
+  if (typeof window !== 'undefined' && window.APP_CONFIG?.tableRelationshipsMode != null) {
+    const w = String(window.APP_CONFIG.tableRelationshipsMode).trim().toLowerCase()
+    if (w) return w
+  }
+  if (_viteRelModeStr) return _viteRelModeStr
+  return 'all'
 }

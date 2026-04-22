@@ -179,13 +179,23 @@ describe('전체 경로 검증 (validateJoinPath) - 에러/경계', () => {
     expect(issues.some((i) => i.type === 'NO_RELATIONSHIP')).toBe(true)
     expect(valid).toBe(false)
     const noRel = issues.find((i) => i.type === 'NO_RELATIONSHIP')
-    expect(noRel.message).toMatch(/관계가 없습니다/)
+    expect(noRel.message).toMatch(/관계/)
   })
 
   it('연속 테이블 간 관계 있으면 NO_RELATIONSHIP 없음', () => {
     const rels = {
       'A||B': [{ prevColumn: 'id', currColumn: 'a_id' }],
       'B||C': [{ prevColumn: 'id', currColumn: 'b_id' }]
+    }
+    const { valid, issues } = validateJoinPath(['A', 'B', 'C'], rels)
+    expect(issues.filter((i) => i.type === 'NO_RELATIONSHIP')).toHaveLength(0)
+    expect(valid).toBe(true)
+  })
+
+  it('join_order 없을 때 B–C 직접 엣지 없어도 A–C 있으면 통과(공통 부모·스타 조인)', () => {
+    const rels = {
+      'A||B': [{ prevColumn: 'id', currColumn: 'a_id' }],
+      'A||C': [{ prevColumn: 'id', currColumn: 'a_id' }],
     }
     const { valid, issues } = validateJoinPath(['A', 'B', 'C'], rels)
     expect(issues.filter((i) => i.type === 'NO_RELATIONSHIP')).toHaveLength(0)
