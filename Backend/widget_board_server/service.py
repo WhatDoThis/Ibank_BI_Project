@@ -7,7 +7,7 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_ty
 
 [Main Functions]
 ===========
-1. list_boards — 접근 가능 보드 목록(widget_item_count·share_row_count 포함)
+1. list_boards — 접근 가능 보드 목록(widget_item_count·share_row_count 포함·기본 정렬 update_dtm DESC)
 2. create_board
 3. get_board_detail — 보드 + 위젯 + can_edit(소유자·초대(widget_board_share) 편집)
 4. patch_board / delete_board (비활성 보드만 물리 삭제: 위젯·공유·관련 알림 후 widget_board)
@@ -351,6 +351,7 @@ def list_boards(conn, user_id: int, project_id: int) -> list[dict]:
               )
             ORDER BY
               CASE WHEN wb.active_yn = 'Y' THEN 0 ELSE 1 END,
+              wb.update_dtm DESC NULLS LAST,
               wb.board_order ASC NULLS LAST,
               wb.board_name ASC
             """,

@@ -18,7 +18,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 6. invite_user_by_email / update_user_management — 동일 계측
 7. list_invite_codes_for_dept
 8. get_department / update_department_name — commit 후 `emit_admin_system_log`(dept_update)
-9. list_departments_for_org_settings / create_department(dept_create) / update_department_in_org_settings(dept_update|dept_invalidate) / delete_department_in_org_settings(dept_delete) — 동일
+9. list_departments_for_org_settings(기본 정렬 update_dtm DESC) / create_department(dept_create) / update_department_in_org_settings(dept_update|dept_invalidate) / delete_department_in_org_settings(dept_delete) — 동일
 10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 커스텀 권한) 검사
 11. get_user_work_assets — 생성·참여·초대자(invite_user_id) 프로젝트 참여, 커스텀 권한, 등록 부서, table_master·etl_db·연쇄 안내
 12. list_ownership_transfer_targets / list_department_creator_transfer_targets — 이관 수신(일반: sa_dev·sa·a / 부서생성자: sa·sa만, 동일 부서 수직 트리·SA→sa_dev 제외)
@@ -1783,6 +1783,7 @@ def list_departments_for_org_settings(
     SA_DEV: 전체(사용/미사용 포함). sa: 본인 소속 부서 루트 하위 트리(use_yn 무관).
     member_count: 소속 user_info 행 수. display_label·tier_label: 셀렉트용 상·하위 표시.
     creator_email: dptmt_create_user_id LEFT JOIN user_info(빈 문자열·미매칭은 NULL).
+    목록 정렬: update_dtm DESC NULLS LAST, dptmt_info_id ASC.
     """
     ad = (actor_dvsn or "").strip().lower()
     cur = conn.cursor()
@@ -1799,7 +1800,7 @@ def list_departments_for_org_settings(
                 LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
                 LEFT JOIN user_info cu ON cu.user_id = d.dptmt_create_user_id
                 WHERE d.dptmt_info_id <> 0
-                ORDER BY d.dptmt_info_id
+                ORDER BY d.update_dtm DESC NULLS LAST, d.dptmt_info_id ASC
                 """
             )
         elif ad == "sa":
@@ -1829,7 +1830,7 @@ def list_departments_for_org_settings(
                 LEFT JOIN dptmt_info p ON p.dptmt_info_id = d.parent_dptmt_info_id
                 LEFT JOIN user_info cu ON cu.user_id = d.dptmt_create_user_id
                 WHERE d.dptmt_info_id <> 0
-                ORDER BY d.dptmt_info_id
+                ORDER BY d.update_dtm DESC NULLS LAST, d.dptmt_info_id ASC
                 """,
                 (aid,),
             )

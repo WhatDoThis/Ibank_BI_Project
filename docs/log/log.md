@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+523. 2026-04-22 admin 목록 2~6: API 기본 정렬 수정일시 내림차순
 522. 2026-04-22 useResetListPage 훅(필터·정렬 변경 시 목록 페이지 1)
 521. 2026-04-22 관리 목록 공통 페이지네이션(1~6·이력·위젯보드)
 520. 2026-04-22 UserHistoryPage: 필터 UI를 admin-list-filters와 통일
@@ -525,6 +526,20 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+523. 2026-04-22 admin 목록 2~6: API 기본 정렬 수정일시 내림차순
+Purpose: 권한·부서·프로젝트·프로젝트 멤버·위젯보드(및 초대 대기) 목록을 페이지 진입 시 수정일시 최신순으로 보이게 하고, 멤버 활성 행에 `update_dtm`을 SELECT에 포함한다.
+
+Changes:
+
+- `service_roles.list_roles_for_dept`: ORDER BY update_dtm DESC NULLS LAST
+- `service_users.list_departments_for_org_settings`: ORDER BY update_dtm DESC NULLS LAST
+- `service_projects.list_projects_in_dept`·`list_projects_for_participant`: ORDER BY update_dtm DESC NULLS LAST
+- `service_projects.list_members`: SELECT `p.update_dtm`, ORDER BY update_dtm·create_dtm
+- `notification_server.service.fetch_pending_project_invite_rows_for_project`: ORDER BY notification update_dtm DESC NULLS LAST
+- `widget_board_server.service.list_boards`: 활성/비활성 구간 내 update_dtm DESC NULLS LAST
+
+Changed files: Backend/admin_server/service_roles.py, service_users.py, service_projects.py, Backend/notification_server/service.py, Backend/widget_board_server/service.py, docs/log/log.md
 
 522. 2026-04-22 useResetListPage 훅(필터·정렬 변경 시 목록 페이지 1)
 Purpose: 관리 1~6·위젯보드에서 반복되던 `useEffect(() => setListPage(1), [filters, sort, items])`를 `shared/hooks/useResetListPage.js`로 모은다. `useEffect` 의존 배열에 rest 전개를 쓰면 eslint가 정적 검증을 못 하므로, 매 커밋마다 이전 `deps` 스냅샷과 요소 단위 `Object.is`로 비교해 동일하게 동작시킨다.

@@ -6,9 +6,9 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 [Main Functions]
 ===========
 1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(`audit_sql_catalog` 공용 SQL)·…·타부서 알림
-2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email)
+2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email·목록 기본 정렬 update_dtm DESC)
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE) — commit 성공 후 `audit_emit.emit_admin_system_log`(actor_user_id 있을 때)
-4. list_members(items·pending_invites에 user_department_display) · cancel_project_invite / add_member / remove_member / update_member_role — 동일 계측
+4. list_members(items·p.update_dtm·pending_invites에 user_department_display·기본 정렬 update_dtm DESC) · cancel_project_invite / add_member / remove_member / update_member_role — 동일 계측
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
@@ -307,7 +307,7 @@ def list_projects_in_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
             FROM project_info pi
             LEFT JOIN user_info u ON u.user_id = pi.project_create_user_id
             WHERE pi.dptmt_info_id = %s
-            ORDER BY pi.project_name
+            ORDER BY pi.update_dtm DESC NULLS LAST, pi.project_name ASC
             """,
             (dptmt_info_id,),
         )
@@ -333,7 +333,7 @@ def list_projects_for_participant(
             LEFT JOIN pmssn_master m ON m.pmssn_master_id = p.pmssn_master_id
             LEFT JOIN user_info uc ON uc.user_id = pi.project_create_user_id
             WHERE pi.dptmt_info_id = %s
-            ORDER BY pi.project_name
+            ORDER BY pi.update_dtm DESC NULLS LAST, pi.project_name ASC
             """,
             (user_id, dptmt_info_id),
         )
@@ -965,7 +965,7 @@ def list_members(
         cur.execute(
             """
             SELECT p.project_ptcpnt_info_id, p.ptcpnt_user_id, u.user_email, u.user_nickname,
-                   p.pmssn_master_id, m.pmssn_name AS role_name, p.create_dtm,
+                   p.pmssn_master_id, m.pmssn_name AS role_name, p.create_dtm, p.update_dtm,
                    p.invite_user_id,
                    iu.user_email AS invite_user_email,
                    iu.user_nickname AS invite_user_nickname,
@@ -980,7 +980,7 @@ def list_members(
             LEFT JOIN dptmt_info ud ON ud.dptmt_info_id = u.dptmt_info_id
             LEFT JOIN dptmt_info upd ON upd.dptmt_info_id = ud.parent_dptmt_info_id
             WHERE p.project_info_id = %s
-            ORDER BY u.user_email
+            ORDER BY p.update_dtm DESC NULLS LAST, p.create_dtm DESC, u.user_email ASC
             """,
             (pid,),
         )
