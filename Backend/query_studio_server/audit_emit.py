@@ -3,7 +3,7 @@ Backend.query_studio_server.audit_emit (system_log 쿼리 스튜디오 채널)
 ====================================================================
 `router`·백그라운드 워커에서 호출. `system_log_append_enabled` off 시 no-op.
 `actor_user_id` 는 양의 정수일 때만 적재.
-`sql_fingerprint` 는 호출부 미전달 시 `audit_sql_catalog.query_studio_audit_sql_fingerprint` 로 보강한다(04 §13).
+`sql_fingerprint` 는 호출부 미전달 시 `audit_sql_catalog.query_studio_audit_sql_fingerprint` 로 보강한다(04: 기본 (1), 호출부 명시는 예외 (2)).
 
 [Main Functions]
 ===========

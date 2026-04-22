@@ -1,7 +1,7 @@
 """
 Backend.core.sql_fingerprint (SQL 정규화·지문 SHA-256 hex)
 ==========================================================
-`docs/main/04_DB_ARCHITECTURE.md` §13 `sql_fingerprint` 규약: UTF-8 정규화 문자열의 SHA-256 소문자 hex 64자. 원문은 저장하지 않는다.
+`docs/main/04_DB_ARCHITECTURE.md` §13: UTF-8 정규화 문자열의 SHA-256 소문자 hex 64자. 원문 비적재. **계측은 기본적으로 도메인 `audit_sql_catalog` 템플릿(1), 동적 DML 등 필요 시에만 호출부가 실행 SQL 문자열로 지문 명시(2).**
 
 [Main Functions]
 ===========

@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+516. 2026-04-21 docs/main/04: 전역 가독성(요약·목차·ETL·부록 정리)
+515. 2026-04-21 docs/main/04: §13 가독성·부록 A(sql_fingerprint 체크리스트)
+514. 2026-04-21 system_log: sql_fingerprint 기본(1)·예외(2) 전략 문서·컨벤션 반영
+513. 2026-04-21 etl_server: Job·테이블 PATCH 감사에 실제 DML sql_fingerprint(opt-in)
+512. 2026-04-21 etl_server: 배치 Job INSERT 지문을 create_batch_job·emit 연동
+511. 2026-04-21 etl_server: audit_sql_catalog를 service DML·스키마 정규화 문자열로 정합
 510. 2026-04-21 auth·query_studio·widget_board·project·etl: 감사 SQL 지문 카탈로그·emit 보강
 509. 2026-04-20 notification_server: 읽음 API system_log 계측 제거·audit_emit 삭제
 508. 2026-04-21 admin_server: project update·purge·매핑 동기화 SQL 카탈로그화
@@ -513,6 +519,65 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+516. 2026-04-21 docs/main/04: 전역 가독성(요약·목차·ETL·부록 정리)
+Purpose: `07_USER_FUNCTIONAL_GUIDE.md` 와 맞춘 **제목·불릿·뎁스**로 `04_DB_ARCHITECTURE.md` 전반을 읽기 쉽게 한다. system·ETL 각 테이블 절에 **`요약`** 블록을 두고, DB 절 상단에 **테이블 인덱스**·문서 맨 위에 **목차**를 추가한다. ETL 공통·인덱스·부록 A(2) 표를 목록형으로 나눈다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: 목차, system/ETL 인덱스, 테이블별 요약, §13·부록 서술 정리
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+515. 2026-04-21 docs/main/04: §13 가독성·부록 A(sql_fingerprint 체크리스트)
+Purpose: `sql_fingerprint` 규약·계측 전략(1)(2) 구간을 **07과 유사한 제목·불릿 뎁스**로 재정렬하고, 채팅으로 정리한 **(1) 카탈로그 액션 목록·(2) 명시 지문 경로**를 문서 말미 **부록 A**에 반영한다. 문서 상단·`system_log` § 서두의 장문도 동일 스타일로 나눈다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: §13 본문 재구성, 용도·정본·동시성·시드·계측 범위 문단 정리, 부록 A 추가
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+514. 2026-04-21 system_log: sql_fingerprint 기본(1)·예외(2) 전략 문서·컨벤션 반영
+Purpose: 감사 지문을 **기본은 `audit_sql_catalog` 템플릿(1)**, 동적 DML 등 **필요한 곳만 실행 문자열 명시(2)** 로 두는 제품 전략을 `04`에 명문화하고, Cursor `project-conventions`·핵심 `audit_emit`·`sql_fingerprint` 모듈 머리말에 동일 취지를 적어 이후 확장 시 기준이 되게 한다.
+
+Changes:
+
+- `04_DB_ARCHITECTURE.md`: `system_log` 절에 계측 기본 전략(1)(2) 단락 추가
+- `.cursor/rules/project-conventions.mdc`: `system_log`·`sql_fingerprint` 소절 추가
+- `Backend/core/sql_fingerprint.py`, 각 패키지 `audit_emit.py` 머리말: 04 전략 참조 문구 정합
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, .cursor/rules/project-conventions.mdc, Backend/core/sql_fingerprint.py, Backend/admin_server/audit_emit.py, Backend/auth_server/audit_emit.py, Backend/project_server/audit_emit.py, Backend/widget_board_server/audit_emit.py, Backend/query_studio_server/audit_emit.py, Backend/etl_server/audit_emit.py, docs/log/log.md
+
+513. 2026-04-21 etl_server: Job·테이블 PATCH 감사에 실제 DML sql_fingerprint(opt-in)
+Purpose: 워커·적재 경로는 그대로 두고, **HTTP 라우터만** `insert_job`·`update_job`·`delete_job`·`update_etl_table`에 `return_fingerprint=True`를 켜 실행 직전 문자열로 `compute_sql_fingerprint_hex`를 계산해 `emit_etl_log(..., sql_fingerprint=...)`에 넘긴다. SET 절이 비면 PATCH는 카탈로그 폴백을 유지한다.
+
+Changes:
+
+- `service.py`: 위 4함수에 키워드 전용 `return_fingerprint`·지문 계산·모듈 머리말·의존성
+- `router.py`: `PATCH /tables/{id}`, `POST .../run`, `DELETE /jobs/{id}`, `POST .../cancel`에서 지문 전달·엔드포인트 목록 머리말
+
+Changed files: Backend/etl_server/service.py, Backend/etl_server/router.py, docs/log/log.md
+
+512. 2026-04-21 etl_server: 배치 Job INSERT 지문을 create_batch_job·emit 연동
+Purpose: `batch_jobs` 동적 INSERT 마다 지문이 달라지므로, **`service_file.create_batch_job`** 가 `cur.execute` 직전과 동일한 `sql_ins` 문자열로 `compute_sql_fingerprint_hex` 를 계산해 `(batch_job_id, insert_sql_fingerprint)` 로 반환하고, **`router_file`** 의 Job 생성·ETL 연동 생성 API가 `emit_etl_log(..., sql_fingerprint=...)` 로 넘긴다. `audit_sql_catalog` 는 해당 액션의 폴백만 유지한다.
+
+Changes:
+
+- `service_file.py`: `create_batch_job` 반환형·지문 계산·모듈 머리말
+- `router_file.py`: 언패킹·`emit_etl_log` 인자·머리말
+- `audit_sql_catalog.py`: 두 액션 폴백 통합·문서 머리말
+
+Changed files: Backend/etl_server/service_file.py, Backend/etl_server/router_file.py, Backend/etl_server/audit_sql_catalog.py, docs/log/log.md
+
+511. 2026-04-21 etl_server: audit_sql_catalog를 service DML·스키마 정규화 문자열로 정합
+Purpose: 임의 테이블명 placeholder 대신 **`service._schema`·`service._q`** 로 `etl_tables`·`etl_jobs`·`etl_connections`·`batch_*` 등 **실제 적재 SQL과 동일한 qualified 테이블 표기**를 쓰고, 라우터 `business_action` 별 대표문(동적 SET 일부는 축약)으로 지문을 계산한다.
+
+Changes:
+
+- `audit_sql_catalog.py`: 정적 가짜 테이블 제거, `_resolve_etl_sql_template` + 지연 `service` import
+
+Changed files: Backend/etl_server/audit_sql_catalog.py, docs/log/log.md
 
 510. 2026-04-21 auth·query_studio·widget_board·project·etl: 감사 SQL 지문 카탈로그·emit 보강
 Purpose: `system_log` 에 **원문 SQL 없이** `sql_fingerprint`·`sql_template_key` 로 실행 형태를 식별한다. 패키지 구조는 유지하고 `admin_server`와 동일하게 **도메인 로컬 `audit_sql_catalog`** 에 `business_action` 대표 템플릿을 두고 `audit_emit` 이 생략 시 지문을 채운다.

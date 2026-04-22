@@ -15,11 +15,12 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 8. list_storage_connections(선두 내장 main·dash + etl_storage_connections), get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
 10. list_etl_tables(_etl_tables_t_select_sql·create_user_label email→nickname→ID), create_etl_table(동적 INSERT), get_etl_table, get_sync_mode_for_load(full|incremental|diff), _storage_pg_identity_tuple·_find_downstream_etl_reading_target_pg(다운스트림 소스 검사), _count_table_project_mapping_for_target, delete_etl_table(공유타겟·다운스트림·프로젝트매핑 검증 후 배치·table_master·DROP·메타 일괄)·delete_etl_table_row_only(etl_jobs.add_file_path 있을 때만 SELECT), update_last_synced_at, update_etl_table(컬럼 존재 시만 SET), refresh_etl_table_column_mapping
-11. insert_job(add_file_path·add_file_type 컬럼 있을 때만 해당 INSERT), set_job_running, list_jobs·get_job(etl_tables JOIN·create_user_label email 우선), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
+11. insert_job·update_job·delete_job·update_etl_table(HTTP 감사용 `return_fingerprint=True` 시 실제 DML 문자열 지문), set_job_running, list_jobs·get_job(etl_tables JOIN·create_user_label email 우선), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
 
 [Dependencies]
 =========
 - Backend.core.db (get_db_connection_system, get_db_connection_system_core, get_system_table_schema, get_system_table_schema_core)
+- Backend.core.sql_fingerprint.compute_sql_fingerprint_hex
 - psycopg2, PyMySQL, oracledb (외부 DB 연결·테스트·소스 테이블 목록)
 """
 
@@ -30,7 +31,9 @@ import re
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple, Union
+
+from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 
 logger = logging.getLogger(__name__)
 
@@ -2436,8 +2439,10 @@ def insert_job(
     add_file_path: Optional[str] = None,
     add_file_type: Optional[str] = None,
     create_user_id: Optional[int] = None,
-) -> int:
-    """etl_jobs에 1건 삽입. 반환: job_id. status='pending'이면 started_at NULL. add_file_path/add_file_type는 두 컬럼 모두 있을 때만 INSERT에 포함. create_user_id는 컬럼 있을 때만."""
+    *,
+    return_fingerprint: bool = False,
+) -> Union[int, Tuple[int, Optional[str]]]:
+    """etl_jobs에 1건 삽입. 기본 반환: job_id. return_fingerprint=True면 (job_id, INSERT 지문 hex|None). status='pending'이면 started_at NULL."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -2471,7 +2476,11 @@ def insert_job(
             cur.execute(sql, params)
         row = cur.fetchone()
         conn.commit()
-        return int(row["job_id"])
+        jid = int(row["job_id"])
+        if return_fingerprint:
+            norm = " ".join((sql or "").split())
+            return jid, compute_sql_fingerprint_hex(norm)
+        return jid
     finally:
         cur.close()
         conn.close()
@@ -2556,8 +2565,8 @@ def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Opt
         conn.close()
 
 
-def delete_job(job_id: int) -> bool:
-    """Job 1건 삭제(etl_jobs에서 DELETE). add_file_path 컬럼이 있고 값이 있으면 업로드 파일도 삭제. DDL 드리프트 시 SELECT 생략."""
+def delete_job(job_id: int, *, return_fingerprint: bool = False) -> Union[bool, Tuple[bool, Optional[str]]]:
+    """Job 1건 삭제(etl_jobs에서 DELETE). add_file_path 컬럼이 있고 값이 있으면 업로드 파일도 삭제. return_fingerprint=True면 (성공 여부, DELETE 지문 hex|None)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -2575,7 +2584,9 @@ def delete_job(job_id: int) -> bool:
                 p = row.get("add_file_path") if hasattr(row, "get") else None
                 if p:
                     add_file_path = (str(p) or "").strip() or None
-        cur.execute(f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s", (job_id,))
+        del_sql = f"DELETE FROM {_q(schema, 'etl_jobs')} WHERE job_id = %s"
+        del_fp = compute_sql_fingerprint_hex(del_sql) if return_fingerprint else None
+        cur.execute(del_sql, (job_id,))
         conn.commit()
         ok = cur.rowcount > 0
         if ok and add_file_path:
@@ -2585,6 +2596,8 @@ def delete_job(job_id: int) -> bool:
                     os.remove(resolved)
                 except OSError:
                     pass
+        if return_fingerprint:
+            return ok, del_fp
         return ok
     finally:
         cur.close()
@@ -2767,8 +2780,16 @@ def is_job_cancelled(job_id: int) -> bool:
         conn.close()
 
 
-def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, error_message: Optional[str] = None, notice: Optional[str] = None):
-    """etl_jobs 상태·종료 시각·건수·에러 메시지·안내(notice) 갱신. status에 'cancelled' 사용 가능."""
+def update_job(
+    job_id: int,
+    status: str,
+    rows_processed: Optional[int] = None,
+    error_message: Optional[str] = None,
+    notice: Optional[str] = None,
+    *,
+    return_fingerprint: bool = False,
+) -> Optional[str]:
+    """etl_jobs 상태·종료 시각·건수·에러 메시지·안내(notice) 갱신. return_fingerprint=True면 실행 UPDATE 문자열의 지문 hex(또는 None)."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -2787,11 +2808,11 @@ def update_job(job_id: int, status: str, rows_processed: Optional[int] = None, e
             updates.append("notice = %s")
             params.append(notice)
         params.append(job_id)
-        cur.execute(
-            f"UPDATE {_q(schema, 'etl_jobs')} SET {', '.join(updates)} WHERE job_id = %s",
-            tuple(params),
-        )
+        sql_stmt = f"UPDATE {_q(schema, 'etl_jobs')} SET {', '.join(updates)} WHERE job_id = %s"
+        fp_out = compute_sql_fingerprint_hex(" ".join(sql_stmt.split())) if return_fingerprint else None
+        cur.execute(sql_stmt, tuple(params))
         conn.commit()
+        return fp_out
     finally:
         cur.close()
         conn.close()
@@ -2836,8 +2857,10 @@ def update_etl_table(
     clear_last_synced_at: bool = False,
     table_label: Optional[str] = None,
     table_dscrtn: Optional[str] = None,
-) -> None:
-    """etl_tables의 pk_columns, sync_mode, table_label, table_dscrtn, incremental_column, storage_connection_id, column_mapping, on_row_error, batch_size, batch_interval_seconds, index_definitions 등 지정 필드만 갱신. clear_last_synced_at=True면 last_synced_at을 NULL로 초기화(다음 실행 시 전체 조회)."""
+    *,
+    return_fingerprint: bool = False,
+) -> Optional[str]:
+    """etl_tables의 지정 필드만 갱신. return_fingerprint=True이고 SET 절이 있으면 UPDATE 문자열 지문 hex 반환, 그 외 None."""
     api_db = _get_db()
     schema = _schema()
     conn = api_db.get_db_connection_system()
@@ -2895,15 +2918,17 @@ def update_etl_table(
             if "description" in cols:
                 updates.append("description = %s")
                 params.append(val)
+        sql_stmt: Optional[str] = None
         if updates:
             if "updated_at" in cols:
                 updates.append("updated_at = NOW()")
             params.append(etl_table_id)
-            cur.execute(
-                f"UPDATE {_q(schema, 'etl_tables')} SET {', '.join(updates)} WHERE etl_table_id = %s",
-                tuple(params),
-            )
+            sql_stmt = f"UPDATE {_q(schema, 'etl_tables')} SET {', '.join(updates)} WHERE etl_table_id = %s"
+            cur.execute(sql_stmt, tuple(params))
         conn.commit()
+        if return_fingerprint and sql_stmt:
+            return compute_sql_fingerprint_hex(" ".join(sql_stmt.split()))
+        return None
     finally:
         cur.close()
         conn.close()

@@ -22,7 +22,7 @@ FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·
 9. cleanup-expired-uploads, timezones, connections CRUD, connections test(성공·실패·예외 시 emit_etl_log)
 10. connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
 11. transform-rules CRUD, target-exists, target-tables, target-columns, storage-connections test(성공·실패·예외 시 emit_etl_log)
-12. tables/{id}/preview, tables/{id}/run, jobs CRUD, jobs cancel, transform/preview
+12. tables/{id}/preview, tables/{id}/run(Job INSERT·emit 지문), PATCH tables(UPDATE 지문), jobs delete/cancel(UPDATE·DELETE 지문), transform/preview
 
 [Dependencies]
 =========
@@ -343,7 +343,7 @@ def update_table(
 ):
     """ETL 테이블 설정 일부 갱신. pk_columns, sync_mode, storage_connection_id 등."""
     try:
-        etl_service.update_etl_table(
+        upd_fp = etl_service.update_etl_table(
             etl_table_id,
             pk_columns=body.pk_columns,
             sync_mode=body.sync_mode,
@@ -357,12 +357,14 @@ def update_table(
             clear_last_synced_at=body.clear_last_synced_at is True,
             table_label=body.table_label,
             table_dscrtn=body.table_dscrtn,
+            return_fingerprint=True,
         )
         emit_etl_log(
             int(payload["user_id"]),
             business_action="etl_table_update",
             action_kind="UPDATE",
             detail_json={"etl_table_id": int(etl_table_id)},
+            sql_fingerprint=upd_fp,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1387,7 +1389,9 @@ def run_table_load(
         uid = int(payload["user_id"])
 
         if source_type == "file":
-            job_id = etl_service.insert_job(etl_table_id, status="running", create_user_id=uid)
+            job_id, job_ins_fp = etl_service.insert_job(
+                etl_table_id, status="running", create_user_id=uid, return_fingerprint=True
+            )
             t = threading.Thread(target=_run_file_load_in_process, args=(etl_table_id, job_id), daemon=True)
             t.start()
             emit_etl_log(
@@ -1400,6 +1404,7 @@ def run_table_load(
                     "x_source_type": source_type,
                     "x_status": "running",
                 },
+                sql_fingerprint=job_ins_fp,
             )
             return {
                 "job_id": job_id,
@@ -1424,7 +1429,9 @@ def run_table_load(
                         detail="diff 모드는 타겟 테이블이 이미 존재해야 합니다. sync_mode를 full로 설정하여 최초 적재를 실행한 뒤, sync_mode를 diff로 변경하세요.",
                     )
 
-        job_id = etl_service.insert_job(etl_table_id, status="pending", create_user_id=uid)
+        job_id, job_ins_fp = etl_service.insert_job(
+            etl_table_id, status="pending", create_user_id=uid, return_fingerprint=True
+        )
         from Backend.etl_server import queue_worker
         queue_worker.start_background_worker()
         emit_etl_log(
@@ -1437,6 +1444,7 @@ def run_table_load(
                 "x_source_type": source_type,
                 "x_status": "pending",
             },
+            sql_fingerprint=job_ins_fp,
         )
         return {
             "job_id": job_id,
@@ -1495,7 +1503,7 @@ def get_job(job_id: int):
 def delete_job(job_id: int, payload: dict = Depends(require_etl_infrastructure)):
     """Job 1건 삭제. etl_jobs에서 DELETE."""
     try:
-        ok = etl_service.delete_job(job_id)
+        ok, del_fp = etl_service.delete_job(job_id, return_fingerprint=True)
         if not ok:
             raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
         emit_etl_log(
@@ -1503,6 +1511,7 @@ def delete_job(job_id: int, payload: dict = Depends(require_etl_infrastructure))
             business_action="etl_job_delete",
             action_kind="DELETE",
             detail_json={"job_id": int(job_id)},
+            sql_fingerprint=del_fp,
         )
         return {"job_id": job_id, "message": "삭제되었습니다."}
     except HTTPException:
@@ -1521,12 +1530,15 @@ def cancel_job(job_id: int, payload: dict = Depends(require_etl_infrastructure))
         status = (row.get("status") or "").strip().lower()
         if status not in ("pending", "running"):
             raise HTTPException(status_code=400, detail=f"취소할 수 없는 상태입니다: {status}")
-        etl_service.update_job(job_id, "cancelled", error_message="사용자 취소")
+        cancel_fp = etl_service.update_job(
+            job_id, "cancelled", error_message="사용자 취소", return_fingerprint=True
+        )
         emit_etl_log(
             int(payload["user_id"]),
             business_action="etl_job_cancel",
             action_kind="UPDATE",
             detail_json={"job_id": int(job_id)},
+            sql_fingerprint=cancel_fp,
         )
         return {"job_id": job_id, "status": "cancelled", "message": "취소 요청되었습니다."}
     except HTTPException:

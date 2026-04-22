@@ -2,7 +2,7 @@
 Backend.etl_server.router_file (배치·폴더 연결 API 라우터)
 ===========================================================
 09_ETL_SFTP_Connection 설계서 기반. prefix /batch → /api/etl/batch.
-폴더 연결(SFTP/S3)·배치 Job·실행 이력 API.
+폴더 연결(SFTP/S3)·배치 Job·실행 이력 API. Job 등록·ETL 연동 등록 시 `create_batch_job` 의 INSERT 문자열 지문을 `emit_etl_log` 에 전달한다.
 
 [Pydantic Models]
 ===========
@@ -593,7 +593,7 @@ def create_batch_job(
             raise HTTPException(status_code=400, detail="DB 배치에는 source_table이 필요합니다.")
 
     try:
-        batch_job_id = batch_service.create_batch_job(
+        batch_job_id, job_insert_fp = batch_service.create_batch_job(
             folder_connection_id=body.folder_connection_id,
             storage_connection_id=body.storage_connection_id,
             job_name=body.job_name,
@@ -630,6 +630,7 @@ def create_batch_job(
                 "job_type": jtype,
             },
             risk_tier="MED",
+            sql_fingerprint=job_insert_fp,
         )
         return {"batch_job_id": batch_job_id, "message": "등록되었습니다."}
     except ValueError as e:
@@ -664,7 +665,7 @@ def create_batch_job_from_etl_table(
         )
 
     try:
-        batch_job_id = batch_service.create_batch_job(
+        batch_job_id, job_insert_fp = batch_service.create_batch_job(
             folder_connection_id=None,
             storage_connection_id=etl_table.get("storage_connection_id"),
             job_name=body.job_name,
@@ -707,6 +708,7 @@ def create_batch_job_from_etl_table(
                 "etl_table_id": int(body.etl_table_id),
             },
             risk_tier="MED",
+            sql_fingerprint=job_insert_fp,
         )
         return {"batch_job_id": batch_job_id, "message": "배치 등록되었습니다."}
     except ValueError as e:
@@ -1152,7 +1154,7 @@ def clone_batch_job(
         if not job:
             raise HTTPException(status_code=404, detail="배치 Job을 찾을 수 없습니다.")
         jtype = (job.get("job_type") or "file").strip().lower()
-        new_id = batch_service.create_batch_job(
+        new_id, _ = batch_service.create_batch_job(
             folder_connection_id=job.get("folder_connection_id") if jtype == "file" else None,
             storage_connection_id=job.get("storage_connection_id"),
             job_name=f"{job.get('job_name') or 'Job'} (복제)",

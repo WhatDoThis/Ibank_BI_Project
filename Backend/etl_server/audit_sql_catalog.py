@@ -1,8 +1,9 @@
 """
 Backend.etl_server.audit_sql_catalog (감사용 SQL 템플릿·지문)
 ========================================================
-`emit_etl_log` 가 `sql_fingerprint` 를 생략할 때 `business_action` 별 대표 DML 템플릿으로 지문을
-계산한다. 원문 SQL 전체는 저장하지 않는다(04 §13). HTTP 라우터별 액션을 구분한다.
+`emit_etl_log` 가 `sql_fingerprint` 를 생략할 때 `business_action` 별 **대표 DML 문자열**을
+`service._schema`·`service._q` 로 한정한 뒤 해시한다. `etl_batch_job_create`·`etl_batch_job_create_from_etl` 은
+라우터가 **`create_batch_job` 가 실행한 INSERT 문자열 지문**을 넘기므로, 여기서는 폴백만 제공한다(04 §13).
 
 [Main Functions]
 ===========
@@ -16,6 +17,7 @@ Backend.etl_server.audit_sql_catalog (감사용 SQL 템플릿·지문)
 =========
 - functools.lru_cache, typing.Any
 - Backend.core.sql_fingerprint.compute_sql_fingerprint_hex
+- Backend.etl_server.service (지연 import: _schema, _q)
 """
 
 from __future__ import annotations
@@ -25,50 +27,134 @@ from typing import Any
 
 from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 
-_SQL_BY_ACTION: dict[str, str] = {
-    "etl_table_update": "UPDATE etl_table_master SET update_dtm = NOW() WHERE etl_table_id = %s",
-    "etl_table_create": "INSERT INTO etl_table_master (project_info_id, create_dtm) VALUES (%s, NOW())",
-    "etl_table_column_mapping_refresh": "UPDATE etl_table_master SET column_mapping_json = %s WHERE etl_table_id = %s",
-    "etl_table_row_delete": "DELETE FROM etl_table_row WHERE etl_table_id = %s",
-    "etl_table_delete": "DELETE FROM etl_table_master WHERE etl_table_id = %s",
-    "etl_src_connection_create": "INSERT INTO etl_src_connection (create_dtm) VALUES (NOW())",
-    "etl_src_connection_test": "SELECT 1 FROM etl_src_connection WHERE etl_src_connection_id = %s",
-    "etl_src_connection_delete": "DELETE FROM etl_src_connection WHERE etl_src_connection_id = %s",
-    "etl_storage_connection_create": "INSERT INTO etl_storage_connection (create_dtm) VALUES (NOW())",
-    "etl_storage_connection_update": "UPDATE etl_storage_connection SET update_dtm = NOW() WHERE etl_storage_connection_id = %s",
-    "etl_storage_connection_delete": "DELETE FROM etl_storage_connection WHERE etl_storage_connection_id = %s",
-    "etl_storage_connection_test": "SELECT 1 FROM etl_storage_connection WHERE etl_storage_connection_id = %s",
-    "etl_job_run_enqueue": "INSERT INTO etl_job_run_queue (create_dtm) VALUES (NOW())",
-    "etl_job_delete": "DELETE FROM etl_job WHERE etl_job_id = %s",
-    "etl_job_cancel": "UPDATE etl_job_run SET status = 'cancel_requested' WHERE run_id = %s",
-    "etl_batch_folder_connection_create": "INSERT INTO etl_batch_folder_connection (create_dtm) VALUES (NOW())",
-    "etl_batch_folder_connection_update": "UPDATE etl_batch_folder_connection SET update_dtm = NOW() WHERE id = %s",
-    "etl_batch_folder_connection_delete": "DELETE FROM etl_batch_folder_connection WHERE id = %s",
-    "etl_batch_folder_connection_test": "SELECT 1 FROM etl_batch_folder_connection WHERE id = %s",
-    "etl_batch_target_registry_delete": "DELETE FROM etl_batch_target_registry WHERE id = %s",
-    "etl_batch_job_create": "INSERT INTO etl_batch_job (create_dtm) VALUES (NOW())",
-    "etl_batch_job_create_from_etl": "INSERT INTO etl_batch_job (source_etl_job_id, create_dtm) VALUES (%s, NOW())",
-    "etl_batch_job_update": "UPDATE etl_batch_job SET update_dtm = NOW() WHERE id = %s",
-    "etl_batch_job_delete": "DELETE FROM etl_batch_job WHERE id = %s",
-    "etl_batch_job_run_now": "UPDATE etl_batch_job SET last_run_requested_at = NOW() WHERE id = %s",
-    "etl_batch_job_toggle": "UPDATE etl_batch_job SET enabled_yn = %s WHERE id = %s",
-    "etl_batch_run_cancel_request": "UPDATE etl_batch_run SET cancel_requested = TRUE WHERE id = %s",
-    "etl_batch_remote_files_delete": "DELETE FROM etl_batch_remote_file WHERE id = %s",
-}
-
 
 # 1.
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=256)
 def _fingerprint_hex_cached(sql_template: str) -> str | None:
     return compute_sql_fingerprint_hex(sql_template)
+
+
+def _resolve_etl_sql_template(business_action: str) -> str | None:
+    """라우터 `business_action` 과 동일한 의미의 DML/조회 **대표문**(동적 SET/INSERT 일부 생략)."""
+    from Backend.etl_server import service as S
+
+    schema = S._schema()
+
+    def qt(tbl: str) -> str:
+        return S._q(schema, tbl)
+
+    ba = (business_action or "").strip()
+    t_etl = qt("etl_tables")
+    t_jobs = qt("etl_jobs")
+    t_conn = qt("etl_connections")
+    t_stor = qt("etl_storage_connections")
+    t_bfc = qt("batch_folder_connections")
+    t_bfj = qt("batch_jobs")
+    t_brh = qt("batch_run_history")
+    t_blk = qt("batch_loaded_keys")
+    t_reg = qt("etl_batch_target_registry")
+
+    if ba == "etl_table_update":
+        return f"UPDATE {t_etl} SET sync_mode = %s, updated_at = NOW() WHERE etl_table_id = %s"
+    if ba == "etl_table_create":
+        return (
+            f"INSERT INTO {t_etl} (connection_id, target_table, sync_mode) "
+            f"VALUES (%s, %s, %s) RETURNING etl_table_id"
+        )
+    if ba == "etl_table_column_mapping_refresh":
+        return f"UPDATE {t_etl} SET column_mapping = %s::jsonb, updated_at = NOW() WHERE etl_table_id = %s"
+    if ba == "etl_table_row_delete":
+        return (
+            f"DELETE FROM {t_blk} WHERE batch_job_id IN "
+            f"(SELECT batch_job_id FROM {t_bfj} WHERE etl_table_id = %s)"
+        )
+    if ba == "etl_table_delete":
+        return f"DELETE FROM {t_etl} WHERE etl_table_id = %s"
+    if ba == "etl_src_connection_create":
+        return (
+            f"INSERT INTO {t_conn} (connection_name, host, port, database_name, username) "
+            f"VALUES (%s, %s, %s, %s, %s) RETURNING connection_id"
+        )
+    if ba == "etl_src_connection_test":
+        return "SELECT 1 AS ok"
+    if ba == "etl_src_connection_delete":
+        return f"DELETE FROM {t_conn} WHERE connection_id = %s"
+    if ba == "etl_storage_connection_create":
+        return (
+            f"INSERT INTO {t_stor} (connection_name, config_json, is_active) "
+            f"VALUES (%s, %s::jsonb, %s) RETURNING storage_connection_id"
+        )
+    if ba == "etl_storage_connection_update":
+        return (
+            f"UPDATE {t_stor} SET config_json = %s::jsonb, updated_at = NOW() "
+            f"WHERE storage_connection_id = %s"
+        )
+    if ba == "etl_storage_connection_delete":
+        return f"DELETE FROM {t_stor} WHERE storage_connection_id = %s"
+    if ba == "etl_storage_connection_test":
+        return "CREATE TABLE etl_storage_permission_probe (id INTEGER)"
+    if ba == "etl_job_run_enqueue":
+        return (
+            f"INSERT INTO {t_jobs} (etl_table_id, status, started_at, created_at) "
+            f"VALUES (%s, %s, %s, NOW()) RETURNING job_id"
+        )
+    if ba == "etl_job_delete":
+        return f"DELETE FROM {t_jobs} WHERE job_id = %s"
+    if ba == "etl_job_cancel":
+        return (
+            f"UPDATE {t_jobs} SET status = %s, finished_at = NOW(), error_message = %s "
+            f"WHERE job_id = %s"
+        )
+    if ba == "etl_batch_folder_connection_create":
+        return (
+            f"INSERT INTO {t_bfc} (connection_name, folder_type, created_at, updated_at) "
+            f"VALUES (%s, %s, NOW(), NOW()) RETURNING folder_connection_id"
+        )
+    if ba == "etl_batch_folder_connection_update":
+        return (
+            f"UPDATE {t_bfc} SET connection_name = %s, updated_at = NOW() "
+            f"WHERE folder_connection_id = %s"
+        )
+    if ba == "etl_batch_folder_connection_delete":
+        return f"DELETE FROM {t_bfc} WHERE folder_connection_id = %s"
+    if ba == "etl_batch_folder_connection_test":
+        return (
+            f"UPDATE {t_bfc} SET is_verified = %s, updated_at = NOW() WHERE folder_connection_id = %s"
+        )
+    if ba == "etl_batch_target_registry_delete":
+        return f"DELETE FROM {t_reg} WHERE registry_id = %s"
+    if ba in ("etl_batch_job_create", "etl_batch_job_create_from_etl"):
+        return (
+            f"INSERT INTO {t_bfj} (job_name, job_type, created_at, updated_at) "
+            f"VALUES (%s, %s, NOW(), NOW()) RETURNING batch_job_id"
+        )
+    if ba == "etl_batch_job_update":
+        return f"UPDATE {t_bfj} SET is_active = %s, updated_at = NOW() WHERE batch_job_id = %s"
+    if ba == "etl_batch_job_delete":
+        return (
+            f"DELETE FROM {t_blk} WHERE batch_job_id = %s; "
+            f"DELETE FROM {t_brh} WHERE batch_job_id = %s; "
+            f"DELETE FROM {t_bfj} WHERE batch_job_id = %s"
+        )
+    if ba == "etl_batch_job_run_now":
+        return f"SELECT batch_job_id FROM {t_bfj} WHERE batch_job_id = %s"
+    if ba == "etl_batch_job_toggle":
+        return f"UPDATE {t_bfj} SET is_active = %s, updated_at = NOW() WHERE batch_job_id = %s"
+    if ba == "etl_batch_run_cancel_request":
+        return (
+            f"UPDATE {t_brh} SET cancel_requested_at = NOW() "
+            f"WHERE run_id = %s AND (status = 'running' OR finished_at IS NULL)"
+        )
+    if ba == "etl_batch_remote_files_delete":
+        return f"SELECT folder_connection_id FROM {t_bfc} WHERE folder_connection_id = %s"
+    return None
 
 
 def etl_audit_sql_fingerprint(
     business_action: str, detail_json: dict[str, Any] | None
 ) -> str | None:
     _ = detail_json
-    ba = (business_action or "").strip()
-    tpl = _SQL_BY_ACTION.get(ba)
+    tpl = _resolve_etl_sql_template((business_action or "").strip())
     if not tpl:
         return None
     return _fingerprint_hex_cached(tpl)

@@ -11,7 +11,7 @@ etl_batch_target_registry: PK registry_id 또는 id(실측 DDL) 자동 대응, S
 - list_folder_connections(create_user_label: email→nickname→ID), get_folder_connection, create_folder_connection(create_user_id·동적 is_active),
   update_folder_connection, delete_folder_connection, set_folder_connection_verified(is_verified 컬럼 있을 때만 UPDATE)
 - get_folder_adapter: folder_connection_id → FolderAdapter
-- list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (information_schema 기준 동적 INSERT·중복 검사, schedule_cron만 있을 때 interval→cron 변환), update_batch_job (존재 컬럼만 SET, interval_minutes→schedule_cron 매핑), delete_batch_job
+- list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (동적 INSERT·중복 검사·반환 `(batch_job_id, insert_sql_fingerprint)`), update_batch_job (존재 컬럼만 SET, interval_minutes→schedule_cron 매핑), delete_batch_job
 - effective_interval_minutes_from_batch_row(행에 schedule_cron 키 있을 때만 cron 파싱), effective_batch_job_type, _interval_to_schedule_cron, _parse_minutes_from_schedule_cron
 - update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
 - etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry(rcols·스토리지 JOIN·create_user_label은 JOIN 후 service._enrich_rows_create_user_label로 core 정본 보강), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_rows_for_etl_table(ETL 삭제 시 FK 선삭제), delete_batch_target_registry_and_drop_table
@@ -31,13 +31,15 @@ etl_batch_target_registry: PK registry_id 또는 id(실측 DDL) 자동 대응, S
 - Backend.core.db (get_db_connection_system, get_system_table_schema, _get_db/_schema/_q는 service 위임)
 - Backend.etl_server.service (_get_db, _schema, _q 공유)
 - Backend.etl_server.folder_adapter_file (SFTPAdapter, S3Adapter)
+- Backend.core.sql_fingerprint.compute_sql_fingerprint_hex (배치 Job INSERT 지문)
 """
 
 import json
 import logging
 import re
-from typing import Any, List, Optional, Set
+from typing import Any, List, Optional, Set, Tuple
 
+from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 from Backend.etl_server import service as etl_service
 
 logger = logging.getLogger(__name__)
@@ -809,8 +811,8 @@ def create_batch_job(
     etl_table_id: Optional[int] = None,
     diff_delete_orphans: bool = False,
     create_user_id: Optional[int] = None,
-) -> int:
-    """배치 Job 등록. interval_minutes 10~1440. batch_job_id 반환.
+) -> Tuple[int, Optional[str]]:
+    """배치 Job 등록. interval_minutes 10~1440. `(batch_job_id, insert_sql_fingerprint)` 반환 — 지문은 실행 직전 `INSERT` 문자열 기준.
     information_schema에 존재하는 batch_jobs 컬럼만 INSERT. schedule_cron만 있으면 interval에서 cron 문자열 생성.
     job_type='file': folder_connection_id 필수. job_type='db': connection_id 필수(etl_table_id 없을 때), folder_connection_id NULL.
     target_table 컬럼이 없으면 etl_table_id로 etl_tables에서 타겟명을 보완."""
@@ -994,6 +996,7 @@ def create_batch_job(
             f"INSERT INTO {_q(schema, 'batch_jobs')} ({', '.join(insert_cols)}) "
             f"VALUES ({', '.join(placeholders)}) RETURNING batch_job_id"
         )
+        insert_sql_fingerprint = compute_sql_fingerprint_hex(sql_ins)
         cur.execute(sql_ins, tuple(params_ins))
         row = cur.fetchone()
         batch_job_id = row["batch_job_id"]
@@ -1003,7 +1006,7 @@ def create_batch_job(
                 upsert_batch_target_registry(target_table_trimmed, storage_connection_id, batch_job_id)
             except Exception as e:
                 logger.warning("batch_target_registry upsert_fail (job_created): %s", e)
-        return batch_job_id
+        return batch_job_id, insert_sql_fingerprint
     except Exception:
         conn.rollback()
         raise
