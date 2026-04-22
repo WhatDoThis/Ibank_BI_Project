@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+528. 2026-04-22 README: docs/main 스타일(문단·표·중복 섹션 통합)
 527. 2026-04-22 docs/main: DB 풀·keepalive·stale 정책(03·02·04 반영)
 526. 2026-04-22 core/db: 풀 stale 연결 완화(TCP keepalive·checkout·cursor 갱신)
 525. 2026-04-22 docs/main/04: 본문 표에 update_dtm DEFAULT now() 반영·부록 B 정본 문구
@@ -530,6 +531,18 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+528. 2026-04-22 README: docs/main 스타일(문단·표·중복 섹션 통합)
+Purpose: 루트 README를 docs/main과 같은 읽기 흐름(짧은 문단, `---`, 표, 소제목)으로 정리한다.
+
+Changes:
+
+- 서두에 docs/main 정본 안내·README 역할 한 줄
+- 주요 기능: 대시보드 중복 섹션 통합, ETL·공통을 문단·소제목으로 분리
+- 실행 방법: `run.py` 옵션 표, 설정(backend/ETL/감사/대시보드/frontend)을 블록으로 나눔
+- 프로젝트 구조·사용 흐름·문서 표 가독성 보강
+
+Changed files: README.md, docs/log/log.md
 
 527. 2026-04-22 docs/main: DB 풀·keepalive·stale 정책(03·02·04 반영)
 Purpose: `Backend/core/db.py`에 적용한 연결 풀 정책을 `docs/main` 정본에 반영한다.
