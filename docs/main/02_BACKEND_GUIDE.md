@@ -473,6 +473,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 - **시스템 DB**: `get_db_connection_system()`, `get_system_table_schema()` — ETL 메타 등
 - **dash_db**: `get_dash_db_config()`, `get_dash_table_schema()`, `get_db_connection_dash()`, `is_new_dash_physical_table()`, `validate_dashboard_data_table_name()` — `ibank_1`, `ibank_1_0`~`ibank_1_4`, `ibank_*_star_1`, `ibank_*_star_2` 등
 - **공용 모듈**: ASGI/라우터와 **무관한 순수 모듈** — **etl_server**, **campaign_dash_server**, **widget_board_server**, **admin_server** 등에서 import
+- **연결 풀·유휴 끊김**: `main`·`system`·`etl`·`dash` 네 `ThreadedConnectionPool`과 직접 연결 fallback에 **TCP keepalive**를 넣고, `getconn()` 직후 `closed`·`set_client_encoding` 실패 시 해당 연결을 풀에서 폐기한 뒤 `psycopg2.connect`로 연다. `_PooledConnection.cursor()` 는 이미 닫힌 연결이면 재횑득한다. 상세·다이어그램은 **`docs/main/03_API_GUIDE.md`** §1.3.
 
 ### 5.3 core/dependencies.py
 

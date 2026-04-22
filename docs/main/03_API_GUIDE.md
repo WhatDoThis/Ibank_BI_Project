@@ -64,6 +64,7 @@ FastAPI 앱 조립·공용 DB 풀·헬스·쿼리 스튜디오/ETL 등 라우터
 │  ├─ _ETL_DB_POOL (etl_db)                    │
 │  └─ _DASH_DB_POOL (dash_db)                  │
 │  각 풀: min=1, max=30, ThreadedConnectionPool │
+│  공통: libpq TCP keepalive·checkout 시 끊김 연결 폐기·cursor 시 닫힘 재획득(§1.3) │
 └──────────────┬──────────────────────────────┘
                ▼
 ┌─────────────────────────────────────────────┐
@@ -203,11 +204,18 @@ widget_board (메타)  ──────→ _SYSTEM_DB_POOL
 widget_board (데이터) ─────→ _MAIN_DB_POOL 또는 _DASH_DB_POOL (data_source_type에 따라)
 ```
 
+**연결 풀·유휴 끊김 (stale)**
+
+- 네 풀과 `get_db_connection*` 이 반환하는 **직접 연결 fallback** 모두, `psycopg2.connect` / `ThreadedConnectionPool` 생성 시 **libpq TCP keepalive**(`keepalives`, `keepalives_idle`, `keepalives_interval`, `keepalives_count`)를 켠다. 유휴 TCP가 NAT·방화벽 등에서 끊기는 빈도를 줄이기 위함이다.
+- `getconn()` 직후 **연결 `closed` 검사**와 **`set_client_encoding("UTF8")`** 를 시도한다. `OperationalError`·`InterfaceError`면 해당 소켓을 **`putconn(..., close=True)`** 로 풀에서 제거한 뒤 **동일 설정으로 직접 연결**을 연다.
+- `_PooledConnection.cursor()` 에서 psycopg2가 연결을 닫힌 것으로 보면(`closed != 0`) 풀에 폐기 후 **한 번 재획득**한다.
+- 중간 경로에서 **half-open**(TCP만 끊기고 클라이언트는 아직 살아 있는 것으로 보는 경우)이면 `closed` 가 0인 채 **첫 `execute` 계열**에서 `server closed the connection unexpectedly` 가 날 수 있다. 그때는 재시도·DB/네트워크 로그로 **서버 재시작·세션 킬**과 구분한다.
+
 #### `core/db.py`
 
 | 함수 | 기능 |
 |------|------|
-| `_PooledConnection` | 풀 연결 래퍼 (`close` → `putconn`) |
+| `_PooledConnection` | 풀 연결 래퍼 (`close` → `putconn`; `cursor()` 시 닫힌 연결이면 풀 폐기 후 재획득) |
 | `get_main_db_config` | `backend.main_db` 에서 메인 DB 연결 dict (블록 필수) |
 | `get_system_db_config` | 시스템 DB 연결 dict |
 | `get_etl_db_config` | ETL DB dict (없으면 system_db fallback) |
@@ -225,11 +233,12 @@ widget_board (데이터) ─────→ _MAIN_DB_POOL 또는 _DASH_DB_POOL (
 | `get_all_tables_columns_with_types` | 복수 테이블 일괄 컬럼·타입(`project_info_id` 필수) |
 | `get_table_columns_for_etl_target` | ETL 타겟 컬럼 (allowed 미검사) |
 | `get_primary_key_columns_for_etl_target` | ETL 타겟 PK (allowed 미검사) |
-| `get_db_connection` | 메인 DB 풀 연결 |
+| `get_db_connection` | 메인 DB 풀 연결(끊김 checkout 시 직접 연결 fallback; keepalive 공통) |
 | `get_db_connection_etl` | ETL DB 풀 연결 (`get_etl_db_config`; etl_db 없으면 system_db fallback) |
 | `get_db_connection_system` | ETL 호환 alias — 내부적으로 `get_db_connection_etl()` 과 동일 풀 |
-| `get_db_connection_system_core` | system_db 고정 풀 연결 |
-| `get_db_connection_dash` | 대시보드 DB 풀 연결 |
+| `get_db_connection_system_core` | system_db 고정 풀 연결(동일 checkout·keepalive 정책) |
+| `get_db_connection_dash` | 대시보드 DB 풀 연결(동일 checkout·keepalive 정책) |
+| `_pool_threaded_kwargs` / `_direct_db_connect` / `_acquire_from_threaded_pool` | (내부) keepalive 포함 연결 kwargs·직접 연결·풀 `getconn` 후 유효성 실패 시 폐기 및 fallback |
 | `is_new_dash_physical_table` | `ibank_1` 계열 패턴 판별 |
 | `validate_dashboard_data_table_name` | 대시보드 테이블명 검증 |
 | `is_table_allowed_for_project_dashboard` | `*_star_1`·`*_star_2` 물리 존재 시 매핑 없이 허용; 그 외 dash는 대시보드 기능 켜진 프로젝트는 table_master dash 카탈로그, 아니면 매핑만 |

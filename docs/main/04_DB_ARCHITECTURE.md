@@ -8,7 +8,7 @@
 4. `ibank_etl_data (public)` — 테이블 **13. ~ 25.**  
 5. 테이블 분류 요약 — system / ETL 목록 표  
 6. 부록 A — `sql_fingerprint` 계측 (1)(2)·카탈로그 액션 체크리스트  
-7. 부록 B — `update_dtm` 기본값(선택 운영 DDL)
+7. 부록 B — `update_dtm` DEFAULT `now()` 레거시 보강 DDL(본문 스키마와 동기)
 
 절 이동은 편집기 **검색(Ctrl+F)** 으로 `## ` 제목 문자열을 찾는 것을 권장한다.
 
@@ -19,6 +19,7 @@
 - `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의.
 - 감사 테이블 **`system_log`** 의 DDL·저장 규약·지문 규칙은 **본 문서 §13**에 둔다. (요약·카탈로그 액션 목록은 **부록 A**.)
 - 런타임 설정·서버 구동 개요는 **`docs/main/02_BACKEND_GUIDE.md`** 를 본다.
+- 애플리케이션이 PostgreSQL에 붙는 **연결 풀(4종)·TCP keepalive·유휴 끊김(stale) 시 재연결** 정책은 스키마 범위 밖이며 **`docs/main/03_API_GUIDE.md`** §1.3 을 본다.
 
 **문서 정본**
 
@@ -142,7 +143,7 @@ sort_order               integer                       정렬 순서
 use_yn                   varchar(1)      DEFAULT Y   사용 여부
 dptmt_create_user_id     integer                       FK `FK_user_info_TO_dptmt_info_creator` → `user_info(user_id)`
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -180,7 +181,7 @@ last_login_ip            varchar(45)                   최종 로그인 IP
 login_fail_cnt           integer         DEFAULT 0     로그인 실패 횟수
 user_lock_expire_dtm    timestamp                     잠금 만료 시각
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 etl_yn                   varchar(1)      NOT NULL DEFAULT N ETL 관리 API 자격
 
 FK (나가는 참조): `dptmt_info_id` → `dptmt_info(dptmt_info_id)` (`FK_dptmt_info_TO_user_info`).
@@ -215,7 +216,7 @@ used_yn                       varchar(1)    DEFAULT N   사용 여부
 exprtn_dtm                    timestamp                     만료 시각
 code_create_user_id           integer       NOT NULL      FK `FK_user_info_TO_invite_code_creator` → `user_info(user_id)`
 create_dtm                    timestamp     DEFAULT now() 생성일시
-update_dtm                    timestamp                     수정일시
+update_dtm                    timestamp     DEFAULT now() 수정일시
 invite_etl_yn                 varchar(1)    NOT NULL DEFAULT N 가입 시 ETL 자격 부여 여부
 invite_project_info_id        integer                       FK `fk_invite_project` → `project_info(project_info_id)` ON DELETE SET NULL
 invite_pmssn_master_id        integer                       FK `fk_invite_pmssn` → `pmssn_master(pmssn_master_id)` ON DELETE SET NULL
@@ -241,7 +242,7 @@ refresh_token_encrypt    varchar(255)                  리프레시 토큰 해�
 access_exprtn_dtm        timestamp                     액세스 만료 시각
 refresh_exprtn_dtm       timestamp                     리프레시 만료 시각
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 
 인덱스: `IDX_session_log_refresh` btree(`refresh_token_encrypt`); `IDX_session_log_user` btree(`session_create_user_id`).
 
@@ -287,7 +288,7 @@ pmssn_detail_dscrtn      varchar(500)                  설명
 main_ctgr                varchar(100)                  대분류
 sub_ctgr                 varchar(100)                  소분류
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 
 시드 데이터(시스템 기본 4권한):
   ID  식별자             설명              대분류(main_ctgr)
@@ -317,7 +318,7 @@ pmssn_list               text[]          NULL DEFAULT '{}' 권한 키 배열
 system_dflt_yn           varchar(1)      DEFAULT N   시스템 기본 여부
 user_id                  integer                       FK `FK_user_info_TO_pmssn_master_creator` → `user_info(user_id)` (생성자)
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 
 시드 데이터 (시스템 기본 4역할):
   권한 배열                                                  설명
@@ -350,7 +351,7 @@ project_name             varchar(100)    NOT NULL      프로젝트명
 project_dscrtn           varchar(500)                  설명
 active_yn                varchar(1)      DEFAULT Y   활성 여부
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 feature_flags            jsonb           DEFAULT '{"dash": true, "query": true, "widget": true}'::jsonb 기능 플래그
 
 
@@ -373,7 +374,7 @@ invite_user_id           integer         NOT NULL      FK `FK_user_info_TO_ptcpn
 project_info_id          integer         NOT NULL      FK `FK_project_info_TO_ptcpnt` → `project_info(project_info_id)`
 pmssn_master_id          integer         NOT NULL      FK `FK_pmssn_master_TO_ptcpnt` → `pmssn_master(pmssn_master_id)`
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -395,7 +396,7 @@ noti_title               varchar(200)    NOT NULL      제목
 noti_content             text                          본문
 read_yn                  varchar(1)      DEFAULT N   읽음 여부
 create_dtm               timestamp       DEFAULT now() 생성일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 
 인덱스: `IDX_notification_user_unread` btree(`user_id`, `read_yn`).
 
@@ -420,7 +421,7 @@ table_name               varchar(100)    NOT NULL      물리 테이블명
 table_label              varchar(200)                  논리명
 table_dscrtn             varchar(500)                  설명
 create_dtm               timestamp       DEFAULT now() 등록일시
-update_dtm               timestamp                     수정일시
+update_dtm               timestamp       DEFAULT now() 수정일시
 create_user_id           integer                       등록자 `user_id` (NULL 허용, 이 테이블에 FK 제약 없음)
 del_yn                   varchar(1)      DEFAULT N   삭제(비활성) 표시
 
@@ -1296,11 +1297,13 @@ ETL (ibank_etl_data) 13     etl_connections,
 
 ---
 
-## 부록 B. `update_dtm` 기본값(선택 운영 DDL)
+## 부록 B. `update_dtm` DEFAULT `now()` 레거시 보강 DDL
 
-**목적**: 관리·위젯보드 목록의 “수정일시” 칸이 비어 있는 행을 줄이려면, 애플리케이션이 `update_dtm`을 명시하지 않아도 INSERT 시각이 들어가도록 DB 기본값을 둘 수 있다. **필수 마이그레이션은 아니며**, 스키마 정본은 본문 각 테이블 절을 따른다.
+**스키마 정본**: 본문 **§1 `dptmt_info` ~ §11 `table_master`** 의 `update_dtm` 컬럼은 **`DEFAULT now()`** 를 둔 것으로 정의한다. INSERT 시 해당 컬럼을 생략하면 PostgreSQL이 현재 시각을 채운다(애플리케이션이 매번 명시하지 않아도 된다).
 
-**대상(`ibank_system_data.public`)** — 아래는 예시 DDL이다. 운영 DB에서 컬럼 타입·이름이 다르면 맞춰 조정한다.
+**부록 용도**: 아직 위 기본값이 없는 **레거시 인스턴스**에만 아래 `ALTER` 를 적용해 본문과 맞춘다. 이미 동일 DDL을 적용한 DB는 생략하면 된다.
+
+**대상(`ibank_system_data.public`)** — 운영 DB에서 컬럼 타입·이름이 다르면 맞춰 조정한다.
 
 ```sql
 ALTER TABLE public.dptmt_info

@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+527. 2026-04-22 docs/main: DB 풀·keepalive·stale 정책(03·02·04 반영)
+526. 2026-04-22 core/db: 풀 stale 연결 완화(TCP keepalive·checkout·cursor 갱신)
+525. 2026-04-22 docs/main/04: 본문 표에 update_dtm DEFAULT now() 반영·부록 B 정본 문구
 524. 2026-04-22 docs/main·README: 관리 목록 UI·API 정렬·update_dtm 부록 반영
 523. 2026-04-22 admin 목록 2~6: API 기본 정렬 수정일시 내림차순
 522. 2026-04-22 useResetListPage 훅(필터·정렬 변경 시 목록 페이지 1)
@@ -527,6 +530,39 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+527. 2026-04-22 docs/main: DB 풀·keepalive·stale 정책(03·02·04 반영)
+Purpose: `Backend/core/db.py`에 적용한 연결 풀 정책을 `docs/main` 정본에 반영한다.
+
+Changes:
+
+- `03_API_GUIDE.md` §1.3: 기동 다이어그램 보강, stale·keepalive 설명, `core/db.py` 표에 내부 헬퍼·동작 요약
+- `02_BACKEND_GUIDE.md` §5.2: 동일 정책 한 줄 + §1.3 링크
+- `04_DB_ARCHITECTURE.md` 용도: 스키마 밖 연결 정책은 §1.3 참조
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+526. 2026-04-22 core/db: 풀 stale 연결 완화(TCP keepalive·checkout·cursor 갱신)
+Purpose: 유휴 TCP가 중간 경로에서 끊긴 뒤 ThreadedConnectionPool에서 재사용될 때 발생하는 `OperationalError: server closed the connection unexpectedly` 완화.
+
+Changes:
+
+- 풀·직접 연결 공통으로 libpq TCP keepalive 파라미터 적용
+- `getconn` 후 `closed`·`set_client_encoding` 실패 시 해당 연결을 풀에서 폐기하고 직접 연결 fallback
+- `_PooledConnection.cursor()`에서 이미 닫힌 연결이면 풀에 폐기 후 재획득
+
+Changed files: Backend/core/db.py, docs/log/log.md
+
+525. 2026-04-22 docs/main/04: 본문 표에 update_dtm DEFAULT now() 반영·부록 B 정본 문구
+Purpose: 운영 DB에 적용한 `ALTER COLUMN update_dtm SET DEFAULT now()` 와 동일하게, `ibank_system_data` 핵심 테이블(§1~§11) 컬럼 표를 갱신하고 부록 B를 레거시 보강용으로 재정의한다.
+
+Changes:
+
+- `dptmt_info`·`user_info`·`email_invite_code_master`·`session_log`·`pmssn_master_detail`·`pmssn_master`·`project_info`·`project_ptcpnt_info`·`notification_info`·`table_master`: `update_dtm` 제약에 `DEFAULT now()` 표기
+- 부록 B: 스키마 정본은 본문 표, DDL은 레거시 전용으로 서술
+- `07_USER_FUNCTIONAL_GUIDE.md` §11.0: 동일 정책 한 줄
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
 
 524. 2026-04-22 docs/main·README: 관리 목록 UI·API 정렬·update_dtm 부록 반영
 Purpose: log 517~523 및 채팅에서 정리한 관리·위젯보드 목록 공통 UI, 엔드포인트별 기본 정렬, 선택 운영 DDL을 `docs/main`·README에 정본으로 남긴다.

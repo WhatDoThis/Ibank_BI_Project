@@ -6,8 +6,9 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 
 [Main Functions / Classes]
 ===========
-1. _PooledConnection: 풀에서 빌린 연결 래퍼 (close 시 putconn)
+1. _PooledConnection: 풀에서 빌린 연결 래퍼 (close 시 putconn). cursor() 호출 시 psycopg2가 닫힌 연결로 판단하면 풀에 폐기 후 재획득
 1a. safe_rollback: 서버 연결 종료 후에도 InterfaceError 없이 트랜잭션 정리 시도
+1b. _pool_threaded_kwargs / _direct_db_connect / _acquire_from_threaded_pool: libpq TCP keepalive·checkout 시 끊김 연결 폐기·직접 연결 fallback
 2. get_main_db_config: config.backend.main_db 에서 메인 DB dict (필수 블록, system_db 와 동일 키 구조)
 3. get_system_db_config: config.backend.system_db에서 시스템 DB 연결용 dict 반환
 4. get_etl_db_config: config.backend.etl_db 우선, 없으면 system_db fallback으로 ETL DB dict 반환
@@ -23,7 +24,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 12. get_all_tables_columns_with_types: 복수 테이블 컬럼·타입 일괄 조회(project_info_id 필수, 병합 허용 집합과 교집합)
 13. get_table_columns_for_etl_target: ETL 타겟 테이블 컬럼명 목록 (allowed_tables 미검사, 커넥션 1회)
 14. get_primary_key_columns_for_etl_target: ETL 타겟 테이블 PK 목록 (allowed_tables 미검사, 커넥션 1회)
-15. get_db_connection: 메인 DB 연결을 풀에서 반환 (최대 20연결, close 시 풀 반환). 풀 고갈 시 직접 연결 fallback.
+15. get_db_connection: 메인 DB 연결을 풀에서 반환(close 시 풀 반환). checkout 시 끊김·인코딩 실패 시 해당 소켓 폐기 후 직접 연결 fallback, 풀 생성 시 TCP keepalive 포함
 16. get_db_connection_etl: ETL DB 연결을 풀에서 반환(etl_db 우선, 없으면 system_db fallback)
 17. get_db_connection_system: ETL 호환 alias. 기존 ETL 호출부를 위해 get_db_connection_etl() 위임
 18. get_db_connection_system_core: 비ETL 시스템 기능(auth/admin/project/notification)용 system_db 고정 연결
@@ -89,6 +90,14 @@ _etl_pool_lock = threading.Lock()
 _main_pool_lock = threading.Lock()
 _dash_pool_lock = threading.Lock()
 
+# libpq TCP keepalive: 중간 경로(방화벽·NAT)가 유휴 TCP를 끊는 환경에서 풀 재사용 오류 완화
+_POOL_CONNECT_EXTRA: dict[str, Any] = {
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 5,
+}
+
 # 뉴 대시보드 물리 테이블: ibank_1(집계), ibank_1_0~ibank_1_4(서브), ibank_*_star_1|2(JSONB 집약). backend.dash_db.
 _NEW_DASH_PHYSICAL_TABLE_RE = re.compile(r"^ibank_1(_[0-4])?$|^ibank_[a-z0-9_]+_star_[12]$")
 
@@ -101,6 +110,22 @@ class _PooledConnection:
         self._conn = conn
 
     def cursor(self, *args, **kwargs):
+        # 풀에 반환된 뒤 서버·네트워크가 끊은 연결: psycopg2.closed != 0 이면 폐기 후 재획득
+        if self._conn is not None and getattr(self._conn, "closed", 0) != 0:
+            try:
+                self._pool.putconn(self._conn, close=True)
+            except Exception:
+                pass
+            try:
+                self._conn = self._pool.getconn()
+                self._conn.set_client_encoding("UTF8")
+            except Exception as exc:
+                self._conn = None
+                raise psycopg2.InterfaceError(
+                    "풀 연결을 갱신하지 못했습니다."
+                ) from exc
+        if self._conn is None:
+            raise psycopg2.InterfaceError("연결이 이미 닫혔습니다.")
         return self._conn.cursor(*args, **kwargs)
 
     def commit(self):
@@ -657,25 +682,54 @@ def get_primary_key_columns_for_etl_target(table_name: str):
         conn.close()
 
 
+def _pool_threaded_kwargs(get_cfg_fn):
+    """ThreadedConnectionPool·psycopg2.connect 공통 연결 kwargs."""
+    return {**get_cfg_fn(), "cursor_factory": RealDictCursor, **_POOL_CONNECT_EXTRA}
+
+
+def _direct_db_connect(get_cfg_fn):
+    """풀 고갈·끊긴 풀 연결 등으로 풀에서 못 쓸 때 직접 연결(close 시 실제 종료)."""
+    conn = psycopg2.connect(**_pool_threaded_kwargs(get_cfg_fn))
+    conn.set_client_encoding("UTF8")
+    return conn
+
+
+def _acquire_from_threaded_pool(
+    pool: psycopg2_pool.ThreadedConnectionPool,
+    get_cfg_fn,
+):
+    """
+    풀에서 연결 획득.
+    getconn 실패·연결 closed·set_client_encoding 실패 시 해당 소켓을 풀에서 제거하고 직접 연결.
+    """
+    raw = None
+    try:
+        raw = pool.getconn()
+    except Exception:
+        return _direct_db_connect(get_cfg_fn)
+    try:
+        if getattr(raw, "closed", 0) != 0:
+            raise psycopg2.OperationalError("stale pooled connection (closed)")
+        raw.set_client_encoding("UTF8")
+        return _PooledConnection(pool, raw)
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        try:
+            pool.putconn(raw, close=True)
+        except Exception:
+            pass
+        return _direct_db_connect(get_cfg_fn)
+
+
 # 14.
 def get_db_connection():
     """메인 DB 연결을 풀에서 반환. close() 시 풀에 반환. 풀 고갈 시 직접 연결 fallback(close 시 실제 종료)."""
     global _MAIN_DB_POOL
     with _main_pool_lock:
         if _MAIN_DB_POOL is None:
-            cfg = {**get_main_db_config(), "cursor_factory": RealDictCursor}
             _MAIN_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
-                _POOL_MIN, _POOL_MAX, **cfg
+                _POOL_MIN, _POOL_MAX, **_pool_threaded_kwargs(get_main_db_config)
             )
-    try:
-        raw = _MAIN_DB_POOL.getconn()
-        raw.set_client_encoding("UTF8")
-        return _PooledConnection(_MAIN_DB_POOL, raw)
-    except Exception:
-        cfg = get_main_db_config()
-        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
-        conn.set_client_encoding("UTF8")
-        return conn
+    return _acquire_from_threaded_pool(_MAIN_DB_POOL, get_main_db_config)
 
 
 # 15.
@@ -684,19 +738,10 @@ def get_db_connection_etl():
     global _ETL_DB_POOL
     with _etl_pool_lock:
         if _ETL_DB_POOL is None:
-            cfg = {**get_etl_db_config(), "cursor_factory": RealDictCursor}
             _ETL_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
-                _POOL_MIN, _POOL_MAX, **cfg
+                _POOL_MIN, _POOL_MAX, **_pool_threaded_kwargs(get_etl_db_config)
             )
-    try:
-        raw = _ETL_DB_POOL.getconn()
-        raw.set_client_encoding("UTF8")
-        return _PooledConnection(_ETL_DB_POOL, raw)
-    except Exception:
-        cfg = get_etl_db_config()
-        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
-        conn.set_client_encoding("UTF8")
-        return conn
+    return _acquire_from_threaded_pool(_ETL_DB_POOL, get_etl_db_config)
 
 
 # 16.
@@ -711,19 +756,10 @@ def get_db_connection_system_core():
     global _SYSTEM_DB_POOL
     with _system_pool_lock:
         if _SYSTEM_DB_POOL is None:
-            cfg = {**get_system_db_config(), "cursor_factory": RealDictCursor}
             _SYSTEM_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
-                _POOL_MIN, _POOL_MAX, **cfg
+                _POOL_MIN, _POOL_MAX, **_pool_threaded_kwargs(get_system_db_config)
             )
-    try:
-        raw = _SYSTEM_DB_POOL.getconn()
-        raw.set_client_encoding("UTF8")
-        return _PooledConnection(_SYSTEM_DB_POOL, raw)
-    except Exception:
-        cfg = get_system_db_config()
-        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
-        conn.set_client_encoding("UTF8")
-        return conn
+    return _acquire_from_threaded_pool(_SYSTEM_DB_POOL, get_system_db_config)
 
 
 # 18.
@@ -732,19 +768,10 @@ def get_db_connection_dash():
     global _DASH_DB_POOL
     with _dash_pool_lock:
         if _DASH_DB_POOL is None:
-            cfg = {**get_dash_db_config(), "cursor_factory": RealDictCursor}
             _DASH_DB_POOL = psycopg2_pool.ThreadedConnectionPool(
-                _POOL_MIN, _POOL_MAX, **cfg
+                _POOL_MIN, _POOL_MAX, **_pool_threaded_kwargs(get_dash_db_config)
             )
-    try:
-        raw = _DASH_DB_POOL.getconn()
-        raw.set_client_encoding("UTF8")
-        return _PooledConnection(_DASH_DB_POOL, raw)
-    except Exception:
-        cfg = get_dash_db_config()
-        conn = psycopg2.connect(**cfg, cursor_factory=RealDictCursor)
-        conn.set_client_encoding("UTF8")
-        return conn
+    return _acquire_from_threaded_pool(_DASH_DB_POOL, get_dash_db_config)
 
 
 # 19.
