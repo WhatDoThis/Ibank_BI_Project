@@ -37,6 +37,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 - **설정**: 환경은 `Env/config/config.json` 만 사용(.env 미사용).
 - **API**: FastAPI — health, **auth/projects/notifications/admin**, **시스템·로그인 이력 조회**(`/api/system-logs`, `system_log_server` — 조직 통합 이력 UI는 `page_size` 기본 10·화면 10/20/50건, 탭 간 유지), **쿼리 스튜디오**(`/api/*`), **ETL**(`/api/etl`, `/api/etl/batch`), **캠페인 대시보드**(`/api/campaign-dashboard`), **위젯보드**(`/api/widget-boards`). PostgreSQL 연동. 쿼리 스튜디오: join-order, save-query-as-table·status, execute-query 등.
+- **관리·위젯보드 목록 UI**: 사용자·권한·프로젝트·멤버·조직·위젯보드 보드 목록에 공통 필터·정렬·하단 페이지네이션을 쓰고, 목록 API는 엔드포인트별 기본 정렬(다수 `update_dtm DESC NULLS LAST`, 사용자 목록은 부서·역할 고정 순)을 따른다. 세부는 **docs/main/01_FRONTEND_GUIDE.md**, **03_API_GUIDE.md**, **07_USER_FUNCTIONAL_GUIDE.md** §11.0.
 
 ---
 

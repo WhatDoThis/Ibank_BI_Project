@@ -692,7 +692,7 @@ export default function AdminRolesPage() {
                 type="text"
                 value={roleFilters.creator}
                 onChange={(ev) => setRoleFilters((p) => ({ ...p, creator: ev.target.value }))}
-                placeholder="이메일 contains"
+                placeholder="contains"
                 autoComplete="off"
               />
             </div>

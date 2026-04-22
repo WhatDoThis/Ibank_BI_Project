@@ -23,7 +23,8 @@
 2) **S8(관리·알림)**
 
 - `NotificationBell`·`notificationsClient`.
-- `/admin/users`(`OrgAdminRoute`)·**`/admin/user-history`**(통합 이력: `tab=login`|`tab=system`, 페이지당 **10·20·50건**(기본 10, 탭 전환 시 유지), 테이블 하단 페이지 이동·건수 요약·CSV는 상단 툴바, `OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`).
+- `/admin/users`(`OrgAdminRoute`)·**`/admin/user-history`**(통합 이력: `tab=login`|`tab=system`, 서버 페이징·페이지당 **10·20·50건**(기본 10, 탭 전환 시 유지), 테이블 하단 **공용** 페이지네이션 UI·건수 요약·CSV는 상단 툴바, `OrgAdminRoute`)·`/admin/roles`·`/admin/projects`·`/admin/projects/:id/members`(`ProjectAdminRoute`, operator 포함)·`/admin/org`(`SuperAdminRoute`).
+- **관리 1~6·위젯보드 목록**: 상단 필터 바·헤더 정렬·하단 페이지네이션을 공통 모듈로 맞춘다(`admin-list-table.css`, `admin-list-pagination.css`, `shared/utils/adminListTable.js`, `shared/components/AdminSortableTh.jsx`, `AdminListPaginationFooter.jsx`, `shared/hooks/useResetListPage.js`). API 기본 행 순서는 엔드포인트별로 다르다(권한·조직 부서·프로젝트·멤버·위젯보드 목록은 **`update_dtm DESC NULLS LAST` 계열**이 기본, **사용자 관리**는 부서 트리·조직 역할·ETL·이메일 고정 순). 화면에서는 그 순서를 출발점으로 필터·헤더 정렬을 적용한 뒤 **클라이언트에서 페이지 단위 slice**만 한다. 통합 이력만 서버 `page`/`page_size`와 연동한다.
 
 3) **`adminClient.js`**
 
@@ -47,7 +48,7 @@
 - **React(Vite)** 단일 앱, **base 경로 `/ibank-bi/`** (`vite.config.js`).
 - **기능 패키지**: `query_studio`, `campaign_dashboard`(대시보드 UI 단일), `widgetboard`, `etl`.
 - **SPA 전용 `app/`**: `auth/`, `home/`, `mypage/`, `admin/`, `layout/`, `guards/`, `routes.jsx`.
-- **공용 `shared/`**: `config/api.js`, `api/http.js`·`adminClient.js`·`authClient.js`·`notificationsClient.js`·`queryStudioTableApi.js`, `auth/jwtUtils.js`·`tokenStorage.js`, `utils/` 등.
+- **공용 `shared/`**: `config/api.js`, `api/http.js`·`adminClient.js`·`authClient.js`·`notificationsClient.js`·`queryStudioTableApi.js`, `auth/jwtUtils.js`·`tokenStorage.js`, `components/`(관리 목록용)·`hooks/useResetListPage.js`, `utils/` 등.
 - **패키지별 API**: 각 `packages/<이름>/api/*Client.js`.
 - **정적 서버**: `Frontend/static_server/main.py`가 `dist/` 서빙, `/ibank-bi` 경로 변환·SPA fallback, `/api-config.js` 주입 → `window.APP_CONFIG.apiBaseUrl`.
 
@@ -106,7 +107,7 @@ Frontend/react-app/
     │   ├── auth/                     # LoginPage, SignupPage, AuthContext, login.css
     │   ├── home/                     # HomePage, homeAccess.js, home.css
     │   ├── mypage/                   # MyPage, mypage.css
-    │   ├── admin/                    # AdminUsers|UserHistory|Org|Roles|Projects|ProjectMembersPage, adminAccess.js, admin-pages.css, admin-users.css, user-history.css, admin-org.css
+    │   ├── admin/                    # AdminUsers|UserHistory|Org|Roles|Projects|ProjectMembersPage, adminAccess.js, admin-pages.css, admin-users.css, admin-list-table.css, admin-list-pagination.css, user-history.css, admin-org.css
     │   ├── layout/                   # ProtectedLayout, navConfig.js, ProjectHeaderSelect, NotificationBell, PageHeader, SidebarNavIcon, ShellChromeOverrideContext, pageTitles, *.css
     │   └── guards/                   # NeedProjectRoute, ProjectFeatureRoute, EtlAccessRoute, OrgAdminRoute, SuperAdminRoute, ProjectAdminRoute, etlAccess.js
     ├── packages/
@@ -132,7 +133,9 @@ Frontend/react-app/
         ├── api/http.js, adminClient.js, authClient.js, notificationsClient.js, queryStudioTableApi.js, systemLogClient.js
         ├── auth/jwtUtils.js, tokenStorage.js
         ├── config/api.js
-        └── utils/crudConfirm.js, userDvsnDisplay.js, passwordPolicy.js
+        ├── components/AdminSortableTh.jsx, AdminListPaginationFooter.jsx
+        ├── hooks/useResetListPage.js
+        └── utils/adminListTable.js, crudConfirm.js, userDvsnDisplay.js, passwordPolicy.js
 ```
 
 - **라우팅 요약 (`routes.jsx`)**
@@ -182,7 +185,7 @@ Frontend/react-app/
   - `/widgetboard` — `Outlet` 기준 **`/`(index)** → `WidgetboardListPage.jsx`(목록·생성·초대 등)
   - **`/:boardId`** → `WidgetboardPage.jsx`(캔버스·팔레트·편집)
 - **`WidgetboardPage.jsx`**: DnD 격자·위젯; 데이터는 `queryStudioClient.js`(`listTables`, `describeTable`, `executeQuery`) + `widgetBoardClient.js`(보드·레이아웃·참여자 등) 병행
-- **`WidgetboardListPage.jsx`**: 프로젝트별 보드 카드, 생성·수정·초대·비활성·참여자 진입
+- **`WidgetboardListPage.jsx`**: 프로젝트별 보드 카드, 생성·수정·초대·비활성·참여자 진입. **목록**은 S8과 동일한 `admin-list-filters`·정렬·`AdminListPaginationFooter`·`useResetListPage` 패턴을 쓰며, `admin-pages.css`·`admin-users.css`·`admin-list-table.css`를 import한다(위젯보드 전용 `widgetboard.css`와 병행).
 - **`components/WidgetDataWizardModal.jsx`**: 위젯 생성 마법사
 - **`utils/dataUtils.js`**, **`utils/dateRangePolicy.js`**: 가공·조회 기간 상한
 - **`constants.js`**, **`index.jsx`**, **`widgetboard.css`**
@@ -228,6 +231,10 @@ Frontend/react-app/
 - **`api/notificationsClient.js`**: `/api/notifications/*`
 - **`api/queryStudioTableApi.js`**: `list-tables`·`describe-table`·`execute-query` 등 — 쿼리 스튜디오·위젯보드 **공유**(중복 방지)
 - **`auth/jwtUtils.js`**, **`auth/tokenStorage.js`**: JWT 클레임·로컬 스토리지
+- **`utils/adminListTable.js`**: 관리·위젯보드 목록용 `cycleListSort`(헤더 3단계 정렬)·`strContains`·`dateFieldInRange`·`sortRowsByState`
+- **`components/AdminSortableTh.jsx`**: 정렬 가능 `th`(화살표·nd-rank 스타일과 동일 계열)
+- **`components/AdminListPaginationFooter.jsx`**: 건수 요약·10·20·50개·«‹›»·페이지 입력(스타일은 동일 파일에서 `admin-list-pagination.css` side-effect import)
+- **`hooks/useResetListPage.js`**: 필터·정렬·원본 행 집합 등 의존 값이 바뀌면 클라이언트 목록 페이지를 1로 리셋
 - **`utils/crudConfirm.js`**, **`userDvsnDisplay.js`**, **`passwordPolicy.js`**: 관리·가입 공통
 
 **엔드포인트 추가 시**: 해당 패키지 `api/*Client.js` 및 필요 시 `shared/api/*`·`http.js` 수정한다. 저장소에는 **루트 단일 `client.js`** 를 두지 않는다.
@@ -264,7 +271,7 @@ Frontend/react-app/
 - **`src/styles/`** (앱 셸·토큰·스크롤바)
   - `design-tokens.css`, `shared-ui.css`, `app-shell.css`, `ibank-scrollbars.css`, `main.css`
 - **`app/` 화면별 `*.css`**
-  - `login.css`, `home.css`, `mypage.css`, `admin-pages.css`, `admin-users.css`, `admin-org.css`
+  - `login.css`, `home.css`, `mypage.css`, `admin-pages.css`, `admin-users.css`, **`admin-list-table.css`**, **`admin-list-pagination.css`**, `admin-org.css`
   - `layout/`: `notification-bell.css`, `project-header-select.css` 등
 - **`index.css`**: 엔트리 보조 — 별도 유틸 CSS 프레임워크 없음
 

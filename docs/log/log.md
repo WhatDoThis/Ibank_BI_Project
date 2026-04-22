@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+524. 2026-04-22 docs/main·README: 관리 목록 UI·API 정렬·update_dtm 부록 반영
 523. 2026-04-22 admin 목록 2~6: API 기본 정렬 수정일시 내림차순
 522. 2026-04-22 useResetListPage 훅(필터·정렬 변경 시 목록 페이지 1)
 521. 2026-04-22 관리 목록 공통 페이지네이션(1~6·이력·위젯보드)
@@ -526,6 +527,19 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+524. 2026-04-22 docs/main·README: 관리 목록 UI·API 정렬·update_dtm 부록 반영
+Purpose: log 517~523 및 채팅에서 정리한 관리·위젯보드 목록 공통 UI, 엔드포인트별 기본 정렬, 선택 운영 DDL을 `docs/main`·README에 정본으로 남긴다.
+
+Changes:
+
+- `01_FRONTEND_GUIDE.md`: S8·디렉터리·shared·위젯보드·스타일에 공통 목록 모듈·API 순서 예외(사용자 목록) 반영
+- `03_API_GUIDE.md`: 관리·위젯보드 목록 GET 기본 정렬 절 추가
+- `07_USER_FUNCTIONAL_GUIDE.md`: §11.0 목록 화면 공통
+- `04_DB_ARCHITECTURE.md`: 목차·부록 B(`update_dtm` DEFAULT·선택 backfill)
+- `README.md`: 공통 기능 bullet 보강
+
+Changed files: docs/main/01_FRONTEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, README.md, docs/log/log.md
 
 523. 2026-04-22 admin 목록 2~6: API 기본 정렬 수정일시 내림차순
 Purpose: 권한·부서·프로젝트·프로젝트 멤버·위젯보드(및 초대 대기) 목록을 페이지 진입 시 수정일시 최신순으로 보이게 하고, 멤버 활성 행에 `update_dtm`을 SELECT에 포함한다.

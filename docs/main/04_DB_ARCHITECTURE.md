@@ -8,6 +8,7 @@
 4. `ibank_etl_data (public)` — 테이블 **13. ~ 25.**  
 5. 테이블 분류 요약 — system / ETL 목록 표  
 6. 부록 A — `sql_fingerprint` 계측 (1)(2)·카탈로그 액션 체크리스트  
+7. 부록 B — `update_dtm` 기본값(선택 운영 DDL)
 
 절 이동은 편집기 **검색(Ctrl+F)** 으로 `## ` 제목 문자열을 찾는 것을 권장한다.
 
@@ -1292,3 +1293,43 @@ ETL (ibank_etl_data) 13     etl_connections,
 - `dept_update`  
   - `x_field` 가 `dptmt_name_only` → 부서명만 갱신 템플릿  
   - 아니면 → 전체 갱신 템플릿  
+
+---
+
+## 부록 B. `update_dtm` 기본값(선택 운영 DDL)
+
+**목적**: 관리·위젯보드 목록의 “수정일시” 칸이 비어 있는 행을 줄이려면, 애플리케이션이 `update_dtm`을 명시하지 않아도 INSERT 시각이 들어가도록 DB 기본값을 둘 수 있다. **필수 마이그레이션은 아니며**, 스키마 정본은 본문 각 테이블 절을 따른다.
+
+**대상(`ibank_system_data.public`)** — 아래는 예시 DDL이다. 운영 DB에서 컬럼 타입·이름이 다르면 맞춰 조정한다.
+
+```sql
+ALTER TABLE public.dptmt_info
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.user_info
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.email_invite_code_master
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.session_log
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.pmssn_master_detail
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.pmssn_master
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.project_info
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.project_ptcpnt_info
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.notification_info
+  ALTER COLUMN update_dtm SET DEFAULT now();
+ALTER TABLE public.table_master
+  ALTER COLUMN update_dtm SET DEFAULT now();
+```
+
+**기존 NULL 채우기(선택)**: `create_dtm`(또는 동등 컬럼)이 있는 경우에만, 백업·점검 후 한 번 실행한다.
+
+```sql
+UPDATE public.user_info SET update_dtm = create_dtm WHERE update_dtm IS NULL;
+-- 테이블별로 동일 패턴 반복(대상 컬럼 존재 시에만)
+```
+
+**참고**: `widget_board`·`widget_item` 등 일부 테이블은 본문 DDL에 이미 `DEFAULT now()`가 있을 수 있다. 중복 `ALTER`는 생략하면 된다.

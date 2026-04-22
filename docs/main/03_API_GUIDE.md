@@ -1337,6 +1337,16 @@ GET /api/admin/projects/{id}/members
 - 관리자 화면의 라벨·설명 수정은 위 **`service_tables`** 가 담당한다.
 - ETL 측 상세는 **[§7.5](#75-security-and-limits)**·**[§7.6](#76-related-database-tables)**.
 
+#### 관리·위젯보드 목록 API의 기본 정렬
+
+- 아래 **목록용 GET** 은 프론트가 클라이언트 필터·정렬·페이지 slice의 **출발 순서**로 쓴다. 통합 이력(`system_log_server`)은 서버 `page`/`page_size` 페이징이라 별도다.
+- **`GET /api/admin/users`** — `service_users.list_users_for_admin_ui`: 부서 트리 키·`dptmt_info_id`·조직 역할(sa_dev→u)·ETL Y 우선·이메일.
+- **`GET /api/admin/roles`** — `service_roles.list_roles_for_dept`: `pmssn_master.update_dtm DESC NULLS LAST`, 시스템 기본 우선·권한명.
+- **`GET /api/admin/org`**, **`GET /api/admin/org/departments`** — `service_users.list_departments_for_org_settings`: `dptmt_info.update_dtm DESC NULLS LAST`, 부서 id.
+- **`GET /api/admin/projects`** — `service_projects.list_projects_in_dept` / `list_projects_for_participant`: `project_info.update_dtm DESC NULLS LAST`, 프로젝트명.
+- **`GET /api/admin/projects/{id}/members`** — `service_projects.list_members`(참여자 UNION 미수락 초대): 참여자는 `project_ptcpnt_info.update_dtm DESC NULLS LAST`·`create_dtm`·이메일; 미수락 초대는 `notification_server` 조회 **`ORDER BY n.update_dtm DESC NULLS LAST, n.create_dtm DESC`**.
+- **`GET /api/widget-boards`**(프로젝트 컨텍스트) — `widget_board_server.service.list_boards`: 활성 보드 우선·`widget_board.update_dtm DESC NULLS LAST`·`board_order`·이름.
+
 #### `admin_server/router.py`
 
 `admin_router` 접두사 **`/api/admin`** (아래는 전체 경로).
