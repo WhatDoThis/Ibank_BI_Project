@@ -1792,7 +1792,7 @@ def list_departments_for_org_settings(
                 """
                 SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
                        p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
-                       d.sort_order, d.use_yn, d.create_dtm, d.dptmt_create_user_id,
+                       d.sort_order, d.use_yn, d.create_dtm, d.update_dtm, d.dptmt_create_user_id,
                        NULLIF(TRIM(cu.user_email), '') AS creator_email,
                        (SELECT COUNT(*)::int FROM user_info u WHERE u.dptmt_info_id = d.dptmt_info_id) AS member_count
                 FROM dptmt_info d
@@ -1810,19 +1810,19 @@ def list_departments_for_org_settings(
                 """
                 WITH RECURSIVE sub AS (
                     SELECT dptmt_info_id, dptmt_code, dptmt_name, parent_dptmt_info_id, sort_order, use_yn, create_dtm,
-                           dptmt_create_user_id
+                           update_dtm, dptmt_create_user_id
                     FROM dptmt_info
                     WHERE dptmt_info_id = %s
                     UNION ALL
                     SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
-                           d.sort_order, d.use_yn, d.create_dtm, d.dptmt_create_user_id
+                           d.sort_order, d.use_yn, d.create_dtm, d.update_dtm, d.dptmt_create_user_id
                     FROM dptmt_info d
                     INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
                     WHERE d.dptmt_info_id <> 0
                 )
                 SELECT d.dptmt_info_id, d.dptmt_code, d.dptmt_name, d.parent_dptmt_info_id,
                        p.dptmt_name AS parent_dptmt_name, p.dptmt_code AS parent_dptmt_code,
-                       d.sort_order, d.use_yn, d.create_dtm, d.dptmt_create_user_id,
+                       d.sort_order, d.use_yn, d.create_dtm, d.update_dtm, d.dptmt_create_user_id,
                        NULLIF(TRIM(cu.user_email), '') AS creator_email,
                        (SELECT COUNT(*)::int FROM user_info u WHERE u.dptmt_info_id = d.dptmt_info_id) AS member_count
                 FROM sub d

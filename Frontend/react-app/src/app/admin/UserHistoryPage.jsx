@@ -5,18 +5,20 @@
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달·하단 페이지네이션(«‹ 페이지/총 ›»)·페이지당 10/20/50건(탭 전환 시 유지·기본 10)
+ * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달·하단 페이지네이션(AdminListPaginationFooter·서버 total·10/20/50·탭 전환 시 페이지만 초기화)
  *
  * [Dependencies]
  * =========
  * - react-router-dom (useSearchParams, Link)
  * - shared/api/systemLogClient (getLoginHistoryOrg, getSystemLogsOrg, downloadUserHistoryCsv)
- * - app/admin/admin-pages.css(`ap__back` 상단 링크), app/admin/admin-users.css, app/admin/user-history.css
+ * - app/admin/admin-pages.css(`ap__back` 상단 링크), app/admin/admin-users.css, app/admin/admin-list-table.css(필터 바·1~6과 동일), app/admin/user-history.css
+ * - shared/components/AdminListPaginationFooter(admin-list-pagination.css 포함)
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
 import {
   downloadUserHistoryCsv,
   getLoginHistoryOrg,
@@ -25,6 +27,7 @@ import {
 
 import './admin-pages.css'
 import './admin-users.css'
+import './admin-list-table.css'
 import './user-history.css'
 
 const VALID_TABS = ['login', 'system']
@@ -34,9 +37,6 @@ const CSV_MAX_ROWS = 50000
 
 /** 서버 `MAX_HISTORY_FILTER_SPAN_DAYS` 와 동일(시작·종료일 둘 다 있을 때) */
 const MAX_FILTER_SPAN_DAYS = 92
-
-/** 목록 `page_size` 선택지(로그인 org API 최대 50·시스템 최대 200 — 공통 10·20·50) */
-const PAGE_SIZE_CHOICES = [10, 20, 50]
 
 /** 로그인 테이블 헤더(일시·사용자·결과)와 동일한 정렬 라벨, value 는 API `sort_by` */
 const LOGIN_SORT_OPTIONS = [
@@ -215,8 +215,6 @@ export default function UserHistoryPage() {
   })
 
   const [page, setPage] = useState(1)
-  /** 하단 페이지 입력란 — `page`와 동기, Enter·blur 시 검증·이동 */
-  const [pageField, setPageField] = useState('1')
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(10)
@@ -411,39 +409,11 @@ export default function UserHistoryPage() {
     load()
   }, [load])
 
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil((Number(total) || 0) / (Number(pageSize) || 1)) || 1),
-    [total, pageSize]
-  )
-
-  useEffect(() => {
-    setPageField(String(page))
-  }, [page])
-
-  useEffect(() => {
-    setPage((p) => (p > totalPages ? totalPages : p))
-  }, [totalPages])
-
-  const commitPageField = useCallback(() => {
-    const raw = String(pageField).trim()
-    const n = parseInt(raw, 10)
-    if (Number.isNaN(n) || n < 1) {
-      setPageField(String(page))
-      return
-    }
-    const clamped = Math.min(totalPages, n)
-    setPageField(String(clamped))
-    if (clamped !== page) setPage(clamped)
-  }, [pageField, page, totalPages])
-
   const { fromMin, fromMax, toMin, toMax } = dateInputBounds(fromD, toD)
 
   const filterLines = buildAppliedFilterLines(applied, tab)
   const sortLines = buildSortLines(tab, applied)
   const totalRowsLabel = `${Number(total || 0).toLocaleString('ko-KR')}행`
-  const rowFrom = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const rowTo = total === 0 ? 0 : Math.min(page * pageSize, total)
-
   return (
     <div className="admin-users user-history">
       <Link to="/admin/users" className="ap__back">
@@ -482,25 +452,26 @@ export default function UserHistoryPage() {
       </div>
 
       <form
-        className="user-history__filters"
+        className="admin-list-filters user-history__filters"
         onSubmit={handleFiltersSubmit}
         onKeyDown={handleFiltersFormKeyDown}
         aria-label="이력 필터"
       >
-        <label className="user-history__field">
-          사용자
+        <div className="admin-list-filters__field admin-list-filters__field--grow">
+          <label htmlFor="uh-filter-user">사용자</label>
           <input
-            className="admin-users__input"
+            id="uh-filter-user"
+            type="text"
             value={userKey}
             onChange={(e) => setUserKey(e.target.value)}
             placeholder="contains"
             autoComplete="off"
           />
-        </label>
-        <label className="user-history__field">
-          일시 시작
+        </div>
+        <div className="admin-list-filters__field">
+          <label htmlFor="uh-filter-from">일시 시작</label>
           <input
-            className="admin-users__input"
+            id="uh-filter-from"
             type="date"
             value={fromD}
             min={fromMin || undefined}
@@ -512,11 +483,11 @@ export default function UserHistoryPage() {
             }
             onChange={(e) => setFromD(e.target.value)}
           />
-        </label>
-        <label className="user-history__field">
-          일시 종료
+        </div>
+        <div className="admin-list-filters__field">
+          <label htmlFor="uh-filter-to">일시 종료</label>
           <input
-            className="admin-users__input"
+            id="uh-filter-to"
             type="date"
             value={toD}
             min={toMin || undefined}
@@ -528,43 +499,46 @@ export default function UserHistoryPage() {
             }
             onChange={(e) => setToD(e.target.value)}
           />
-        </label>
-        <label className="user-history__field">
-          IP
+        </div>
+        <div className="admin-list-filters__field">
+          <label htmlFor="uh-filter-ip">IP</label>
           <input
-            className="admin-users__input"
+            id="uh-filter-ip"
+            type="text"
             value={ipContains}
             onChange={(e) => setIpContains(e.target.value)}
             placeholder="contains"
             autoComplete="off"
           />
-        </label>
+        </div>
         {tab === 'system' ? (
           <>
-            <label className="user-history__field">
-              페이지
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-filter-channel">페이지</label>
               <input
-                className="admin-users__input"
+                id="uh-filter-channel"
+                type="text"
                 value={channel}
                 onChange={(e) => setChannel(e.target.value)}
                 placeholder="contains"
                 autoComplete="off"
               />
-            </label>
-            <label className="user-history__field">
-              행위
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-filter-action">행위</label>
               <input
-                className="admin-users__input"
+                id="uh-filter-action"
+                type="text"
                 value={actionKind}
                 onChange={(e) => setActionKind(e.target.value)}
                 placeholder="contains"
                 autoComplete="off"
               />
-            </label>
-            <label className="user-history__field">
-              상태
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-filter-success">상태</label>
               <select
-                className="admin-users__select"
+                id="uh-filter-success"
                 value={successYn}
                 onChange={(e) => setSuccessYn(e.target.value)}
               >
@@ -572,15 +546,15 @@ export default function UserHistoryPage() {
                 <option value="Y">성공</option>
                 <option value="N">실패</option>
               </select>
-            </label>
+            </div>
           </>
         ) : null}
         {tab === 'login' ? (
           <>
-            <label className="user-history__field user-history__field--sort">
-              정렬 기준
+            <div className="admin-list-filters__field admin-list-filters__field--sortwide">
+              <label htmlFor="uh-sort-login-by">정렬 기준</label>
               <select
-                className="admin-users__select"
+                id="uh-sort-login-by"
                 value={sortLoginBy}
                 onChange={(e) => setSortLoginBy(e.target.value)}
                 aria-label="정렬 기준(로그인 테이블 열과 동일)"
@@ -591,11 +565,11 @@ export default function UserHistoryPage() {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="user-history__field user-history__field--sort">
-              정렬 방향
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-sort-login-dir">정렬 방향</label>
               <select
-                className="admin-users__select"
+                id="uh-sort-login-dir"
                 value={sortLoginDir}
                 onChange={(e) => setSortLoginDir(e.target.value)}
                 aria-label="로그인 이력 정렬 방향"
@@ -603,14 +577,14 @@ export default function UserHistoryPage() {
                 <option value="desc">내림차순</option>
                 <option value="asc">오름차순</option>
               </select>
-            </label>
+            </div>
           </>
         ) : (
           <>
-            <label className="user-history__field user-history__field--sort">
-              정렬 기준
+            <div className="admin-list-filters__field admin-list-filters__field--sortwide">
+              <label htmlFor="uh-sort-system-by">정렬 기준</label>
               <select
-                className="admin-users__select"
+                id="uh-sort-system-by"
                 value={sortSystemBy}
                 onChange={(e) => setSortSystemBy(e.target.value)}
                 aria-label="정렬 기준(시스템 테이블 열과 동일)"
@@ -621,11 +595,11 @@ export default function UserHistoryPage() {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="user-history__field user-history__field--sort">
-              정렬 방향
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-sort-system-dir">정렬 방향</label>
               <select
-                className="admin-users__select"
+                id="uh-sort-system-dir"
                 value={sortSystemDir}
                 onChange={(e) => setSortSystemDir(e.target.value)}
                 aria-label="시스템 이력 정렬 방향"
@@ -633,10 +607,10 @@ export default function UserHistoryPage() {
                 <option value="desc">내림차순</option>
                 <option value="asc">오름차순</option>
               </select>
-            </label>
+            </div>
           </>
         )}
-        <div className="user-history__filter-actions">
+        <div className="admin-list-filters__actions">
           <button type="submit" className="ibank-btn-toolbar" disabled={loading}>
             필터 적용
           </button>
@@ -747,107 +721,18 @@ export default function UserHistoryPage() {
         )}
       </div>
 
-      <div className="user-history__pager-footer">
-        <p className="user-history__pager-footer__summary" aria-live="polite">
-          {total === 0 ? (
-            <>총 <strong>0</strong>건</>
-          ) : (
-            <>
-              총 <strong>{Number(total).toLocaleString('ko-KR')}</strong>건 ·{' '}
-              <strong>{rowFrom.toLocaleString('ko-KR')}</strong>–
-              <strong>{rowTo.toLocaleString('ko-KR')}</strong>번째 표시
-            </>
-          )}
-        </p>
-        <div className="user-history__pager-footer__right">
-          <div className="user-history__page-size" role="group" aria-label="페이지당 표시 행 수">
-            {PAGE_SIZE_CHOICES.map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`user-history__page-size-btn${pageSize === n ? ' user-history__page-size-btn--active' : ''}`}
-                disabled={loading}
-                aria-pressed={pageSize === n}
-                onClick={() => {
-                  if (pageSize === n) return
-                  setPageSize(n)
-                  setPage(1)
-                }}
-              >
-                {n}개
-              </button>
-            ))}
-          </div>
-          <nav className="user-history__pagination" aria-label="페이지 이동">
-          <button
-            type="button"
-            className="user-history__page-btn"
-            disabled={loading || page <= 1}
-            onClick={() => setPage(1)}
-            aria-label="첫 페이지"
-            title="첫 페이지"
-          >
-            «
-          </button>
-          <button
-            type="button"
-            className="user-history__page-btn"
-            disabled={loading || page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            aria-label="이전 페이지"
-            title="이전 페이지"
-          >
-            ‹
-          </button>
-          <span className="user-history__page-jump">
-            <input
-              id="user-history-page-input"
-              className="user-history__page-input admin-users__input"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              aria-label="페이지 번호"
-              disabled={loading}
-              value={pageField}
-              onChange={(e) => setPageField(e.target.value.replace(/\D/g, ''))}
-              onBlur={commitPageField}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitPageField()
-                }
-              }}
-            />
-            <span className="user-history__page-slash" aria-hidden="true">
-              /
-            </span>
-            <span className="user-history__page-total" aria-label={`전체 ${totalPages}페이지`}>
-              {totalPages}
-            </span>
-          </span>
-          <button
-            type="button"
-            className="user-history__page-btn"
-            disabled={loading || page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            aria-label="다음 페이지"
-            title="다음 페이지"
-          >
-            ›
-          </button>
-          <button
-            type="button"
-            className="user-history__page-btn"
-            disabled={loading || page >= totalPages}
-            onClick={() => setPage(totalPages)}
-            aria-label="마지막 페이지"
-            title="마지막 페이지"
-          >
-            »
-          </button>
-        </nav>
-        </div>
-      </div>
+      <AdminListPaginationFooter
+        idPrefix="user-history"
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        loading={loading}
+        onPageChange={setPage}
+        onPageSizeChange={(n) => {
+          setPageSize(n)
+          setPage(1)
+        }}
+      />
 
       {csvConfirmOpen ? (
         <div className="admin-users__modal-backdrop" role="presentation" onClick={closeCsvConfirm}>

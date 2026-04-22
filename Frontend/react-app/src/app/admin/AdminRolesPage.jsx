@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황(사용자 부서 열·요약 행은 프로젝트명/사용자명 일반 텍스트, 이동은 작업 열 `프로젝트`/`권한` 버튼). 생성자 열은 이메일 셀 패턴(본인만 배지). 사용 중(usage_count>0) 커스텀 권한은 상세 목록 편집·전송 없이 권한명만 저장(`ap__notice--locked`). 수정 실패는 모달 `editError`·스냅샷으로 폼 복구.
+ * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황(사용자 부서 열·요약 행은 프로젝트명/사용자명 일반 텍스트, 이동은 작업 열 `프로젝트`/`권한` 버튼). 생성일·수정일 열, 목록 필터·컬럼 정렬(내림·오름·해제). 생성자 열은 이메일 셀 패턴(본인만 배지). 사용 중(usage_count>0) 커스텀 권한은 상세 목록 편집·전송 없이 권한명만 저장(`ap__notice--locked`). 수정 실패는 모달 `editError`·스냅샷으로 폼 복구.
  *
  * [Main Functions]
  * ===========
@@ -9,10 +9,20 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, shared/utils/crudConfirm, app/auth/AuthContext, app/admin/adminAccess
+ * - shared/api/adminClient, shared/utils/crudConfirm, shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/auth/AuthContext, app/admin/adminAccess, admin-list-table.css
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
+import AdminSortableTh from '@/shared/components/AdminSortableTh.jsx'
+import { useResetListPage } from '@/shared/hooks/useResetListPage.js'
+import {
+  cycleListSort,
+  dateFieldInRange,
+  sortRowsByState,
+  strContains,
+} from '@/shared/utils/adminListTable.js'
 
 import {
   deleteAdminProjectMember,
@@ -33,6 +43,17 @@ import { isCreatorSelf } from '@/app/admin/adminAccess.js'
 
 import './admin-pages.css'
 import './admin-users.css'
+import './admin-list-table.css'
+
+function formatDtm(v) {
+  if (!v) return '—'
+  try {
+    const d = new Date(v)
+    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString('ko-KR')
+  } catch {
+    return String(v)
+  }
+}
 
 function formatPmssnList(pl) {
   if (Array.isArray(pl)) return pl.join(', ')
@@ -79,6 +100,42 @@ function normalizePermissionOptions(data) {
     .filter(Boolean)
 }
 
+function initialRoleListFilters() {
+  return {
+    name: '',
+    listDetail: '',
+    usage: '',
+    creator: '',
+    createFrom: '',
+    createTo: '',
+    updateFrom: '',
+    updateTo: '',
+  }
+}
+
+function roleComparable(row, key) {
+  switch (key) {
+    case 'name':
+      return String(row?.pmssn_name ?? '').toLowerCase()
+    case 'list':
+      return String(formatPmssnList(row?.pmssn_list) ?? '').toLowerCase()
+    case 'usage':
+      return Number(row?.usage_count || 0)
+    case 'creator':
+      return String(row?.creator_email ?? '').toLowerCase()
+    case 'created': {
+      const t = row?.create_dtm ? new Date(row.create_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    case 'updated': {
+      const t = row?.update_dtm ? new Date(row.update_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    default:
+      return ''
+  }
+}
+
 function normalizeUsageRows(data) {
   const rows = Array.isArray(data?.items) ? data.items : []
   return rows.map((row, idx) => ({
@@ -99,6 +156,9 @@ export default function AdminRolesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
+
+  const [roleFilters, setRoleFilters] = useState(() => initialRoleListFilters())
+  const [roleSort, setRoleSort] = useState({ key: null, dir: null })
 
   const [permissionOptions, setPermissionOptions] = useState([])
   const [selectedPermission, setSelectedPermission] = useState('')
@@ -179,6 +239,42 @@ export default function AdminRolesPage() {
     load()
     loadPermissionOptions()
   }, [load, loadPermissionOptions])
+
+  const handleRoleSort = useCallback((key) => {
+    setRoleSort((prev) => cycleListSort(prev, key))
+  }, [])
+
+  const resetRoleListQuery = useCallback(() => {
+    setRoleFilters(initialRoleListFilters())
+    setRoleSort({ key: null, dir: null })
+  }, [])
+
+  const displayRoles = useMemo(() => {
+    const f = roleFilters
+    let rows = Array.isArray(items) ? items.slice() : []
+    rows = rows.filter((row) => {
+      if (!strContains(row.pmssn_name, f.name)) return false
+      if (!strContains(formatPmssnList(row.pmssn_list), f.listDetail)) return false
+      const uc = Number(row?.usage_count || 0)
+      if (f.usage === 'in_use' && uc <= 0) return false
+      if (f.usage === 'unused' && uc > 0) return false
+      if (!strContains(row.creator_email, f.creator)) return false
+      if (!dateFieldInRange(row.create_dtm, f.createFrom, f.createTo)) return false
+      if (!dateFieldInRange(row.update_dtm, f.updateFrom, f.updateTo)) return false
+      return true
+    })
+    return sortRowsByState(rows, roleSort, roleComparable)
+  }, [items, roleFilters, roleSort])
+
+  const [roleListPage, setRoleListPage] = useState(1)
+  const [roleListPageSize, setRoleListPageSize] = useState(10)
+
+  const pagedDisplayRoles = useMemo(() => {
+    const start = (roleListPage - 1) * roleListPageSize
+    return displayRoles.slice(start, start + roleListPageSize)
+  }, [displayRoles, roleListPage, roleListPageSize])
+
+  useResetListPage(setRoleListPage, roleFilters, roleSort, items)
 
   useEffect(() => {
     if (edit == null) return
@@ -553,19 +649,129 @@ export default function AdminRolesPage() {
       {loading ? (
         <p className="ap__hint">불러오는 중…</p>
       ) : (
+        <>
+          <div className="admin-list-filters" aria-label="권한 목록 필터">
+            <div className="admin-list-filters__field">
+              <label htmlFor="role-f-name">권한명</label>
+              <input
+                id="role-f-name"
+                type="text"
+                value={roleFilters.name}
+                onChange={(ev) => setRoleFilters((p) => ({ ...p, name: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field admin-list-filters__field--grow">
+              <label htmlFor="role-f-list">권한 상세 목록</label>
+              <input
+                id="role-f-list"
+                type="text"
+                value={roleFilters.listDetail}
+                onChange={(ev) => setRoleFilters((p) => ({ ...p, listDetail: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="role-f-usage">사용 현황</label>
+              <select
+                id="role-f-usage"
+                value={roleFilters.usage}
+                onChange={(ev) => setRoleFilters((p) => ({ ...p, usage: ev.target.value }))}
+              >
+                <option value="">전체</option>
+                <option value="in_use">사용 중</option>
+                <option value="unused">미사용</option>
+              </select>
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="role-f-creator">생성자</label>
+              <input
+                id="role-f-creator"
+                type="text"
+                value={roleFilters.creator}
+                onChange={(ev) => setRoleFilters((p) => ({ ...p, creator: ev.target.value }))}
+                placeholder="이메일 contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="role-f-cr-lbl">생성일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="role-f-cr-lbl">
+                <input
+                  type="date"
+                  value={roleFilters.createFrom}
+                  onChange={(ev) => setRoleFilters((p) => ({ ...p, createFrom: ev.target.value }))}
+                  aria-label="생성일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={roleFilters.createTo}
+                  onChange={(ev) => setRoleFilters((p) => ({ ...p, createTo: ev.target.value }))}
+                  aria-label="생성일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="role-f-up-lbl">수정일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="role-f-up-lbl">
+                <input
+                  type="date"
+                  value={roleFilters.updateFrom}
+                  onChange={(ev) => setRoleFilters((p) => ({ ...p, updateFrom: ev.target.value }))}
+                  aria-label="수정일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={roleFilters.updateTo}
+                  onChange={(ev) => setRoleFilters((p) => ({ ...p, updateTo: ev.target.value }))}
+                  aria-label="수정일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__actions">
+              <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={resetRoleListQuery}>
+                초기화
+              </button>
+            </div>
+          </div>
         <div className="ap__table-wrap">
           <table className="ap__table ap__table--roles">
             <thead>
               <tr>
-                <th>권한명</th>
-                <th>권한상세목록</th>
-                <th>사용현황</th>
-                <th>생성자</th>
+                <AdminSortableTh sortKey="name" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                  권한명
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="list" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                  권한상세목록
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="usage" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                  사용현황
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="creator" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                  생성자
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="created" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                  생성일
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="updated" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                  수정일
+                </AdminSortableTh>
                 <th className="ap__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((row) => {
+              {displayRoles.length === 0 && items.length > 0 ? (
+                <tr>
+                  <td colSpan={7} className="ap__hint">
+                    필터 조건에 맞는 권한이 없습니다.
+                  </td>
+                </tr>
+              ) : null}
+              {pagedDisplayRoles.map((row) => {
                 const id = row.pmssn_master_id
                 const sys = isSystem(row)
                 const usageCount = Number(row?.usage_count || 0)
@@ -600,6 +806,8 @@ export default function AdminRolesPage() {
                         ) : null}
                       </span>
                     </td>
+                    <td>{formatDtm(row.create_dtm)}</td>
+                    <td>{formatDtm(row.update_dtm)}</td>
                     <td>
                       {sys ? (
                         '—'
@@ -630,6 +838,19 @@ export default function AdminRolesPage() {
             </tbody>
           </table>
         </div>
+          <AdminListPaginationFooter
+            idPrefix="admin-roles-list"
+            total={displayRoles.length}
+            page={roleListPage}
+            pageSize={roleListPageSize}
+            loading={loading}
+            onPageChange={setRoleListPage}
+            onPageSizeChange={(n) => {
+              setRoleListPageSize(n)
+              setRoleListPage(1)
+            }}
+          />
+        </>
       )}
 
       {edit != null ? (

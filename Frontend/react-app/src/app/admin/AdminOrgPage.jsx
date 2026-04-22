@@ -3,20 +3,30 @@
  * ===================================================
  * GET /api/admin/org — 내 소속 부서명·코드 표시(읽기 전용).
  * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가·수정(사용여부 포함)·행 삭제(DB 삭제).
- * 부서 목록에 creator_email(생성자) 열 표시 — 사용자관리와 동일 이메일 셀·본인 행만 배지.
+ * 부서 목록에 creator_email(생성자)·생성일·수정일 열, 필터·컬럼 정렬(내림·오름·해제). 사용자관리와 동일 이메일 셀·본인 행만 배지.
  * 부서 목록: 부서구분(상위·하위) 열, 상위 부서 없으면 상위 부서 칸은 「—」. SA는 본인 소속 행 수정·삭제 UI 비표시(백엔드 동일 정책).
  * 사용 안 함 저장 시 소속 사용자가 있으면 이관 대상 부서 선택 모달(사용 중 부서만·display_label).
  *
  * [Main Functions]
  * ===========
- * - AdminOrgPage, formatParentCell, deptKindLabel
+ * - AdminOrgPage, formatParentCell, deptKindLabel, deptUseYnText
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm
+ * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm, shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, admin-list-table.css
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
+import AdminSortableTh from '@/shared/components/AdminSortableTh.jsx'
+import { useResetListPage } from '@/shared/hooks/useResetListPage.js'
+import {
+  cycleListSort,
+  dateFieldInRange,
+  sortRowsByState,
+  strContains,
+} from '@/shared/utils/adminListTable.js'
 
 import {
   getAdminOrg,
@@ -32,6 +42,17 @@ import { isCreatorSelf } from '@/app/admin/adminAccess.js'
 
 import './admin-org.css'
 import './admin-users.css'
+import './admin-list-table.css'
+
+function formatDtm(v) {
+  if (!v) return '—'
+  try {
+    const d = new Date(v)
+    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString('ko-KR')
+  } catch {
+    return String(v)
+  }
+}
 
 function formatParentCell(d) {
   const pid = d.parent_dptmt_info_id
@@ -50,9 +71,49 @@ function deptKindLabel(d) {
   return '하위'
 }
 
-function useYnLabel(useYn) {
+function deptUseYnText(useYn) {
   const u = (useYn || 'Y').toString().trim().toUpperCase()
   return u === 'N' ? '사용 안 함' : '사용'
+}
+
+function initialOrgDeptFilters() {
+  return {
+    kind: '',
+    codeOrName: '',
+    useYn: '',
+    creator: '',
+    createFrom: '',
+    createTo: '',
+    updateFrom: '',
+    updateTo: '',
+  }
+}
+
+function orgDeptComparable(row, key) {
+  switch (key) {
+    case 'kind':
+      return deptKindLabel(row) === '상위' ? 0 : 1
+    case 'code':
+      return String(row?.dptmt_code ?? '').toLowerCase()
+    case 'name':
+      return String(row?.dptmt_name ?? '').toLowerCase()
+    case 'parent':
+      return String(formatParentCell(row) ?? '').toLowerCase()
+    case 'use':
+      return (row?.use_yn || 'Y').toString().trim().toUpperCase() === 'N' ? 0 : 1
+    case 'creator':
+      return String(row?.creator_email ?? '').toLowerCase()
+    case 'created': {
+      const t = row?.create_dtm ? new Date(row.create_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    case 'updated': {
+      const t = row?.update_dtm ? new Date(row.update_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    default:
+      return ''
+  }
 }
 
 export default function AdminOrgPage() {
@@ -90,10 +151,55 @@ export default function AdminOrgPage() {
   const [migrateBusy, setMigrateBusy] = useState(false)
   const [migrateError, setMigrateError] = useState('')
 
+  const [deptFilters, setDeptFilters] = useState(() => initialOrgDeptFilters())
+  const [deptSort, setDeptSort] = useState({ key: null, dir: null })
+
   const visibleDepartments = useMemo(
     () => departments.filter((d) => Number(d?.dptmt_info_id) !== 0),
     [departments],
   )
+
+  const handleDeptSort = useCallback((key) => {
+    setDeptSort((prev) => cycleListSort(prev, key))
+  }, [])
+
+  const resetDeptListQuery = useCallback(() => {
+    setDeptFilters(initialOrgDeptFilters())
+    setDeptSort({ key: null, dir: null })
+  }, [])
+
+  const displayDepartments = useMemo(() => {
+    const f = deptFilters
+    let rows = visibleDepartments.slice()
+    rows = rows.filter((d) => {
+      if (f.kind === 'parent' && deptKindLabel(d) !== '상위') return false
+      if (f.kind === 'child' && deptKindLabel(d) !== '하위') return false
+      const q = String(f.codeOrName || '').trim()
+      if (q) {
+        const cn = String(d.dptmt_code || '').toLowerCase()
+        const nn = String(d.dptmt_name || '').toLowerCase()
+        const cq = q.toLowerCase()
+        if (!cn.includes(cq) && !nn.includes(cq)) return false
+      }
+      if (f.useYn === 'Y' && (d.use_yn || 'Y').toString().trim().toUpperCase() !== 'Y') return false
+      if (f.useYn === 'N' && (d.use_yn || 'Y').toString().trim().toUpperCase() !== 'N') return false
+      if (!strContains(d.creator_email, f.creator)) return false
+      if (!dateFieldInRange(d.create_dtm, f.createFrom, f.createTo)) return false
+      if (!dateFieldInRange(d.update_dtm, f.updateFrom, f.updateTo)) return false
+      return true
+    })
+    return sortRowsByState(rows, deptSort, orgDeptComparable)
+  }, [visibleDepartments, deptFilters, deptSort])
+
+  const [deptListPage, setDeptListPage] = useState(1)
+  const [deptListPageSize, setDeptListPageSize] = useState(10)
+
+  const pagedDisplayDepartments = useMemo(() => {
+    const start = (deptListPage - 1) * deptListPageSize
+    return displayDepartments.slice(start, start + deptListPageSize)
+  }, [displayDepartments, deptListPage, deptListPageSize])
+
+  useResetListPage(setDeptListPage, deptFilters, deptSort, visibleDepartments)
 
   /** 사용 안 함 전 사용자 이관: 사용 중이며 비활성화 대상이 아닌 부서만 */
   const migrateDeptOptions = useMemo(() => {
@@ -507,21 +613,142 @@ export default function AdminOrgPage() {
         ) : visibleDepartments.length === 0 ? (
           <p className="admin-org__meta">등록된 부서가 없습니다.</p>
         ) : (
+          <>
+            <div className="admin-list-filters" aria-label="부서 목록 필터">
+              <div className="admin-list-filters__field">
+                <label htmlFor="org-f-kind">부서 구분</label>
+                <select
+                  id="org-f-kind"
+                  value={deptFilters.kind}
+                  onChange={(ev) => setDeptFilters((p) => ({ ...p, kind: ev.target.value }))}
+                >
+                  <option value="">전체</option>
+                  <option value="parent">상위</option>
+                  <option value="child">하위</option>
+                </select>
+              </div>
+              <div className="admin-list-filters__field admin-list-filters__field--grow">
+                <label htmlFor="org-f-code-name">코드·부서명</label>
+                <input
+                  id="org-f-code-name"
+                  type="text"
+                  value={deptFilters.codeOrName}
+                  onChange={(ev) => setDeptFilters((p) => ({ ...p, codeOrName: ev.target.value }))}
+                  placeholder="contains"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="admin-list-filters__field">
+                <label htmlFor="org-f-use">사용 여부</label>
+                <select
+                  id="org-f-use"
+                  value={deptFilters.useYn}
+                  onChange={(ev) => setDeptFilters((p) => ({ ...p, useYn: ev.target.value }))}
+                >
+                  <option value="">전체</option>
+                  <option value="Y">사용</option>
+                  <option value="N">사용 안 함</option>
+                </select>
+              </div>
+              <div className="admin-list-filters__field">
+                <label htmlFor="org-f-creator">생성자</label>
+                <input
+                  id="org-f-creator"
+                  type="text"
+                  value={deptFilters.creator}
+                  onChange={(ev) => setDeptFilters((p) => ({ ...p, creator: ev.target.value }))}
+                  placeholder="contains"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="admin-list-filters__field">
+                <span id="org-f-cr">생성일</span>
+                <div className="admin-list-filters__datepair" aria-labelledby="org-f-cr">
+                  <input
+                    type="date"
+                    value={deptFilters.createFrom}
+                    onChange={(ev) => setDeptFilters((p) => ({ ...p, createFrom: ev.target.value }))}
+                    aria-label="생성일 시작"
+                  />
+                  <span>~</span>
+                  <input
+                    type="date"
+                    value={deptFilters.createTo}
+                    onChange={(ev) => setDeptFilters((p) => ({ ...p, createTo: ev.target.value }))}
+                    aria-label="생성일 끝"
+                  />
+                </div>
+              </div>
+              <div className="admin-list-filters__field">
+                <span id="org-f-up">수정일</span>
+                <div className="admin-list-filters__datepair" aria-labelledby="org-f-up">
+                  <input
+                    type="date"
+                    value={deptFilters.updateFrom}
+                    onChange={(ev) => setDeptFilters((p) => ({ ...p, updateFrom: ev.target.value }))}
+                    aria-label="수정일 시작"
+                  />
+                  <span>~</span>
+                  <input
+                    type="date"
+                    value={deptFilters.updateTo}
+                    onChange={(ev) => setDeptFilters((p) => ({ ...p, updateTo: ev.target.value }))}
+                    aria-label="수정일 끝"
+                  />
+                </div>
+              </div>
+              <div className="admin-list-filters__actions">
+                <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={resetDeptListQuery}>
+                  초기화
+                </button>
+              </div>
+            </div>
           <div className="admin-org__table-wrap">
             <table className="admin-org__table">
               <thead>
                 <tr>
-                  <th>부서구분</th>
-                  <th>코드</th>
-                  <th>부서명</th>
-                  <th>상위 부서 (이름 · 코드)</th>
-                  <th>사용 여부</th>
-                  <th className="admin-org__th-creator">생성자</th>
+                  <AdminSortableTh sortKey="kind" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    부서구분
+                  </AdminSortableTh>
+                  <AdminSortableTh sortKey="code" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    코드
+                  </AdminSortableTh>
+                  <AdminSortableTh sortKey="name" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    부서명
+                  </AdminSortableTh>
+                  <AdminSortableTh sortKey="parent" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    상위 부서 (이름 · 코드)
+                  </AdminSortableTh>
+                  <AdminSortableTh sortKey="use" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    사용 여부
+                  </AdminSortableTh>
+                  <AdminSortableTh sortKey="created" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    생성일
+                  </AdminSortableTh>
+                  <AdminSortableTh sortKey="updated" activeKey={deptSort.key} dir={deptSort.dir} onSort={handleDeptSort}>
+                    수정일
+                  </AdminSortableTh>
+                  <AdminSortableTh
+                    sortKey="creator"
+                    activeKey={deptSort.key}
+                    dir={deptSort.dir}
+                    onSort={handleDeptSort}
+                    className="admin-org__th-creator"
+                  >
+                    생성자
+                  </AdminSortableTh>
                   {canManageDept ? <th className="admin-org__th-actions">작업</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {visibleDepartments.map((d) => (
+                {displayDepartments.length === 0 && visibleDepartments.length > 0 ? (
+                  <tr>
+                    <td colSpan={canManageDept ? 9 : 8} className="admin-org__meta">
+                      필터 조건에 맞는 부서가 없습니다.
+                    </td>
+                  </tr>
+                ) : null}
+                {pagedDisplayDepartments.map((d) => (
                   <tr
                     key={String(d.dptmt_info_id)}
                     className={
@@ -544,7 +771,9 @@ export default function AdminOrgPage() {
                     <td className="admin-org__mono">{d.dptmt_code ?? '—'}</td>
                     <td>{d.dptmt_name ?? '—'}</td>
                     <td className="admin-org__parent-cell">{formatParentCell(d)}</td>
-                    <td>{useYnLabel(d.use_yn)}</td>
+                    <td>{deptUseYnText(d.use_yn)}</td>
+                    <td>{formatDtm(d.create_dtm)}</td>
+                    <td>{formatDtm(d.update_dtm)}</td>
                     <td className="admin-org__creator-cell">
                       <span className="admin-users__email-cell">
                         <span className="admin-users__email-text" title={d.creator_email || undefined}>
@@ -588,6 +817,19 @@ export default function AdminOrgPage() {
               </tbody>
             </table>
           </div>
+          <AdminListPaginationFooter
+            idPrefix="admin-org-dept-list"
+            total={displayDepartments.length}
+            page={deptListPage}
+            pageSize={deptListPageSize}
+            loading={deptLoading}
+            onPageChange={setDeptListPage}
+            onPageSizeChange={(n) => {
+              setDeptListPageSize(n)
+              setDeptListPage(1)
+            }}
+          />
+          </>
         )}
       </section>
 

@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
- * SA_DEV 전사 사용자 목록(부서·조직 역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator). change-options: `user_dvsn_options`, `projects[].pmssn_options`.
+ * SA_DEV 전사 사용자 목록(부서·조직 역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 목록 필터(조직 역할은 목록에 존재하는 user_dvsn만 셀렉트)·컬럼 정렬(내림·오름·해제). 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator). change-options: `user_dvsn_options`, `projects[].pmssn_options`.
  * 본인 행: 이메일 옆「본인」배지. 활성: 목록·변경·정지. 비활성: 활성·삭제만(본인은 활성만·비활성화 시 호버 안내). 작업물 패널은 활성이면서 목록을 연 경우만 표시. 삭제 409 시 모달은 안내만(목록 열기 없음).
  * 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글. 프로젝트 참여는 표(프로젝트명+권한배지 한 줄·부서명 우측 정렬·선택) + project_department_display·행 그룹 구분.
  * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
@@ -17,12 +17,12 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay)
+ * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, admin-list-table.css
  * - react-router-dom Link — `/admin/user-history` 통합 이력(22 §8.1)
  * 이메일 초대: 발송 성공 시 모달을 닫은 뒤 `alert`로 완료 안내(기존에는 모달을 즉시 닫아 메시지가 보이지 않음).
  */
 
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -42,9 +42,32 @@ import {
 } from '@/shared/api/adminClient.js'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
+import AdminSortableTh from '@/shared/components/AdminSortableTh.jsx'
+import { useResetListPage } from '@/shared/hooks/useResetListPage.js'
+import {
+  cycleListSort,
+  dateFieldInRange,
+  sortRowsByState,
+  strContains,
+} from '@/shared/utils/adminListTable.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './admin-users.css'
+import './admin-list-table.css'
+
+function initialUserListFilters() {
+  return {
+    dept: '',
+    email: '',
+    nickname: '',
+    role: '',
+    etl: '',
+    status: '',
+    joinFrom: '',
+    joinTo: '',
+  }
+}
 
 function formatDtm(v) {
   if (!v) return '—'
@@ -79,6 +102,39 @@ function hasEtlInfra(row) {
   return e === 'Y'
 }
 
+function userRoleOrder(row) {
+  const d = String(row?.user_dvsn || '')
+    .trim()
+    .toLowerCase()
+  const order = { sa_dev: 0, sa: 1, a: 2, o: 3, u: 4 }
+  return order[d] ?? 99
+}
+
+function userComparable(row, key) {
+  switch (key) {
+    case 'dept':
+      return String(row?.dept_name ?? '')
+    case 'subdept':
+      return String(row?.dept_sub_name ?? '')
+    case 'email':
+      return String(row?.user_email ?? '').toLowerCase()
+    case 'nickname':
+      return String(row?.user_nickname ?? '').toLowerCase()
+    case 'role':
+      return userRoleOrder(row)
+    case 'etl':
+      return hasEtlInfra(row) ? 1 : 0
+    case 'status':
+      return isActive(row) ? 1 : 0
+    case 'joined': {
+      const t = row?.create_dtm ? new Date(row.create_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    default:
+      return ''
+  }
+}
+
 const ROLE_VALUES_SA = ['sa', 'a', 'o', 'u']
 const ROLE_VALUES_ADMIN = ['a', 'o', 'u']
 
@@ -96,6 +152,9 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
+
+  const [userFilters, setUserFilters] = useState(() => initialUserListFilters())
+  const [userSort, setUserSort] = useState({ key: null, dir: null })
 
   const [depts, setDepts] = useState([])
   const [inviteDeptId, setInviteDeptId] = useState('')
@@ -149,6 +208,74 @@ export default function AdminUsersPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  const handleUserSort = useCallback((key) => {
+    setUserSort((prev) => cycleListSort(prev, key))
+  }, [])
+
+  const resetUserListQuery = useCallback(() => {
+    setUserFilters(initialUserListFilters())
+    setUserSort({ key: null, dir: null })
+  }, [])
+
+  const displayUsers = useMemo(() => {
+    const f = userFilters
+    let rows = Array.isArray(items) ? items.slice() : []
+    rows = rows.filter((row) => {
+      const qDept = String(f.dept || '').trim()
+      if (qDept) {
+        const dn = String(row.dept_name || '').toLowerCase()
+        const sn = String(row.dept_sub_name || '').toLowerCase()
+        const cq = qDept.toLowerCase()
+        if (!dn.includes(cq) && !sn.includes(cq)) return false
+      }
+      if (!strContains(row.user_email, f.email)) return false
+      if (!strContains(row.user_nickname, f.nickname)) return false
+      const rq = String(f.role || '').trim().toLowerCase()
+      if (rq && String(row.user_dvsn || '').trim().toLowerCase() !== rq) return false
+      if (f.etl === 'Y' && !hasEtlInfra(row)) return false
+      if (f.etl === 'N' && hasEtlInfra(row)) return false
+      if (f.status === 'active' && !isActive(row)) return false
+      if (f.status === 'inactive' && isActive(row)) return false
+      if (!dateFieldInRange(row.create_dtm, f.joinFrom, f.joinTo)) return false
+      return true
+    })
+    return sortRowsByState(rows, userSort, userComparable)
+  }, [items, userFilters, userSort])
+
+  const [userListPage, setUserListPage] = useState(1)
+  const [userListPageSize, setUserListPageSize] = useState(10)
+
+  const pagedDisplayUsers = useMemo(() => {
+    const start = (userListPage - 1) * userListPageSize
+    return displayUsers.slice(start, start + userListPageSize)
+  }, [displayUsers, userListPage, userListPageSize])
+
+  useResetListPage(setUserListPage, userFilters, userSort, items)
+
+  const userRoleFilterOptions = useMemo(() => {
+    const set = new Set()
+    for (const row of items || []) {
+      const c = String(row?.user_dvsn ?? '').trim()
+      if (c) set.add(c)
+    }
+    return Array.from(set).sort(
+      (a, b) => userRoleOrder({ user_dvsn: a }) - userRoleOrder({ user_dvsn: b }),
+    )
+  }, [items])
+
+  const userRoleSelectValue = useMemo(() => {
+    const r = String(userFilters.role || '').trim().toLowerCase()
+    if (!r) return ''
+    return userRoleFilterOptions.find((x) => String(x).toLowerCase() === r) ?? ''
+  }, [userFilters.role, userRoleFilterOptions])
+
+  useEffect(() => {
+    const r = String(userFilters.role || '').trim()
+    if (!r) return
+    const canon = userRoleFilterOptions.find((x) => String(x).toLowerCase() === r.toLowerCase())
+    if (!canon) setUserFilters((p) => ({ ...p, role: '' }))
+  }, [userRoleFilterOptions, userFilters.role])
 
   const actorDvsn = (me?.user_dvsn || '').toLowerCase()
   const canSetEtlOnInvite = actorDvsn === 'sa' || actorDvsn === 'sa_dev'
@@ -1391,27 +1518,185 @@ export default function AdminUsersPage() {
       {loading ? (
         <p className="admin-users__hint">불러오는 중…</p>
       ) : (
+        <>
+          <div className="admin-list-filters" aria-label="사용자 목록 필터">
+            <div className="admin-list-filters__field admin-list-filters__field--grow">
+              <label htmlFor="admin-user-f-dept">부서명·하위부서</label>
+              <input
+                id="admin-user-f-dept"
+                type="text"
+                value={userFilters.dept}
+                onChange={(ev) => setUserFilters((p) => ({ ...p, dept: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="admin-user-f-email">이메일</label>
+              <input
+                id="admin-user-f-email"
+                type="text"
+                value={userFilters.email}
+                onChange={(ev) => setUserFilters((p) => ({ ...p, email: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="admin-user-f-nick">닉네임</label>
+              <input
+                id="admin-user-f-nick"
+                type="text"
+                value={userFilters.nickname}
+                onChange={(ev) => setUserFilters((p) => ({ ...p, nickname: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="admin-user-f-role">조직 역할</label>
+              <select
+                id="admin-user-f-role"
+                value={userRoleSelectValue}
+                onChange={(ev) => setUserFilters((p) => ({ ...p, role: ev.target.value }))}
+              >
+                <option value="">전체</option>
+                {userRoleFilterOptions.map((code) => (
+                  <option key={code} value={code}>
+                    {formatUserDvsnDisplay(code)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="admin-user-f-etl">ETL</label>
+              <select
+                id="admin-user-f-etl"
+                value={userFilters.etl}
+                onChange={(ev) => setUserFilters((p) => ({ ...p, etl: ev.target.value }))}
+              >
+                <option value="">전체</option>
+                <option value="Y">관리 자격 있음</option>
+                <option value="N">없음</option>
+              </select>
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="admin-user-f-status">상태</label>
+              <select
+                id="admin-user-f-status"
+                value={userFilters.status}
+                onChange={(ev) => setUserFilters((p) => ({ ...p, status: ev.target.value }))}
+              >
+                <option value="">전체</option>
+                <option value="active">활성</option>
+                <option value="inactive">비활성</option>
+              </select>
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="admin-user-f-join-lbl">가입일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="admin-user-f-join-lbl">
+                <input
+                  type="date"
+                  value={userFilters.joinFrom}
+                  onChange={(ev) => setUserFilters((p) => ({ ...p, joinFrom: ev.target.value }))}
+                  aria-label="가입일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={userFilters.joinTo}
+                  onChange={(ev) => setUserFilters((p) => ({ ...p, joinTo: ev.target.value }))}
+                  aria-label="가입일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__actions">
+              <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={resetUserListQuery}>
+                초기화
+              </button>
+            </div>
+          </div>
         <div className="admin-users__table-wrap">
           <table className="admin-users__table">
             <thead>
               <tr>
-                <th>부서명</th>
-                <th>하위부서</th>
-                <th>이메일</th>
-                <th>닉네임</th>
-                <th>조직 역할</th>
-                <th
+                <AdminSortableTh
+                  sortKey="dept"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  부서명
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="subdept"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  하위부서
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="email"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  이메일
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="nickname"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  닉네임
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="role"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  조직 역할
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="etl"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
                   title="ETL API(etl_db) 관리 자격: SA_DEV 또는 user_info.etl_yn=Y. 프로젝트 권한(pmssn, 예: project_all)과 별개입니다."
                 >
                   ETL 관리
-                </th>
-                <th>상태</th>
-                <th>가입일</th>
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="status"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  상태
+                </AdminSortableTh>
+                <AdminSortableTh
+                  sortKey="joined"
+                  activeKey={userSort.key}
+                  dir={userSort.dir}
+                  onSort={handleUserSort}
+                >
+                  가입일
+                </AdminSortableTh>
                 <th className="admin-users__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((row) => {
+              {displayUsers.length === 0 && items.length > 0 ? (
+                <tr>
+                  <td colSpan={9} className="admin-users__hint">
+                    필터 조건에 맞는 사용자가 없습니다. 초기화로 전체를 다시 표시할 수 있습니다.
+                  </td>
+                </tr>
+              ) : null}
+              {pagedDisplayUsers.map((row) => {
                 const uid = row.user_id
                 const isSelf = myId != null && uid === myId
                 const active = isActive(row)
@@ -1655,6 +1940,19 @@ export default function AdminUsersPage() {
             </tbody>
           </table>
         </div>
+          <AdminListPaginationFooter
+            idPrefix="admin-users-list"
+            total={displayUsers.length}
+            page={userListPage}
+            pageSize={userListPageSize}
+            loading={loading}
+            onPageChange={setUserListPage}
+            onPageSizeChange={(n) => {
+              setUserListPageSize(n)
+              setUserListPage(1)
+            }}
+          />
+        </>
       )}
 
       {ownershipGateModal ? (

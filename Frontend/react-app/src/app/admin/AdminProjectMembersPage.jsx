@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminProjectMembersPage.jsx (프로젝트 멤버)
  * =============================================
- * GET members: items(참여) + pending_invites(미수락 타부서 알림), user_department_display. POST/PATCH/DELETE members.
+ * GET members: items(참여) + pending_invites(미수락 타부서 알림), user_department_display. 멤버 목록 필터·헤더 정렬(참여일시=create_dtm). POST/PATCH/DELETE members.
  * 상단「멤버 추가」: ap__modal--create-wide·부서 내 테이블 + 타부서 검색 초대·멤버에 없을 때「본인을 멤버로 추가」(재참여).
  * API: 부서 트리 소속은 즉시 추가(outcome member_added), 타부서는 project_invite 알림(outcome invite_sent). 본인은 멤버·초대대기가 아니면 목록·추가 가능(add_member).
  * pending 행: 초대중·초대 취소. 활성 행: 권한 편집·제거.
@@ -12,11 +12,21 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), app/auth/AuthContext.jsx, admin-pages.css(ap__create-section-tools)
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/auth/AuthContext.jsx, admin-pages.css, admin-list-table.css
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
+import AdminSortableTh from '@/shared/components/AdminSortableTh.jsx'
+import { useResetListPage } from '@/shared/hooks/useResetListPage.js'
+import {
+  cycleListSort,
+  dateFieldInRange,
+  sortRowsByState,
+  strContains,
+} from '@/shared/utils/adminListTable.js'
 
 import {
   deleteAdminProjectInvite,
@@ -34,6 +44,7 @@ import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 
 import './admin-pages.css'
+import './admin-list-table.css'
 
 function formatDtm(v) {
   if (!v) return '—'
@@ -51,6 +62,37 @@ function inviteLabel(m) {
   if (em) return em
   if (nick) return nick
   return '—'
+}
+
+function initialMemberListFilters() {
+  return {
+    email: '',
+    nickname: '',
+    dept: '',
+    inviter: '',
+    partFrom: '',
+    partTo: '',
+  }
+}
+
+function memberRowComparable(entry, key) {
+  const m = entry.data
+  switch (key) {
+    case 'email':
+      return String(m?.user_email ?? '').toLowerCase()
+    case 'nickname':
+      return String(m?.user_nickname ?? '').toLowerCase()
+    case 'dept':
+      return String(m?.user_department_display ?? '').toLowerCase()
+    case 'inviter':
+      return String(inviteLabel(m) ?? '').toLowerCase()
+    case 'joined': {
+      const t = m?.create_dtm ? new Date(m.create_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    default:
+      return ''
+  }
 }
 
 export default function AdminProjectMembersPage() {
@@ -85,6 +127,9 @@ export default function AdminProjectMembersPage() {
   const [selfAddRoleId, setSelfAddRoleId] = useState('')
 
   const [roleEdits, setRoleEdits] = useState({})
+
+  const [memberFilters, setMemberFilters] = useState(() => initialMemberListFilters())
+  const [memberSort, setMemberSort] = useState({ key: null, dir: null })
 
   const memberAndPendingUserIds = useMemo(() => {
     const s = new Set()
@@ -134,6 +179,48 @@ export default function AdminProjectMembersPage() {
   useEffect(() => {
     loadMembers()
   }, [loadMembers])
+
+  const handleMemberSort = useCallback((key) => {
+    setMemberSort((prev) => cycleListSort(prev, key))
+  }, [])
+
+  const resetMemberListQuery = useCallback(() => {
+    setMemberFilters(initialMemberListFilters())
+    setMemberSort({ key: null, dir: null })
+  }, [])
+
+  const memberRowsFlat = useMemo(
+    () => [
+      ...pendingInvites.map((m) => ({ kind: 'pending', data: m })),
+      ...members.map((m) => ({ kind: 'member', data: m })),
+    ],
+    [pendingInvites, members],
+  )
+
+  const displayMemberRows = useMemo(() => {
+    const f = memberFilters
+    let rows = memberRowsFlat.slice()
+    rows = rows.filter((entry) => {
+      const m = entry.data
+      if (!strContains(m.user_email, f.email)) return false
+      if (!strContains(m.user_nickname, f.nickname)) return false
+      if (!strContains(m.user_department_display, f.dept)) return false
+      if (!strContains(inviteLabel(m), f.inviter)) return false
+      if (!dateFieldInRange(m.create_dtm, f.partFrom, f.partTo)) return false
+      return true
+    })
+    return sortRowsByState(rows, memberSort, memberRowComparable)
+  }, [memberRowsFlat, memberFilters, memberSort])
+
+  const [memberListPage, setMemberListPage] = useState(1)
+  const [memberListPageSize, setMemberListPageSize] = useState(10)
+
+  const pagedDisplayMemberRows = useMemo(() => {
+    const start = (memberListPage - 1) * memberListPageSize
+    return displayMemberRows.slice(start, start + memberListPageSize)
+  }, [displayMemberRows, memberListPage, memberListPageSize])
+
+  useResetListPage(setMemberListPage, memberFilters, memberSort, memberRowsFlat)
 
   function resetAddModalFields() {
     setAssignableRoles([])
@@ -752,71 +839,160 @@ export default function AdminProjectMembersPage() {
       {loading ? (
         <p className="ap__hint">불러오는 중…</p>
       ) : (
+        <>
+          <div className="admin-list-filters" aria-label="멤버 목록 필터">
+            <div className="admin-list-filters__field">
+              <label htmlFor="pm-f-email">이메일</label>
+              <input
+                id="pm-f-email"
+                type="text"
+                value={memberFilters.email}
+                onChange={(ev) => setMemberFilters((p) => ({ ...p, email: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="pm-f-nick">닉네임</label>
+              <input
+                id="pm-f-nick"
+                type="text"
+                value={memberFilters.nickname}
+                onChange={(ev) => setMemberFilters((p) => ({ ...p, nickname: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="pm-f-dept">부서</label>
+              <input
+                id="pm-f-dept"
+                type="text"
+                value={memberFilters.dept}
+                onChange={(ev) => setMemberFilters((p) => ({ ...p, dept: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="pm-f-inv">초대자</label>
+              <input
+                id="pm-f-inv"
+                type="text"
+                value={memberFilters.inviter}
+                onChange={(ev) => setMemberFilters((p) => ({ ...p, inviter: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="pm-f-part">참여일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="pm-f-part">
+                <input
+                  type="date"
+                  value={memberFilters.partFrom}
+                  onChange={(ev) => setMemberFilters((p) => ({ ...p, partFrom: ev.target.value }))}
+                  aria-label="참여일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={memberFilters.partTo}
+                  onChange={(ev) => setMemberFilters((p) => ({ ...p, partTo: ev.target.value }))}
+                  aria-label="참여일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__actions">
+              <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={resetMemberListQuery}>
+                초기화
+              </button>
+            </div>
+          </div>
         <div className="ap__table-wrap">
           <table className="ap__table">
             <thead>
               <tr>
-                <th>이메일</th>
-                <th>닉네임</th>
-                <th>사용자 부서</th>
+                <AdminSortableTh sortKey="email" activeKey={memberSort.key} dir={memberSort.dir} onSort={handleMemberSort}>
+                  이메일
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="nickname" activeKey={memberSort.key} dir={memberSort.dir} onSort={handleMemberSort}>
+                  닉네임
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="dept" activeKey={memberSort.key} dir={memberSort.dir} onSort={handleMemberSort}>
+                  사용자 부서
+                </AdminSortableTh>
                 <th>상태</th>
-                <th>초대자</th>
-                <th>일시</th>
+                <AdminSortableTh sortKey="inviter" activeKey={memberSort.key} dir={memberSort.dir} onSort={handleMemberSort}>
+                  초대자
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="joined" activeKey={memberSort.key} dir={memberSort.dir} onSort={handleMemberSort}>
+                  참여일시
+                </AdminSortableTh>
                 <th>만료</th>
                 <th>프로젝트 권한</th>
                 <th className="ap__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
-              {pendingInvites.map((m) => {
-                const inviter = inviteLabel(m)
-                const nid = m.notification_info_id
-                return (
-                  <tr key={`pend-${nid}`} className="ap__tr--pending-invite">
-                    <td>{m.user_email || '—'}</td>
-                    <td>{m.user_nickname || '—'}</td>
-                    <td className="ap__td-muted">{m.user_department_display ?? '—'}</td>
-                    <td>
-                      <span className="ap__status-badge ap__status-badge--pending">
-                        초대중
-                      </span>
-                      {m.invite_expired ? (
-                        <span className="ap__status-badge ap__status-badge--expired">
-                          만료
+              {displayMemberRows.length === 0 && memberRowsFlat.length > 0 ? (
+                <tr>
+                  <td colSpan={9} className="ap__hint">
+                    필터 조건에 맞는 행이 없습니다.
+                  </td>
+                </tr>
+              ) : null}
+              {pagedDisplayMemberRows.map((entry) => {
+                if (entry.kind === 'pending') {
+                  const m = entry.data
+                  const inviter = inviteLabel(m)
+                  const nid = m.notification_info_id
+                  return (
+                    <tr key={`pend-${nid}`} className="ap__tr--pending-invite">
+                      <td>{m.user_email || '—'}</td>
+                      <td>{m.user_nickname || '—'}</td>
+                      <td className="ap__td-muted">{m.user_department_display ?? '—'}</td>
+                      <td>
+                        <span className="ap__status-badge ap__status-badge--pending">
+                          초대중
                         </span>
-                      ) : null}
-                    </td>
-                    <td className="ap__td-clip-inviter">
-                      <span
-                        className="ap__cell-clip"
-                        title={inviter !== '—' ? inviter : undefined}
-                      >
-                        {inviter}
-                      </span>
-                    </td>
-                    <td>{formatDtm(m.create_dtm)}</td>
-                    <td className="ap__td-muted">
-                      {m.invite_expires_at ? formatDtm(m.invite_expires_at) : '—'}
-                    </td>
-                    <td className="ap__td-muted">
-                      {(m.role_name || '').trim() || '—'}
-                    </td>
-                    <td>
-                      <div className="ap__cell-actions">
-                        <button
-                          type="button"
-                          className="ibank-btn-table ibank-btn-table--danger"
-                          disabled={busy}
-                          onClick={() => handleCancelInvite(nid)}
+                        {m.invite_expired ? (
+                          <span className="ap__status-badge ap__status-badge--expired">
+                            만료
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="ap__td-clip-inviter">
+                        <span
+                          className="ap__cell-clip"
+                          title={inviter !== '—' ? inviter : undefined}
                         >
-                          초대 취소
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-              {members.map((m) => {
+                          {inviter}
+                        </span>
+                      </td>
+                      <td>{formatDtm(m.create_dtm)}</td>
+                      <td className="ap__td-muted">
+                        {m.invite_expires_at ? formatDtm(m.invite_expires_at) : '—'}
+                      </td>
+                      <td className="ap__td-muted">
+                        {(m.role_name || '').trim() || '—'}
+                      </td>
+                      <td>
+                        <div className="ap__cell-actions">
+                          <button
+                            type="button"
+                            className="ibank-btn-table ibank-btn-table--danger"
+                            disabled={busy}
+                            onClick={() => handleCancelInvite(nid)}
+                          >
+                            초대 취소
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                }
+                const m = entry.data
                 const uid = m.ptcpnt_user_id
                 const savedId = m.pmssn_master_id
                 const cur = roleEdits[uid] != null ? roleEdits[uid] : String(savedId)
@@ -881,6 +1057,19 @@ export default function AdminProjectMembersPage() {
             </tbody>
           </table>
         </div>
+          <AdminListPaginationFooter
+            idPrefix="admin-project-members"
+            total={displayMemberRows.length}
+            page={memberListPage}
+            pageSize={memberListPageSize}
+            loading={loading}
+            onPageChange={setMemberListPage}
+            onPageSizeChange={(n) => {
+              setMemberListPageSize(n)
+              setMemberListPage(1)
+            }}
+          />
+        </>
       )}
     </div>
   )

@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+522. 2026-04-22 useResetListPage 훅(필터·정렬 변경 시 목록 페이지 1)
+521. 2026-04-22 관리 목록 공통 페이지네이션(1~6·이력·위젯보드)
+520. 2026-04-22 UserHistoryPage: 필터 UI를 admin-list-filters와 통일
+519. 2026-04-22 admin·widgetboard: 필터 placeholder contains·사용자 조직역할 셀렉트
+518. 2026-04-22 admin·widgetboard: 목록 테이블 정렬·필터·일시 컬럼(1~6)
+517. 2026-04-22 widgetboard: 보드 재활성화 시 confirmCrud 확인
 516. 2026-04-21 docs/main/04: 전역 가독성(요약·목차·ETL·부록 정리)
 515. 2026-04-21 docs/main/04: §13 가독성·부록 A(sql_fingerprint 체크리스트)
 514. 2026-04-21 system_log: sql_fingerprint 기본(1)·예외(2) 전략 문서·컨벤션 반영
@@ -519,6 +525,68 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+522. 2026-04-22 useResetListPage 훅(필터·정렬 변경 시 목록 페이지 1)
+Purpose: 관리 1~6·위젯보드에서 반복되던 `useEffect(() => setListPage(1), [filters, sort, items])`를 `shared/hooks/useResetListPage.js`로 모은다. `useEffect` 의존 배열에 rest 전개를 쓰면 eslint가 정적 검증을 못 하므로, 매 커밋마다 이전 `deps` 스냅샷과 요소 단위 `Object.is`로 비교해 동일하게 동작시킨다.
+
+Changes:
+
+- `useResetListPage(setPage, ...deps)` 추가
+- AdminUsers·Roles·Org·Projects·ProjectMembers·WidgetboardList: 해당 `useEffect` 제거 후 훅 호출로 교체
+
+Changed files: Frontend/react-app/src/shared/hooks/useResetListPage.js, AdminUsersPage.jsx, AdminRolesPage.jsx, AdminOrgPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, WidgetboardListPage.jsx, docs/log/log.md
+
+521. 2026-04-22 관리 목록 공통 페이지네이션(1~6·이력·위젯보드)
+Purpose: 통합 이력 하단 UI와 동일한 건수 요약·10·20·50개·«‹›»·페이지 입력을 `AdminListPaginationFooter`와 `admin-list-pagination.css`로 공유하고, 필터·정렬된 클라이언트 목록(관리 1~6·위젯보드)은 slice로 페이지 단위만 렌더한다.
+
+Changes:
+
+- `AdminListPaginationFooter.jsx`·`admin-list-pagination.css` 추가(컴포넌트가 CSS side-effect import, 페이지 입력란은 `admin-users__input` 없이 동일 토큰으로 자체 스타일)
+- `UserHistoryPage.jsx`: 인라인 푸터 제거·공용 컴포넌트 사용, `user-history.css`에서 중복 페이저 스타일 제거
+- AdminUsers·Roles·Org·Projects·ProjectMembers·WidgetboardList: `listPage`/`pageSize`·`pagedDisplay*`·필터·정렬·목록 변경 시 페이지 1 리셋
+
+Changed files: Frontend/react-app/src/shared/components/AdminListPaginationFooter.jsx, Frontend/react-app/src/app/admin/admin-list-pagination.css, UserHistoryPage.jsx, user-history.css, AdminUsersPage.jsx, AdminRolesPage.jsx, AdminOrgPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
+
+520. 2026-04-22 UserHistoryPage: 필터 UI를 admin-list-filters와 통일
+Purpose: 사용자 이력 조회 필터를 사용자·권한 등 관리 목록(1~6)과 동일한 `admin-list-filters` 마크업·`admin-list-table.css`로 맞춰 라벨·인풋·셀렉트 폰트 크기와 박스 스타일을 통일한다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `admin-list-filters`·`admin-list-filters__field`·`admin-list-filters__actions`, `admin-list-table.css` import
+- `admin-list-table.css`: `admin-list-filters__field--sortwide`(정렬 기준 셀렉트 폭)
+- `user-history.css`: 기존 필터 전용 그리드·필드·placeholder·버튼 min-height 규칙 제거
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, admin-list-table.css, user-history.css, docs/log/log.md
+
+519. 2026-04-22 admin·widgetboard: 필터 placeholder contains·사용자 조직역할 셀렉트
+Purpose: 1~6 목록 필터 인풋의「포함」문구를 `contains`로 통일하고, 사용자 관리의 조직 역할은 현재 목록에 나타난 `user_dvsn`만 옵션으로 두어 정확 일치 필터한다.
+
+Changes:
+
+- AdminUsers~WidgetboardList: placeholder 정리
+- AdminUsersPage: `userRoleFilterOptions`·셀렉트·무효 값 초기화 `useEffect`
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, AdminRolesPage.jsx, AdminOrgPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
+
+518. 2026-04-22 admin·widgetboard: 목록 테이블 정렬·필터·일시 컬럼(1~6)
+Purpose: 사용자·권한·부서·프로젝트·프로젝트 멤버·위젯보드 목록에 헤더 3단계 정렬(nd-rank 스타일 화살표)·상단 필터(contains·셀렉트·날짜 범위)·초기화를 적용하고, API에 누락된 생성·수정일시 컬럼을 보강한다.
+
+Changes:
+
+- 공통: `adminListTable.js`, `AdminSortableTh.jsx`, `admin-list-table.css`
+- BE: `list_roles_for_dept`에 `update_dtm`, 부서 목록·프로젝트 목록 SELECT에 `update_dtm`
+- FE: AdminUsers/Roles/Org/Projects/ProjectMembers/WidgetboardList 페이지별 필터·정렬·표시 행 도출(`useMemo`), 멤버「참여일시」라벨
+
+Changed files: Backend/admin_server/service_roles.py, Backend/admin_server/service_users.py, Backend/admin_server/service_projects.py, Frontend/react-app/src/shared/utils/adminListTable.js, Frontend/react-app/src/shared/components/AdminSortableTh.jsx, Frontend/react-app/src/app/admin/admin-list-table.css, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, AdminRolesPage.jsx, AdminOrgPage.jsx, AdminProjectsPage.jsx, AdminProjectMembersPage.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
+
+517. 2026-04-22 widgetboard: 보드 재활성화 시 confirmCrud 확인
+Purpose: 비활성화와 동일하게 재활성(활성) 전에 사용자 확인을 받아 오클릭으로 상태가 바뀌는 것을 방지한다.
+
+Changes:
+
+- `WidgetboardListPage.jsx`: `handleActivate`에 `confirmCrud` 가드 추가, 파일 머리말 Main Functions 정합
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardListPage.jsx, docs/log/log.md
 
 516. 2026-04-21 docs/main/04: 전역 가독성(요약·목차·ETL·부록 정리)
 Purpose: `07_USER_FUNCTIONAL_GUIDE.md` 와 맞춘 **제목·불릿·뎁스**로 `04_DB_ARCHITECTURE.md` 전반을 읽기 쉽게 한다. system·ETL 각 테이블 절에 **`요약`** 블록을 두고, DB 절 상단에 **테이블 인덱스**·문서 맨 위에 **목차**를 추가한다. ETL 공통·인덱스·부록 A(2) 표를 목록형으로 나눈다.

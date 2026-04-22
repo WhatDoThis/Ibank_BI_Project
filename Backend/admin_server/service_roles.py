@@ -7,7 +7,7 @@ pmssn_master/pmssn_master_detail 기반 권한 옵션·목록·사용현황 조�
 
 [Main Functions]
 ===========
-1. list_roles_for_dept(생성자 FK user_info JOIN·creator_email·집계 MAX)
+1. list_roles_for_dept(생성자 FK user_info JOIN·creator_email·create_dtm·update_dtm·집계 MAX)
 2. list_permission_options_for_dept
 3. list_role_usages(user_department_display)
 4. list_role_project_participants(user_department_display)
@@ -83,6 +83,7 @@ def list_roles_for_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
                 pm.pmssn_list,
                 pm.system_dflt_yn,
                 pm.create_dtm,
+                pm.update_dtm,
                 pm.user_id AS creator_user_id,
                 COUNT(pp.project_ptcpnt_info_id)::int AS usage_count,
                 MAX(NULLIF(TRIM(uc.user_email), '')) AS creator_email
@@ -101,6 +102,7 @@ def list_roles_for_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
                 pm.pmssn_list,
                 pm.system_dflt_yn,
                 pm.create_dtm,
+                pm.update_dtm,
                 pm.user_id
             ORDER BY pm.system_dflt_yn DESC, pm.pmssn_name
             """,

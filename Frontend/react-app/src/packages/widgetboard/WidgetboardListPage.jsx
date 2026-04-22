@@ -1,23 +1,32 @@
 /**
  * packages/widgetboard/WidgetboardListPage.jsx (위젯 보드 목록)
  * ============================================================
- * 프로젝트 단위 보드 목록(소유·공유). 캔버스 진입·제목/설명 수정·초대·비활성/활성·삭제·참여자 모달. 읽기 전용 안내는 상단 ap__hint에만 표시.
+ * 프로젝트 단위 보드 목록(소유·공유). 캔버스 진입·제목/설명 수정·초대·비활성/활성·삭제·참여자 모달. 목록 필터·헤더 정렬·수정일 열. 읽기 전용 안내는 상단 ap__hint에만 표시.
  *
  * [Main Functions]
  * ===========
- * 1. listWidgetBoards 로 테이블 렌더, 생성/수정(×·취소만 닫힘)/참여자/초대/완전 삭제 확인 모달
+ * 1. listWidgetBoards 로 테이블 렌더, 생성/수정(×·취소만 닫힘)/참여자/초대·비활성/활성(confirmCrud)·완전 삭제 확인 모달
  *
  * [Dependencies]
  * =========
- * - react-router-dom, app/auth/AuthContext, ./api/widgetBoardClient, ./constants, shared/utils/crudConfirm
- * - app/admin/admin-pages.css, admin-users.css, admin-org.css(생성·수정 모달), widgetboard.css
+ * - react-router-dom, app/auth/AuthContext, ./api/widgetBoardClient, ./constants, shared/utils/crudConfirm, shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter
+ * - app/admin/admin-pages.css, admin-users.css, admin-org.css, admin-list-table.css, widgetboard.css
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
+import AdminSortableTh from '@/shared/components/AdminSortableTh.jsx'
+import { useResetListPage } from '@/shared/hooks/useResetListPage.js'
+import {
+  cycleListSort,
+  dateFieldInRange,
+  sortRowsByState,
+  strContains,
+} from '@/shared/utils/adminListTable.js'
 import {
   listWidgetBoards,
   createWidgetBoard,
@@ -34,6 +43,7 @@ import { WIDGET_BOARD_DSCRTN_MAX_LEN } from '@/packages/widgetboard/constants.js
 import '@/app/admin/admin-pages.css'
 import '@/app/admin/admin-users.css'
 import '@/app/admin/admin-org.css'
+import '@/app/admin/admin-list-table.css'
 import '@/packages/widgetboard/widgetboard.css'
 
 function formatDtm(v) {
@@ -58,6 +68,42 @@ function ownerLabel(row) {
   return '—'
 }
 
+function initialWbListFilters() {
+  return {
+    name: '',
+    scope: '',
+    owner: '',
+    createFrom: '',
+    createTo: '',
+    updateFrom: '',
+    updateTo: '',
+  }
+}
+
+function wbComparable(row, key) {
+  const scope = String(row?.share_scope || 'private').toLowerCase()
+  switch (key) {
+    case 'name':
+      return String(row?.board_name ?? '').toLowerCase()
+    case 'desc':
+      return String(row?.board_dscrtn ?? '').toLowerCase()
+    case 'scope':
+      return scope === 'project' ? 1 : 0
+    case 'owner':
+      return String(ownerLabel(row) ?? '').toLowerCase()
+    case 'created': {
+      const t = row?.create_dtm ? new Date(row.create_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    case 'updated': {
+      const t = row?.update_dtm ? new Date(row.update_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    default:
+      return ''
+  }
+}
+
 export default function WidgetboardListPage() {
   const { me, projectContextNonce } = useAuth()
   const navigate = useNavigate()
@@ -65,6 +111,9 @@ export default function WidgetboardListPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
+
+  const [wbFilters, setWbFilters] = useState(() => initialWbListFilters())
+  const [wbSort, setWbSort] = useState({ key: null, dir: null })
 
   const [createOpen, setCreateOpen] = useState(false)
   const [cName, setCName] = useState('')
@@ -112,6 +161,42 @@ export default function WidgetboardListPage() {
   useEffect(() => {
     load()
   }, [load, projectContextNonce])
+
+  const handleWbSort = useCallback((key) => {
+    setWbSort((prev) => cycleListSort(prev, key))
+  }, [])
+
+  const resetWbListQuery = useCallback(() => {
+    setWbFilters(initialWbListFilters())
+    setWbSort({ key: null, dir: null })
+  }, [])
+
+  const displayBoards = useMemo(() => {
+    const f = wbFilters
+    let rows = Array.isArray(items) ? items.slice() : []
+    rows = rows.filter((row) => {
+      if (!strContains(row.board_name, f.name)) return false
+      const sc = String(row?.share_scope || 'private').toLowerCase()
+      if (f.scope === 'private' && sc !== 'private') return false
+      if (f.scope === 'project' && sc !== 'project') return false
+      const ol = ownerLabel(row)
+      if (!strContains(ol, f.owner)) return false
+      if (!dateFieldInRange(row.create_dtm, f.createFrom, f.createTo)) return false
+      if (!dateFieldInRange(row.update_dtm, f.updateFrom, f.updateTo)) return false
+      return true
+    })
+    return sortRowsByState(rows, wbSort, wbComparable)
+  }, [items, wbFilters, wbSort])
+
+  const [wbListPage, setWbListPage] = useState(1)
+  const [wbListPageSize, setWbListPageSize] = useState(10)
+
+  const pagedDisplayBoards = useMemo(() => {
+    const start = (wbListPage - 1) * wbListPageSize
+    return displayBoards.slice(start, start + wbListPageSize)
+  }, [displayBoards, wbListPage, wbListPageSize])
+
+  useResetListPage(setWbListPage, wbFilters, wbSort, items)
 
   const openParticipants = async (boardId) => {
     setPartBoardId(boardId)
@@ -217,6 +302,7 @@ export default function WidgetboardListPage() {
   }
 
   const handleActivate = async (row) => {
+    if (!confirmCrud(`「${row.board_name || '보드'}」을(를) 활성화할까요?`)) return
     setBusyId(row.widget_board_id)
     try {
       await updateWidgetBoard(row.widget_board_id, { active_yn: true })
@@ -336,15 +422,106 @@ export default function WidgetboardListPage() {
       {loading ? (
         <p className="ap__hint">불러오는 중…</p>
       ) : (
+        <>
+          <div className="admin-list-filters" aria-label="위젯 보드 목록 필터">
+            <div className="admin-list-filters__field admin-list-filters__field--grow">
+              <label htmlFor="wb-f-name">위젯명</label>
+              <input
+                id="wb-f-name"
+                type="text"
+                value={wbFilters.name}
+                onChange={(ev) => setWbFilters((p) => ({ ...p, name: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="wb-f-scope">범위</label>
+              <select
+                id="wb-f-scope"
+                value={wbFilters.scope}
+                onChange={(ev) => setWbFilters((p) => ({ ...p, scope: ev.target.value }))}
+              >
+                <option value="">전체</option>
+                <option value="private">비공개</option>
+                <option value="project">프로젝트</option>
+              </select>
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="wb-f-owner">소유자</label>
+              <input
+                id="wb-f-owner"
+                type="text"
+                value={wbFilters.owner}
+                onChange={(ev) => setWbFilters((p) => ({ ...p, owner: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="wb-f-cr">생성일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="wb-f-cr">
+                <input
+                  type="date"
+                  value={wbFilters.createFrom}
+                  onChange={(ev) => setWbFilters((p) => ({ ...p, createFrom: ev.target.value }))}
+                  aria-label="생성일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={wbFilters.createTo}
+                  onChange={(ev) => setWbFilters((p) => ({ ...p, createTo: ev.target.value }))}
+                  aria-label="생성일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="wb-f-up">수정일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="wb-f-up">
+                <input
+                  type="date"
+                  value={wbFilters.updateFrom}
+                  onChange={(ev) => setWbFilters((p) => ({ ...p, updateFrom: ev.target.value }))}
+                  aria-label="수정일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={wbFilters.updateTo}
+                  onChange={(ev) => setWbFilters((p) => ({ ...p, updateTo: ev.target.value }))}
+                  aria-label="수정일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__actions">
+              <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={resetWbListQuery}>
+                초기화
+              </button>
+            </div>
+          </div>
         <div className="ap__table-wrap">
           <table className="ap__table ap__table--projects">
             <thead>
               <tr>
-                <th>위젯명</th>
-                <th>위젯 설명</th>
-                <th>범위</th>
-                <th>소유자</th>
-                <th>생성일</th>
+                <AdminSortableTh sortKey="name" activeKey={wbSort.key} dir={wbSort.dir} onSort={handleWbSort}>
+                  위젯명
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="desc" activeKey={wbSort.key} dir={wbSort.dir} onSort={handleWbSort}>
+                  위젯 설명
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="scope" activeKey={wbSort.key} dir={wbSort.dir} onSort={handleWbSort}>
+                  범위
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="owner" activeKey={wbSort.key} dir={wbSort.dir} onSort={handleWbSort}>
+                  소유자
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="created" activeKey={wbSort.key} dir={wbSort.dir} onSort={handleWbSort}>
+                  생성일
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="updated" activeKey={wbSort.key} dir={wbSort.dir} onSort={handleWbSort}>
+                  수정일
+                </AdminSortableTh>
                 <th>참여자</th>
                 <th className="ap__th-actions">작업</th>
               </tr>
@@ -352,12 +529,18 @@ export default function WidgetboardListPage() {
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="ap__hint">
+                  <td colSpan={8} className="ap__hint">
                     등록된 보드가 없습니다. 위젯보드 생성으로 추가하세요.
                   </td>
                 </tr>
+              ) : displayBoards.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="ap__hint">
+                    필터 조건에 맞는 보드가 없습니다.
+                  </td>
+                </tr>
               ) : (
-                items.map((row) => {
+                pagedDisplayBoards.map((row) => {
                   const id = row.widget_board_id
                   const active = isBoardActive(row)
                   const isOwner = Boolean(row.is_owner)
@@ -384,6 +567,7 @@ export default function WidgetboardListPage() {
                       <td>{scopeLabel}</td>
                       <td>{ownerLabel(row)}</td>
                       <td>{formatDtm(row.create_dtm)}</td>
+                      <td>{formatDtm(row.update_dtm)}</td>
                       <td>
                         {canvasOnly ? (
                           <span className="ap__hint">—</span>
@@ -478,6 +662,19 @@ export default function WidgetboardListPage() {
             </tbody>
           </table>
         </div>
+          <AdminListPaginationFooter
+            idPrefix="widgetboard-list"
+            total={displayBoards.length}
+            page={wbListPage}
+            pageSize={wbListPageSize}
+            loading={loading}
+            onPageChange={setWbListPage}
+            onPageSizeChange={(n) => {
+              setWbListPageSize(n)
+              setWbListPage(1)
+            }}
+          />
+        </>
       )}
 
       {createOpen ? (

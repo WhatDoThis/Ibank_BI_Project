@@ -5,7 +5,7 @@
  * 생성·프로젝트 활성화·비활성화·purge 성공 시 notifyParticipatingProjectsChanged(헤더 드롭다운 재조회). 비활성화·purge: 현재 작업 프로젝트면 refreshMe 후 홈(/)으로 이동.
  * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 QS·위젯보드용으로 main_db(table_master)만 API에서 내려줌; 대시보드 허용 테이블은 별도(서버 table_master·feature_flags). QS/WB는 페이지 선택과 연동.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
- * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
+ * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip, 수정일·필터·헤더 정렬. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
@@ -14,10 +14,20 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), app/admin/adminAccess.js, app/auth/AuthContext.jsx
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/admin/adminAccess.js, app/auth/AuthContext.jsx, admin-list-table.css
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
+import AdminSortableTh from '@/shared/components/AdminSortableTh.jsx'
+import { useResetListPage } from '@/shared/hooks/useResetListPage.js'
+import {
+  cycleListSort,
+  dateFieldInRange,
+  sortRowsByState,
+  strContains,
+} from '@/shared/utils/adminListTable.js'
 import { Link, useNavigate } from 'react-router-dom'
 
 import {
@@ -41,6 +51,7 @@ import { canAccessOrgAdmin, isCreatorSelf } from '@/app/admin/adminAccess.js'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './admin-pages.css'
 import './admin-users.css'
+import './admin-list-table.css'
 
 function formatDtm(v) {
   if (!v) return '—'
@@ -64,6 +75,42 @@ function featureFlagsToUiState(flags) {
   }
 }
 
+function initialProjectListFilters() {
+  return {
+    name: '',
+    status: '',
+    creator: '',
+    createFrom: '',
+    createTo: '',
+    updateFrom: '',
+    updateTo: '',
+  }
+}
+
+function projectComparable(row, key) {
+  const active = (row.active_yn || '').toUpperCase() === 'Y'
+  switch (key) {
+    case 'name':
+      return String(row?.project_name ?? '').toLowerCase()
+    case 'desc':
+      return String(row?.project_dscrtn ?? '').toLowerCase()
+    case 'status':
+      return active ? 1 : 0
+    case 'created': {
+      const t = row?.create_dtm ? new Date(row.create_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    case 'updated': {
+      const t = row?.update_dtm ? new Date(row.update_dtm).getTime() : 0
+      return Number.isNaN(t) ? 0 : t
+    }
+    case 'creator':
+      return String(row?.creator_email ?? '').toLowerCase()
+    default:
+      return ''
+  }
+}
+
 export default function AdminProjectsPage() {
   const navigate = useNavigate()
   const { me, refreshMe, notifyParticipatingProjectsChanged } = useAuth()
@@ -74,6 +121,8 @@ export default function AdminProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
+  const [projFilters, setProjFilters] = useState(() => initialProjectListFilters())
+  const [projSort, setProjSort] = useState({ key: null, dir: null })
   /** @type {null | { phase: 'loading'|'ready'|'error', projectInfoId: number, preview?: object, error?: string, executing?: boolean }} */
   const [purgeDialog, setPurgeDialog] = useState(null)
 
@@ -118,6 +167,41 @@ export default function AdminProjectsPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  const handleProjSort = useCallback((key) => {
+    setProjSort((prev) => cycleListSort(prev, key))
+  }, [])
+
+  const resetProjListQuery = useCallback(() => {
+    setProjFilters(initialProjectListFilters())
+    setProjSort({ key: null, dir: null })
+  }, [])
+
+  const displayProjects = useMemo(() => {
+    const f = projFilters
+    let rows = Array.isArray(items) ? items.slice() : []
+    rows = rows.filter((row) => {
+      if (!strContains(row.project_name, f.name)) return false
+      const active = (row.active_yn || '').toUpperCase() === 'Y'
+      if (f.status === 'active' && !active) return false
+      if (f.status === 'inactive' && active) return false
+      if (!strContains(row.creator_email, f.creator)) return false
+      if (!dateFieldInRange(row.create_dtm, f.createFrom, f.createTo)) return false
+      if (!dateFieldInRange(row.update_dtm, f.updateFrom, f.updateTo)) return false
+      return true
+    })
+    return sortRowsByState(rows, projSort, projectComparable)
+  }, [items, projFilters, projSort])
+
+  const [projListPage, setProjListPage] = useState(1)
+  const [projListPageSize, setProjListPageSize] = useState(10)
+
+  const pagedDisplayProjects = useMemo(() => {
+    const start = (projListPage - 1) * projListPageSize
+    return displayProjects.slice(start, start + projListPageSize)
+  }, [displayProjects, projListPage, projListPageSize])
+
+  useResetListPage(setProjListPage, projFilters, projSort, items)
 
   function resetProjectFormFields() {
     setCName('')
@@ -1098,20 +1182,118 @@ export default function AdminProjectsPage() {
       {loading ? (
         <p className="ap__hint">불러오는 중…</p>
       ) : (
+        <>
+          <div className="admin-list-filters" aria-label="프로젝트 목록 필터">
+            <div className="admin-list-filters__field admin-list-filters__field--grow">
+              <label htmlFor="pr-f-name">프로젝트명</label>
+              <input
+                id="pr-f-name"
+                type="text"
+                value={projFilters.name}
+                onChange={(ev) => setProjFilters((p) => ({ ...p, name: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="pr-f-st">상태</label>
+              <select
+                id="pr-f-st"
+                value={projFilters.status}
+                onChange={(ev) => setProjFilters((p) => ({ ...p, status: ev.target.value }))}
+              >
+                <option value="">전체</option>
+                <option value="active">활성</option>
+                <option value="inactive">비활성</option>
+              </select>
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="pr-f-cr">생성자</label>
+              <input
+                id="pr-f-cr"
+                type="text"
+                value={projFilters.creator}
+                onChange={(ev) => setProjFilters((p) => ({ ...p, creator: ev.target.value }))}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="pr-f-cd">생성일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="pr-f-cd">
+                <input
+                  type="date"
+                  value={projFilters.createFrom}
+                  onChange={(ev) => setProjFilters((p) => ({ ...p, createFrom: ev.target.value }))}
+                  aria-label="생성일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={projFilters.createTo}
+                  onChange={(ev) => setProjFilters((p) => ({ ...p, createTo: ev.target.value }))}
+                  aria-label="생성일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__field">
+              <span id="pr-f-ud">수정일</span>
+              <div className="admin-list-filters__datepair" aria-labelledby="pr-f-ud">
+                <input
+                  type="date"
+                  value={projFilters.updateFrom}
+                  onChange={(ev) => setProjFilters((p) => ({ ...p, updateFrom: ev.target.value }))}
+                  aria-label="수정일 시작"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={projFilters.updateTo}
+                  onChange={(ev) => setProjFilters((p) => ({ ...p, updateTo: ev.target.value }))}
+                  aria-label="수정일 끝"
+                />
+              </div>
+            </div>
+            <div className="admin-list-filters__actions">
+              <button type="button" className="ibank-btn-toolbar ibank-btn-toolbar--secondary" onClick={resetProjListQuery}>
+                초기화
+              </button>
+            </div>
+          </div>
         <div className="ap__table-wrap">
           <table className="ap__table ap__table--projects">
             <thead>
               <tr>
-                <th>프로젝트명</th>
-                <th>프로젝트설명</th>
-                <th>상태</th>
-                <th>생성일</th>
-                <th>생성자</th>
+                <AdminSortableTh sortKey="name" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                  프로젝트명
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="desc" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                  프로젝트설명
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="status" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                  상태
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="created" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                  생성일
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="updated" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                  수정일
+                </AdminSortableTh>
+                <AdminSortableTh sortKey="creator" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                  생성자
+                </AdminSortableTh>
                 <th className="ap__th-actions">작업</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((row) => {
+              {displayProjects.length === 0 && items.length > 0 ? (
+                <tr>
+                  <td colSpan={7} className="ap__hint">
+                    필터 조건에 맞는 프로젝트가 없습니다.
+                  </td>
+                </tr>
+              ) : null}
+              {pagedDisplayProjects.map((row) => {
                 const pid = row.project_info_id
                 const active = (row.active_yn || '').toUpperCase() === 'Y'
                 const pname = row.project_name || '—'
@@ -1133,6 +1315,7 @@ export default function AdminProjectsPage() {
                     </td>
                     <td>{active ? '활성' : '비활성'}</td>
                     <td>{formatDtm(row.create_dtm)}</td>
+                    <td>{formatDtm(row.update_dtm)}</td>
                     <td className="ap__creator-cell">
                       <span className="admin-users__email-cell">
                         <span className="admin-users__email-text" title={row.creator_email || undefined}>
@@ -1202,6 +1385,19 @@ export default function AdminProjectsPage() {
             </tbody>
           </table>
         </div>
+          <AdminListPaginationFooter
+            idPrefix="admin-projects-list"
+            total={displayProjects.length}
+            page={projListPage}
+            pageSize={projListPageSize}
+            loading={loading}
+            onPageChange={setProjListPage}
+            onPageSizeChange={(n) => {
+              setProjListPageSize(n)
+              setProjListPage(1)
+            }}
+          />
+        </>
       )}
     </div>
   )

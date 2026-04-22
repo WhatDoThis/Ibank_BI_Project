@@ -1,0 +1,119 @@
+/* 관리 페이지 목록: 정렬 헤더·필터 바 (nd-rank-table th 패턴 참고) */
+
+.admin-list-sort__th {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.admin-list-sort__th--center .admin-list-sort__btn {
+  justify-content: center;
+}
+
+.admin-list-sort__th--right .admin-list-sort__btn {
+  justify-content: flex-end;
+}
+
+.admin-list-sort__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.admin-list-sort__btn:hover {
+  background: var(--background, rgba(0, 0, 0, 0.04));
+}
+
+.admin-list-sort__th--sorted .admin-list-sort__btn {
+  font-weight: 600;
+}
+
+.admin-list-sort__label {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.admin-list-sort__icon {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.95;
+}
+
+.admin-list-sort__icon--muted {
+  opacity: 0.35;
+  font-size: 0.65rem;
+}
+
+.admin-list-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e2e6ea);
+  border-radius: 6px;
+  background: var(--surface-muted, #f8f9fa);
+}
+
+.admin-list-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-list-filters__field label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #5c6570);
+}
+
+.admin-list-filters__field input[type='text'],
+.admin-list-filters__field input[type='date'],
+.admin-list-filters__field input[type='email'],
+.admin-list-filters__field select {
+  min-width: 120px;
+  max-width: 220px;
+  padding: 6px 8px;
+  font-size: 0.875rem;
+  border: 1px solid var(--border-color, #cfd4d9);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.admin-list-filters__field--grow input,
+.admin-list-filters__field--grow select {
+  max-width: 280px;
+}
+
+/* 정렬 기준 등 넓은 셀렉트(이력 조회 등) */
+.admin-list-filters__field--sortwide select {
+  min-width: 10.5rem;
+  max-width: 280px;
+}
+
+.admin-list-filters__actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.admin-list-filters__datepair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-list-filters__datepair input[type='date'] {
+  max-width: 140px;
+}

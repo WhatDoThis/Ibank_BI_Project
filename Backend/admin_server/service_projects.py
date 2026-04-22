@@ -302,7 +302,7 @@ def list_projects_in_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
         cur.execute(
             """
             SELECT pi.project_info_id, pi.dptmt_info_id, pi.project_name, pi.project_dscrtn, pi.active_yn,
-                   pi.create_dtm, pi.project_create_user_id, pi.feature_flags,
+                   pi.create_dtm, pi.update_dtm, pi.project_create_user_id, pi.feature_flags,
                    NULLIF(TRIM(u.user_email), '') AS creator_email
             FROM project_info pi
             LEFT JOIN user_info u ON u.user_id = pi.project_create_user_id
@@ -324,7 +324,7 @@ def list_projects_for_participant(
         cur.execute(
             """
             SELECT pi.project_info_id, pi.dptmt_info_id, pi.project_name, pi.project_dscrtn,
-                   pi.active_yn, pi.create_dtm, pi.project_create_user_id, pi.feature_flags,
+                   pi.active_yn, pi.create_dtm, pi.update_dtm, pi.project_create_user_id, pi.feature_flags,
                    NULLIF(TRIM(uc.user_email), '') AS creator_email,
                    m.pmssn_name AS role_name
             FROM project_info pi

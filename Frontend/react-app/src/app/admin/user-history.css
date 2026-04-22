@@ -6,9 +6,9 @@
  * [Main Functions]
  * ===========
  * - .user-history__tabs / __tab: 탭 전환
- * - .user-history__filters: 필터 그리드·폼 제출(Enter)·툴바 버튼 높이
+ * - .user-history__filters: `admin-list-filters`와 조합(폼 제출 Enter)·페이지 전용 보조만
  * - .user-history__toolbar: CSV 등 테이블 상단 보조 액션
- * - .user-history__pager-footer·__pager-footer__right·__page-size(10/20/50개)·__pagination: 목록 하단 건수·행 수·«‹ ›»
+ * - 목록 하단 페이지네이션: `AdminListPaginationFooter` + `admin-list-pagination.css`
  * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
  * - 시스템 테이블: `col-fingerprint`·`fingerprint-inner`(sql_fingerprint 말줄임·overflow hidden)
@@ -19,7 +19,7 @@
  *
  * [Dependencies]
  * =========
- * - admin-users.css(.admin-users__input, .admin-users__select)
+ * - admin-users.css(테이블·모달), admin-list-table.css(필터 바·관리 1~6과 동일 토큰)
  * - shared-ui.css(.ibank-btn-toolbar)
  * - design-tokens (--color-*, --radius-*)
  */
@@ -53,56 +53,6 @@
   color: var(--color-text);
 }
 
-.user-history__filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px 16px;
-  align-items: end;
-  margin-bottom: 16px;
-}
-
-.user-history__field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.8125rem;
-  color: var(--color-text-muted);
-}
-
-.user-history__field--sort .admin-users__select {
-  min-width: 10.5rem;
-}
-
-/* 필터 placeholder: 작은 글씨·contains/exact 통일 (date는 브라우저마다 무시될 수 있음) */
-.user-history__filters .admin-users__input::placeholder {
-  font-size: 0.6875rem;
-  letter-spacing: -0.015em;
-  opacity: 0.88;
-}
-
-.user-history__filter-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-/* 필터 행: admin-users 인풋·셀렉트와 동일 체감 높이·글자 크기(툴바 기본 0.875rem·보더 없음 보정) */
-.user-history__filters .admin-users__input,
-.user-history__filters .admin-users__select {
-  box-sizing: border-box;
-  min-height: 2.5rem;
-}
-
-.user-history__filter-actions .ibank-btn-toolbar {
-  box-sizing: border-box;
-  min-height: 2.5rem;
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  border-radius: var(--radius-pill);
-  line-height: 1.2;
-}
-
 .user-history__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -110,136 +60,6 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
-}
-
-.user-history__pager-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px 20px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border-light);
-}
-
-.user-history__pager-footer__right {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px 16px;
-}
-
-.user-history__page-size {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.user-history__page-size-btn {
-  box-sizing: border-box;
-  min-width: 3rem;
-  height: 2.25rem;
-  padding: 0 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-light);
-  background: #fff;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.user-history__page-size-btn:hover:not(:disabled):not(.user-history__page-size-btn--active) {
-  border-color: var(--color-action-primary);
-  color: var(--color-text);
-}
-
-.user-history__page-size-btn--active {
-  border-color: var(--color-action-primary);
-  background: var(--primary-light);
-  color: var(--color-text);
-  cursor: default;
-}
-
-.user-history__page-size-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.user-history__pager-footer__summary {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--color-text-muted);
-  line-height: 1.45;
-}
-
-.user-history__pager-footer__summary strong {
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.user-history__pagination {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.user-history__page-btn {
-  box-sizing: border-box;
-  min-width: 2.25rem;
-  height: 2.25rem;
-  padding: 0 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-light);
-  background: #fff;
-  font-size: 1rem;
-  line-height: 1;
-  color: var(--color-text);
-  cursor: pointer;
-}
-
-.user-history__page-btn:hover:not(:disabled) {
-  border-color: var(--color-action-primary);
-  color: var(--color-action-primary);
-}
-
-.user-history__page-btn:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
-}
-
-.user-history__page-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0 4px;
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-}
-
-.user-history__page-input {
-  width: 3.25rem;
-  min-height: 2.25rem;
-  padding: 4px 6px;
-  text-align: center;
-  font-size: 0.875rem;
-}
-
-.user-history__page-slash {
-  user-select: none;
-  font-weight: 500;
-  color: var(--color-text-muted);
-}
-
-.user-history__page-total {
-  min-width: 1.5rem;
-  font-weight: 600;
-  color: var(--color-text);
-  user-select: none;
 }
 
 .user-history__table-wrap {
