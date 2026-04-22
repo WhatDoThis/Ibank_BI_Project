@@ -1,6 +1,10 @@
 # Log
 
 ## Log Index
+532. 2026-04-22 docs/main/09: 스캔 기반 심볼·미사용 제외
+531. 2026-04-22 docs/main/09: §3.2 표준 라이브러리 모듈별 표
+530. 2026-04-22 docs/main/09: 외부 기술만(내부 import 목록 제거)
+529. 2026-04-22 docs/main/09: 기술 스택·라이브러리·import 카탈로그
 528. 2026-04-22 README: docs/main 스타일(문단·표·중복 섹션 통합)
 527. 2026-04-22 docs/main: DB 풀·keepalive·stale 정책(03·02·04 반영)
 526. 2026-04-22 core/db: 풀 stale 연결 완화(TCP keepalive·checkout·cursor 갱신)
@@ -531,6 +535,47 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+532. 2026-04-22 docs/main/09: 스캔 기반 심볼·미사용 제외
+Purpose: 09를 “실제로 쓰는 외부 것만” 풀어 쓴다. import 심볼을 스캔해 표에 넣고, 코드에 없는 pip·npm·인프라는 §1에서 빼며 공식 문서로 떠넘기는 문장을 제거한다.
+
+Changes:
+
+- `generate_docs_main_09.py`: `aggregate_py_symbols`·`aggregate_js_symbols`, `py_symbol_label`(전체 `모듈.이름`), §1.1·§1.2·§1.3 동적 생성, §3·§4에 심볼 열
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md` 재생성
+
+Changed files: scripts/generate_docs_main_09.py, docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, docs/log/log.md
+
+531. 2026-04-22 docs/main/09: §3.2 표준 라이브러리 모듈별 표
+Purpose: §3.2에서 표준 라이브러리를 한 줄로 퉁치지 않고, 모듈마다 용도 요약 표로 정리한다.
+
+Changes:
+
+- `generate_docs_main_09.py`: `_STDLIB_BLURB`·`_stdlib_row` 추가, §3.2를 `| 모듈 | 용도 |` 표로 출력
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md` 재생성
+
+Changed files: scripts/generate_docs_main_09.py, docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, docs/log/log.md
+
+530. 2026-04-22 docs/main/09: 외부 기술만(내부 import 목록 제거)
+Purpose: 09 문서를 **외부에서 제공되는** 라이브러리·인프라만 다루도록 바꾼다. `Backend.*`·프론트 상대 경로 등 자체 코드 import 나열은 제거한다.
+
+Changes:
+
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md`: §2 범위 표, §3 pip·표준 집계, §4 npm 런타임 집계만 유지(파일별·통합 심볼 표 삭제)
+- `scripts/generate_docs_main_09.py`: 외부 루트만 집계하도록 전면 수정
+
+Changed files: docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, scripts/generate_docs_main_09.py, docs/log/log.md
+
+529. 2026-04-22 docs/main/09: 기술 스택·라이브러리·import 카탈로그
+Purpose: 시스템에 쓰인 pip·npm·인프라와 실제 코드 import를 패키지 트리별로 정리하고, 통합 번호 표로 한눈에 볼 수 있게 한다.
+
+Changes:
+
+- `docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md` 신설(기술 트리, requirements·package.json 요약, Backend·`Env`·`run.py`·Frontend `src` 파일별 import, 통합 번호 표)
+- `scripts/_collect_imports_for_docs.py`, `scripts/generate_docs_main_09.py` 추가(스캔·Markdown 자동 생성)
+- `.gitignore`: 스캔 중간 JSON 제외
+
+Changed files: docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, scripts/_collect_imports_for_docs.py, scripts/generate_docs_main_09.py, .gitignore, docs/log/log.md
 
 528. 2026-04-22 README: docs/main 스타일(문단·표·중복 섹션 통합)
 Purpose: 루트 README를 docs/main과 같은 읽기 흐름(짧은 문단, `---`, 표, 소제목)으로 정리한다.
