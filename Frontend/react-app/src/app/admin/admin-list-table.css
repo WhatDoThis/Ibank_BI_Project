@@ -3,6 +3,11 @@
 .admin-list-sort__th {
   vertical-align: middle;
   white-space: nowrap;
+  /* 긴 헤더 라벨은 말줄임(.admin-list-sort__label); 열 폭 상한을 낮춤 */
+  max-width: 5.5rem;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .admin-list-sort__th--center .admin-list-sort__btn {
@@ -39,6 +44,8 @@
 .admin-list-sort__label {
   flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .admin-list-sort__icon {

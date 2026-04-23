@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+551. 2026-04-20 admin-list: 정렬 헤더(.admin-list-sort__th) 열 폭 상한 축소
 550. 2026-04-22 report24: Part F(widget·api·core, query_studio 감사 제외)
 549. 2026-04-22 report24: Part E(notification·mail·campaign·system_log)
 548. 2026-04-22 report24: Part D(etl_server) doc·`# N.`·compileall
@@ -553,6 +554,16 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+551. 2026-04-20 admin-list: 정렬 헤더(.admin-list-sort__th) 열 폭 상한 축소
+Purpose: 관리 목록 정렬 가능 헤더 셀이 과도하게 넓어지지 않도록 상한을 낮추고, 긴 라벨은 말줄임으로 처리한다.
+
+Changes:
+
+- `.admin-list-sort__th`: `max-width: 5.5rem`, `min-width: 0`, `overflow: hidden` 등
+- `.admin-list-sort__label`: `text-overflow: ellipsis` 보강
+
+Changed files: Frontend/react-app/src/app/admin/admin-list-table.css, docs/log/log.md
 
 550. 2026-04-22 report24: Part F(widget·api·core, query_studio 감사 제외)
 Purpose: `docs/report/24_…` **Part F**로 `widget_board_server`·`api_server`·`core` doc·`# N.` 정합. **`Backend/query_studio_server`는 사용자 요청으로 감사 범위에서 제외**(코드 include 유지).
