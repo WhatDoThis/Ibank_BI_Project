@@ -2,14 +2,16 @@
 Backend.widget_board_server.audit_sql_catalog (감사용 SQL 템플릿·지문)
 ================================================================
 `emit_widget_board_log` 가 `sql_fingerprint` 를 생략할 때 `business_action` 별 대표 DML 템플릿으로
-지문을 계산한다. 원문 SQL 전체는 저장하지 않는다(04 §13).
+지문을 계산한다. 원문 SQL 전체는 저장하지 않는다(`docs/main/04_DB_ARCHITECTURE.md` 13절).
 
 [Main Functions]
 ===========
-1. widget_board_audit_sql_fingerprint: business_action → 지문 hex 또는 None
+1. _fingerprint_hex_cached: SQL 템플릿 → 지문 hex(lru_cache)
+2. widget_board_audit_sql_fingerprint: business_action·detail_json → 지문 hex 또는 None
 
 [Endpoints/Classes/Functions]
 =======================
+- _fingerprint_hex_cached(sql_template)
 - widget_board_audit_sql_fingerprint(business_action, detail_json)
 
 [Dependencies]
@@ -96,6 +98,7 @@ def _fingerprint_hex_cached(sql_template: str) -> str | None:
     return compute_sql_fingerprint_hex(sql_template)
 
 
+# 2.
 def widget_board_audit_sql_fingerprint(
     business_action: str, detail_json: dict[str, Any] | None
 ) -> str | None:

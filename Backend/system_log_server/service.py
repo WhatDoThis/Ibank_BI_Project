@@ -5,16 +5,16 @@ Backend.system_log_server.service (system_log 목록 조회)
 
 [Main Functions]
 ===========
-1. list_system_logs_paged: GET /api/system-logs 비즈니스 조회(정렬 `sort_by`·`sort_dir`, `actor_user_email` 은 user_info 조인)
-2. export_system_logs_csv_bytes: 목록과 동일 필터·정렬·최대 `MAX_CSV_EXPORT_ROWS` 행 UTF-8 CSV(BOM, 화면 테이블과 동일 한글 헤더·셀 표기)
+1. `# 1.` _build_system_log_where — 목록·CSV 공통 WHERE(sl 별칭)
+2. `# 2.` list_system_logs_paged — GET /api/system-logs 비즈니스 조회(정렬 `sort_by`·`sort_dir`, `actor_user_email` 은 user_info 조인)
+3. `# 3.` export_system_logs_csv_bytes — 동일 필터·정렬·최대 `MAX_CSV_EXPORT_ROWS` 행 UTF-8 CSV(BOM, 화면 8열)
 
 [Endpoints/Classes/Functions]
 =======================
-- list_system_logs_paged(conn, actor, …) → dict (total, items, page, page_size)
-- export_system_logs_csv_bytes(conn, actor, …) → (row_count, bytes) 화면 8열 CSV(일시~IP·SQL 지문·상세)
-- _format_system_log_detail_for_csv·_csv_dtm_display 등 CSV 표시 헬퍼
 - _build_system_log_where(actor, …) → (where_sql, params)
-- _system_log_order_sql(sort_by, sort_dir) → ORDER BY 절
+- list_system_logs_paged(conn, actor, …) → dict (total, items, page, page_size)
+- export_system_logs_csv_bytes(conn, actor, …) → (row_count, bytes)
+- _system_log_order_sql·_format_system_log_detail_for_csv·_csv_dtm_display 등 내부 헬퍼
 
 [Dependencies]
 =========

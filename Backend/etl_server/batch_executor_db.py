@@ -8,8 +8,8 @@ get_batch_job → create_batch_run → 소스 DB 연결 → 증분/전체 SELECT
 
 [Main Functions]
 ===========
-- _fetch_source_pk(conn, stype, schema, table_name): 소스 DB에서 PK 컬럼 목록 조회(postgresql/mysql/oracle). pk_columns 미설정 시 자동 감지용.
-- run_db_batch_job(batch_job_id): DB 배치 1건 실행. sync_mode=diff면 _run_diff_sync(is_batch=True); full/incremental면 소스 SELECT → chunk 적재 → last_synced_at 갱신. pk_columns 없으면 소스에서 자동 조회 후 upsert.
+1. _fetch_source_pk(conn, stype, schema, table_name): 소스 DB에서 PK 컬럼 목록 조회(postgresql/mysql/oracle). pk_columns 미설정 시 자동 감지용.
+2. run_db_batch_job(batch_job_id): DB 배치 1건 실행. sync_mode=diff면 _run_diff_sync(is_batch=True); full/incremental면 소스 SELECT → chunk 적재 → last_synced_at 갱신. pk_columns 없으면 소스에서 자동 조회 후 upsert.
 
 [Dependencies]
 =========
@@ -41,6 +41,7 @@ ORACLE_BATCH_SIZE_DEFAULT = 10000
 SKIP_HEADER_LIKE_ROWS = False
 
 
+# 1.
 def _fetch_source_pk(conn, stype: str, schema: str, table_name: str) -> List[str]:
     """
     소스 DB에서 PK 컬럼 목록 조회. 없으면 빈 리스트.
@@ -104,6 +105,7 @@ def _fetch_source_pk(conn, stype: str, schema: str, table_name: str) -> List[str
         cur.close()
 
 
+# 2.
 def run_db_batch_job(batch_job_id: int) -> None:
     """
     DB 소스 배치 Job 1건 실행. 스케줄러에서 호출.

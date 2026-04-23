@@ -6,24 +6,28 @@ batch_jobs, batch_run_history. 조회·등록·수정·삭제. get_folder_adapte
 batch_folder_connections: folder_type 또는 protocol 컬럼 자동 대응(API 응답·JOIN은 folder_type으로 통일).
 etl_batch_target_registry: PK registry_id 또는 id(실측 DDL) 자동 대응, SELECT는 registry_id 별칭으로 통일.
 
+[본문 번호 규칙]
+===========
+파일이 길어 공개 진입점 그룹의 **첫 `def`에만** `# 1.`~`# 10.`을 둔다. 그 위 `_`·`effective_*`·배치 INSERT 상수 등은 같은 블록 헬퍼로 번호 생략.
+
 [Main Functions]
 ===========
-- list_folder_connections(create_user_label: email→nickname→ID), get_folder_connection, create_folder_connection(create_user_id·동적 is_active),
+1. list_folder_connections(create_user_label: email→nickname→ID), get_folder_connection, create_folder_connection(create_user_id·동적 is_active),
   update_folder_connection, delete_folder_connection, set_folder_connection_verified(is_verified 컬럼 있을 때만 UPDATE)
-- get_folder_adapter: folder_connection_id → FolderAdapter
-- list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (동적 INSERT·중복 검사·반환 `(batch_job_id, insert_sql_fingerprint)`), update_batch_job (존재 컬럼만 SET, interval_minutes→schedule_cron 매핑), delete_batch_job
+2. get_folder_adapter: folder_connection_id → FolderAdapter
+3. list_batch_jobs (folder_connection_id, is_active, job_type 필터, etl_table_id 포함), get_batch_job (folder/DB 공통, source_connection_name JOIN), create_batch_job (동적 INSERT·중복 검사·반환 `(batch_job_id, insert_sql_fingerprint)`), update_batch_job (존재 컬럼만 SET, interval_minutes→schedule_cron 매핑), delete_batch_job
 - effective_interval_minutes_from_batch_row(행에 schedule_cron 키 있을 때만 cron 파싱), effective_batch_job_type, _interval_to_schedule_cron, _parse_minutes_from_schedule_cron
 - update_last_synced_at_db_batch: DB 배치 last_synced_at 갱신 (conn 선택)
-- etl_batch_target_registry: 배치로 생성된 타겟 테이블을 ETL 목록에 행으로 관리. list_batch_target_registry(rcols·스토리지 JOIN·create_user_label은 JOIN 후 service._enrich_rows_create_user_label로 core 정본 보강), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_rows_for_etl_table(ETL 삭제 시 FK 선삭제), delete_batch_target_registry_and_drop_table
-- try_claim_batch_job_for_run: 배치 실행 전 FOR UPDATE 선점·last_run_status='running' 갱신(중복 실행 방지). create_batch_run, finish_run, update_run_progress, update_job_status, get_last_processed_ts, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
-- mark_stuck_runs_finished: 비활성화 시 해당 배치의 status=running 이력을 error로 마감. force_finish_run_as_cancelled: 실행 취소 시 run을 cancelled로 마감·last_run_status 해제(이력 유지, 재실행 가능).
+4. list_batch_target_registry(rcols·스토리지 JOIN·create_user_label은 JOIN 후 service._enrich_rows_create_user_label로 core 정본 보강), upsert_batch_target_registry, clear_batch_job_from_registry, delete_batch_target_registry_rows_for_etl_table(ETL 삭제 시 FK 선삭제), delete_batch_target_registry_and_drop_table
+5. try_claim_batch_job_for_run: 배치 실행 전 FOR UPDATE 선점·last_run_status='running' 갱신(중복 실행 방지). create_batch_run, finish_run, update_run_progress, update_job_status, get_last_processed_ts, update_last_processed_ts (선택적 conn: §2.1 단일 커넥션 재사용)
+6. mark_stuck_runs_finished: 비활성화 시 해당 배치의 status=running 이력을 error로 마감. force_finish_run_as_cancelled: 실행 취소 시 run을 cancelled로 마감·last_run_status 해제(이력 유지, 재실행 가능).
 - is_duplicate_checksum: batch_run_history.file_list(JSONB)에 동일 checksum 존재 여부 조회 (§7.7)
 - check_consecutive_failures: 최근 N회 연속 error 시 is_active=False 및 스케줄러 제거 (§7.4)
-- list_run_history, get_run_detail
-- list_skipped_files: 배치 실행 이력에서 skipped/error 파일 목록 (동일 파일명 최신 1건)
+7. list_run_history, get_run_detail
+8. list_skipped_files: 배치 실행 이력에서 skipped/error 파일 목록 (동일 파일명 최신 1건)
 - list_skipped_files_history: 배치 실행 이력에서 skipped/error 파일 전부 (동일 파일명 여러 run 포함)
-- get_skipped_filenames_set: 이력 중 skipped/error 파일명 집합 (pending 제외용, 매 주기 재시도 방지)
-- delete_remote_files: 원격 폴더에서 지정 파일 삭제 (어댑터 delete_file)
+9. get_skipped_filenames_set: 이력 중 skipped/error 파일명 집합 (pending 제외용, 매 주기 재시도 방지)
+10. delete_remote_files: 원격 폴더에서 지정 파일 삭제 (어댑터 delete_file)
 - rollback_file_from_target: batch_loaded_keys에서 PK 조회 → 타겟 테이블 DELETE → loaded_keys 삭제 (파일 단위 롤백)
 
 [Dependencies]
@@ -181,6 +185,7 @@ _BATCH_INSERT_COL_ORDER = [
 ]
 
 
+# 1.
 def list_folder_connections() -> List[dict]:
     """폴더 연결 목록. 마스터 + sftp/s3 상세 JOIN. 비밀번호·키·시크릿 제외."""
     api_db = _get_db()
@@ -452,6 +457,7 @@ def set_folder_connection_verified(folder_connection_id: int, is_verified: bool)
         conn.close()
 
 
+# 2.
 def get_folder_adapter(folder_connection_id: int):
     """folder_connection_id로 FolderAdapter 인스턴스 반환. 설계서 §6.2."""
     from Backend.etl_server.folder_adapter_file import SFTPAdapter, S3Adapter
@@ -639,6 +645,7 @@ def _registry_order_by(rcols: set) -> str:
     return "1"
 
 
+# 3.
 def list_batch_jobs(
     folder_connection_id: Optional[int] = None,
     is_active: Optional[bool] = None,
@@ -1154,6 +1161,7 @@ def _ensure_batch_target_registry_table(conn) -> None:
         cur.close()
 
 
+# 4.
 def list_batch_target_registry() -> List[dict]:
     """
     ETL 목록용 배치 타겟 등록 목록. batch_jobs·folder·storage LEFT JOIN으로 job_name, connection_name, storage_connection_name 포함.
@@ -1488,6 +1496,7 @@ def delete_batch_target_registry_and_drop_table(registry_id: int) -> None:
         conn.close()
 
 
+# 5.
 def try_claim_batch_job_for_run(batch_job_id: int, conn: Any) -> bool:
     """
     배치 실행권 선점. batch_jobs 행을 FOR UPDATE로 잠근 뒤 last_run_status가 이미 'running'이면 False,
@@ -1672,6 +1681,7 @@ def update_job_status(batch_job_id: int, last_run_status: str, last_error_messag
             conn.close()
 
 
+# 6.
 def mark_stuck_runs_finished(batch_job_id: int, conn: Any = None) -> int:
     """해당 배치의 status='running'인 이력을 모두 'error'로 마감. 비활성화 시 stuck run 정리용. 갱신된 행 수 반환."""
     schema = _schema()
@@ -1976,6 +1986,7 @@ def check_consecutive_failures(batch_job_id: int, threshold: int = 5, conn: Any 
             conn.close()
 
 
+# 7.
 def list_run_history(batch_job_id: int, limit: int = 50) -> List[dict]:
     """실행 이력 목록. 최신순."""
     api_db = _get_db()
@@ -2024,6 +2035,7 @@ def get_run_detail(run_id: int) -> Optional[dict]:
         conn.close()
 
 
+# 8.
 def list_skipped_files(batch_job_id: int, conn: Any = None, limit: int = 50) -> List[dict]:
     """
     배치 Job의 실행 이력에서 status가 skipped 또는 error인 파일만 추출.
@@ -2147,6 +2159,7 @@ def list_skipped_files_history(batch_job_id: int, conn: Any = None, limit: int =
             conn.close()
 
 
+# 9.
 def get_skipped_filenames_set(
     batch_job_id: int, conn: Any = None, max_runs: int = 200
 ) -> Set[str]:
@@ -2197,6 +2210,7 @@ def get_skipped_filenames_set(
             conn.close()
 
 
+# 10.
 def delete_remote_files(folder_connection_id: int, filenames: List[str]) -> dict:
     """
     원격 폴더에서 지정 파일 삭제. 어댑터 delete_file 사용.

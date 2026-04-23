@@ -6,7 +6,8 @@ DB·JWT·권한에서 사용하는 조직 역할은 아래 5가지만 유효하�
 
 [Main Functions]
 ===========
-- canon_user_dvsn: 허용 집합에 있으면 소문자 정규화 값, 아니면 ""
+1. `# 1.` 허용 역할 상수·집합(`ALLOWED_USER_DVSN` 등)
+2. `# 2.` canon_user_dvsn: 허용 집합에 있으면 소문자 정규화 값, 아니면 ""
 
 [Constants]
 ===========
@@ -19,7 +20,7 @@ DB·JWT·권한에서 사용하는 조직 역할은 아래 5가지만 유효하�
 
 from __future__ import annotations
 
-# 1. 허용 코드: sa_dev, sa(Super Admin), a(Admin), o(Operator), u(User)
+# 1.
 ALLOWED_USER_DVSN: frozenset[str] = frozenset({"sa_dev", "sa", "a", "o", "u"})
 
 ORG_ADMIN_DVSN: frozenset[str] = frozenset({"sa_dev", "sa", "a"})
@@ -28,6 +29,7 @@ PROJECT_ADMIN_DVSN: frozenset[str] = frozenset({"sa_dev", "sa", "a", "o"})
 ORG_OR_OPERATOR_DVSN: frozenset[str] = frozenset({"sa_dev", "sa", "a", "o"})
 
 
+# 2.
 def canon_user_dvsn(raw: str | None) -> str:
     s = (raw or "").strip().lower()
     return s if s in ALLOWED_USER_DVSN else ""

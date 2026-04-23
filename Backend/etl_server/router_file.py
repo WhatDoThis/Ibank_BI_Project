@@ -6,19 +6,23 @@ Backend.etl_server.router_file (배치·폴더 연결 API 라우터)
 
 [Pydantic Models]
 ===========
-1. CreateFolderConnectionBody, UpdateFolderConnectionBody, TestFolderConnectionBody
-2. CreateBatchJobBody, CreateBatchJobFromEtlTableBody, UpdateBatchJobBody
-3. ValidateTargetBody, DeleteRemoteFilesBody, ResetTsBody, RollbackFileBody
+- CreateFolderConnectionBody, UpdateFolderConnectionBody, TestFolderConnectionBody
+- CreateBatchJobBody, CreateBatchJobFromEtlTableBody, UpdateBatchJobBody
+- ValidateTargetBody, DeleteRemoteFilesBody, ResetTsBody, RollbackFileBody
 
 [Endpoints]
 ===========
-4. GET / — 배치 서비스 안내
-5. GET/POST/PATCH/DELETE /folder-connections, POST /folder-connections/test
-6. GET /folder-connections/{id}/files, patterns, columns
-7. GET /target-tables, GET /target-registry, DELETE /target-registry/{id}
-8. GET/POST /jobs, PATCH/DELETE /jobs/{id}, POST /jobs/{id}/run-now·toggle(require_etl_infrastructure·emit_etl_log)
-9. GET /jobs/{id}/history, history/{run_id}, skipped-files, skipped-files/history, POST skipped-files/delete, reset-ts, rollback-file, clone
-10. POST /jobs/validate-target, POST /jobs/{id}/history/{run_id}/cancel(require_etl_infrastructure·emit_etl_log)
+- GET / — 배치 서비스 안내
+- GET/POST/PATCH/DELETE /folder-connections, POST /folder-connections/test
+- GET /folder-connections/{id}/files, patterns, columns
+- GET /target-tables, GET /target-registry, DELETE /target-registry/{id}
+- GET/POST /jobs, PATCH/DELETE /jobs/{id}, POST /jobs/{id}/run-now·toggle(require_etl_infrastructure·emit_etl_log)
+- GET /jobs/{id}/history, history/{run_id}, skipped-files, skipped-files/history, POST skipped-files/delete, reset-ts, rollback-file, clone
+- POST /jobs/validate-target, POST /jobs/{id}/history/{run_id}/cancel(require_etl_infrastructure·emit_etl_log)
+
+[본문 번호 규칙]
+===========
+다수 핸들러·모델 블록으로 본문에는 선언 시작부 **# 1.** 단일 앵커만 둔다. 경로 그룹은 위 [Endpoints]·`@router.*` 순서와 대응한다.
 
 [Dependencies]
 =========

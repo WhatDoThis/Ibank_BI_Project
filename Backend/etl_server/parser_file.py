@@ -6,10 +6,10 @@ Backend.etl_server.parser_file (파일명 파싱·패턴 추출·파일 읽기)
 
 [Main Functions]
 ===========
-- parse_filename: 단일 파일명에서 file_pattern 일치 시 timestamp, extension 반환 (미일치/무효날짜 시 None)
-- get_pending_files: 전체 목록에서 패턴 매칭 파일만 타임스탬프 오름차순. 첫 실행(last_processed_ts 없음) 시 max_ts 이전 전부 반환(한 run에서 큐 처리). 이후는 last_processed_ts 기준 증분.
-- extract_patterns_from_files: _ib_14자리 매칭 파일만 접두사별 그룹화 → pattern, file_count, latest_ts, oldest_ts, extensions
-- read_file: 로컬 파일을 pandas DataFrame으로 읽기 (csv, xlsx, xls, parquet). max_rows 지원.
+1. parse_filename: 단일 파일명에서 file_pattern 일치 시 timestamp, extension 반환 (미일치/무효날짜 시 None)
+2. get_pending_files: 전체 목록에서 패턴 매칭 파일만 타임스탬프 오름차순. 첫 실행(last_processed_ts 없음) 시 max_ts 이전 전부 반환(한 run에서 큐 처리). 이후는 last_processed_ts 기준 증분.
+3. extract_patterns_from_files: _ib_14자리 매칭 파일만 접두사별 그룹화 → pattern, file_count, latest_ts, oldest_ts, extensions
+4. read_file: 로컬 파일을 pandas DataFrame으로 읽기 (csv, xlsx, xls, parquet). max_rows 지원.
 
 [Dependencies]
 =========
@@ -23,6 +23,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 
+# 1.
 def parse_filename(
     filename: str,
     file_pattern: str,
@@ -52,6 +53,7 @@ def parse_filename(
     return {"timestamp": ts_str, "extension": ext}
 
 
+# 2.
 def get_pending_files(
     all_files: List[str],
     file_pattern: str,
@@ -88,6 +90,7 @@ def get_pending_files(
     return [(f, ts) for f, ts in matched if ts > last_processed_ts and ts <= max_ts]
 
 
+# 3.
 def extract_patterns_from_files(
     file_list: List[str],
     extensions_str: str = "csv,xlsx,xls,parquet",
@@ -135,6 +138,7 @@ def extract_patterns_from_files(
     return out
 
 
+# 4.
 def read_file(
     local_path: str,
     extension: str,

@@ -7,12 +7,9 @@ masking(hash, redact), cleansing(fill_forward, fill_backward, normalize_unicode)
 
 [Main Functions]
 ===========
-- _apply_cleansing, _apply_type_cast, _apply_type_cast_with_mask
-- _apply_code_map, _apply_derived, _apply_string_transform, _apply_masking
-- _apply_datetime_transform, _apply_mapping, _apply_numeric_transform
-- _apply_row_transform: filter, deduplicate
-- apply_rules: _COLUMN_TRANSFORMERS, _ROW_TRANSFORMERS 디스패치
-- apply_mapping_type_cast
+1. apply_mapping_type_cast: column_mapping 기준 DataFrame 형변환(on_error·skip_row 등)
+2. apply_rules: rules 순서대로 룰 적용(_COLUMN_TRANSFORMERS·_ROW_TRANSFORMERS 디스패치)
+- 그 외 `_apply_*`·`_parse_config` 등은 위 1·2 내부에서만 사용하는 헬퍼(본문 번호 생략).
 
 [Dependencies]
 =========
@@ -291,6 +288,7 @@ def _apply_type_cast_with_mask(series: pd.Series, config: Dict[str, Any]):
     return out, failed_mask
 
 
+# 1.
 def apply_mapping_type_cast(
     df: pd.DataFrame,
     column_mapping: List[Dict[str, Any]],
@@ -819,6 +817,7 @@ _ROW_TRANSFORMERS: Dict[str, Callable] = {
 _LEGACY_CATEGORY_MAP = {"code_map": "mapping", "derived": "string"}
 
 
+# 2.
 def apply_rules(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> pd.DataFrame:
     """
     rules 순서대로 각 룰 적용. is_active=True인 것만.

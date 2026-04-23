@@ -3,14 +3,18 @@ Backend.etl_server.audit_sql_catalog (감사용 SQL 템플릿·지문)
 ========================================================
 `emit_etl_log` 가 `sql_fingerprint` 를 생략할 때 `business_action` 별 **대표 DML 문자열**을
 `service._schema`·`service._q` 로 한정한 뒤 해시한다. `etl_batch_job_create`·`etl_batch_job_create_from_etl` 은
-라우터가 **`create_batch_job` 가 실행한 INSERT 문자열 지문**을 넘기므로, 여기서는 폴백만 제공한다(04 §13).
+라우터가 **`create_batch_job` 가 실행한 INSERT 문자열 지문**을 넘기므로, 여기서는 폴백만 제공한다(`docs/main/04_DB_ARCHITECTURE.md` 13절).
 
 [Main Functions]
 ===========
-1. etl_audit_sql_fingerprint: business_action → 지문 hex 또는 None
+1. _fingerprint_hex_cached: SQL 템플릿 → 지문 hex(lru_cache)
+2. _resolve_etl_sql_template: business_action → 대표 DML 문자열 또는 None
+3. etl_audit_sql_fingerprint: business_action·detail_json → 지문 hex 또는 None
 
 [Endpoints/Classes/Functions]
 =======================
+- _fingerprint_hex_cached(sql_template)
+- _resolve_etl_sql_template(business_action)
 - etl_audit_sql_fingerprint(business_action, detail_json)
 
 [Dependencies]
@@ -34,6 +38,7 @@ def _fingerprint_hex_cached(sql_template: str) -> str | None:
     return compute_sql_fingerprint_hex(sql_template)
 
 
+# 2.
 def _resolve_etl_sql_template(business_action: str) -> str | None:
     """라우터 `business_action` 과 동일한 의미의 DML/조회 **대표문**(동적 SET/INSERT 일부 생략)."""
     from Backend.etl_server import service as S
@@ -150,6 +155,7 @@ def _resolve_etl_sql_template(business_action: str) -> str | None:
     return None
 
 
+# 3.
 def etl_audit_sql_fingerprint(
     business_action: str, detail_json: dict[str, Any] | None
 ) -> str | None:

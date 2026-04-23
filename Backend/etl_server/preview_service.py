@@ -13,6 +13,8 @@ Backend.etl_server.preview_service (ETL 미리보기)
 6. get_transform_preview, _get_preview_with_transform: 변환 룰 적용 미리보기
 7. get_preview: 변환 룰·타입 캐스트 적용 후 columns + preview_rows + preview_columns 반환(매핑 캐스트는 미리보기 전용 default_on_error=keep로 마스킹 등 비숫자 문자열 유지)
 
+본문 `# 1.`~`# 16.`은 파일 위→아래 선언 순서(헬퍼·`_preview_*`·`get_source_dataframe`·`get_transform_preview` 등)와 대응한다.
+
 [Dependencies]
 =========
 - Backend.etl_server.service, load_service._read_file, schema_infer, transform_engine, transform_rules_service
@@ -207,6 +209,7 @@ def _normalize_mapping(column_mapping: Any) -> List[tuple]:
     return out
 
 
+# 10.
 def _preview_file(row: dict) -> dict:
     import pandas as pd
     file_path = row.get("file_path")
@@ -253,7 +256,6 @@ def _preview_file(row: dict) -> dict:
     }
 
 
-# 11.
 # 11.
 def _preview_db(row: dict) -> dict:
     from Backend.etl_server.db_load_service import (
@@ -521,6 +523,7 @@ def _get_source_df_db(row: dict, column_mapping_override: Any = None) -> tuple:
                 pass
 
 
+# 14.
 def get_transform_preview(
     etl_table_id: int,
     rules: List[dict],

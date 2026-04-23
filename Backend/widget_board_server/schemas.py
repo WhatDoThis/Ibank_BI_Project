@@ -3,8 +3,8 @@ widget_board_server.schemas (Pydantic 요청/응답)
 =============================================
 /api/widget-boards/* 바디 모델.
 
-[Endpoints/Classes/Functions]
-=======================
+[Classes]
+===========
 - WidgetBoardCreateBody, WidgetBoardPatchBody
 - WidgetItemCreateBody, WidgetItemPatchBody
 - LayoutPatchBody, LayoutItem

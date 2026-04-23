@@ -5,24 +5,28 @@ FastAPI APIRouter. prefix /api/etl. ETL 페이지용 메타·업로드·연결·
 
 [Pydantic Models]
 ===========
-1. CreateConnectionBody, TestConnectionBody, ValidateIncrementalColumnBody
-2. CreateStorageConnectionBody, UpdateStorageConnectionBody, TestStorageConnectionBody
-3. CreateTransformRuleBody, UpdateTransformRuleBody, TransformPreviewBody
-4. CreateTableBody, UpdateTableBody (pk_columns 등)
+- CreateConnectionBody, TestConnectionBody, ValidateIncrementalColumnBody
+- CreateStorageConnectionBody, UpdateStorageConnectionBody, TestStorageConnectionBody
+- CreateTransformRuleBody, UpdateTransformRuleBody, TransformPreviewBody
+- CreateTableBody, UpdateTableBody (pk_columns 등)
 
 [Helpers]
 ===========
-5. _ensure_upload_dir, _cleanup_expired_uploads, _save_upload
-6. _natural_sort_key, _file_type_from_ext
+- _ensure_upload_dir, _cleanup_expired_uploads, _save_upload
+- _natural_sort_key, _file_type_from_ext
 
 [Endpoints]
 ===========
-7. GET / — 서비스 안내
-8. GET/POST/PATCH/DELETE /tables(DELETE: 공유타겟·매핑 시 400), POST /tables/{id}/refresh-column-mapping, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
-9. cleanup-expired-uploads, timezones, connections CRUD, connections test(성공·실패·예외 시 emit_etl_log)
-10. connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
-11. transform-rules CRUD, target-exists, target-tables, target-columns, storage-connections test(성공·실패·예외 시 emit_etl_log)
-12. tables/{id}/preview, tables/{id}/run(Job INSERT·emit 지문), PATCH tables(UPDATE 지문), jobs delete/cancel(UPDATE·DELETE 지문), transform/preview
+- GET / — 서비스 안내
+- GET/POST/PATCH/DELETE /tables(DELETE: 공유타겟·매핑 시 400), POST /tables/{id}/refresh-column-mapping, DELETE /tables/{id}/row, upload, infer-schema, add-file, add-files-zip
+- cleanup-expired-uploads, timezones, connections CRUD, connections test(성공·실패·예외 시 emit_etl_log)
+- connections/{id}/tables, source-columns, source-indexes, validate-incremental-column
+- transform-rules CRUD, target-exists, target-tables, target-columns, storage-connections test(성공·실패·예외 시 emit_etl_log)
+- tables/{id}/preview, tables/{id}/run(Job INSERT·emit 지문), PATCH tables(UPDATE 지문), jobs delete/cancel(UPDATE·DELETE 지문), transform/preview
+
+[본문 번호 규칙]
+===========
+엔드포인트가 다수이므로 본문에는 모델·헬퍼·핸들러 선언 시작부 **# 1.** 단일 앵커만 둔다. HTTP 경로 그룹 순서는 위 [Endpoints]·`@router.*` 선언 순서와 대응한다.
 
 [Dependencies]
 =========

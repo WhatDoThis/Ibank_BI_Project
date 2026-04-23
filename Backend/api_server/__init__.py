@@ -3,9 +3,9 @@ Backend.api_server (FastAPI 호스트 앱 패키지)
 =============================================
 앱 조립·CORS·라우터 등록. 대시보드 HTTP는 campaign_dash_server(/api/campaign-dashboard)만 등록.
 
-[Main]
+[Main Functions]
 ===========
-1. app: FastAPI 앱 인스턴스 (main에서 생성, health·report·etl·campaign·dashboard 등 라우터 등록·uvicorn 기동용)
+1. app: FastAPI 앱 인스턴스 (main에서 생성, health·auth·admin·etl·campaign·widget 등 라우터 등록·uvicorn 기동용)
 
 [Dependencies]
 =========
@@ -14,4 +14,4 @@ Backend.api_server (FastAPI 호스트 앱 패키지)
 
 from Backend.api_server.main import app
 
-__all__ = ['app']
+__all__ = ["app"]

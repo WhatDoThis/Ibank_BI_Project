@@ -8,15 +8,11 @@ Backend.notification_server.service (알림 CRUD)
 
 [Main Functions]
 ===========
-1. list_notifications / count_unread
-2. mark_read_one / mark_read_all(API용 commit 포함; `system_log` 미계측)
-3. fetch_notification_by_id / mark_notification_read_in_txn / delete_notification_by_id_in_txn
-4. delete_notifications_for_user_in_txn / delete_project_invite_notifications_for_project_in_txn / delete_project_invite_notifications_for_user_project_in_txn
-5. fetch_pending_project_invite_rows_for_project(정렬 update_dtm DESC) / pending_project_invite_exists_for_user_project
-6. user_has_pending_widget_board_invite / delete_widget_board_notifications_for_board_in_txn
-7. user_display_label_for_notification — 알림 제목용 닉네임·이메일 라벨(COALESCE)
-8. notify_inviter_project_invite_resolved / notify_inviter_widget_board_invite_resolved
-9. insert_notification(autocommit 옵션)
+1. `# 1.` list_notifications — `# 2.` count_unread
+2. `# 3.` mark_notification_read_in_txn — mark_read_one·mark_read_all(API commit, 본문 번호 생략)
+3. `# 4.` fetch_notification_by_id — 이하 delete_*·fetch_pending_*·user_has_*·delete_widget_* 등 in-txn·조회(동일 블록, 번호 생략)
+4. `# 5.` user_display_label_for_notification — notify_inviter_project_invite_resolved·notify_inviter_widget_board_invite_resolved는 직전 헬퍼(번호 생략)
+5. `# 6.` insert_notification(autocommit 옵션)
 
 [Dependencies]
 =========

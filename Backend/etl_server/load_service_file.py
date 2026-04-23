@@ -7,10 +7,11 @@ table_exists, _normalize_column_name, normalize_column_name_for_sequence(공유)
 
 [Main Functions]
 ===========
-- table_exists: information_schema.tables로 테이블 존재 여부
-- _to_psycopg2_param: itertuples numpy 스칼라 → Python 타입(psycopg2 can't adapt 방지)
-- create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
-- load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 _batch_upsert/없으면 _batch_insert, 테이블 있으면 동일. 파라미터 한도 기반 배치(_calc_batch_size).
+1. table_exists: information_schema.tables로 테이블 존재 여부
+2. normalize_column_name_for_sequence: 컬럼명 정규화·used 집합 내 유일화(router·load_service와 공유)
+3. create_table_from_dataframe: df 스키마 기반 CREATE TABLE, dtype→PG 타입, PK 옵션
+4. load_dataframe: 테이블 없으면 CREATE 후 PK 있으면 _batch_upsert/없으면 _batch_insert, 테이블 있으면 동일. 파라미터 한도 기반 배치(_calc_batch_size).
+- _to_psycopg2_param·`_calc_batch_size` 등은 4번 내부 헬퍼.
   신규 CREATE 직후·내장 저장 DB(main·dash, `should_upsert_table_master_for_storage`)일 때만 `table_master` UPSERT.
   PK upsert 시 INSERT ON CONFLICT DO NOTHING 후 UPDATE FROM VALUES(실제 변경 행만 IS DISTINCT FROM) 2단계. 반환 inserted/updated.
   PK·출처 정보 있으면 batch_loaded_keys 기록(파일 단위 롤백용). index_definitions 있으면 적재 후 _create_indexes_on_target.
@@ -75,6 +76,7 @@ def _to_psycopg2_param(v: Any) -> Any:
     return v
 
 
+# 1.
 def table_exists(conn, schema: str, table_name: str) -> bool:
     """information_schema.tables로 테이블 존재 여부 조회. conn은 호출부가 관리."""
     cur = conn.cursor()
@@ -97,6 +99,7 @@ def _normalize_column_name(name: str) -> str:
     return s.strip("_") or "col"
 
 
+# 2.
 def normalize_column_name_for_sequence(name: str, used: set) -> str:
     """컬럼명 정규화 후 used 집합 기준 유일 이름 반환. used에 추가 후 반환. router/load_service와 공유."""
     base = _normalize_column_name(name)
@@ -122,6 +125,7 @@ def _dtype_to_pg(dtype) -> str:
     return "TEXT"
 
 
+# 3.
 def create_table_from_dataframe(
     conn,
     schema: str,
@@ -227,6 +231,7 @@ def _get_table_column_types(conn, schema: str, table_name: str) -> dict:
         cur.close()
 
 
+# 4.
 def load_dataframe(
     conn,
     schema: str,

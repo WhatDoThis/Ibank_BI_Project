@@ -5,7 +5,7 @@ Backend.api_server.middleware (ASGI 미들웨어)
 
 [Main Functions]
 ===========
-- (패키지 마커, CorrelationIdMiddleware 는 correlation 모듈에서 import)
+- CorrelationIdMiddleware 재export — 구현·`# 1.` 은 `correlation.py`.
 
 [Dependencies]
 =========

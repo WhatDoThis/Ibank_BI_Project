@@ -6,10 +6,15 @@ user_login_log 조회·IP 마스킹. 본인(me)·조직 어드민(org·부서 �
 
 [Main Functions]
 ===========
-1. fetch_login_history_masked_for_user: 레거시 형식 list[dict] (최근 N건, ISO create_dtm; IP 마스킹은 core.request_context)
-2. list_login_history_me_paged: 본인 전용 페이징·필터
-3. list_login_history_org_paged: require_org_admin · 부서 트리 스코프(정렬 `sort_by`·`sort_dir`)
-4. export_login_history_org_csv_bytes: org 목록과 동일 필터·정렬·CSV(상한 `MAX_CSV_EXPORT_ROWS`, 화면 테이블과 동일 한글 헤더·표기)
+1. `# 1.` fetch_login_history_masked_for_user — 레거시 list[dict](최근 N건, IP 마스킹은 core.request_context)
+2. `# 2.` list_login_history_me_paged — 본인 전용 페이징·필터
+3. `# 3.` _build_login_history_org_base — org 목록·CSV 공통 FROM…WHERE(내부)
+4. `# 4.` list_login_history_org_paged — require_org_admin·부서 트리 스코프
+5. `# 5.` export_login_history_org_csv_bytes — org와 동일 필터·정렬·CSV 상한
+
+[Endpoints/Classes/Functions]
+=======================
+- `_login_org_order_sql`·`_apply_login_history_filters` 등: 위 2~5번 내부 헬퍼(본문 `#` 생략).
 
 [Dependencies]
 =========

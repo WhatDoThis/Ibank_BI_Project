@@ -3,7 +3,7 @@ Backend.widget_board_server.audit_emit (system_log 위젯보드 채널)
 ================================================================
 `service` commit 성공 직후 호출. `system_log_append_enabled` off 시 no-op.
 `actor_user_id` 는 양의 정수일 때만 적재.
-`sql_fingerprint` 는 생략 시 `audit_sql_catalog.widget_board_audit_sql_fingerprint` 로 채운다(04: 기본 (1), 호출부 명시는 예외 (2)).
+`sql_fingerprint` 는 생략 시 `audit_sql_catalog.widget_board_audit_sql_fingerprint` 로 채운다(`docs/main/04_DB_ARCHITECTURE.md` 13절 기본(1), 호출부 명시는 예외(2)).
 
 [Main Functions]
 ===========

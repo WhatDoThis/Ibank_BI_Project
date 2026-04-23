@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+550. 2026-04-22 report24: Part F(widget·api·core, query_studio 감사 제외)
+549. 2026-04-22 report24: Part E(notification·mail·campaign·system_log)
+548. 2026-04-22 report24: Part D(etl_server) doc·`# N.`·compileall
 547. 2026-04-22 report24: auth 2차·Part C(project)·doc만
 546. 2026-04-22 report24: 단일문서만·Part B(auth)·25번 제거
 545. 2026-04-22 report24: admin_server 전수 감사·doc·`# 14`/`# 15` 정합
@@ -550,6 +553,43 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+550. 2026-04-22 report24: Part F(widget·api·core, query_studio 감사 제외)
+Purpose: `docs/report/24_…` **Part F**로 `widget_board_server`·`api_server`·`core` doc·`# N.` 정합. **`Backend/query_studio_server`는 사용자 요청으로 감사 범위에서 제외**(코드 include 유지).
+
+Changes:
+
+- `widget_board_server`: router Endpoints 순서·번호 규칙, audit_sql `# 2.`·13절, audit_emit·`__init__`·schemas·constants
+- `api_server`: `main` Main Functions·`# 1.`~`# 3.` 정합, `__init__`·`middleware/__init__`
+- `core`: `__init__` 서술, `user_dvsn_codes` `# 2.`
+- `docs/report/24_…`: Part F·§6·§7
+- `compileall` widget_board_server, api_server, core: 성공
+
+Changed files: Backend/widget_board_server/router.py, Backend/widget_board_server/audit_sql_catalog.py, Backend/widget_board_server/audit_emit.py, Backend/widget_board_server/__init__.py, Backend/widget_board_server/schemas.py, Backend/widget_board_server/constants.py, Backend/api_server/main.py, Backend/api_server/__init__.py, Backend/api_server/middleware/__init__.py, Backend/core/__init__.py, Backend/core/user_dvsn_codes.py, docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md, docs/log/log.md
+
+549. 2026-04-22 report24: Part E(notification·mail·campaign·system_log)
+Purpose: `docs/report/24_…` **Part E**로 알림·메일·캠페인 대시보드·통합 이력(system_log) 패키지의 **docstring·`# N.` 설명 정합**을 맞춘다.
+
+Changes:
+
+- `notification_server`: `service` Main Functions를 `# 1.`~`# 6.`와 동일 서술, `__init__` 보강
+- `mail`·`campaign_dash_server`: 패키지 `__init__`·`campaign` router `[본문 번호 규칙]`
+- `system_log_server`: `service`·`service_login_history`·`schemas` doc 정리
+- `docs/report/24_…`: Part E 섹션·§6·§7
+- `python -m compileall` notification_server, mail, campaign_dash_server, system_log_server: 성공
+
+Changed files: Backend/notification_server/service.py, Backend/notification_server/__init__.py, Backend/mail/__init__.py, Backend/campaign_dash_server/router.py, Backend/campaign_dash_server/__init__.py, Backend/system_log_server/service.py, Backend/system_log_server/service_login_history.py, Backend/system_log_server/schemas.py, docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md, docs/log/log.md
+
+548. 2026-04-22 report24: Part D(etl_server) doc·`# N.`·compileall
+Purpose: `docs/report/24_…` **Part D**로 `Backend/etl_server` 모듈 doc·본문 번호 정합 및 `compileall` 검증을 마친다.
+
+Changes:
+
+- `etl_server`: `preview_service` 번호 누락·중복 수정, `audit_sql_catalog`·`audit_emit` 13절 문구, `router`·`router_file` 본문 번호 규칙 명시, 배치·파서·`transform_engine`·`load_service_file`(`_dtype_to_pg` 정리)·`service_file` 등 `# N.`·doc 보강
+- `docs/report/24_…`: Part D 섹션·25파일 목록·compileall 기록
+- `python -m compileall Backend/etl_server -q`: 성공
+
+Changed files: Backend/etl_server/preview_service.py, Backend/etl_server/audit_sql_catalog.py, Backend/etl_server/audit_emit.py, Backend/etl_server/router.py, Backend/etl_server/router_file.py, Backend/etl_server/batch_executor_file.py, Backend/etl_server/batch_executor_db.py, Backend/etl_server/parser_file.py, Backend/etl_server/transform_engine.py, Backend/etl_server/load_service_file.py, Backend/etl_server/service_file.py, docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md, docs/log/log.md
 
 547. 2026-04-22 report24: auth 2차·Part C(project)·doc만
 Purpose: `auth_server` 전체 2차 점검 후 `project_server`를 **동일 24번 문서 Part C**로 반영한다. **공개 함수명·시그니처·라우트 경로는 변경하지 않고** docstring·`# 2.`·`[Endpoints/Classes/Functions]`만 정합한다.

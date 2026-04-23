@@ -13,6 +13,10 @@ table_id 허용은 db.is_table_allowed_for_project_dashboard(대시보드 기능
 5. _jsonb_as_dict, _snapshot_*, _row_date_iso, delivery/hourly JSONB 빌더
 6. GET 엔드포인트 — require_permission("dashboard"), table_id 검사
 
+[본문 번호 규칙]
+===========
+기간·추이 공통 함수는 `campaign_period.py`에 있어 본 파일에서는 `# 2.`·`# 3.` 생략. 헬퍼는 `# 1.`·`# 1a.` 다음 **`# 4.`**부터 연번(중간 생략은 `campaign_period` 모듈에 대응).
+
 [Endpoints]
 ===========
 GET /api/campaign-dashboard/page(번들), member-summary, delivery-demographics, hourly, summary, trend, trend-multi, tables

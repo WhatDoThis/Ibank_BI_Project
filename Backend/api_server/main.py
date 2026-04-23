@@ -5,10 +5,10 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 
 [Main Functions]
 ===========
-1. lifespan: ETL 배치 스케줄러(etl_server.scheduler_file) 기동(실패 시 예외 스택을 로깅하고 API 기동은 계속)
-2. CorrelationIdMiddleware: X-Request-Correlation-Id·contextvars(계획 §7)
-3. not_found_handler: 404 예외 시 JSON 응답
-4. internal_error_handler: 500 예외 시 JSON 응답
+1. `# 1.` lifespan: ETL 배치 스케줄러(etl_server.scheduler_file) 기동(실패 시 예외 스택을 로깅하고 API 기동은 계속)
+2. `# 2.` not_found_handler: 404 예외 시 JSON 응답
+3. `# 3.` internal_error_handler: 500 예외 시 JSON 응답
+- CorrelationIdMiddleware: `app.add_middleware`로 등록(본문 `#` 생략, correlation 모듈 `# 1.`).
 
 [기동]
 ===========

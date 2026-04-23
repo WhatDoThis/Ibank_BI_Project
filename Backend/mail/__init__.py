@@ -5,8 +5,8 @@ Backend.mail (공용 SMTP·발송 메시지)
 
 [Main Functions]
 ===========
-- smtp_transport.send_email
-- outbound.send_login_code_email, send_invite_email, send_plain_notice_email_try, send_project_invite_existing_user_email
+- smtp_transport.send_email(`# 1.` 해당 모듈)
+- outbound: send_login_code_email·send_invite_email 등(`# 1.`~`# 4.` 해당 모듈)
 
 [Dependencies]
 =========

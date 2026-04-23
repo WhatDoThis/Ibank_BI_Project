@@ -3,14 +3,10 @@ Backend.system_log_server.schemas (Pydantic 응답·쿼리)
 =====================================================
 system_log·로그인 이력 목록 API용 모델.
 
-[Main Functions]
+[Classes]
 ===========
-- (Pydantic 모델 정의)
-
-[Endpoints/Classes/Functions]
-=======================
-- SystemLogItemOut / SystemLogListOut: system_log (`actor_user_email` 조인)
-- LoginHistoryItemOut / LoginHistoryListOut: user_login_log (me·org)
+- SystemLogItemOut, SystemLogListOut — system_log (`actor_user_email` 조인)
+- LoginHistoryItemOut, LoginHistoryListOut — user_login_log (me·org)
 
 [Dependencies]
 =========

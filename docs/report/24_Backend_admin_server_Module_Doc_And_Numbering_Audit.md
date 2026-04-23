@@ -168,8 +168,10 @@ python -m compileall Backend/admin_server -q
 1. **Part A** `admin_server` — 완료.
 2. **Part B** `auth_server` — 완료(B.6 2차 점검 포함).
 3. **Part C** `project_server` — 완료.
-4. **Part D** `Backend/etl_server` — 본 문서에 섹션 추가 후 동일 절차(파일 수 많으면 D.1을 `router`/`service` 하위로만 나눔).
-5. 패키지 완료 시마다 **`docs/log/log.md`** 한 줄.
+4. **Part D** `Backend/etl_server` — 완료(2026-04-22).
+5. **Part E** `notification_server`·`mail`·`campaign_dash_server`·`system_log_server` — 완료(2026-04-22).
+6. **Part F** `widget_board_server`·`api_server`·`core` — 완료(2026-04-22). **`Backend/query_studio_server`는 사용자 요청으로 감사·본 문서 Part 범위에서 제외**(런타임 `api_server` include는 유지).
+7. 패키지 완료 시마다 **`docs/log/log.md`** 한 줄.
 
 ---
 
@@ -181,6 +183,9 @@ python -m compileall Backend/admin_server -q
 | 코드·doc 수정 | §3에서 발견된 불일치 반영 | 완료 (2026-04-22) |
 | compileall | §4 | 완료 (2026-04-22) |
 | §3 체크박스 전부 체크 | §5 | 완료 (2026-04-22) |
+| Part D `etl_server` | 본 문서 D.1~D.4·`compileall Backend/etl_server` | 완료 (2026-04-22) |
+| Part E 소형 패키지 4종 | 본 문서 E.1~E.3·`compileall` 4경로 | 완료 (2026-04-22) |
+| Part F widget·api·core | 본 문서 F.1~F.3·`compileall` 3경로(query_studio 제외) | 완료 (2026-04-22) |
 
 **수정 요약 (감사 중 발견·조치)**  
 
@@ -328,3 +333,120 @@ python -m compileall Backend/auth_server -q
 - `audit_emit.py`: 13절 문구.
 - `__init__.py`: `[Main Functions]`.
 - `service.py`·`router.py`: `[Endpoints/Classes/Functions]` 보강.
+
+---
+
+## Part D — `Backend/etl_server` (완료 2026-04-22)
+
+**대상 경로**: `Backend/etl_server/`  
+**절차**: §1 마스터 A~G 동일. **G**: `python -m compileall Backend/etl_server -q`.
+
+### D.1 파일 전체 목록 (25개)
+
+| # | 파일명 | 역할 요약 |
+|---|--------|-----------|
+| 1 | `__init__.py` | `router` export |
+| 2 | `router.py` | `/api/etl` 메인 라우트(+ `router_file` include) |
+| 3 | `router_file.py` | `/api/etl/batch` 배치 라우트 |
+| 4 | `service.py` | ETL 메타·연결·Job·테이블 CRUD(대형) |
+| 5 | `service_file.py` | 배치 폴더·Job·이력·레지스트리 메타 |
+| 6 | `db_load_service.py` | 소스 적재·diff sync 등 |
+| 7 | `load_service.py` | 파일 소스 적재 |
+| 8 | `load_service_file.py` | 배치용 저장 DB `load_dataframe` 등 |
+| 9 | `preview_service.py` | 미리보기 |
+| 10 | `parser_file.py` | 배치 파일명·대기 목록·read_file |
+| 11 | `batch_executor_file.py` | 폴더 배치 실행 |
+| 12 | `batch_executor_db.py` | DB 배치 실행 |
+| 13 | `scheduler_file.py` | APScheduler 연동 |
+| 14 | `queue_worker.py` | ETL Job 워커 |
+| 15 | `transform_engine.py` | 변환 룰 엔진 |
+| 16 | `transform_rules_service.py` | 변환 룰 CRUD |
+| 17 | `transform_upsert_verification.py` | 변환·upsert 검증 |
+| 18 | `schema_infer.py` | 파일 스키마 추론 |
+| 19 | `csv_reader.py` | CSV 견고 읽기 |
+| 20 | `timezone_utils.py` | 타임존 변환 |
+| 21 | `etl_limits.py` | ETL 한도 설정 |
+| 22 | `folder_adapter_file.py` | SFTP/S3 어댑터 |
+| 23 | `table_master_hook.py` | 적재 후 table_master |
+| 24 | `audit_emit.py` | ETL system_log |
+| 25 | `audit_sql_catalog.py` | ETL SQL 지문 |
+
+### D.2 파일별 체크리스트 (요약)
+
+- **router.py / router_file.py**: `[본문 번호 규칙]`으로 다수 엔드포인트와 **`# 1.` 단일 앵커** 정합; [Pydantic]/[Endpoints] 목록은 번호 없이 나열(A~E).
+- **service.py·db_load_service.py·기타 이미 `# N.` 보유 모듈**: 기존 단조·doc 유지, 이번 라운드 변경 없음(재확인만).
+- **preview_service.py**: `# 10.` `_preview_file`, 중복 `# 11.` 제거, `# 14.` `get_transform_preview`, doc에 본문 번호 대응 한 줄.
+- **audit_sql_catalog.py**: `# 2.` `_resolve_etl_sql_template`, `# 3.` `etl_audit_sql_fingerprint`, `[Main Functions]`·13절 문구.
+- **audit_emit.py**: 13절 문구 통일.
+- **batch_executor_*.py, parser_file.py, transform_engine.py, load_service_file.py, service_file.py**: `[Main Functions]`·본문 `# N.` 보강(대형 모듈은 doc에 그룹 앵커 규칙 명시).
+
+### D.3 compileall
+
+```text
+python -m compileall Backend/etl_server -q
+```
+
+- **2026-04-22**: 실행 결과 **성공(exit 0)**.
+
+### D.4 Part D 수정 요약
+
+- `load_service_file.py`: `_dtype_to_pg` 분기 끝 `return "TEXT"` 정리(도달 불가 `return` 제거).
+- `router.py`·`router_file.py`: 목록 번호 제거·`[본문 번호 규칙]` 추가.
+- `preview_service.py`·`audit_sql_catalog.py`·`audit_emit.py`·`batch_executor_file.py`·`batch_executor_db.py`·`parser_file.py`·`transform_engine.py`·`load_service_file.py`·`service_file.py`: 위 D.2.
+
+---
+
+## Part E — 소형 백엔드 패키지 4종 (완료 2026-04-22)
+
+**대상**: `Backend/notification_server`, `Backend/mail`, `Backend/campaign_dash_server`, `Backend/system_log_server`  
+**절차**: §1 A~G(라우터 **F**는 `router.py`만 해당). **G**:
+
+```text
+python -m compileall Backend/notification_server Backend/mail Backend/campaign_dash_server Backend/system_log_server -q
+```
+
+### E.1 파일 수 (합계 15)
+
+| 패키지 | 파일 수 | 파일 목록 |
+|--------|--------|-----------|
+| `notification_server` | 3 | `__init__.py`, `router.py`, `service.py` |
+| `mail` | 3 | `__init__.py`, `outbound.py`, `smtp_transport.py` |
+| `campaign_dash_server` | 3 | `__init__.py`, `router.py`, `campaign_period.py` |
+| `system_log_server` | 6 | `__init__.py`, `router.py`, `service.py`, `service_login_history.py`, `schemas.py`, `audit_emit.py` |
+
+### E.2 조치 요약
+
+- `notification_server/service.py`: `[Main Functions]`를 본문 **`# 1.`~`# 6.`** 앵커와 동일 서술로 정리.
+- `notification_server/__init__.py`, `mail/__init__.py`, `campaign_dash_server/__init__.py`: 패키지 진입 doc 보강.
+- `campaign_dash_server/router.py`: **`# 4.`** 이후 번호가 이어지는 이유(`campaign_period.py`에 2·3 대응) **`[본문 번호 규칙]`**으로 명시.
+- `system_log_server/service.py`: **`# 1.`**이 `_build_system_log_where`임을 doc에 반영.
+- `system_log_server/service_login_history.py`: **`# 3.`** `_build_login_history_org_base`·내부 헬퍼 **`[Endpoints/Classes/Functions]`** 한 줄.
+- `system_log_server/schemas.py`: 모델 전용 섹션명을 **`[Classes]`**로 통일.
+
+### E.3 compileall
+
+- **2026-04-22**: 위 4경로 일괄 실행 **성공(exit 0)**.
+
+---
+
+## Part F — `widget_board_server`·`api_server`·`core` (완료 2026-04-22)
+
+**제외(명시)**: `Backend/query_studio_server` — 사용자 요청으로 **본 24번 문서의 모듈 doc·`# N.` 전수 감사 범위에서 제외**. `api_server.main`·`routers`에서 해당 라우터를 include하는 동작은 변경하지 않음.
+
+**대상**: `Backend/widget_board_server`(7), `Backend/api_server`(8), `Backend/core`(12) — 합계 **27**개 `.py`.
+
+**G**:
+
+```text
+python -m compileall Backend/widget_board_server Backend/api_server Backend/core -q
+```
+
+### F.1 조치 요약
+
+- **widget_board_server**: `router.py` `[Endpoints]`를 **`@router` 선언 순서**와 맞추고 `[본문 번호 규칙]` 추가. `audit_sql_catalog`에 **`# 2.`**·`[Main Functions]`·13절 문구, `audit_emit` 13절. `__init__`·`schemas`(`[Classes]`)·`constants`(상수 전용·`#` 없음 명시) doc 정리.
+- **api_server**: `main.py` `[Main Functions]`를 본문 **`# 1.`~`# 3.`**(lifespan·404·500)과 정합, CorrelationIdMiddleware는 add_middleware로 등록됨을 명시. `__init__.py` `[Main Functions]`·`__all__` 따옴표. `middleware/__init__.py` 보강.
+- **core**: 패키지 `__init__.py` 서술에서 타 패키지 나열 보정. `user_dvsn_codes.py` **`# 2.`** `canon_user_dvsn` 및 `[Main Functions]` 정합.
+
+### F.2 compileall
+
+- **2026-04-22**: 위 3경로 일괄 실행 **성공(exit 0)**.

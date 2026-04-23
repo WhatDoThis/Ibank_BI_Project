@@ -10,7 +10,10 @@ on_file_error=continue 시 파일 1건 예외 시 해당 파일만 error 기록�
 
 [Main Functions]
 ===========
-- run_batch_job(batch_job_id): 배치 1건 실행. batch_jobs에 target_table 없고 etl_table_id만 있으면 etl_tables에서 타겟·column_mapping 보완. run_completed_ok 플래그로 성공/취소 후 update_job_status("success") 실패 시 except에서 "error"로 덮어쓰지 않음.
+1. _compute_sha256: 파일 SHA-256
+2. _connect_with_retry: 폴더 어댑터 연결 재시도
+3. _wait_for_stable_size: SFTP 파일 크기 안정 대기
+4. run_batch_job(batch_job_id): 배치 1건 실행. batch_jobs에 target_table 없고 etl_table_id만 있으면 etl_tables에서 타겟·column_mapping 보완. run_completed_ok 플래그로 성공/취소 후 update_job_status("success") 실패 시 except에서 "error"로 덮어쓰지 않음.
 
 [Dependencies]
 =========
@@ -32,6 +35,7 @@ import time
 logger = logging.getLogger(__name__)
 
 
+# 1.
 def _compute_sha256(file_path: str, chunk_size: int = 8192) -> str:
     """파일 SHA-256 해시. 청크 단위 읽기로 대용량 파일 메모리 부담 완화 (§2.4)."""
     h = hashlib.sha256()
@@ -44,6 +48,7 @@ def _compute_sha256(file_path: str, chunk_size: int = 8192) -> str:
     return h.hexdigest()
 
 
+# 2.
 def _connect_with_retry(folder_connection_id: int, retries: int = 3):
     """§7.4 폴더 어댑터 연결 exponential backoff 재시도 (2초, 4초, 8초)."""
     from Backend.etl_server import service_file as batch_service
@@ -61,6 +66,7 @@ def _connect_with_retry(folder_connection_id: int, retries: int = 3):
     raise last_exc
 
 
+# 3.
 def _wait_for_stable_size(adapter, filename: str, checks: int = 3, interval: int = 3) -> None:
     """SFTP 파일 크기가 안정될 때까지 대기. §7.8 stat → 대기 → 재조회, 동일하면 완료 (최대 checks회)."""
     if not hasattr(adapter, "sftp") or not hasattr(adapter, "remote_path"):
@@ -82,6 +88,7 @@ def _wait_for_stable_size(adapter, filename: str, checks: int = 3, interval: int
     logger.warning("file_batch stable_size_timeout file=%s", filename)
 
 
+# 4.
 def run_batch_job(batch_job_id: int) -> None:
     """
     배치 Job 1건 실행. 스케줄러에서 호출.

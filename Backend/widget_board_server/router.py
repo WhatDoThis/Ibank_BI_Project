@@ -5,21 +5,26 @@ widget_board_server.router (/api/widget-boards)
 
 [Endpoints]
 ===========
-1. GET /api/widget-boards
-2. POST /api/widget-boards
-3. GET /api/widget-boards/{board_id}
-4. PATCH /api/widget-boards/{board_id}
-5. DELETE /api/widget-boards/{board_id} (비활성 보드만 물리 삭제)
-6. POST /api/widget-boards/{board_id}/widgets
-7. PATCH /api/widget-boards/{board_id}/widgets/{widget_id}
-8. DELETE /api/widget-boards/{board_id}/widgets/{widget_id}
-9. PATCH /api/widget-boards/{board_id}/layout
-10. POST /api/widget-boards/{board_id}/invite-notifications, accept-invite, reject-invite
-11. POST /api/widget-boards/{board_id}/share
-12. DELETE /api/widget-boards/{board_id}/share/{shared_user_id}
-13. GET /api/widget-boards/{board_id}/participants
-14. GET /api/widget-boards/{board_id}/invite-candidates
-15. POST /api/widget-boards/{board_id}/widgets/{widget_id}/data
+(아래 순서 = 본 파일 `@router` 선언 순서·본문 `# N.` 대응)
+1. GET /api/widget-boards — 목록
+2. POST /api/widget-boards — 생성
+3. GET /api/widget-boards/{board_id} — 상세
+4. GET /api/widget-boards/{board_id}/participants — `# 3b.`
+5. GET /api/widget-boards/{board_id}/invite-candidates — `# 3c.`
+6. PATCH /api/widget-boards/{board_id}
+7. DELETE /api/widget-boards/{board_id} (비활성 보드만 물리 삭제)
+8. POST /api/widget-boards/{board_id}/widgets
+9. PATCH /api/widget-boards/{board_id}/widgets/{widget_id}
+10. DELETE /api/widget-boards/{board_id}/widgets/{widget_id}
+11. PATCH /api/widget-boards/{board_id}/layout — `# 9.`
+12. POST …/invite-notifications, …/accept-invite, …/reject-invite — `# 9b.`·`# 9c.`·`# 9d.`
+13. POST /api/widget-boards/{board_id}/share — `# 10.`
+14. DELETE /api/widget-boards/{board_id}/share/{shared_user_id} — `# 11.`
+15. POST /api/widget-boards/{board_id}/widgets/{widget_id}/data — `# 12.`
+
+[본문 번호 규칙]
+===========
+동일 `board_id` 접두 하위에 참가자·초대 후보를 두어 **`# 3b.`·`# 3c.`**; 초대·레이아웃·공유 구간은 **`# 9.`**대 **`# 9b.`** 등 부번호로 묶는다.
 
 [Dependencies]
 =========
