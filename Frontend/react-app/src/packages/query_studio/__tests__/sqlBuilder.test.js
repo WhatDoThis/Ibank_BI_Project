@@ -100,6 +100,7 @@ describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
       joinConfigs: {},
       saveAsTableSelectKeys: innerKeys,
     })
+    expect(sqlForSave).not.toMatch(/\bLIMIT\b/i)
     const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
     expect(wrapped).toContain('_qs_inner."campaigns_id" AS "col_1"')
     expect(wrapped).toContain('_qs_inner."campaigns_label" AS "col_2"')

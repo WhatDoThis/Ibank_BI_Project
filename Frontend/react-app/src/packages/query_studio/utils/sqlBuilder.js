@@ -442,8 +442,14 @@ export function generateSQL(
       .join(', ')}`
   }
 
-  const offset = (currentPage - 1) * pageSize
-  sql += `\nLIMIT ${pageSize} OFFSET ${offset};`
+  const saveFullMaterialize =
+    Array.isArray(saveAsKeys) && saveAsKeys.length > 0
+  if (saveFullMaterialize) {
+    sql += ';'
+  } else {
+    const offset = (currentPage - 1) * pageSize
+    sql += `\nLIMIT ${pageSize} OFFSET ${offset};`
+  }
   return sql
 }
 
@@ -611,7 +617,7 @@ export function savePhysicalColumnName(ordinal1Based) {
  * 테이블 저장용: 서브쿼리 SELECT 별칭(innerKeys, 겹치면 _1, _2) + column_comment_hints.
  * logical_key 는 PG COMMENT용(원본 테이블_컬럼 / 집계는 AGG_테이블_컬럼)만 넣고, 별칭(uniquify)과 분리한다.
  * 피벗 모드일 때는 COMMENT 힌트를 넣지 않는다(컬럼명이 피벗 규칙으로 이미 구분됨).
- * 저장 시 generateSQL(..., { saveAsTableSelectKeys: innerKeys }) 로 inner SQL 과 맞출 것.
+ * 저장 시 generateSQL(..., { saveAsTableSelectKeys: innerKeys }) 로 inner SQL 과 맞출 것(LIMIT/OFFSET 없음).
  */
 export function buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, options = {}) {
   const { pivot = null, pivotRowAggs = [] } = options
