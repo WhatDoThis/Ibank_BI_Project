@@ -7,6 +7,10 @@ Backend.auth_server.email_service (호환용 재export)
 ===========
 - send_email, send_login_code_email, send_invite_email → Backend.mail
 
+[Endpoints/Classes/Functions]
+=======================
+- 재export만 — 시그니처는 `Backend.mail` 모듈이 정본.
+
 [Dependencies]
 =========
 - Backend.mail

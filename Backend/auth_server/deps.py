@@ -12,6 +12,15 @@ Backend.auth_server.deps (Bearer access JWT 의존성)
 4. require_access_session_bound: JWT + access 해시·refresh 만료 검사(로그아웃 — 비활성·잠금 계정도 세션 종료 허용)
 5. require_active_access: require_access_session_bound + 활성·미잠금
 
+[Endpoints/Classes/Functions]
+=======================
+- _parse_bearer_access_token(authorization) -> tuple[str, dict[str, Any]]
+- get_access_payload(authorization) -> dict[str, Any]
+- ensure_user_active_not_locked(conn, user_id) -> None
+- require_access_session_bound(authorization, conn) -> dict[str, Any]
+- require_active_access(authorization, conn) -> dict[str, Any]
+- (내부) _hash_access_token_raw, _assert_access_session_bound
+
 [Dependencies]
 =========
 - fastapi Depends Header HTTPException

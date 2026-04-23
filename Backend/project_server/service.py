@@ -11,6 +11,14 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
 4. reject_project_invite: 동일 검증 후 알림 삭제·초대자 알림
 5. (system_log) 초대 수락·거절 commit 직후 `emit_project_log`(플래그 off 시 생략)
 
+[Endpoints/Classes/Functions]
+=======================
+- list_projects_for_user(conn, user_id) -> list[dict]
+- select_project_tokens(conn, user_id, session_log_id, project_info_id) -> dict
+- accept_project_invite(conn, user_id, project_info_id, notification_info_id) -> None
+- reject_project_invite(conn, user_id, project_info_id, notification_info_id) -> None
+- (내부) _parse_project_invite_payload — 알림·만료 검증
+
 [Dependencies]
 =========
 - Backend.auth_server.service (rotate_session_tokens_with_project)

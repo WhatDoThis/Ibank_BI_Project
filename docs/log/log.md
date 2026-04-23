@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+547. 2026-04-22 report24: auth 2차·Part C(project)·doc만
 546. 2026-04-22 report24: 단일문서만·Part B(auth)·25번 제거
 545. 2026-04-22 report24: admin_server 전수 감사·doc·`# 14`/`# 15` 정합
 544. 2026-04-22 admin change_notify: Main Functions·Endpoints docstring 보강
@@ -549,6 +550,18 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+547. 2026-04-22 report24: auth 2차·Part C(project)·doc만
+Purpose: `auth_server` 전체 2차 점검 후 `project_server`를 **동일 24번 문서 Part C**로 반영한다. **공개 함수명·시그니처·라우트 경로는 변경하지 않고** docstring·`# 2.`·`[Endpoints/Classes/Functions]`만 정합한다.
+
+Changes:
+
+- `auth_server`: `audit_emit.py` 정리, `deps`·`security`·`router`·`email_service` Endpoints 섹션 보강
+- `project_server`: `audit_sql_catalog` 2함수·`# 2.`, `audit_emit`·`__init__`·`service`·`router` doc 보강
+- `docs/report/24_…`: Part B **B.6**·**Part C** 전체·§6 진행 상태 갱신
+- `compileall Backend/auth_server Backend/project_server`: 성공
+
+Changed files: Backend/auth_server/audit_emit.py, Backend/auth_server/deps.py, Backend/auth_server/security.py, Backend/auth_server/router.py, Backend/auth_server/email_service.py, Backend/project_server/audit_sql_catalog.py, Backend/project_server/audit_emit.py, Backend/project_server/__init__.py, Backend/project_server/service.py, Backend/project_server/router.py, docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md, docs/log/log.md
 
 546. 2026-04-22 report24: 단일문서만·Part B(auth)·25번 제거
 Purpose: 요청 없이 만든 **`25_` 리포트를 폐기**하고, **`docs/report/24_…` 한 파일**에만 `auth_server` 감사(Part B)를 이어 붙인다. `auth_server`는 doc·`# 2.` 보강만 하고 **함수명·시그니처는 변경하지 않는다.**

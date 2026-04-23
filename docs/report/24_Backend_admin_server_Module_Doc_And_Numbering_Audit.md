@@ -165,10 +165,11 @@ python -m compileall Backend/admin_server -q
 
 ## 6. 다음 계획 (본 24번 문서 안에서만)
 
-1. **Part B** `Backend/auth_server` — 아래 §9 체크리스트 고정 → 작업 → `compileall Backend/auth_server` → B.2 전부 `[x]`.
-2. **Part C** `Backend/project_server` — 동일(본 문서에 § 추가).
-3. **Part D** `Backend/etl_server` 등 — 필요 시 하위 소절(라우터/서비스)만 분할, **파일 번호 리포트는 추가하지 않음**.
-4. 패키지 완료 시마다 **`docs/log/log.md`** 한 줄.
+1. **Part A** `admin_server` — 완료.
+2. **Part B** `auth_server` — 완료(B.6 2차 점검 포함).
+3. **Part C** `project_server` — 완료.
+4. **Part D** `Backend/etl_server` — 본 문서에 섹션 추가 후 동일 절차(파일 수 많으면 D.1을 `router`/`service` 하위로만 나눔).
+5. 패키지 완료 시마다 **`docs/log/log.md`** 한 줄.
 
 ---
 
@@ -280,3 +281,50 @@ python -m compileall Backend/auth_server -q
 - `__init__.py`: **`[Main Functions]`**(router만 re-export) 추가.
 - `permissions.py`: **`[Endpoints/Classes/Functions]`** 요약 추가.
 - 잘못 생성했던 **`docs/report/25_…` 파일 삭제**·`00_ReportIndex`에서 제거, **본 24번 문서에만** Part B 통합.
+
+### B.6 Part B 2차 점검 (동일 24번 문서)
+
+- `audit_emit.py`: docstring·본문 **불필요 공백 제거**, `04` 표기를 **13절** 문구로 통일(로직 동일).
+- `deps.py`·`security.py`·`router.py`·`email_service.py`: **`[Endpoints/Classes/Functions]`**(또는 동등) 보강, `security` Main Functions에 `generate_numeric_code` 명시.
+- `compileall Backend/auth_server -q`: 재실행 성공.
+
+---
+
+## Part C — `Backend/project_server` (완료 2026-04-22)
+
+**대상 경로**: `Backend/project_server/`  
+**절차**: §1 마스터 A~G 동일. **G**: `python -m compileall Backend/project_server -q`.
+
+### C.1 파일 전체 목록 (5개)
+
+| # | 파일명 | 역할 요약 |
+|---|--------|-----------|
+| 1 | `__init__.py` | `router` export |
+| 2 | `router.py` | `/api/projects` 라우트 |
+| 3 | `service.py` | 목록·토큰·초대 수락/거절 |
+| 4 | `audit_emit.py` | project 채널 system_log |
+| 5 | `audit_sql_catalog.py` | project SQL 지문 |
+
+### C.2 파일별 체크리스트
+
+#### C.2.1 `__init__.py` — [x] A~G
+#### C.2.2 `router.py` — [x] A~G
+#### C.2.3 `service.py` — [x] A~G
+#### C.2.4 `audit_emit.py` — [x] A~G
+#### C.2.5 `audit_sql_catalog.py` — [x] A~G
+
+### C.3 compileall
+
+- **2026-04-22**: `python -m compileall Backend/project_server -q` **성공**.
+
+### C.4 재점검
+
+- [x] C.2 전체 `[x]`
+- [x] C.3 성공
+
+### C.5 수정 요약
+
+- `audit_sql_catalog.py`: Main Functions 2함수·`# 2.`·13절 문구.
+- `audit_emit.py`: 13절 문구.
+- `__init__.py`: `[Main Functions]`.
+- `service.py`·`router.py`: `[Endpoints/Classes/Functions]` 보강.

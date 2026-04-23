@@ -11,7 +11,17 @@ Backend.auth_server.security (bcrypt·JWT·코드 해시)
 2. hash_otp_code / verify_otp_code: 로그인 2차 코드 검증
 3. hash_token: 세션 로그에 저장할 JWT 문자열 SHA-256 hex
 4. create_pre_auth_token / decode_pre_auth_payload
-5. create_access_token / create_refresh_token(선택 project_info_id) / decode_token_payload
+5. create_access_token / create_refresh_token(선택 project_info_id) / decode_token_payload / generate_numeric_code(로그인 OTP 자릿수)
+
+[Endpoints/Classes/Functions]
+=======================
+- hash_password, verify_password (# 1.)
+- validate_password_strength (# 1a.)
+- hash_otp_code, verify_otp_code (# 2.)
+- hash_token (# 3.)
+- create_pre_auth_token, decode_pre_auth_payload (# 4.)
+- create_access_token, create_refresh_token, decode_token_payload, generate_numeric_code (# 5.)
+- (내부) _utcnow, _exp_ts
 
 [Dependencies]
 =========

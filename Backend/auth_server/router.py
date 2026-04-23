@@ -18,6 +18,10 @@ Backend.auth_server.router (/api/auth)
 10. PATCH /api/auth/me/password
 11. GET /api/auth/me/login-history — system_log_server.service_login_history 위임
 
+[Endpoints/Classes/Functions]
+=======================
+- `auth_invite_validate` … `auth_login_history` — 본문 `# 1.`~`# 11.` 핸들러. `_client_ip`, `_map_error`는 내부.
+
 [Dependencies]
 =========
 - Backend.auth_server.service, schemas, deps, permissions

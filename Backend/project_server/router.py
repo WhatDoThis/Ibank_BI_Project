@@ -10,6 +10,10 @@ Backend.project_server.router (/api/projects)
 3. POST /api/projects/{project_info_id}/accept-invite — 타부서 초대 수락(ValueError → 400)
 4. POST /api/projects/{project_info_id}/reject-invite — 타부서 초대 거절(ValueError → 400)
 
+[Endpoints/Classes/Functions]
+=======================
+- `projects_list` … `projects_reject_invite` — 본문 `# 1.`~`# 4.`·`_map_val`·`_map_accept_invite`(내부)
+
 [Dependencies]
 =========
 - Backend.project_server.service, Backend.auth_server.deps.require_active_access, get_system_db, admin_server.schemas
