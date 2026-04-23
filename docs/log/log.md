@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+554. 2026-04-20 메일: 로그인코드·가입초대·프로젝트초대 ◎ 형식·HTML / 초대 알림 제목 요약
+553. 2026-04-20 관리 변경 알림·이메일: ◎ 형식·SADEV 표기·HTML 굵게·앱 summary_plain
+552. 2026-04-20 프로젝트 목록: 설명 열만 폭 축소·전역 정렬 th 스타일 되돌림
 551. 2026-04-20 admin-list: 정렬 헤더(.admin-list-sort__th) 열 폭 상한 축소
 550. 2026-04-22 report24: Part F(widget·api·core, query_studio 감사 제외)
 549. 2026-04-22 report24: Part E(notification·mail·campaign·system_log)
@@ -554,6 +557,40 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+554. 2026-04-20 메일: 로그인코드·가입초대·프로젝트초대 ◎ 형식·HTML / 초대 알림 제목 요약
+Purpose: 로그인 2차 인증·신규 가입 초대·기존 사용자 프로젝트 초대 메일을 ◎ 블록·HTML 강조로 통일하고, `project_invite` 알림 제목을 진행부서·권한·초대자·만료 요약으로 바꾼다.
+
+Changes:
+
+- `outbound`: `send_login_code_email`·`send_invite_email`(valid_days)·`send_project_invite_existing_user_email`(부서·권한줄·초대자 plain/html) 본문·HTML
+- `change_notify`: `actor_plain_html_for_email` 공개
+- `service_projects`: 초대 메일·알림 제목용 조회 헬퍼·`add_member`/`create_project_full` 연동
+- `service_users`: `send_invite_email(..., valid_days=7)`
+
+Changed files: Backend/mail/outbound.py, Backend/admin_server/change_notify.py, Backend/admin_server/service_projects.py, Backend/admin_server/service_users.py, docs/log/log.md
+
+553. 2026-04-20 관리 변경 알림·이메일: ◎ 형식·SADEV 표기·HTML 굵게·앱 summary_plain
+Purpose: 역할·ETL·프로젝트 권한 등 관리 변경 시 이메일·앱 알림 문구를 변경 범위·관리자(닉네임+이메일)·변경 내용(사용자관리 UI와 동일 S/A/B/C/SADEV, HTML `<strong>`)으로 통일한다.
+
+Changes:
+
+- `change_notify`: `_actor_admin_pair`, `_dvsn_letter`, `_notice_email_bodies`, 관련 notify 전부 반영; `noti_content` JSON에 `summary_plain`
+- `smtp_transport.send_email`·`send_plain_notice_email_try`: 선택 `body_html`(multipart/alternative)
+- `NotificationBell`·`notification-bell.css`: `summary_plain` 보조줄·`internalKeys`에 키 추가
+
+Changed files: Backend/admin_server/change_notify.py, Backend/mail/smtp_transport.py, Backend/mail/outbound.py, Frontend/react-app/src/app/layout/NotificationBell.jsx, Frontend/react-app/src/app/layout/notification-bell.css, docs/log/log.md
+
+552. 2026-04-20 프로젝트 목록: 설명 열만 폭 축소·전역 정렬 th 스타일 되돌림
+Purpose: 전역 `.admin-list-sort__th` 폭 제한은 의도와 달랐음. 프로젝트 설명 열(데이터·헤더)만 좁히고 나머지 정렬 헤더는 기존처럼 둔다.
+
+Changes:
+
+- `admin-list-table.css`: `.admin-list-sort__th`·`.admin-list-sort__label` 전역 상한·말줄임 제거(551 되돌림)
+- `admin-pages.css`: `td.ap__td-clip-desc` 상한 `min(22vw, 240px)`·모바일 조정; `th.ap__th-project-desc` 동일 상한·라벨 말줄임
+- `AdminProjectsPage.jsx`: 설명 `AdminSortableTh`에 `ap__th-project-desc`
+
+Changed files: Frontend/react-app/src/app/admin/admin-list-table.css, Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
 
 551. 2026-04-20 admin-list: 정렬 헤더(.admin-list-sort__th) 열 폭 상한 축소
 Purpose: 관리 목록 정렬 가능 헤더 셀이 과도하게 넓어지지 않도록 상한을 낮추고, 긴 라벨은 말줄임으로 처리한다.

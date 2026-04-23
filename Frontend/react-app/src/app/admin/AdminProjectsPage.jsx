@@ -5,7 +5,7 @@
  * 생성·프로젝트 활성화·비활성화·purge 성공 시 notifyParticipatingProjectsChanged(헤더 드롭다운 재조회). 비활성화·purge: 현재 작업 프로젝트면 refreshMe 후 홈(/)으로 이동.
  * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 QS·위젯보드용으로 main_db(table_master)만 API에서 내려줌; 대시보드 허용 테이블은 별도(서버 table_master·feature_flags). QS/WB는 페이지 선택과 연동.
  * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
- * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip, 수정일·필터·헤더 정렬. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
+ * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip·설명 정렬 th `ap__th-project-desc`, 수정일·필터·헤더 정렬. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
  * 생성자 열은 이메일 셀 패턴(본인만 배지).
  *
  * [Main Functions]
@@ -1267,7 +1267,13 @@ export default function AdminProjectsPage() {
                 <AdminSortableTh sortKey="name" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
                   프로젝트명
                 </AdminSortableTh>
-                <AdminSortableTh sortKey="desc" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>
+                <AdminSortableTh
+                  sortKey="desc"
+                  activeKey={projSort.key}
+                  dir={projSort.dir}
+                  onSort={handleProjSort}
+                  className="ap__th-project-desc"
+                >
                   프로젝트설명
                 </AdminSortableTh>
                 <AdminSortableTh sortKey="status" activeKey={projSort.key} dir={projSort.dir} onSort={handleProjSort}>

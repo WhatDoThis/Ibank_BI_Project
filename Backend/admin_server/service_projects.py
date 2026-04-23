@@ -24,7 +24,8 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 - update_project(conn, …) -> None / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project
 - list_members(conn, …) / cancel_project_invite / add_member / update_member_role / remove_member
 - validate_invite_user_project(conn, …) -> None
-- (내부) _sync_project_table_mappings*, _assert_project_owned*, _notify_project_member_* 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
+- (내부) _sync_project_table_mappings*, _assert_project_owned*, _notify_project_member_*,
+  초대 제목·메일용 `_format_invite_deadline_noti` 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
 
 [Dependencies]
 =========
@@ -73,6 +74,90 @@ _DEFAULT_FEATURE_FLAGS: dict[str, bool] = {"query": True, "dash": True, "widget"
 
 # 타부서 project_invite 알림 JSON `invite_expires_at`(UTC ISO) — 기본 7일
 _PROJECT_INVITE_VALID_DAYS = 7
+
+
+def _format_invite_deadline_noti(iso_utc: str) -> str:
+    """알림 제목용 만료 표기 `YYYY/MM/DD HH:MM:SS UTC`."""
+    try:
+        s = iso_utc.strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y/%m/%d %H:%M:%S") + " UTC"
+    except Exception:
+        return iso_utc.strip()
+
+
+def _truncate_ui(s: str, n: int) -> str:
+    t = (s or "").strip()
+    if n < 2 or len(t) <= n:
+        return t
+    return t[: n - 1] + "…"
+
+
+def _fetch_project_department_name_for_mail(cur, project_info_id: int) -> str:
+    cur.execute(
+        """
+        SELECT COALESCE(NULLIF(TRIM(d.dptmt_name), ''), '(부서)') AS dn
+        FROM project_info p
+        INNER JOIN dptmt_info d ON d.dptmt_info_id = p.dptmt_info_id
+        WHERE p.project_info_id = %s
+        """,
+        (int(project_info_id),),
+    )
+    row = cur.fetchone()
+    return str((row or {}).get("dn") or "(부서)")
+
+
+def _fetch_pmssn_permission_line_for_mail(cur, pmssn_master_id: int) -> str:
+    cur.execute(
+        """
+        SELECT COALESCE(NULLIF(TRIM(pmssn_name), ''), '(권한명 없음)') AS mn,
+               pmssn_list
+        FROM pmssn_master
+        WHERE pmssn_master_id = %s
+        """,
+        (int(pmssn_master_id),),
+    )
+    row = cur.fetchone()
+    if not row:
+        return "—"
+    name = str(row.get("mn") or "(권한명 없음)")
+    raw_list = row.get("pmssn_list")
+    items: list[str] = []
+    if raw_list is not None:
+        if isinstance(raw_list, (list, tuple)):
+            items = [str(x).strip() for x in raw_list if str(x).strip()]
+        elif hasattr(raw_list, "__iter__") and not isinstance(raw_list, (bytes, str)):
+            try:
+                items = [str(x).strip() for x in list(raw_list) if str(x).strip()]
+            except Exception:
+                pass
+    if not items:
+        return name
+    return f"{name} / {', '.join(items)}"
+
+
+def _project_invite_noti_title(
+    pname: str,
+    dept: str,
+    perm_line: str,
+    inv_plain: str,
+    deadline: str,
+) -> str:
+    perm_s = _truncate_ui(perm_line, 56)
+    inv_s = _truncate_ui(inv_plain, 44)
+    parts = [
+        "프로젝트 초대",
+        pname or "—",
+        dept,
+        perm_s,
+        inv_s,
+        f"만료 {deadline}",
+    ]
+    out = " · ".join(p for p in parts if p)
+    return out[:200]
 
 
 def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
@@ -457,7 +542,7 @@ def create_project_full(
             seen_u.add(uid)
 
         invites_sent = 0
-        ext_invite_email_targets: list[tuple[int, str]] = []
+        ext_invite_email_targets: list[tuple[int, str, int]] = []
         for inv in ext_list:
             iuid = int(inv.get("user_id") or 0)
             imid = int(inv.get("pmssn_master_id") or 0)
@@ -506,6 +591,15 @@ def create_project_full(
                 datetime.now(timezone.utc)
                 + timedelta(days=_PROJECT_INVITE_VALID_DAYS)
             ).isoformat()
+            dept_dn = _fetch_project_department_name_for_mail(cur, pid)
+            perm_line = _fetch_pmssn_permission_line_for_mail(cur, imid)
+            inv_plain, inv_html = change_notify.actor_plain_html_for_email(
+                conn, int(actor_user_id)
+            )
+            deadline_s = _format_invite_deadline_noti(invite_expires_at)
+            title = _project_invite_noti_title(
+                str(pname), dept_dn, perm_line, inv_plain, deadline_s
+            )
             payload = json.dumps(
                 {
                     "project_info_id": pid,
@@ -515,7 +609,6 @@ def create_project_full(
                 },
                 ensure_ascii=False,
             )
-            title = (f"'{pname}' 프로젝트에 초대되었습니다")[:200]
             insert_notification(
                 conn,
                 iuid,
@@ -524,7 +617,7 @@ def create_project_full(
                 payload,
                 autocommit=False,
             )
-            ext_invite_email_targets.append((iuid, invite_expires_at))
+            ext_invite_email_targets.append((iuid, invite_expires_at, imid))
             invites_sent += 1
 
         conn.commit()
@@ -539,18 +632,23 @@ def create_project_full(
             },
             risk_tier="MED",
         )
-        inviter_label = user_display_label_for_notification(
-            conn, int(actor_user_id), max_len=80
-        )
-        for iuid_mail, exp_iso in ext_invite_email_targets:
+        for iuid_mail, exp_iso, mid_mail in ext_invite_email_targets:
             if int(iuid_mail) == int(actor_user_id):
                 continue
             em_u = change_notify.fetch_user_email_for_notify(conn, int(iuid_mail))
             if em_u:
+                dept_m = _fetch_project_department_name_for_mail(cur, pid)
+                perm_m = _fetch_pmssn_permission_line_for_mail(cur, int(mid_mail))
+                inv_p, inv_h = change_notify.actor_plain_html_for_email(
+                    conn, int(actor_user_id)
+                )
                 send_project_invite_existing_user_email(
                     em_u,
-                    project_name=pname,
-                    inviter_label=inviter_label,
+                    project_name=str(pname),
+                    project_department_name=dept_m,
+                    permission_line=perm_m,
+                    inviter_plain=inv_p,
+                    inviter_html=inv_h,
                     invite_expires_at=exp_iso,
                 )
         return {
@@ -1264,6 +1362,13 @@ def add_member(
         invite_expires_at = (
             datetime.now(timezone.utc) + timedelta(days=_PROJECT_INVITE_VALID_DAYS)
         ).isoformat()
+        dept_dn = _fetch_project_department_name_for_mail(cur, pid)
+        perm_line = _fetch_pmssn_permission_line_for_mail(cur, int(mid))
+        inv_plain, inv_html = change_notify.actor_plain_html_for_email(conn, int(aid))
+        deadline_s = _format_invite_deadline_noti(invite_expires_at)
+        title = _project_invite_noti_title(
+            str(pname), dept_dn, perm_line, inv_plain, deadline_s
+        )
         payload = json.dumps(
             {
                 "project_info_id": pid,
@@ -1273,7 +1378,6 @@ def add_member(
             },
             ensure_ascii=False,
         )
-        title = (f"'{pname}' 프로젝트에 초대되었습니다")[:200]
         insert_notification(
             conn,
             target_uid,
@@ -1297,12 +1401,16 @@ def add_member(
         if aid != target_uid:
             em_inv = change_notify.fetch_user_email_for_notify(conn, target_uid)
             if em_inv:
+                dept_m = _fetch_project_department_name_for_mail(cur, pid)
+                perm_m = _fetch_pmssn_permission_line_for_mail(cur, int(mid))
+                inv_p, inv_h = change_notify.actor_plain_html_for_email(conn, int(aid))
                 send_project_invite_existing_user_email(
                     em_inv,
                     project_name=str(pname),
-                    inviter_label=user_display_label_for_notification(
-                        conn, aid, max_len=80
-                    ),
+                    project_department_name=dept_m,
+                    permission_line=perm_m,
+                    inviter_plain=inv_p,
+                    inviter_html=inv_h,
                     invite_expires_at=invite_expires_at,
                 )
         return {"outcome": "invite_sent"}

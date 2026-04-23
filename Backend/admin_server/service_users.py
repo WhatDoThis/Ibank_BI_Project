@@ -1192,6 +1192,7 @@ def invite_user_by_email(
                 include_etl_y=(etl_store == "Y"),
                 project_name=proj_label,
                 project_permission_name=pmssn_label,
+                valid_days=7,
             )
         except Exception:
             pass

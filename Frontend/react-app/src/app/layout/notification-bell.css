@@ -1,6 +1,6 @@
 /**
  * app/layout/notification-bell.css — NotificationBell 전용
- * nb-panel__toast, nb-item--invite-done·nb-item__meta--done·nb-item__meta--invite-hint(project_invite 안내)
+ * nb-panel__toast, nb-item--invite-done·nb-item__meta--done·nb-item__meta--invite-hint(project_invite 안내), nb-item__meta--admin-summary(관리 변경 summary_plain)
  */
 
 .nb-wrap {
@@ -195,6 +195,12 @@
 .nb-item__meta {
   font-size: 0.75rem;
   color: #666;
+}
+
+.nb-item__meta--admin-summary {
+  white-space: pre-line;
+  margin-top: 4px;
+  line-height: 1.45;
 }
 
 .nb-empty {

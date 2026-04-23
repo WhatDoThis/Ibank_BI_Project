@@ -3,7 +3,7 @@ Backend.admin_server.change_notify (권한·역할·계정 변경 알림+메일)
 ====================================================
 관리 API에서 **커밋 성공 후** 호출한다. `actor_user_id`와 대상이 같으면 **앱 알림·이메일 모두 생략**.
 `notification_info`는 `insert_notification(..., autocommit=True)`로 즉시 반영한다.
-본문 `# N.`은 파일 읽기 순서이며, `2a`~`2c`·`4a`~`4c`는 동일 흐름 블록 내 연번이다.
+이메일·앱 메타(`summary_plain`)는 동일한 ◎ 블록(변경 범위·관리자·변경 내용)을 사용한다. 조직 역할은 사용자 관리 UI와 동일한 **S/A/B/C/SADEV** 표기, HTML 메일에서 역할·Y/N은 `<strong>` 처리.
 
 [Main Functions]
 ===========
@@ -21,31 +21,30 @@ Backend.admin_server.change_notify (권한·역할·계정 변경 알림+메일)
 - fetch_user_email_for_notify(conn, user_id) -> str | None
 - notify_org_role_changed(conn, actor_user_id, target_user_id, old_dvsn, new_dvsn) -> None
 - notify_etl_access_changed(conn, actor_user_id, target_user_id, old_yn, new_yn) -> None
-- notify_user_management_changed(conn, actor_user_id, target_user_id, *, dvsn_changed, etl_changed, proj_changed, old_dvsn, new_dvsn, old_etl, new_etl) -> None
+- notify_user_management_changed(conn, actor_user_id, target_user_id, *, ...) -> None
 - notify_project_pmssn_changed(conn, actor_user_id, target_user_id, project_name, old_pmssn_name, new_pmssn_name, *, project_info_id) -> None
 - notify_user_suspended(conn, actor_user_id, target_user_id) -> None
 - notify_user_activated(conn, actor_user_id, target_user_id) -> None
 - fetch_pmssn_name(conn, pmssn_master_id) -> str
-- (내부·번호 없음) _skip_self, _actor_label, _safe_run — 자기 자신 생략·처리자 표시·예외 삼킴 로깅
+- (내부) _skip_self, _actor_admin_pair, _dvsn_letter, _notice_email_bodies, _meta_pack, _safe_run
+- actor_plain_html_for_email(conn, actor_user_id) -> tuple[str, str] — 프로젝트 초대 메일용 닉(이메일) plain·html
 
 [Dependencies]
 =========
-- json, logging
+- json, logging, html.escape
 - Backend.mail.outbound.send_plain_notice_email_try
-- Backend.notification_server.service.insert_notification, user_display_label_for_notification
+- Backend.notification_server.service.insert_notification
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Callable
+from html import escape
+from typing import Any, Callable
 
 from Backend.mail.outbound import send_plain_notice_email_try
-from Backend.notification_server.service import (
-    insert_notification,
-    user_display_label_for_notification,
-)
+from Backend.notification_server.service import insert_notification
 
 _log = logging.getLogger(__name__)
 
@@ -54,6 +53,14 @@ NOTI_ETL = "etl_access_changed"
 NOTI_USER_MGMT = "user_mgmt_changed"
 NOTI_PROJECT_PMSSN = "project_pmssn_changed"
 NOTI_ACTIVATED = "user_activated"
+
+_DVSN_LETTER: dict[str, str] = {
+    "sa_dev": "SADEV",
+    "sa": "S",
+    "a": "A",
+    "o": "B",
+    "u": "C",
+}
 
 
 # 1.
@@ -81,10 +88,118 @@ def _skip_self(actor_user_id: int | None, target_user_id: int) -> bool:
     return int(actor_user_id) == int(target_user_id)
 
 
-def _actor_label(conn, actor_user_id: int | None) -> str:
+def _dvsn_letter(raw: str | None) -> str:
+    if raw is None:
+        return "—"
+    k = str(raw).strip().lower()
+    if not k:
+        return "—"
+    if k in _DVSN_LETTER:
+        return _DVSN_LETTER[k]
+    return str(raw).strip().upper()
+
+
+def _actor_admin_pair(conn, actor_user_id: int | None) -> tuple[str, str, str]:
+    """변경한 관리자: (plain, html, short_for_title)."""
     if actor_user_id is None or int(actor_user_id) <= 0:
-        return "시스템"
-    return user_display_label_for_notification(conn, int(actor_user_id), max_len=80)
+        return ("시스템", "시스템", "시스템")
+    uid = int(actor_user_id)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+              NULLIF(TRIM(COALESCE(user_nickname, '')), '') AS nick,
+              NULLIF(TRIM(COALESCE(user_email, '')), '') AS em
+            FROM user_info WHERE user_id = %s
+            """,
+            (uid,),
+        )
+        row = cur.fetchone() or {}
+        nick_s = str(row.get("nick") or "").strip()
+        em_s = str(row.get("em") or "").strip()
+        if nick_s and em_s:
+            plain = f"{nick_s} ({em_s})"
+            html_a = f"{escape(nick_s)} ({escape(em_s)})"
+            short = plain if len(plain) <= 72 else f"{nick_s} ({em_s[:28]}…)"
+            return plain, html_a, short
+        if em_s:
+            return em_s, escape(em_s), em_s
+        if nick_s:
+            return nick_s, escape(nick_s), nick_s
+        fb = f"user_id {uid}"
+        return fb, escape(fb), fb
+    finally:
+        cur.close()
+
+
+def actor_plain_html_for_email(conn, actor_user_id: int | None) -> tuple[str, str]:
+    """프로젝트 초대 메일 등: (plain `닉네임 (이메일)`, html 이스케이프 동일)."""
+    p, h, _ = _actor_admin_pair(conn, actor_user_id)
+    return p, h
+
+
+def _notice_email_bodies(
+    scope: str,
+    admin_plain: str,
+    admin_html: str,
+    change_plain: str,
+    change_html: str,
+) -> tuple[str, str]:
+    plain = (
+        f"◎ 변경 범위: {scope}\n\n"
+        f"◎ 변경한 관리자: {admin_plain}\n\n"
+        f"◎ 변경 내용:\n{change_plain}"
+    )
+    html_body = (
+        '<div style="font-family:system-ui,Segoe UI,sans-serif;font-size:14px;'
+        'line-height:1.55;color:#111;">'
+        f"<p><strong>◎ 변경 범위:</strong> {escape(scope)}</p>"
+        f"<p><strong>◎ 변경한 관리자:</strong> {admin_html}</p>"
+        f"<p><strong>◎ 변경 내용:</strong><br>{change_html}</p>"
+        "</div>"
+    )
+    return plain, html_body
+
+
+def _org_role_change_plain(old_dvsn: str, new_dvsn: str) -> str:
+    o = _dvsn_letter(old_dvsn)
+    n = _dvsn_letter(new_dvsn)
+    return f"조직 역할이 {o} 에서 {n} 로 변경되었습니다."
+
+
+def _org_role_change_html(old_dvsn: str, new_dvsn: str) -> str:
+    o = escape(_dvsn_letter(old_dvsn))
+    n = escape(_dvsn_letter(new_dvsn))
+    return f"조직 역할이 <strong>{o}</strong> 에서 <strong>{n}</strong> 로 변경되었습니다."
+
+
+def _etl_change_plain(old_yn: str, new_yn: str) -> str:
+    a, b = str(old_yn).strip().upper(), str(new_yn).strip().upper()
+    return f"ETL 관리 자격이 {a} 에서 {b} 으로 변경되었습니다."
+
+
+def _etl_change_html(old_yn: str, new_yn: str) -> str:
+    a, b = escape(str(old_yn).strip().upper()), escape(str(new_yn).strip().upper())
+    return f"ETL 관리 자격이 <strong>{a}</strong> 에서 <strong>{b}</strong> 으로 변경되었습니다."
+
+
+def _project_pmssn_change_plain(pname: str, old_n: str, new_n: str) -> str:
+    pn = (pname or "").strip() or "프로젝트"
+    o = (old_n or "").strip() or "—"
+    n = (new_n or "").strip() or "—"
+    return f"프로젝트 ‘{pn}’의 권한이 {o} 에서 {n} 으로 변경되었습니다."
+
+
+def _project_pmssn_change_html(pname: str, old_n: str, new_n: str) -> str:
+    pn = escape((pname or "").strip() or "프로젝트")
+    o = escape((old_n or "").strip() or "—")
+    n = escape((new_n or "").strip() or "—")
+    return f"프로젝트 ‘{pn}’의 권한이 <strong>{o}</strong> 에서 <strong>{n}</strong> 으로 변경되었습니다."
+
+
+def _meta_pack(extra: dict[str, Any]) -> str:
+    return json.dumps(extra, ensure_ascii=False)
 
 
 def _safe_run(label: str, fn: Callable[[], None]) -> None:
@@ -105,12 +220,18 @@ def notify_org_role_changed(
     if _skip_self(actor_user_id, target_user_id):
         return
     tid = int(target_user_id)
-    al = _actor_label(conn, actor_user_id)
-    title = (f"{al} 님이 조직 역할을 {old_dvsn}에서 {new_dvsn}(으)로 변경했습니다")[:200]
-    plain = f"처리자: {al}\n조직 역할: {old_dvsn} → {new_dvsn}"
-    meta = json.dumps(
-        {"actor_user_id": actor_user_id, "old_user_dvsn": old_dvsn, "new_user_dvsn": new_dvsn},
-        ensure_ascii=False,
+    admin_plain, admin_html, admin_short = _actor_admin_pair(conn, actor_user_id)
+    cp = _org_role_change_plain(old_dvsn, new_dvsn)
+    ch = _org_role_change_html(old_dvsn, new_dvsn)
+    body_plain, body_html = _notice_email_bodies("조직 역할", admin_plain, admin_html, cp, ch)
+    title = f"조직 역할 {_dvsn_letter(old_dvsn)}→{_dvsn_letter(new_dvsn)} · {admin_short}"[:200]
+    meta = _meta_pack(
+        {
+            "actor_user_id": actor_user_id,
+            "old_user_dvsn": old_dvsn,
+            "new_user_dvsn": new_dvsn,
+            "summary_plain": body_plain,
+        }
     )
 
     def _go() -> None:
@@ -120,7 +241,8 @@ def notify_org_role_changed(
             send_plain_notice_email_try(
                 em,
                 subject="[Ibank BI] 조직 역할 변경 안내",
-                body_text=plain,
+                body_text=body_plain,
+                body_html=body_html,
             )
 
     _safe_run("notify_org_role_changed", _go)
@@ -137,12 +259,20 @@ def notify_etl_access_changed(
     if _skip_self(actor_user_id, target_user_id):
         return
     tid = int(target_user_id)
-    al = _actor_label(conn, actor_user_id)
-    title = (f"{al} 님이 ETL 자격을 {old_yn}에서 {new_yn}(으)로 변경했습니다")[:200]
-    plain = f"처리자: {al}\nETL 자격: {old_yn} → {new_yn}"
-    meta = json.dumps(
-        {"actor_user_id": actor_user_id, "old_etl_yn": old_yn, "new_etl_yn": new_yn},
-        ensure_ascii=False,
+    admin_plain, admin_html, admin_short = _actor_admin_pair(conn, actor_user_id)
+    cp = _etl_change_plain(old_yn, new_yn)
+    ch = _etl_change_html(old_yn, new_yn)
+    body_plain, body_html = _notice_email_bodies("ETL 관리", admin_plain, admin_html, cp, ch)
+    title = (
+        f"ETL 관리 자격 {str(old_yn).strip().upper()}→{str(new_yn).strip().upper()} · {admin_short}"
+    )[:200]
+    meta = _meta_pack(
+        {
+            "actor_user_id": actor_user_id,
+            "old_etl_yn": old_yn,
+            "new_etl_yn": new_yn,
+            "summary_plain": body_plain,
+        }
     )
 
     def _go() -> None:
@@ -152,7 +282,8 @@ def notify_etl_access_changed(
             send_plain_notice_email_try(
                 em,
                 subject="[Ibank BI] ETL 자격 변경 안내",
-                body_text=plain,
+                body_text=body_plain,
+                body_html=body_html,
             )
 
     _safe_run("notify_etl_access_changed", _go)
@@ -177,25 +308,46 @@ def notify_user_management_changed(
     if not (dvsn_changed or etl_changed or proj_changed):
         return
     tid = int(target_user_id)
-    al = _actor_label(conn, actor_user_id)
-    parts: list[str] = []
-    if dvsn_changed and old_dvsn is not None and new_dvsn is not None:
-        parts.append(f"조직 역할 {old_dvsn}→{new_dvsn}")
-    if etl_changed and old_etl is not None and new_etl is not None:
-        parts.append(f"ETL {old_etl}→{new_etl}")
+    admin_plain, admin_html, admin_short = _actor_admin_pair(conn, actor_user_id)
+    scope_parts: list[str] = []
+    if dvsn_changed:
+        scope_parts.append("조직 역할")
+    if etl_changed:
+        scope_parts.append("ETL 관리")
     if proj_changed:
-        parts.append("프로젝트 참여·권한 배정 변경")
-    summary = ", ".join(parts) if parts else "계정 설정 변경"
-    title = (f"{al} 님이 사용자 관리에서 변경했습니다 ({summary})")[:200]
-    plain = f"처리자: {al}\n변경: {summary}"
-    meta = json.dumps(
+        scope_parts.append("프로젝트 권한")
+    scope = ", ".join(scope_parts) if scope_parts else "사용자 관리"
+    c_plain_lines: list[str] = []
+    c_html_parts: list[str] = []
+    if dvsn_changed and old_dvsn is not None and new_dvsn is not None:
+        c_plain_lines.append(_org_role_change_plain(old_dvsn, new_dvsn))
+        c_html_parts.append(_org_role_change_html(old_dvsn, new_dvsn))
+    if etl_changed and old_etl is not None and new_etl is not None:
+        c_plain_lines.append(_etl_change_plain(old_etl, new_etl))
+        c_html_parts.append(_etl_change_html(old_etl, new_etl))
+    if proj_changed:
+        c_plain_lines.append(
+            "프로젝트 참여 또는 프로젝트 권한(템플릿)이 변경되었습니다. "
+            "(저장된 배정은 앱 사용자 관리에서 확인해 주세요.)"
+        )
+        c_html_parts.append(
+            escape(
+                "프로젝트 참여 또는 프로젝트 권한(템플릿)이 변경되었습니다. "
+                "(저장된 배정은 앱 사용자 관리에서 확인해 주세요.)"
+            )
+        )
+    change_plain = "\n".join(c_plain_lines)
+    change_html = "<br>".join(c_html_parts)
+    body_plain, body_html = _notice_email_bodies(scope, admin_plain, admin_html, change_plain, change_html)
+    title = (f"사용자 관리 변경 · {scope} · {admin_short}")[:200]
+    meta = _meta_pack(
         {
             "actor_user_id": actor_user_id,
             "dvsn_changed": dvsn_changed,
             "etl_changed": etl_changed,
             "proj_changed": proj_changed,
-        },
-        ensure_ascii=False,
+            "summary_plain": body_plain,
+        }
     )
 
     def _go() -> None:
@@ -205,7 +357,8 @@ def notify_user_management_changed(
             send_plain_notice_email_try(
                 em,
                 subject="[Ibank BI] 사용자 관리 변경 안내",
-                body_text=plain,
+                body_text=body_plain,
+                body_html=body_html,
             )
 
     _safe_run("notify_user_management_changed", _go)
@@ -225,20 +378,20 @@ def notify_project_pmssn_changed(
     if _skip_self(actor_user_id, target_user_id):
         return
     tid = int(target_user_id)
-    al = _actor_label(conn, actor_user_id)
+    admin_plain, admin_html, admin_short = _actor_admin_pair(conn, actor_user_id)
     pname = (project_name or "").strip() or "프로젝트"
-    title = (f"{al} 님이 '{pname}'에서 프로젝트 권한을 변경했습니다")[:200]
-    plain = (
-        f"처리자: {al}\n프로젝트: {pname}\n권한 템플릿: {old_pmssn_name} → {new_pmssn_name}"
-    )
-    meta = json.dumps(
+    cp = _project_pmssn_change_plain(pname, old_pmssn_name, new_pmssn_name)
+    ch = _project_pmssn_change_html(pname, old_pmssn_name, new_pmssn_name)
+    body_plain, body_html = _notice_email_bodies("프로젝트 권한", admin_plain, admin_html, cp, ch)
+    title = (f"프로젝트 권한 변경 · ‘{pname}’ · {admin_short}")[:200]
+    meta = _meta_pack(
         {
             "actor_user_id": actor_user_id,
             "project_info_id": int(project_info_id),
             "old_pmssn_name": old_pmssn_name,
             "new_pmssn_name": new_pmssn_name,
-        },
-        ensure_ascii=False,
+            "summary_plain": body_plain,
+        }
     )
 
     def _go() -> None:
@@ -248,7 +401,8 @@ def notify_project_pmssn_changed(
             send_plain_notice_email_try(
                 em,
                 subject="[Ibank BI] 프로젝트 권한 변경 안내",
-                body_text=plain,
+                body_text=body_plain,
+                body_html=body_html,
             )
 
     _safe_run("notify_project_pmssn_changed", _go)
@@ -263,8 +417,10 @@ def notify_user_suspended(
     if _skip_self(actor_user_id, target_user_id):
         return
     tid = int(target_user_id)
-    al = _actor_label(conn, actor_user_id)
-    plain = f"처리자: {al}\n귀하의 계정이 정지되었습니다. 문의는 관리자에게 연락해 주세요."
+    admin_plain, admin_html, _ = _actor_admin_pair(conn, actor_user_id)
+    cp = "귀하의 계정이 정지되었습니다. 문의는 관리자에게 연락해 주세요."
+    ch = escape(cp)
+    body_plain, body_html = _notice_email_bodies("계정 정지", admin_plain, admin_html, cp, ch)
 
     def _go() -> None:
         em = fetch_user_email_for_notify(conn, tid)
@@ -272,7 +428,8 @@ def notify_user_suspended(
             send_plain_notice_email_try(
                 em,
                 subject="[Ibank BI] 계정 정지 안내",
-                body_text=plain,
+                body_text=body_plain,
+                body_html=body_html,
             )
 
     _safe_run("notify_user_suspended", _go)
@@ -287,10 +444,12 @@ def notify_user_activated(
     if _skip_self(actor_user_id, target_user_id):
         return
     tid = int(target_user_id)
-    al = _actor_label(conn, actor_user_id)
-    title = (f"{al} 님이 계정을 활성화했습니다")[:200]
-    plain = f"처리자: {al}\n계정이 활성화되었습니다. 로그인할 수 있습니다."
-    meta = json.dumps({"actor_user_id": actor_user_id}, ensure_ascii=False)
+    admin_plain, admin_html, admin_short = _actor_admin_pair(conn, actor_user_id)
+    cp = "계정이 활성화되었습니다. 로그인할 수 있습니다."
+    ch = escape(cp)
+    body_plain, body_html = _notice_email_bodies("계정 활성화", admin_plain, admin_html, cp, ch)
+    title = (f"계정 활성화 · {admin_short}")[:200]
+    meta = _meta_pack({"actor_user_id": actor_user_id, "summary_plain": body_plain})
 
     def _go() -> None:
         insert_notification(conn, tid, NOTI_ACTIVATED, title, meta, autocommit=True)
@@ -299,7 +458,8 @@ def notify_user_activated(
             send_plain_notice_email_try(
                 em,
                 subject="[Ibank BI] 계정 활성화 안내",
-                body_text=plain,
+                body_text=body_plain,
+                body_html=body_html,
             )
 
     _safe_run("notify_user_activated", _go)

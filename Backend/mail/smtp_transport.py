@@ -5,11 +5,11 @@ Backend.mail.smtp_transport (SMTP 전송 코어)
 
 [Main Functions]
 ===========
-1. send_email — 465 SSL / 그 외 STARTTLS 실패 시 평문 재시도; smtp 미설정 시 콘솔 폴백
+1. send_email — 465 SSL / 그 외 STARTTLS 실패 시 평문 재시도; smtp 미설정 시 콘솔 폴백(HTML 본문 있으면 multipart/alternative)
 
 [Endpoints/Classes/Functions]
 =======================
-- send_email(subject, body_text, to_addrs)
+- send_email(subject, body_text, to_addrs, body_html=None)
 
 [Dependencies]
 =========
@@ -30,7 +30,13 @@ _log = logging.getLogger(__name__)
 
 
 # 1.
-def send_email(subject: str, body_text: str, to_addrs: list[str]) -> None:
+def send_email(
+    subject: str,
+    body_text: str,
+    to_addrs: list[str],
+    *,
+    body_html: str | None = None,
+) -> None:
     if not to_addrs:
         return
     settings = auth_config.get_smtp_settings()
@@ -47,6 +53,8 @@ def send_email(subject: str, body_text: str, to_addrs: list[str]) -> None:
     msg["From"] = settings["from_addr"] or "no-reply@localhost"
     msg["To"] = ", ".join(to_addrs)
     msg.set_content(body_text)
+    if body_html and str(body_html).strip():
+        msg.add_alternative(str(body_html).strip(), subtype="html")
 
     host = settings["host"]
     port = settings["port"]

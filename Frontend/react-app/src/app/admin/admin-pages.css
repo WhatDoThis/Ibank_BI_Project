@@ -2,7 +2,7 @@
  * app/admin/admin-pages.css — AdminRoles·AdminProjects·AdminProjectMembers 공용
  * 버튼은 styles/shared-ui.css `ibank-btn-toolbar`·`ibank-btn-table` 사용. 링크형만 `ap__btn--link`.
  * ap__table: 반응형 clamp 폰트·nowrap·ap__cell-clip(말줄임); td.ap__mono는 줄바꿈 예외
- * ap__table--projects: 프로젝트 목록(프로젝트명·설명 열 말줄임 폭)
+ * ap__table--projects: 프로젝트 목록(프로젝트명·설명 열 말줄임 폭; 설명 정렬 헤더는 ap__th-project-desc)
  * ap__member-add-block / ap__member-add-inline: 멤버 추가 인풋·검색 한 줄. ap__select--table-in-cell: 권한 셀렉트
  * ap__create-section-tools: create 섹션 내 ap__select--sm + ibank-btn-toolbar 한 줄(높이·베이스라인·셀렉트 폭)
  * ap__table .ap__select: 테이블 본문과 동일 clamp 폰트(inherit), ap__modal--usage max-width 800px
@@ -378,7 +378,11 @@
   }
 
   .ap__table.ap__table--projects td.ap__td-clip-desc {
-    max-width: min(52vw, 280px);
+    max-width: min(42vw, 220px);
+  }
+
+  .ap__table.ap__table--projects th.ap__th-project-desc {
+    max-width: min(42vw, 220px);
   }
 }
 
@@ -399,8 +403,21 @@
 }
 
 .ap__table.ap__table--projects td.ap__td-clip-desc {
-  max-width: min(36vw, 420px);
+  max-width: min(22vw, 240px);
   min-width: 0;
+}
+
+/* 설명 열 정렬 헤더: 본문 셀(ap__td-clip-desc)과 동일 상한으로 좁게 유지 */
+.ap__table.ap__table--projects th.ap__th-project-desc {
+  max-width: min(22vw, 240px);
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ap__table.ap__table--projects th.ap__th-project-desc .admin-list-sort__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ap__table.ap__table--projects td.ap__td-clip-name .ap__cell-clip,

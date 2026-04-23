@@ -12,6 +12,7 @@
  * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm, app/auth/AuthContext
  * - project_invite·widget_board_invite: 수락·거절·만료 표시(위젯 보드는 작업 프로젝트 일치 필요)
  * - 수락/거절·초대 JSON 등 내부용 noti_content는 제목·보조줄만 표시(원문 JSON 비노출)
+ * - org_role_changed 등 관리 변경: `summary_plain`(◎ 블록)을 보조줄로 표시(tryAdminChangeSummary)
  * - project_invite: 수락 전 안내·수락 완료(needs_select 시 홈 선택 안내)·토스트와 행 문구 정렬
  * - 거절: 패널 상단 토스트
  */
@@ -104,6 +105,28 @@ function isUnread(row) {
   return r !== 'Y'
 }
 
+const ADMIN_CHANGE_SUMMARY_TYPES = new Set([
+  'org_role_changed',
+  'etl_access_changed',
+  'user_mgmt_changed',
+  'project_pmssn_changed',
+  'user_activated',
+])
+
+/** 관리 변경 알림: noti_content JSON의 `summary_plain`(이메일과 동일 ◎ 블록)만 보조줄로 표시 */
+function tryAdminChangeSummary(notiType, raw) {
+  const t = (notiType || '').trim()
+  if (!ADMIN_CHANGE_SUMMARY_TYPES.has(t)) return null
+  if (!raw || !String(raw).trim().startsWith('{')) return null
+  try {
+    const o = JSON.parse(raw)
+    const s = o?.summary_plain
+    return typeof s === 'string' && s.trim() ? s.trim() : null
+  } catch {
+    return null
+  }
+}
+
 /** 알림 본문으로 JSON(프로젝트 ID 등)만 담긴 행은 사용자에게 숨긴다. */
 function shouldShowNotiContentBody(notiType, raw) {
   const t = (notiType || '').trim()
@@ -135,6 +158,7 @@ function shouldShowNotiContentBody(notiType, raw) {
       'proj_changed',
       'old_pmssn_name',
       'new_pmssn_name',
+      'summary_plain',
     ])
     const onlyInternalMeta = keys.every((k) => internalKeys.has(k))
     return !onlyInternalMeta
@@ -475,6 +499,7 @@ export function NotificationBell() {
                 const inv = isInvite ? parseProjectInvitePayload(row.noti_content) : null
                 const wbInv = isWbInvite ? parseWidgetBoardInvitePayload(row.noti_content) : null
                 const invitePid = inv?.projectId
+                const adminChangeSummary = tryAdminChangeSummary(row.noti_type, row.noti_content)
                 const nidKey =
                   row.notification_info_id != null ? String(row.notification_info_id) : ''
                 const inviteResolved =
@@ -519,7 +544,10 @@ export function NotificationBell() {
                       onClick={() => handleReadOne(row)}
                     >
                       <div className="nb-item__title">{row.noti_title || '(제목 없음)'}</div>
-                      {shouldShowNotiContentBody(row.noti_type, row.noti_content) ? (
+                      {adminChangeSummary ? (
+                        <div className="nb-item__meta nb-item__meta--admin-summary">{adminChangeSummary}</div>
+                      ) : null}
+                      {!adminChangeSummary && shouldShowNotiContentBody(row.noti_type, row.noti_content) ? (
                         <div className="nb-item__meta">{row.noti_content}</div>
                       ) : null}
                       {isInvite && expLine ? (
