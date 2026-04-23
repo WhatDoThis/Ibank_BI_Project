@@ -9,6 +9,13 @@ Backend.admin_server.ownership_guards (역할·ETL·정지 목표 상태 vs 소�
 1. can_own_after_change: 리소스 논리 타입·목표 역할·목표 etl_yn 기준 소유 가능 여부
 2. build_ownership_violation_payload: 스캔 결과·project_invite_rows(for_suspend 시 blocking) → changeable·blocking_assets·allowed_assets
 
+[Endpoints/Classes/Functions]
+=======================
+- can_own_after_change(logical_type, new_dvsn, new_etl_yn) -> bool
+- build_ownership_violation_payload(*, new_dvsn, new_etl_yn, for_suspend, projects, …) -> dict[str, Any]
+- (내부) _reason_for_block(logical_type, new_dvsn, new_etl_yn) -> str
+- (예외) ManagementBlockedError — 관리 API에서 409 detail JSON으로 매핑
+
 [Dependencies]
 =========
 - typing (표준)
@@ -19,7 +26,7 @@ from __future__ import annotations
 from typing import Any
 
 
-# 1. 목표 상태에서 소유 가능 여부 (문서·요청 매트릭스와 동일 취지)
+# 1.
 def can_own_after_change(logical_type: str, new_dvsn: str, new_etl_yn: str) -> bool:
     nd = (new_dvsn or "").strip().lower()
     etl = (new_etl_yn or "N").strip().upper()

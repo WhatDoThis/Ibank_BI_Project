@@ -33,18 +33,6 @@ def _trim_optional_text(value: Optional[str]) -> Optional[str]:
     return s if s else None
 
 
-# 2.
-def table_master_texts_from_etl_row(row: Optional[dict]) -> tuple:
-    """etl_tables 조회 행에서 table_master용 라벨·설명 추출. table_dscrtn 없으면 description 폴백."""
-    if not row:
-        return None, None
-    tl = _trim_optional_text(row.get("table_label"))
-    td = _trim_optional_text(row.get("table_dscrtn"))
-    if td is None:
-        td = _trim_optional_text(row.get("description"))
-    return tl, td
-
-
 # 1.
 def upsert_table_master_after_load(
     table_name: str,
@@ -115,3 +103,15 @@ def upsert_table_master_after_load(
                 conn.close()
             except Exception:
                 pass
+
+
+# 2.
+def table_master_texts_from_etl_row(row: Optional[dict]) -> tuple:
+    """etl_tables 조회 행에서 table_master용 라벨·설명 추출. table_dscrtn 없으면 description 폴백."""
+    if not row:
+        return None, None
+    tl = _trim_optional_text(row.get("table_label"))
+    td = _trim_optional_text(row.get("table_dscrtn"))
+    if td is None:
+        td = _trim_optional_text(row.get("description"))
+    return tl, td

@@ -2,16 +2,29 @@
 Backend.admin_server.service_projects (프로젝트·멤버)
 ================================================
 부서 소유 프로젝트 CRUD, 멤버 추가 시 알림.
+`# N.` 순서는 파일 상단→하단(헬퍼 제외 공개 API) 기준이다.
 
 [Main Functions]
 ===========
-1. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(`audit_sql_catalog` 공용 SQL)·…·타부서 알림
-2. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email·목록 기본 정렬 update_dtm DESC)
+- (공개·번호 없음) normalize_feature_flags_for_db — API `feature_flags` JSON → DB 저장용 dict[bool] 정규화
+1. list_projects_in_dept / list_projects_for_participant(pmssn_master JOIN·creator_email·목록 기본 정렬 update_dtm DESC)
+2. create_project_full — 단일 트랜잭션: project_info·table_project_mapping(`audit_sql_catalog` 공용 SQL)·…·타부서 알림
 3. update_project / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project(비활성만·위젯보드·참여·매핑·알림·초대 참조 정리 후 DELETE) — commit 성공 후 `audit_emit.emit_admin_system_log`(actor_user_id 있을 때)
 4. list_members(items·p.update_dtm·pending_invites에 user_department_display·기본 정렬 update_dtm DESC) · cancel_project_invite / add_member / remove_member / update_member_role — 동일 계측
 5. validate_invite_user_project
 6. _user_in_actor_dept_scope — 생성자 부서 트리 소속 여부
 7. _actor_may_manage_system_dev_department_users / _assert_target_not_hidden_system_dev_member — dptmt_info_id=0(개발·시스템) 노출·멤버 지정은 sa_dev 또는 소속 0번만
+
+[Endpoints/Classes/Functions]
+=======================
+- normalize_feature_flags_for_db(raw) -> dict[str, bool]
+- list_projects_in_dept(conn, dptmt_info_id) -> list[dict]
+- list_projects_for_participant(conn, user_id, dptmt_info_id) -> list[dict]
+- create_project_full(conn, actor_user_id, …) -> dict
+- update_project(conn, …) -> None / deactivate_project / get_inactive_project_purge_preview / purge_inactive_project
+- list_members(conn, …) / cancel_project_invite / add_member / update_member_role / remove_member
+- validate_invite_user_project(conn, …) -> None
+- (내부) _sync_project_table_mappings*, _assert_project_owned*, _notify_project_member_* 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
 
 [Dependencies]
 =========
@@ -295,7 +308,7 @@ def _assert_pmssn_for_project(cur, project_info_id: int, pmssn_master_id: int) -
     raise ValueError("이 프로젝트에 부여할 수 없는 권한입니다.")
 
 
-# 2.
+# 1.
 def list_projects_in_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
     cur = conn.cursor()
     try:
@@ -342,6 +355,7 @@ def list_projects_for_participant(
         cur.close()
 
 
+# 2.
 def create_project_full(
     conn,
     actor_user_id: int,

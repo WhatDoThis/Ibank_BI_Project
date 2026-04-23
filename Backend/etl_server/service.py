@@ -2,6 +2,7 @@
 Backend.etl_server.service (ETL 메타 CRUD·시스템 DB)
 =====================================================
 etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전용.
+아래 `[Main Functions]` 항목 번호와 동일한 `# N.`는 해당 그룹의 **첫 진입 함수**에 둔다(중간 `_` 헬퍼는 생략).
 
 [Main Functions]
 ===========
@@ -14,8 +15,8 @@ etl_connections, etl_tables, etl_jobs 조회·등록·갱신. 시스템 DB 전�
 7. list_timezones, create_connection, list_connections(활성만·is_active 컬럼 시), get_connection_for_etl, test_connection
 8. list_storage_connections(선두 내장 main·dash + etl_storage_connections), get_storage_connection
 9. list_target_tables, list_target_columns, target_table_exists, get_target_table_column_names, get_target_pk_columns
-10. list_etl_tables(_etl_tables_t_select_sql·create_user_label email→nickname→ID), create_etl_table(동적 INSERT), get_etl_table, get_sync_mode_for_load(full|incremental|diff), _storage_pg_identity_tuple·_find_downstream_etl_reading_target_pg(다운스트림 소스 검사), _count_table_project_mapping_for_target, delete_etl_table(공유타겟·다운스트림·프로젝트매핑 검증 후 배치·table_master·DROP·메타 일괄)·delete_etl_table_row_only(etl_jobs.add_file_path 있을 때만 SELECT), update_last_synced_at, update_etl_table(컬럼 존재 시만 SET), refresh_etl_table_column_mapping
-11. insert_job·update_job·delete_job·update_etl_table(HTTP 감사용 `return_fingerprint=True` 시 실제 DML 문자열 지문), set_job_running, list_jobs·get_job(etl_tables JOIN·create_user_label email 우선), delete_job(add_file_path 없으면 SELECT 생략), fetch_pending_jobs, claim_next_pending_job, count_running_jobs, is_job_cancelled, update_job, set_job_total_rows, update_job_progress, update_etl_table_status(status 컬럼 없으면 no-op)
+10. list_etl_tables_by_connection — 본문 `# 10.` / list_etl_tables — `# 10b.`(이하 create_etl_table·get_etl_table·get_sync_mode_for_load·delete_etl_table 등 동일 블록·중간 `_` 생략)
+11. insert_job — 본문 `# 11.` / list_jobs — `# 11a.`(이하 set_job_running·get_job·fetch_pending_jobs 등 Job 블록·중간 `_` 생략)
 
 [Dependencies]
 =========
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 _UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
 
 
+# 1.
 def _resolve_upload_path_for_delete(file_path: Optional[str]) -> Optional[str]:
     """
     DB에 저장된 file_path로 실제 삭제할 파일 경로 반환.
@@ -80,6 +82,7 @@ except ImportError:
     psycopg2 = None
 
 
+# 2.
 def _get_db():
     """순환 import 방지: Backend.core.db를 사용 시점에 로드."""
     from Backend.core import db as api_db
@@ -524,6 +527,7 @@ def _sys_cursor():
         conn.close()
 
 
+# 3.
 def get_target_db_connection(storage_connection_id: Optional[int] = None):
     """
     적재 대상 DB 연결 획득.
@@ -557,6 +561,8 @@ def get_target_db_connection(storage_connection_id: Optional[int] = None):
 # ASCII(.), 전각(U+FF0E), 가운뎃점(U+00B7), One Dot Leader(U+2024), Hyphenation Point(U+2027), Ideographic Full Stop(U+3002)
 _SOURCE_TABLE_DOT_PATTERN = re.compile(r"[.\u00B7\u2024\u2027\uFF0E\u3002]")
 
+
+# 4.
 def _validate_identifier(value: str, name: str) -> str:
     """식별자(테이블명·컬럼명) 검증. 영문·숫자·언더스코어만."""
     if not value or not str(value).strip():
@@ -589,6 +595,7 @@ def _validate_source_table(value: str) -> str:
     return v
 
 
+# 5.
 def _connection_error_to_user_message(ex: Exception, port: Optional[int] = None) -> dict:
     """
     DB 연결 실패 예외를 사용자용 한글 메시지와 점검 안내로 변환.
@@ -720,6 +727,7 @@ def _connect_oracle(host: str, port: int, database: str, user: str, password: st
         raise
 
 
+# 6.
 def _fetch_pk_from_mysql(conn, table_schema: str, table_name: str) -> list:
     """MySQL 연결에서 information_schema로 해당 테이블 PK 컬럼명 목록. 없으면 []."""
     cur = conn.cursor()
@@ -800,6 +808,7 @@ def parse_source_table_parts(
     return (conn_schema or "public", st)
 
 
+# 7.
 def list_timezones() -> list:
     """서버 시간대 마스터 목록. server_timezones 테이블 조회. ORDER BY sort_order ASC, utc_offset_min ASC."""
     schema = _schema()
@@ -963,6 +972,8 @@ def get_connection_for_etl(connection_id: int) -> Optional[dict]:
 
 # ---------- 저장 DB(적재 대상) Phase 1: etl_storage_connections ----------
 
+
+# 8.
 def list_storage_connections() -> list:
     """저장 DB(적재 대상) 연결 목록. 선두 2건=내장 main·dash(config, is_builtin). 이후 etl_storage_connections. 비밀번호 제외."""
     api_db = _get_db()
@@ -1036,6 +1047,7 @@ def get_storage_connection(storage_connection_id: int) -> Optional[dict]:
         conn.close()
 
 
+# 9.
 def list_target_tables(storage_connection_id: Optional[int] = None) -> list:
     """
     저장 DB(적재 대상)의 테이블 목록 조회. Phase 3.
@@ -1642,6 +1654,7 @@ def get_or_create_file_connection(created_by: str, create_user_id: Optional[int]
         conn.close()
 
 
+# 10.
 def list_etl_tables_by_connection(connection_id: int) -> list:
     """해당 연결(connection_id)에 속한 etl_tables 목록. target_table 등 DROP용."""
     schema = _schema()
@@ -1720,6 +1733,7 @@ def delete_connection(connection_id: int) -> None:
         conn_sys.close()
 
 
+# 10b.
 def list_etl_tables() -> list:
     """etl_tables 목록. connection_name, source_type, batch_size, batch_interval_seconds 포함."""
     api_db = _get_db()
@@ -2433,6 +2447,7 @@ def update_last_synced_at(etl_table_id: int, synced_at: Any):
         conn.close()
 
 
+# 11.
 def insert_job(
     etl_table_id: Optional[int],
     status: str = "running",
@@ -2507,6 +2522,7 @@ def set_job_running(job_id: int) -> None:
         conn.close()
 
 
+# 11a.
 def list_jobs(etl_table_id: Optional[int] = None, limit: int = 50, statuses: Optional[list] = None) -> list:
     """Phase 6: Job 목록. etl_table_id 지정 시 해당 ETL만. create_user_label: user_info 크로스 스키마 JOIN 또는 core DB 보강(email→nickname→ID)."""
     api_db = _get_db()

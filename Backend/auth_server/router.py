@@ -1,14 +1,22 @@
 """
 Backend.auth_server.router (/api/auth)
 =====================================
-가입·부서 생성·로그인 2단계·토큰 갱신·마이페이지 API.
+가입·부서 생성·로그인 2단계·토큰 갱신·마이페이지 API. 라우트·`# N.` 순서는 docs/main/06_CUSTOMER_JOURNEY.md(초대 검증→가입→로그인→세션→마이페이지) 우선.
 
 [Endpoints]
 ===========
-1. POST /api/auth/signup, create-org, login, verify-login, refresh, logout
-2. GET/PATCH /api/auth/me — JWT의 project_info_id가 비활성·탈퇴 시 토큰 재발급·project_info_id null·permissions 빈 배열
-2b. GET /api/auth/me/login-history — 최근 로그인 시도(응답 스키마 유지, 조회 로직은 system_log_server.service_login_history 위임)
-3. GET /api/auth/invite/validate
+(번호는 docs/main/06_CUSTOMER_JOURNEY.md 흐름 우선: 초대 검증 → 가입·부서 → 로그인 → 세션 → 마이페이지)
+1. GET /api/auth/invite/validate — 가입 전 초대 코드·부서·프로젝트 첨부 여부 확인
+2. POST /api/auth/signup — 초대 가입
+3. POST /api/auth/create-org — 부서+최초 SA 계정(부트스트랩)
+4. POST /api/auth/login — 1단계(비번·OTP 발송)
+5. POST /api/auth/verify-login — 2단계·세션·토큰
+6. POST /api/auth/refresh — 슬라이딩 리프레시
+7. POST /api/auth/logout
+8. GET /api/auth/me — JWT project_info_id 비활성·탈퇴 시 토큰 재발급·permissions
+9. PATCH /api/auth/me
+10. PATCH /api/auth/me/password
+11. GET /api/auth/me/login-history — system_log_server.service_login_history 위임
 
 [Dependencies]
 =========
@@ -47,6 +55,33 @@ def _map_error(e: ValueError) -> HTTPException:
 
 
 # 1.
+@router.get("/invite/validate")
+def auth_invite_validate(code: str, conn=Depends(get_system_db)):
+    row = service.invite_validate_row(conn, code)
+    if not row:
+        return {"valid": False, "reason": "not_found"}
+    if (row.get("used_yn") or "").upper() == "Y":
+        return {"valid": False, "reason": "used"}
+    ex = row.get("exprtn_dtm")
+    if ex is not None and ex < datetime.now():
+        return {"valid": False, "reason": "expired"}
+    return {
+        "valid": True,
+        "email": row.get("invite_target_email"),
+        "dptmt_name": row.get("dptmt_name"),
+        "invite_target_dvsn": row.get("invite_target_dvsn") or "u",
+        "invite_etl_yn": (row.get("invite_etl_yn") or "N").strip().upper(),
+        "has_project_attachment": bool(
+            row.get("invite_project_info_id") and row.get("invite_pmssn_master_id")
+        ),
+        "invite_project_info_id": row.get("invite_project_info_id"),
+        "invite_pmssn_master_id": row.get("invite_pmssn_master_id"),
+        "invite_project_name": row.get("invite_project_name"),
+        "invite_pmssn_name": row.get("invite_pmssn_name"),
+    }
+
+
+# 2.
 @router.post("/signup")
 def auth_signup(body: schemas.SignupBody, conn=Depends(get_system_db)):
     try:
@@ -58,6 +93,7 @@ def auth_signup(body: schemas.SignupBody, conn=Depends(get_system_db)):
         raise _map_error(e) from e
 
 
+# 3.
 @router.post("/create-org")
 def auth_create_org(body: schemas.CreateOrgBody, conn=Depends(get_system_db)):
     try:
@@ -69,6 +105,7 @@ def auth_create_org(body: schemas.CreateOrgBody, conn=Depends(get_system_db)):
         raise _map_error(e) from e
 
 
+# 4.
 @router.post("/login")
 def auth_login(
     body: schemas.LoginBody,
@@ -85,6 +122,7 @@ def auth_login(
         raise _map_error(e) from e
 
 
+# 5.
 @router.post("/verify-login")
 def auth_verify_login(
     body: schemas.VerifyLoginBody,
@@ -104,6 +142,7 @@ def auth_verify_login(
         raise _map_error(e) from e
 
 
+# 6.
 @router.post("/refresh")
 def auth_refresh(body: schemas.RefreshBody, conn=Depends(get_system_db)):
     try:
@@ -112,6 +151,7 @@ def auth_refresh(body: schemas.RefreshBody, conn=Depends(get_system_db)):
         raise _map_error(e) from e
 
 
+# 7.
 @router.post("/logout")
 def auth_logout(payload: dict = Depends(require_access_session_bound), conn=Depends(get_system_db)):
     sid = payload.get("session_log_id")
@@ -125,6 +165,7 @@ def auth_logout(payload: dict = Depends(require_access_session_bound), conn=Depe
     return {"message": "로그아웃되었습니다."}
 
 
+# 8.
 @router.get("/me")
 def auth_me(
     payload: dict = Depends(require_active_access),
@@ -186,6 +227,7 @@ def auth_me(
     return out
 
 
+# 9.
 @router.patch("/me")
 def auth_patch_me(
     body: schemas.MeUpdateBody,
@@ -200,6 +242,7 @@ def auth_patch_me(
     return {"message": "수정되었습니다."}
 
 
+# 10.
 @router.patch("/me/password")
 def auth_password(
     body: schemas.PasswordChangeBody,
@@ -214,6 +257,7 @@ def auth_password(
     return {"message": "비밀번호가 변경되었습니다. 다시 로그인하세요."}
 
 
+# 11.
 @router.get("/me/login-history")
 def auth_login_history(
     payload: dict = Depends(require_active_access),
@@ -221,29 +265,3 @@ def auth_login_history(
 ):
     uid = int(payload["user_id"])
     return {"items": service.fetch_login_history_masked(conn, uid)}
-
-
-@router.get("/invite/validate")
-def auth_invite_validate(code: str, conn=Depends(get_system_db)):
-    row = service.invite_validate_row(conn, code)
-    if not row:
-        return {"valid": False, "reason": "not_found"}
-    if (row.get("used_yn") or "").upper() == "Y":
-        return {"valid": False, "reason": "used"}
-    ex = row.get("exprtn_dtm")
-    if ex is not None and ex < datetime.now():
-        return {"valid": False, "reason": "expired"}
-    return {
-        "valid": True,
-        "email": row.get("invite_target_email"),
-        "dptmt_name": row.get("dptmt_name"),
-        "invite_target_dvsn": row.get("invite_target_dvsn") or "u",
-        "invite_etl_yn": (row.get("invite_etl_yn") or "N").strip().upper(),
-        "has_project_attachment": bool(
-            row.get("invite_project_info_id") and row.get("invite_pmssn_master_id")
-        ),
-        "invite_project_info_id": row.get("invite_project_info_id"),
-        "invite_pmssn_master_id": row.get("invite_pmssn_master_id"),
-        "invite_project_name": row.get("invite_project_name"),
-        "invite_pmssn_name": row.get("invite_pmssn_name"),
-    }

@@ -3,10 +3,9 @@ Backend.auth_server.schemas (Pydantic 요청·응답)
 ==============================================
 /api/auth 요청 바디·응답 모델. 신규 password 필드는 min_length 10(세부 정책은 security.validate_password_strength).
 
-[Main Functions]
+[Classes]
 ===========
-- SignupBody, CreateOrgBody, LoginBody, VerifyLoginBody, RefreshBody
-- MeUpdateBody, PasswordChangeBody
+- SignupBody, CreateOrgBody, LoginBody, VerifyLoginBody, RefreshBody, MeUpdateBody, PasswordChangeBody
 
 [Dependencies]
 =========

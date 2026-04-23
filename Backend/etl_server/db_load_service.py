@@ -2,19 +2,19 @@
 Backend.etl_server.db_load_service (DB 연동 추출·적재)
 =======================================================
 외부 DB(PostgreSQL·MySQL·Oracle) 추출(E) → 저장 DB 적재(L). Full Load / Incremental Upsert. 소스 PK는 full 모드 시 타겟 CREATE에 반영.
+`[Main Functions]` 항목 번호와 동일한 `# N.`는 해당 단계의 **첫 진입 함수**에 둔다.
 
 [Main Functions]
 ===========
+(본 파일 본문 `# 1.`~`# 7.`는 아래 **첫 진입점**에 대응한다. 그 사이 `_` 헬퍼는 생략.)
 1. _get_source_connection: connection_id로 소스 DB 연결(PostgreSQL 전용)
 2. _is_date_type, validate_incremental_column: 증분 컬럼 날짜 검증
 3. get_source_columns, get_source_indexes: 소스 컬럼·인덱스 조회
 4. _fetch_source_columns(_pg|_mysql|_oracle), _fetch_source_pk_columns, _fetch_pk_values_from_source, _fetch_pk_values_from_target
 5. _create_indexes_on_target, _pg_type_from_*, resolve_column_mapping_pg_type: 타겟 인덱스·타입 변환·매핑 TEXT 오저장 시 소스 기준 보정
-6. _transformed_column_names_from_rules·_row_tuple_for_column_mapping·_incremental_cell_from_row·_columns_final_for_mapping_after_transform(변환 룰 적용 컬럼만 df dtype)·_override_mapping_types_for_transform_rules(매핑 type을 df dtype으로 맞춤 후 type cast), _serialize_value(JSON dict/list → JSON 텍스트), _copy_buf, _copy_insert_batch, _copy_upsert_batch·_copy_staging_cast_expr(JSONB 스테이징 캐스트), _copy_upsert_batch_safe
-7. _ensure_unique_constraint, _get_target_column_list
-8. _run_diff_sync: sync_mode=diff 시 소스/타겟 PK diff → 신규 INSERT·삭제 DELETE
-9. run_db_load: etl_table_id 기준 소스 SELECT → 변환 → 저장 DB CREATE+INSERT 또는 Upsert (full/incremental)
-10. _resolve_pk_columns_for_db_load: etl_tables에 pk_columns가 없거나 비어 있을 때 소스 PK·column_mapping·타겟 PK로 보강
+6. _run_diff_sync: sync_mode=diff 시 소스/타겟 PK diff → 신규 INSERT·삭제 DELETE(상단 `_transformed_*`·`_copy_*` 등은 본 단계 보조)
+7. run_db_load: etl_table_id 기준 소스 SELECT → 변환 → 저장 DB CREATE+INSERT 또는 Upsert (full/incremental)
+8. _resolve_pk_columns_for_db_load: 파일 상단·run_db_load 선행용 PK 보강(번호 생략, 내부 보조)
 
 [Dependencies]
 =========
@@ -44,6 +44,9 @@ from Backend.etl_server import timezone_utils
 from Backend.etl_server import transform_engine
 from Backend.etl_server import transform_rules_service as transform_rules_svc
 from Backend.etl_server.etl_limits import get_etl_limits
+
+
+# --- (내부) 변환·증분·PK 보조: run_db_load 상위에서 사용 ---
 
 
 def _row_tuple_for_column_mapping(r: dict, mapping_used: List[dict]) -> tuple:
@@ -112,6 +115,7 @@ def _resolve_pk_columns_for_db_load(
     return None
 
 
+# 1.
 def _get_source_connection(connection_id: int):
     """소스 DB 연결. service에서 가져와 psycopg2 connection 반환. PostgreSQL 전용."""
     c = etl_service.get_connection_for_etl(connection_id)
@@ -126,6 +130,7 @@ def _get_source_connection(connection_id: int):
     )
 
 
+# 2.
 def _is_date_type(data_type: str) -> bool:
     """DB data_type이 날짜/시간 타입인지 여부. 증분 컬럼 추천용."""
     t = (data_type or "").strip().lower()
@@ -138,6 +143,7 @@ def _is_date_type(data_type: str) -> bool:
     return False
 
 
+# 3.
 def get_source_columns(connection_id: int, source_table: str) -> List[dict]:
     """
     소스 DB의 지정 테이블 컬럼 목록. connection_id, source_table 필수.
@@ -506,6 +512,7 @@ def _pg_type_from_mysql(data_type: str) -> str:
     return "TEXT"
 
 
+# 4.
 def _fetch_source_columns(conn, schema: str, table: str) -> List[Tuple[str, str]]:
     """information_schema.columns에서 (column_name, data_type) 목록."""
     cur = conn.cursor()
@@ -721,6 +728,7 @@ def _get_target_column_list(cur, schema: str, table_name: str) -> List[str]:
         return []
 
 
+# 5.
 def _create_indexes_on_target(cur, conn, main_schema: str, target_table: str, index_definitions: Optional[List[dict]]) -> None:
     """타겟 테이블에 인덱스 생성. 이미 존재하면 건너뜀. PK 인덱스는 제외(테이블 생성 시 반영)."""
     if not index_definitions:
@@ -1113,6 +1121,7 @@ MAX_DIFF_PK_COUNT = 10_000_000
 _DIFF_PK_SELECT_BATCH = 1000
 
 
+# 6.
 def _run_diff_sync(
     etl_table_id: int,
     job_id: Optional[int],
@@ -1322,6 +1331,7 @@ def _run_diff_sync(
     return {"rows_inserted": total_inserted, "rows_deleted": rows_deleted}
 
 
+# 7.
 def run_db_load(etl_table_id: int, job_id: Optional[int] = None) -> dict:
     """
     ETL 테이블(DB 연동) 1건에 대해 추출·적재 실행.

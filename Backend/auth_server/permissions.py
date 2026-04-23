@@ -22,6 +22,10 @@ Backend.auth_server.permissions (프로젝트·ETL 권한 검증)
 9. require_etl_infrastructure: ETL 라우터용 Depends
 10. require_permission: FastAPI Depends 팩토리 (*필요 권한 AND)
 
+[Endpoints/Classes/Functions]
+=======================
+- get_user_dvsn_lower … require_permission — 본문 `# 1.`~`# 10.` 순서가 정본. `require_etl_infrastructure`·`require_permission`은 FastAPI Depends 반환.
+
 [Dependencies]
 =========
 - fastapi Depends HTTPException

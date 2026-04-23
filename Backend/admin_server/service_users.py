@@ -11,21 +11,26 @@ Backend.admin_server.service_users (유저·초대·부서)
 1c. list_users_dept_tree_for_project_create(프로젝트 생성 모달·본인 제외·부서 트리·정렬)
 2. search_users_by_email (operator 시 동일 부서만; 전역 검색 시 exclude_dptmt_zero 로 개발부서 0번 제외)
 3. invite_user_by_email (초대 조직 역할·부서 트리·ETL·U+프로젝트, 초대 메일에 부서·조직 역할·프로젝트 권한 명시, UndefinedColumn 시 DDL 안내)
-3b. list_departments_for_invite / assert_invite_dptmt_allowed
+3b. assert_invite_dptmt_allowed / list_departments_for_invite(코드 배치·#3 이후 단조 번호)
 3c. _invite_org_role_label_ko / _fetch_invite_email_labels (초대 메일 본문용 부서·프로젝트·권한 템플릿명)
-4. suspend_user / activate_user / delete_inactive_user — commit 후 `audit_emit.emit_admin_system_log`(플래그 on 시)
-5. set_user_dvsn_admin_user / set_user_etl_flag — 동일 계측(actor_user_id)
-6. invite_user_by_email / update_user_management — 동일 계측
+4. suspend_user / activate_user / delete_inactive_user — commit 후 `audit_emit.emit_admin_system_log`(플래그 on 시); 정지·삭제 경로는 `ownership_guards`(409)·`project_invite_rows` 등과 연동
+5. set_user_dvsn_admin_user — 동일 계측(actor_user_id)
+6. set_user_etl_flag — 동일 계측
 7. list_invite_codes_for_dept
 8. get_department / update_department_name — commit 후 `emit_admin_system_log`(dept_update)
-9. list_departments_for_org_settings(기본 정렬 update_dtm DESC) / create_department(dept_create) / update_department_in_org_settings(dept_update|dept_invalidate) / delete_department_in_org_settings(dept_delete) — 동일
+9. list_departments_for_org_settings(기본 정렬 update_dtm DESC); 이어서 update_department_in_org_settings·delete_department_in_org_settings·create_department(동일 부서 설정 흐름, `# 9.`는 목록 API)
 10. _assert_department_clear_for_invalidate_or_remove — use_yn=N·DELETE 전 dptmt_info_id 참조(하위 부서·유저·초대·프로젝트·부서 커스텀 권한) 검사
 11. get_user_work_assets — 생성·참여·초대자(invite_user_id) 프로젝트 참여, 커스텀 권한, 등록 부서, table_master·etl_db·연쇄 안내
-12. list_ownership_transfer_targets / list_department_creator_transfer_targets — 이관 수신(일반: sa_dev·sa·a / 부서생성자: sa·sa만, 동일 부서 수직 트리·SA→sa_dev 제외)
-12b. list_table_master_transfer_targets — 테이블 마스터 이관 후보(query.execute·매핑·부서 SA/A·sa_dev·동일 부서 PK가 아닌 상·하위 부서 포함)
+12. list_table_master_transfer_targets — 테이블 마스터 이관 후보(본문 순서상 `list_ownership_*`보다 먼저 정의)
+12a. list_ownership_transfer_targets — 이관 수신(일반: sa_dev·sa·a, 동일 부서 수직 트리·SA→sa_dev 제외)
+12b. list_department_creator_transfer_targets — 부서 생성자 이관 수신(sa·sa_dev만)
 13. transfer_resource_ownership — project·project_invite(project_ptcpnt_info)·pmssn_master·table_master·dptmt_creator·ETL 메타 이관 — 성공 시 `ownership_transfer` 계측
-14. ownership_guards 연동 — 정지·삭제 시 project_invite_rows 포함(초대자 이관 전 NOT NULL)·그 외 목표 조직 역할·ETL 매트릭스(409)
-15. get_user_change_options / update_user_management — 부서·조직 역할·ETL·프로젝트 참여·권한 배정 변경·`user_dvsn_options`·`projects[].pmssn_options`·projects[].project_department_display(소속 부서: 최상위 이름(-), 하위 상위(자기))(SA 마지막 1인 경고·등록 부서 소유는 ownership_guards·409·조직 역할 u 시 etl_yn N)
+14. get_user_change_options — 부서·역할·ETL·프로젝트 옵션·`user_dvsn_options`·`projects[].pmssn_options`·`project_department_display`(SA 마지막 1인 경고 등)
+15. update_user_management — 부서·조직 역할·ETL·프로젝트 참여·권한 배정 일괄 반영(등록 부서 소유는 ownership_guards·409·조직 역할 u 시 etl_yn N 등 검증)
+
+[Endpoints/Classes/Functions]
+=======================
+- HTTP 라우터 없음. `Backend.admin_server.router`의 `/api/admin/users*` 등이 본 모듈 `# 1.`~`# 15.`(및 `1b` 등) 진입 함수를 호출한다. 시그니처·키워드 인자는 각 `def` 선언이 정본이다.
 
 [Dependencies]
 =========
@@ -784,94 +789,6 @@ def _cascade_transfer_etl_for_table_master(
         etl_conn.close()
 
 
-def _norm_email(email: str) -> str:
-    return (email or "").strip().lower()
-
-
-def assert_invite_dptmt_allowed(
-    conn,
-    actor_dvsn: str,
-    actor_dptmt_id: int,
-    target_dptmt_id: int,
-) -> None:
-    ad = (actor_dvsn or "").strip().lower()
-    tid = int(target_dptmt_id)
-    if ad == "sa_dev":
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                "SELECT dptmt_info_id FROM dptmt_info WHERE dptmt_info_id = %s",
-                (tid,),
-            )
-            if not cur.fetchone():
-                raise ValueError("부서를 찾을 수 없습니다.")
-        finally:
-            cur.close()
-        return
-    aid = int(actor_dptmt_id)
-    if tid == aid:
-        return
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            WITH RECURSIVE sub AS (
-                SELECT dptmt_info_id, parent_dptmt_info_id
-                FROM dptmt_info WHERE dptmt_info_id = %s
-                UNION ALL
-                SELECT d.dptmt_info_id, d.parent_dptmt_info_id
-                FROM dptmt_info d
-                INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
-            )
-            SELECT 1 FROM sub WHERE dptmt_info_id = %s LIMIT 1
-            """,
-            (aid, tid),
-        )
-        if not cur.fetchone():
-            raise ValueError("해당 부서로는 초대할 수 없습니다.")
-    finally:
-        cur.close()
-
-
-# 3b.
-def list_departments_for_invite(
-    conn, actor_dvsn: str, actor_dptmt_id: int
-) -> list[dict[str, Any]]:
-    ad = (actor_dvsn or "").strip().lower()
-    cur = conn.cursor()
-    try:
-        if ad == "sa_dev":
-            # dptmt_info_id = 0 인 루트/시드 부서도 포함 (초대 시 가입 부서 선택 가능해야 함)
-            cur.execute(
-                """
-                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
-                FROM dptmt_info
-                WHERE COALESCE(use_yn, 'Y') = 'Y'
-                ORDER BY dptmt_info_id, dptmt_name NULLS LAST
-                """
-            )
-        else:
-            cur.execute(
-                """
-                WITH RECURSIVE sub AS (
-                    SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
-                    FROM dptmt_info WHERE dptmt_info_id = %s
-                    UNION ALL
-                    SELECT d.dptmt_info_id, d.dptmt_name, d.parent_dptmt_info_id
-                    FROM dptmt_info d
-                    INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
-                    WHERE COALESCE(d.use_yn, 'Y') = 'Y'
-                )
-                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id FROM sub
-                ORDER BY dptmt_name NULLS LAST
-                """,
-                (int(actor_dptmt_id),),
-            )
-        return _apply_department_option_display_labels([dict(r) for r in cur.fetchall()])
-    finally:
-        cur.close()
-
-
 # 1.
 def list_users_same_dept(conn, dptmt_info_id: int) -> list[dict[str, Any]]:
     cur = conn.cursor()
@@ -1278,6 +1195,94 @@ def invite_user_by_email(
             )
         except Exception:
             pass
+
+
+def _norm_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+# 3b.
+def assert_invite_dptmt_allowed(
+    conn,
+    actor_dvsn: str,
+    actor_dptmt_id: int,
+    target_dptmt_id: int,
+) -> None:
+    ad = (actor_dvsn or "").strip().lower()
+    tid = int(target_dptmt_id)
+    if ad == "sa_dev":
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT dptmt_info_id FROM dptmt_info WHERE dptmt_info_id = %s",
+                (tid,),
+            )
+            if not cur.fetchone():
+                raise ValueError("부서를 찾을 수 없습니다.")
+        finally:
+            cur.close()
+        return
+    aid = int(actor_dptmt_id)
+    if tid == aid:
+        return
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            WITH RECURSIVE sub AS (
+                SELECT dptmt_info_id, parent_dptmt_info_id
+                FROM dptmt_info WHERE dptmt_info_id = %s
+                UNION ALL
+                SELECT d.dptmt_info_id, d.parent_dptmt_info_id
+                FROM dptmt_info d
+                INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
+            )
+            SELECT 1 FROM sub WHERE dptmt_info_id = %s LIMIT 1
+            """,
+            (aid, tid),
+        )
+        if not cur.fetchone():
+            raise ValueError("해당 부서로는 초대할 수 없습니다.")
+    finally:
+        cur.close()
+
+
+def list_departments_for_invite(
+    conn, actor_dvsn: str, actor_dptmt_id: int
+) -> list[dict[str, Any]]:
+    ad = (actor_dvsn or "").strip().lower()
+    cur = conn.cursor()
+    try:
+        if ad == "sa_dev":
+            # dptmt_info_id = 0 인 루트/시드 부서도 포함 (초대 시 가입 부서 선택 가능해야 함)
+            cur.execute(
+                """
+                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
+                FROM dptmt_info
+                WHERE COALESCE(use_yn, 'Y') = 'Y'
+                ORDER BY dptmt_info_id, dptmt_name NULLS LAST
+                """
+            )
+        else:
+            cur.execute(
+                """
+                WITH RECURSIVE sub AS (
+                    SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id
+                    FROM dptmt_info WHERE dptmt_info_id = %s
+                    UNION ALL
+                    SELECT d.dptmt_info_id, d.dptmt_name, d.parent_dptmt_info_id
+                    FROM dptmt_info d
+                    INNER JOIN sub s ON d.parent_dptmt_info_id = s.dptmt_info_id
+                    WHERE COALESCE(d.use_yn, 'Y') = 'Y'
+                )
+                SELECT dptmt_info_id, dptmt_name, parent_dptmt_info_id FROM sub
+                ORDER BY dptmt_name NULLS LAST
+                """,
+                (int(actor_dptmt_id),),
+            )
+        return _apply_department_option_display_labels([dict(r) for r in cur.fetchall()])
+    finally:
+        cur.close()
 
 
 # 4.
@@ -1775,6 +1780,7 @@ def _apply_department_option_display_labels(rows: list[dict[str, Any]]) -> list[
     return out
 
 
+# 9.
 def list_departments_for_org_settings(
     conn, actor_dvsn: str, actor_dptmt_id: int
 ) -> list[dict[str, Any]]:
@@ -1872,9 +1878,10 @@ def _assert_actor_can_manage_department(
     raise ValueError("권한이 없습니다.")
 
 
+# 10.
 def _assert_department_clear_for_invalidate_or_remove(conn, tid: int) -> None:
     """
-    # 10b. [부서 비활성·삭제]
+    [부서 비활성·삭제]
     부서명·코드만 변경 시에는 호출하지 않는다.
     use_yn='N' 또는 DELETE 전: 이 부서 PK를 참조하는 행이 있으면 불가.
     """
@@ -2495,7 +2502,6 @@ def get_user_work_assets(
     }
 
 
-# 12.
 def _actor_cannot_transfer_to_sa_dev(actor_dvsn: str) -> bool:
     """부서 SA는 전사 sa_dev에게 이관 불가(A·sa_dev 액터는 예외)."""
     return canon_user_dvsn(actor_dvsn) == "sa"
@@ -2557,6 +2563,7 @@ def _table_master_recipient_eligible(
     return False
 
 
+# 12.
 def list_table_master_transfer_targets(
     conn,
     actor_dvsn: str,
@@ -2713,6 +2720,7 @@ def list_table_master_transfer_targets(
     return out
 
 
+# 12a.
 def list_ownership_transfer_targets(
     conn,
     actor_dvsn: str,
@@ -2838,6 +2846,7 @@ def list_ownership_transfer_targets(
     return out
 
 
+# 12b.
 def list_department_creator_transfer_targets(
     conn,
     actor_dvsn: str,
@@ -3509,6 +3518,7 @@ def _enrich_change_option_projects_department_display(
             r["project_department_display"] = f"{pname}({dname})"
 
 
+# 14.
 def get_user_change_options(
     conn,
     actor_dptmt: int,
@@ -3623,6 +3633,7 @@ def get_user_change_options(
     }
 
 
+# 15.
 def update_user_management(
     conn,
     actor_user_id: int,

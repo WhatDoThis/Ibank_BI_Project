@@ -1,15 +1,18 @@
 """
 Backend.admin_server.router (/api/admin)
 ========================================
-어드민·슈퍼어드민 API. users/roles/projects/tables 도메인 service 호출.
+어드민·슈퍼어드민 API. 라우트 정의 순서는 docs/main/06_CUSTOMER_JOURNEY.md(조직→인원·초대→역할→전사 테이블→프로젝트) 우선.
+users/roles/projects/tables 도메인 service 호출.
 
 [Endpoints]
 ===========
-1. users, users/invite, users/ownership-transfer-targets, users/{id}/work-assets, transfer-ownership, users/{id}/change-options|management(409), users/{id}/suspend|activate|DELETE(비활성만·409)
-2. roles CRUD(역할 수정 시 배정 있으면 pmssn_list 변경 400), roles/permission-options, roles/{pmssn_master_id}/usages, roles/{pmssn_master_id}/projects/{project_info_id}/participants, roles/users/{user_id}/usages
-3. projects CRUD·GET purge-preview·DELETE purge(비활성 물리 삭제·위젯보드 연쇄), projects/{id}/members·invites
-4. table master 조회/수정, project table mapping 관리
-5. invite-codes, org, org/departments GET/POST/PATCH/DELETE (SA_DEV 전체·루트/하위 / SA 트리·하위만)
+(섹션 번호는 docs/main/06_CUSTOMER_JOURNEY.md 우선: Phase 1 조직 → 인원·초대 → 역할 → Phase 6 테이블 원장 → 프로젝트·매핑·멤버)
+1. org, org/departments — 부서 트리·조직 설정(06 Phase 1)
+1b. invite-codes — 부서별 발급 초대 코드 목록
+2. users(/search, invite, ownership, work-assets, transfer, change-options, management, suspend|activate|DELETE, role, etl), invite/departments|projects|roles(초대 폼 보조)
+3. roles CRUD·permission-options·usages·participants
+4. table master GET/PATCH(전사 원장, project_create 정렬 등)
+5. projects CRUD·purge·members·invites·projects/{id}/tables 매핑
 
 [Dependencies]
 =========
@@ -47,7 +50,128 @@ def _ve(e: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(e))
 
 
-# 1. [users]
+# 1. [org — 06 Phase 1: 부서 트리·조직 설정]
+@router.get("/org")
+def admin_org_get(
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    did = int(actor["dptmt_info_id"])
+    try:
+        return service_users.get_department(conn, did)
+    except ValueError as e:
+        raise _ve(e) from e
+
+
+@router.patch("/org")
+def admin_org_patch(
+    body: schemas.OrgPatchBody,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    did = int(actor["dptmt_info_id"])
+    try:
+        service_users.update_department_name(
+            conn, did, body.dptmt_name, actor_user_id=int(actor["user_id"])
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "부서 정보가 수정되었습니다."}
+
+
+@router.get("/org/departments")
+def admin_org_departments_list(
+    actor: dict = Depends(get_authenticated_user_row),
+    conn=Depends(get_system_db),
+):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in SUPER_ORG_DVSN:
+        return {"items": []}
+    return {
+        "items": service_users.list_departments_for_org_settings(
+            conn,
+            str(actor.get("user_dvsn") or ""),
+            int(actor["dptmt_info_id"]),
+        )
+    }
+
+
+@router.post("/org/departments")
+def admin_org_departments_create(
+    body: schemas.OrgDepartmentCreateBody,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        new_id = service_users.create_department(
+            conn,
+            int(actor["user_id"]),
+            body.dptmt_name,
+            body.parent_dptmt_info_id,
+            body.dptmt_code,
+            actor_dvsn=str(actor.get("user_dvsn") or ""),
+            actor_dptmt_id=int(actor["dptmt_info_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"dptmt_info_id": new_id, "message": "부서가 등록되었습니다."}
+
+
+@router.patch("/org/departments/{dptmt_info_id}")
+def admin_org_departments_patch(
+    dptmt_info_id: int,
+    body: schemas.OrgDepartmentPatchBody,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.update_department_in_org_settings(
+            conn,
+            int(dptmt_info_id),
+            body.dptmt_name,
+            body.dptmt_code,
+            body.use_yn,
+            actor_dvsn=str(actor.get("user_dvsn") or ""),
+            actor_dptmt_id=int(actor["dptmt_info_id"]),
+            migrate_users_to_dptmt_info_id=body.migrate_users_to_dptmt_info_id,
+            actor_user_id=int(actor["user_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "부서 정보가 수정되었습니다."}
+
+
+@router.delete("/org/departments/{dptmt_info_id}")
+def admin_org_departments_delete(
+    dptmt_info_id: int,
+    actor: dict = Depends(require_super_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_users.delete_department_in_org_settings(
+            conn,
+            int(dptmt_info_id),
+            actor_dvsn=str(actor.get("user_dvsn") or ""),
+            actor_dptmt_id=int(actor["dptmt_info_id"]),
+            actor_user_id=int(actor["user_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "부서가 삭제되었습니다."}
+
+
+# 1b. [invite-codes]
+@router.get("/invite-codes")
+def admin_invite_codes(
+    actor: dict = Depends(get_authenticated_user_row),
+    conn=Depends(get_system_db),
+):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
+    did = int(actor["dptmt_info_id"])
+    return {"items": service_users.list_invite_codes_for_dept(conn, did)}
+
+
+# 2. [users]
 @router.get("/users")
 def admin_users_list(
     scope: str | None = Query(None, description="dept_tree: 프로젝트 생성 모달용 부서 트리·본인 제외"),
@@ -414,126 +538,6 @@ def admin_user_etl_access(
     return {"message": "ETL 자격이 반영되었습니다."}
 
 
-@router.get("/invite-codes")
-def admin_invite_codes(
-    actor: dict = Depends(get_authenticated_user_row),
-    conn=Depends(get_system_db),
-):
-    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
-        return {"items": []}
-    did = int(actor["dptmt_info_id"])
-    return {"items": service_users.list_invite_codes_for_dept(conn, did)}
-
-
-# 2. [org]
-@router.get("/org")
-def admin_org_get(
-    actor: dict = Depends(require_super_admin),
-    conn=Depends(get_system_db),
-):
-    did = int(actor["dptmt_info_id"])
-    try:
-        return service_users.get_department(conn, did)
-    except ValueError as e:
-        raise _ve(e) from e
-
-
-@router.patch("/org")
-def admin_org_patch(
-    body: schemas.OrgPatchBody,
-    actor: dict = Depends(require_super_admin),
-    conn=Depends(get_system_db),
-):
-    did = int(actor["dptmt_info_id"])
-    try:
-        service_users.update_department_name(
-            conn, did, body.dptmt_name, actor_user_id=int(actor["user_id"])
-        )
-    except ValueError as e:
-        raise _ve(e) from e
-    return {"message": "부서 정보가 수정되었습니다."}
-
-
-@router.get("/org/departments")
-def admin_org_departments_list(
-    actor: dict = Depends(get_authenticated_user_row),
-    conn=Depends(get_system_db),
-):
-    if canon_user_dvsn(actor.get("user_dvsn")) not in SUPER_ORG_DVSN:
-        return {"items": []}
-    return {
-        "items": service_users.list_departments_for_org_settings(
-            conn,
-            str(actor.get("user_dvsn") or ""),
-            int(actor["dptmt_info_id"]),
-        )
-    }
-
-
-@router.post("/org/departments")
-def admin_org_departments_create(
-    body: schemas.OrgDepartmentCreateBody,
-    actor: dict = Depends(require_super_admin),
-    conn=Depends(get_system_db),
-):
-    try:
-        new_id = service_users.create_department(
-            conn,
-            int(actor["user_id"]),
-            body.dptmt_name,
-            body.parent_dptmt_info_id,
-            body.dptmt_code,
-            actor_dvsn=str(actor.get("user_dvsn") or ""),
-            actor_dptmt_id=int(actor["dptmt_info_id"]),
-        )
-    except ValueError as e:
-        raise _ve(e) from e
-    return {"dptmt_info_id": new_id, "message": "부서가 등록되었습니다."}
-
-
-@router.patch("/org/departments/{dptmt_info_id}")
-def admin_org_departments_patch(
-    dptmt_info_id: int,
-    body: schemas.OrgDepartmentPatchBody,
-    actor: dict = Depends(require_super_admin),
-    conn=Depends(get_system_db),
-):
-    try:
-        service_users.update_department_in_org_settings(
-            conn,
-            int(dptmt_info_id),
-            body.dptmt_name,
-            body.dptmt_code,
-            body.use_yn,
-            actor_dvsn=str(actor.get("user_dvsn") or ""),
-            actor_dptmt_id=int(actor["dptmt_info_id"]),
-            migrate_users_to_dptmt_info_id=body.migrate_users_to_dptmt_info_id,
-            actor_user_id=int(actor["user_id"]),
-        )
-    except ValueError as e:
-        raise _ve(e) from e
-    return {"message": "부서 정보가 수정되었습니다."}
-
-
-@router.delete("/org/departments/{dptmt_info_id}")
-def admin_org_departments_delete(
-    dptmt_info_id: int,
-    actor: dict = Depends(require_super_admin),
-    conn=Depends(get_system_db),
-):
-    try:
-        service_users.delete_department_in_org_settings(
-            conn,
-            int(dptmt_info_id),
-            actor_dvsn=str(actor.get("user_dvsn") or ""),
-            actor_dptmt_id=int(actor["dptmt_info_id"]),
-            actor_user_id=int(actor["user_id"]),
-        )
-    except ValueError as e:
-        raise _ve(e) from e
-    return {"message": "부서가 삭제되었습니다."}
-
-
 # 3. [roles]
 @router.get("/roles")
 def admin_roles_list(
@@ -677,7 +681,51 @@ def admin_role_project_participants(
     return {"items": items}
 
 
-# 4. [projects]
+# 4. [table master 전사 — 06 Phase 6·ETL 반영 원장]
+@router.get("/tables")
+def admin_tables_list(
+    db_type: str | None = Query(None, description="main|dash"),
+    q: str = Query("", min_length=0),
+    limit: int = Query(300, ge=1, le=2000),
+    sort: str | None = Query(
+        None,
+        description="project_create: db_type=main이면 update_dtm desc·table_name; 아니면 dash 우선·동일",
+    ),
+    actor: dict = Depends(get_authenticated_user_row),
+    conn=Depends(get_system_db),
+):
+    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
+        return {"items": []}
+    try:
+        items = service_tables.list_table_master(
+            conn, db_type=db_type, q=q, limit=limit, sort_mode=sort
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"items": items}
+
+
+@router.patch("/tables/{table_master_id}")
+def admin_table_patch(
+    table_master_id: int,
+    body: schemas.TableMasterPatchBody,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    try:
+        service_tables.update_table_master(
+            conn,
+            table_master_id,
+            body.table_label,
+            body.table_dscrtn,
+            actor_user_id=int(actor["user_id"]),
+        )
+    except ValueError as e:
+        raise _ve(e) from e
+    return {"message": "수정되었습니다."}
+
+
+# 5. [projects]
 @router.get("/projects")
 def admin_projects_list(
     actor: dict = Depends(get_authenticated_user_row),
@@ -813,49 +861,6 @@ def admin_projects_purge(
     except ValueError as e:
         raise _ve(e) from e
     return {"message": "프로젝트가 삭제되었습니다."}
-
-
-@router.get("/tables")
-def admin_tables_list(
-    db_type: str | None = Query(None, description="main|dash"),
-    q: str = Query("", min_length=0),
-    limit: int = Query(300, ge=1, le=2000),
-    sort: str | None = Query(
-        None,
-        description="project_create: db_type=main이면 update_dtm desc·table_name; 아니면 dash 우선·동일",
-    ),
-    actor: dict = Depends(get_authenticated_user_row),
-    conn=Depends(get_system_db),
-):
-    if canon_user_dvsn(actor.get("user_dvsn")) not in ORG_ADMIN_DVSN:
-        return {"items": []}
-    try:
-        items = service_tables.list_table_master(
-            conn, db_type=db_type, q=q, limit=limit, sort_mode=sort
-        )
-    except ValueError as e:
-        raise _ve(e) from e
-    return {"items": items}
-
-
-@router.patch("/tables/{table_master_id}")
-def admin_table_patch(
-    table_master_id: int,
-    body: schemas.TableMasterPatchBody,
-    actor: dict = Depends(require_org_admin),
-    conn=Depends(get_system_db),
-):
-    try:
-        service_tables.update_table_master(
-            conn,
-            table_master_id,
-            body.table_label,
-            body.table_dscrtn,
-            actor_user_id=int(actor["user_id"]),
-        )
-    except ValueError as e:
-        raise _ve(e) from e
-    return {"message": "수정되었습니다."}
 
 
 @router.get("/projects/{project_info_id}/tables")

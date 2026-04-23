@@ -2,6 +2,7 @@
 Backend.auth_server.security (bcrypt·JWT·코드 해시)
 ================================================
 비밀번호·2차 인증코드·세션 토큰 해시 및 JWT 발급/검증.
+`# N.`/`# 1a.` 순서는 docs/main/06 Phase 4(세션·JWT)와 동일하게 읽는다.
 
 [Main Functions]
 ===========
@@ -31,6 +32,7 @@ import jwt
 from Backend.core import auth_config
 
 
+# 1.
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -66,6 +68,7 @@ def validate_password_strength(plain: str) -> None:
         )
 
 
+# 2.
 def hash_otp_code(code: str) -> str:
     return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
 
@@ -76,6 +79,7 @@ def verify_otp_code(code: str, stored_hash: str | None) -> bool:
     return hmac.compare_digest(hash_otp_code(code), stored_hash)
 
 
+# 3.
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -88,6 +92,7 @@ def _exp_ts(dt: datetime) -> int:
     return int(dt.timestamp())
 
 
+# 4.
 def create_pre_auth_token(user_id: int) -> str:
     minutes = auth_config.get_jwt_pre_auth_expire_minutes()
     exp_dt = _utcnow() + timedelta(minutes=minutes)
@@ -107,6 +112,7 @@ def decode_pre_auth_payload(token: str) -> dict[str, Any]:
     return payload
 
 
+# 5.
 def create_access_token(
     user_id: int,
     dptmt_info_id: int,

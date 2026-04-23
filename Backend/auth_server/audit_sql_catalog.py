@@ -2,15 +2,17 @@
 Backend.auth_server.audit_sql_catalog (감사용 SQL 템플릿·지문)
 ==========================================================
 `emit_auth_system_log` 가 `sql_fingerprint` 를 넘기지 않을 때, `business_action` 에 대응하는
-**대표 DML/조회 템플릿**만 해시한다. 원문 SQL 전체는 `system_log` 에 저장하지 않는다(04 §13).
+**대표 DML/조회 템플릿**만 해시한다. 원문 SQL 전체는 `system_log` 에 저장하지 않는다(`docs/main/04_DB_ARCHITECTURE.md` 13절).
 
 [Main Functions]
 ===========
-1. auth_audit_sql_fingerprint: business_action → 지문 hex 또는 None
+1. _fingerprint_hex_cached: SQL 템플릿 → `compute_sql_fingerprint_hex` 결과 LRU 캐시(`lru_cache`)
+2. auth_audit_sql_fingerprint: business_action → 등록 템플릿 조회 후 1번으로 지문 hex 또는 None
 
 [Endpoints/Classes/Functions]
 =======================
-- auth_audit_sql_fingerprint(business_action, detail_json)
+- _fingerprint_hex_cached(sql_template) -> str | None
+- auth_audit_sql_fingerprint(business_action, detail_json) -> str | None
 
 [Dependencies]
 =========
@@ -79,6 +81,7 @@ def _fingerprint_hex_cached(sql_template: str) -> str | None:
     return compute_sql_fingerprint_hex(sql_template)
 
 
+# 2.
 def auth_audit_sql_fingerprint(
     business_action: str, detail_json: dict[str, Any] | None
 ) -> str | None:

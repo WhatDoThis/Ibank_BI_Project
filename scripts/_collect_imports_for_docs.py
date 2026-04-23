@@ -1,8 +1,8 @@
 """
 _collect_imports_for_docs (문서용 import 수집 스크립트)
 =====================================================
-docs/main/09 작성 시 `generate_docs_main_09.py`가 읽는 중간 산출물이다.
-Backend·Env·프론트 `src`·`run.py`의 import/from을 수집하며, **09 본문은 외부 모듈만** 사용한다.
+`docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md`를 손으로 갱신할 때, 실제 import와 대조하려면 이 스크립트로 `scripts/_09_import_scan_raw.json`을 뽑아 쓴다.
+Backend·Env·프론트 `src`·`run.py`의 import/from을 수집한다.
 
 [Main Functions]
 ===========

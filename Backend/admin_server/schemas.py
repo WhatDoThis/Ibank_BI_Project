@@ -6,7 +6,7 @@ Backend.admin_server.schemas (어드민 API 요청 바디)
 [Classes]
 ===========
 - InviteBody, UserRoleBody, UserEtlYnBody, TransferOwnershipBody(project_invite·dptmt_creator), UserManageUpdateBody(etl_yn 선택)
-- RoleCreateBody, RoleUpdateBody(pmssn_list 설명·배정 시 변경 불가), ProjectMemberAssignBody, ProjectFeatureFlags, TableMappingEntry, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
+- RoleCreateBody, RoleUpdateBody(pmssn_list 설명·배정 시 변경 불가), ProjectMemberAssignBody, ProjectAssignmentBody, ProjectFeatureFlags, TableMappingEntry, ProjectCreateBody, ProjectUpdateBody, MemberAddBody, MemberRoleBody, AcceptProjectInviteBody
 - OrgPatchBody, OrgDepartmentCreateBody, OrgDepartmentPatchBody(migrate_users_to_dptmt_info_id), TableMasterPatchBody, ProjectTableAddBody
 - PermissionOptionResponse, RoleUsageRow, RoleUsageListResponse, UserRoleUsageRow, UserRoleUsageListResponse
 

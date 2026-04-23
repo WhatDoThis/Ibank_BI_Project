@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _OUT_HEADER = "X-Request-Correlation-Id"
 
 
+# 1.
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     """X-Request-Correlation-Id 처리. 본문 전체 try/except 로 요청 진행을 보장한다."""
 

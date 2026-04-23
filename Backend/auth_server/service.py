@@ -9,6 +9,7 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 2. signup_with_invite: 초대 가입(user_dvsn·etl_yn·U 시 프로젝트 멤버) — commit 후 `emit_auth_system_log`
 3. create_org_and_user: 부서+슈퍼어드민 트랜잭션(validate_password_strength) — 동일
 4. login_send_code: 1단계 비번 검증·OTP 저장·pre_auth 발급
+4a. insert_login_log: 로그인 시도 기록(login_send_code·verify_login_complete에서 공용 호출)
 5. verify_login_complete: 2단계·OTP 후 활성·잠금 재확인·세션·토큰 — 성공·실패 시 `audit_emit.emit_auth_system_log`(플래그 on)
 6. refresh_session_tokens: 슬라이딩 리프레시·비활성·잠금 시 거절(JWT의 project_info_id가 비활성·비참여면 클레임 제거)
 7. rotate_session_tokens_with_project: 프로젝트 선택 시 access·refresh 재발급(active_yn=Y·참여자 검증)
@@ -16,8 +17,8 @@ system_db 트랜잭션·쿼리. 라우터는 ValueError → HTTPException 매핑
 8. logout_one_session: 세션 1건 만료
 9. invalidate_all_sessions: 유저 전체 세션 만료(do_commit=False 시 호출부에서 commit)
 10. get_user_profile: 마이페이지용
-11. update_user_nickname / change_password(신규 비밀번호 validate_password_strength·commit 후 emit_auth_system_log)
-12. insert_login_log
+11. update_user_nickname — 닉네임만 갱신
+12. change_password — 신규 비밀번호 `validate_password_strength`·commit 후 `emit_auth_system_log`
 13. fetch_login_history_masked: 최근 N건 IP 마스킹 — `Backend.system_log_server.service_login_history` 위임
 
 [Dependencies]
@@ -284,7 +285,7 @@ def login_send_code(
     return pre, exp_sec
 
 
-# 11.
+# 4a.
 def insert_login_log(conn, user_id: int, ip: str, success: str, browser: str) -> None:
     cur = conn.cursor()
     try:

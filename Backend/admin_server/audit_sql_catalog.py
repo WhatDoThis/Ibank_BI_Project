@@ -12,7 +12,7 @@ Backend.admin_server.audit_sql_catalog (관리용 공용 SQL 템플릿·감사 �
   (DB 메타데이터의 catalog와 비슷하게, “무엇을 실행할지” 항목을 한곳에서 찾는다는 뜻.)
 - 합쳐 말하면 **SQL 카탈로그 DRY** = “관리용 SQL 템플릿을 카탈로그에만 정의하고, 실행·지문이 그걸 공유한다”는 구현 방식을 가리킨다.
 
-OR 매퍼가 아니라 **Audit / query catalog** 패턴이다. §13 규약은 `docs/main/04_DB_ARCHITECTURE.md`.
+OR 매퍼가 아니라 **Audit / query catalog** 패턴이다. 규약은 `docs/main/04_DB_ARCHITECTURE.md` 13절.
 
 [계층 참고]
 ========
@@ -23,13 +23,17 @@ OR 매퍼가 아니라 **Audit / query catalog** 패턴이다. §13 규약은 `d
 1. sql_project_info_update: project_info 동적 SET 절(조각 리스트)로 전체 UPDATE 문자열 생성
 2. sql_delete_table_project_mapping_not_in: `NOT IN (%s,...)` 자리를 받아 DELETE 문자열 생성
 3. sql_etl_transfer_update_statement: ETL 스키마 따옴표 테이블에 대한 create_user_id 이관 UPDATE 문자열
-4. admin_audit_sql_fingerprint: 관리 액션·상세 JSON으로 지문 hex 또는 None
+4. _fingerprint_hex_cached: SQL 템플릿 문자열 → `compute_sql_fingerprint_hex` 결과 LRU 캐시(lru_cache)
+5. _resolve_admin_sql_template: business_action·detail_json으로 실행 SQL 템플릿 상수 조회(member_add·ownership_transfer·dept_update 분기)
+6. admin_audit_sql_fingerprint: 공개 진입점 — 5번으로 템플릿 조회 후 4번으로 지문 hex 또는 None
 
 [Endpoints/Classes/Functions]
 =======================
 - sql_project_info_update(assignments) -> str
 - sql_delete_table_project_mapping_not_in(placeholders_csv) -> str
 - sql_etl_transfer_update_statement(quoted_table, pk_col, ts_set_fragment) -> str
+- _fingerprint_hex_cached(sql_template) -> str | None
+- _resolve_admin_sql_template(business_action, detail_json) -> str | None
 - admin_audit_sql_fingerprint(business_action, detail_json) -> str | None
 
 [Dependencies]

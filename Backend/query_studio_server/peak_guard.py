@@ -2,13 +2,14 @@
 Backend.query_studio_server.peak_guard (쿼리 스튜디오 피크 부하 완화)
 ================================================================
 `config.backend.query_studio_peak_guard` 선택 블록. **없으면 전부 비활성**(기존과 동일).
+`[Main Functions]` 항목과 동일한 `# N.`를 각 공개 함수 직전에 둔다.
 
 [Main Functions]
 ===========
 1. load_runtime: backend 설정에서 `PeakGuardRuntime` 또는 None
 2. check_heavy_rate_limit: table-relationships(mode=all)·join-order 공통, 사용자당 분당 횟수(슬라이딩 60초)
 3. check_execute_query_rate_limit: execute-query 전용 분당 횟수
-4. get_cached_relationships_full / set_cached_relationships_full: 프로젝트+허용테이블 핑거프린트 TTL 캐시
+4. get_cached_relationships_full(`# 4.`) / set_cached_relationships_full(`# 4a.`): 프로젝트+허용테이블 핑거프린트 TTL 캐시
 5. run_under_relationship_sem: 전역 동시 `mode=all` 계산 상한(세마포어)
 
 [Dependencies]
@@ -39,6 +40,9 @@ _SLIDING_WINDOW_SEC = 60.0
 _SEM_ACQUIRE_TIMEOUT_SEC = 90.0
 
 
+# (내부) _prune_window, _allowed_fingerprint, _purge_expired_cache, _get_relationship_sem
+
+
 @dataclass(frozen=True)
 class PeakGuardRuntime:
     """피크 가드 활성 시 파라미터."""
@@ -49,6 +53,7 @@ class PeakGuardRuntime:
     execute_query_per_user_per_minute: int
 
 
+# 1.
 def load_runtime(backend_cfg: Any) -> PeakGuardRuntime | None:
     """
     `query_studio_peak_guard` 블록이 없거나 enabled=False면 None.
@@ -76,6 +81,7 @@ def _prune_window(dq: deque[float], now: float) -> None:
         dq.popleft()
 
 
+# 2.
 def check_heavy_rate_limit(user_id: int | None, runtime: PeakGuardRuntime) -> tuple[bool, int]:
     """
     허용 시 (True, 0). 거부 시 (False, retry_after_seconds 권장값).
@@ -95,6 +101,7 @@ def check_heavy_rate_limit(user_id: int | None, runtime: PeakGuardRuntime) -> tu
         return True, 0
 
 
+# 3.
 def check_execute_query_rate_limit(user_id: int | None, runtime: PeakGuardRuntime) -> tuple[bool, int]:
     lim = runtime.execute_query_per_user_per_minute
     if lim <= 0 or user_id is None:
@@ -121,6 +128,7 @@ def _purge_expired_cache(now: float) -> None:
         del _rel_cache[k]
 
 
+# 4.
 def get_cached_relationships_full(project_info_id: int, sorted_allowed_names: list[str], ttl_sec: float):
     """캐시 히트 시 관계 목록 깊은 복사 반환, 미스면 None."""
     if ttl_sec <= 0:
@@ -140,6 +148,7 @@ def get_cached_relationships_full(project_info_id: int, sorted_allowed_names: li
         return copy.deepcopy(rels)
 
 
+# 4a.
 def set_cached_relationships_full(
     project_info_id: int,
     sorted_allowed_names: list[str],
@@ -167,6 +176,7 @@ def _get_relationship_sem(max_concurrent: int) -> threading.BoundedSemaphore | N
         return _rel_sem
 
 
+# 5.
 def run_under_relationship_sem(max_concurrent: int, fn: Callable[[], T]) -> T:
     """동시 계산 상한. max_concurrent<=0 이면 세마포어 없이 fn(). 타임아웃 시 RuntimeError."""
     sem = _get_relationship_sem(max_concurrent)

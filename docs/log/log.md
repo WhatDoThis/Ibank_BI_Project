@@ -1,6 +1,20 @@
 # Log
 
 ## Log Index
+546. 2026-04-22 report24: 단일문서만·Part B(auth)·25번 제거
+545. 2026-04-22 report24: admin_server 전수 감사·doc·`# 14`/`# 15` 정합
+544. 2026-04-22 admin change_notify: Main Functions·Endpoints docstring 보강
+543. 2026-04-22 admin audit_sql_catalog: Main Functions 6함수·docstring 정합
+542. 2026-04-22 Phase1 잔여: service_users·change_notify·ownership_guards
+541. 2026-04-22 Phase1: auth deps·security·admin service_projects `# N.` 정합
+540. 2026-04-22 Backend 전 모듈 `# N.` 규칙·etl·peak 등 서비스 반영
+539. 2026-04-22 auth·admin router: 06 여정 우선 물리 순서·섹션 번호
+538. 2026-04-22 project-conventions: 백엔드 `# N.` 부여 우선순위(06·유사성·내부)
+537. 2026-04-22 Backend: 함수 번호 단조·주석 정합 전수 수정
+536. 2026-04-22 docs/main/09: 07 스타일 수동 문서·생성기 제거
+535. 2026-04-22 docs/main/09: 설명 셀 마침표 보존·psycopg2 `<br>`
+534. 2026-04-22 docs/main/09: 표 셀 `<br>` 줄바꿈
+533. 2026-04-22 docs/main/09: §3·§4 설명 초보 기준 풀어쓰기
 532. 2026-04-22 docs/main/09: 스캔 기반 심볼·미사용 제외
 531. 2026-04-22 docs/main/09: §3.2 표준 라이브러리 모듈별 표
 530. 2026-04-22 docs/main/09: 외부 기술만(내부 import 목록 제거)
@@ -535,6 +549,161 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+546. 2026-04-22 report24: 단일문서만·Part B(auth)·25번 제거
+Purpose: 요청 없이 만든 **`25_` 리포트를 폐기**하고, **`docs/report/24_…` 한 파일**에만 `auth_server` 감사(Part B)를 이어 붙인다. `auth_server`는 doc·`# 2.` 보강만 하고 **함수명·시그니처는 변경하지 않는다.**
+
+Changes:
+
+- `docs/report/25_Backend_auth_server_Module_Doc_And_Numbering_Audit.md`: **삭제**
+- `docs/report/24_…`: 상단 **단일 문서 규칙**·**Part B**(`auth_server` 10파일 체크리스트·완료·B.5 요약)·§6 다음 단계 문구 정리
+- `docs/report/00_ReportIndex.md`: 25행 제거·24행 설명을 단일 문서 관리로 수정
+- `Backend/auth_server/audit_sql_catalog.py`, `service.py`, `schemas.py`, `__init__.py`, `permissions.py`: docstring·`# 2.` 정합(연결 변경 없음)
+- `python -m compileall Backend/auth_server -q`: 성공
+
+Changed files: docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md, docs/report/00_ReportIndex.md, Backend/auth_server/audit_sql_catalog.py, Backend/auth_server/service.py, Backend/auth_server/schemas.py, Backend/auth_server/__init__.py, Backend/auth_server/permissions.py, docs/log/log.md
+
+545. 2026-04-22 report24: admin_server 전수 감사·doc·`# 14`/`# 15` 정합
+Purpose: `docs/report/24_…`에 패키지별 체크리스트를 먼저 고정한 뒤 `Backend/admin_server` 13파일을 A~G 기준으로 전수 점검·불일치 수정한다.
+
+Changes:
+
+- `docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md`: 신설(마스터·파일별 체크리스트·검증·완료 표시)
+- `docs/report/00_ReportIndex.md`: 24번 문서 등록
+- `service_users.py`: `[Main Functions]` 5·6·14·15 정리, `get_user_change_options`/`update_user_management`에 `# 14.`·`# 15.`, `[Endpoints/Classes/Functions]` 추가
+- `schemas.py`: `[Classes]`에 `ProjectAssignmentBody` 명시
+- `__init__.py`: `[Main Functions]`(router만 re-export) 추가
+- `service_projects.py`: `normalize_feature_flags_for_db`·`[Endpoints/Classes/Functions]` 보강
+- `service_roles.py`: `[Endpoints/Classes/Functions]` 보강
+- `ownership_guards.py`: `[Endpoints/Classes/Functions]` 보강
+
+Changed files: docs/report/24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md, docs/report/00_ReportIndex.md, Backend/admin_server/service_users.py, Backend/admin_server/schemas.py, Backend/admin_server/__init__.py, Backend/admin_server/service_projects.py, Backend/admin_server/service_roles.py, Backend/admin_server/ownership_guards.py, docs/log/log.md
+
+544. 2026-04-22 admin change_notify: Main Functions·Endpoints docstring 보강
+Purpose: `change_notify.py`의 공개 함수·`# 2a`~`# 4c`·내부 헬퍼가 모듈 설명에 반영되도록 한다.
+
+Changes:
+
+- `change_notify.py`: [Main Functions]를 1·2a~2c·3·4a~4c로 전개, [Endpoints/Classes/Functions] 추가, `_skip_self`·`_actor_label`·`_safe_run` 내부 역할 명시
+
+Changed files: Backend/admin_server/change_notify.py, docs/log/log.md
+
+543. 2026-04-22 admin audit_sql_catalog: Main Functions 6함수·docstring 정합
+Purpose: 본문 `# 1.`~`# 6.`에 대응하는 함수가 docstring에는 4개만 적혀 있던 불일치를 제거한다.
+
+Changes:
+
+- `audit_sql_catalog.py`: [Main Functions]·[Endpoints/Classes/Functions]에 `_fingerprint_hex_cached`·`_resolve_admin_sql_template`·`admin_audit_sql_fingerprint` 역할을 4~6번으로 명시, § 표기를 13절 문구로 변경
+
+Changed files: Backend/admin_server/audit_sql_catalog.py, docs/log/log.md
+
+542. 2026-04-22 Phase1 잔여: service_users·change_notify·ownership_guards
+Purpose: Phase 1 범위에서 docstring과 본문 `# N.` 누락·오배치를 정리한다.
+
+Changes:
+
+- `admin_server/service_users.py`: `# 9.`(list_departments_for_org_settings), `# 10.`(_assert_department_clear…, 내부 10b 문구 제거), 이관 API `# 12.`/`# 12a.`/`# 12b.`를 파일 정의 순서·Main Functions와 정합
+- `admin_server/change_notify.py`: Main Functions 4번에 `fetch_pmssn_name`·`# 4c.` 설명 추가
+- `admin_server/ownership_guards.py`: `can_own_after_change` 앞 `# 1.` 주석 형식 통일
+
+Changed files: Backend/admin_server/service_users.py, Backend/admin_server/change_notify.py, Backend/admin_server/ownership_guards.py, docs/log/log.md
+
+541. 2026-04-22 Phase1: auth deps·security·admin service_projects `# N.` 정합
+Purpose: Phase 1(admin service·auth_server·project_server) 잔여 모듈에서 docstring `[Main Functions]`와 본문 `# N.` 단조·의미 정렬을 맞춘다.
+
+Changes:
+
+- `auth_server/deps.py`: `# 1.`~`# 5.`(parse→payload→활성→세션 바인딩·require), `_assert_access_session_bound`는 내부 헬퍼로 번호 제거, 06 Phase 4 안내 문구
+- `auth_server/security.py`: `# 1.`·`# 1a.`·`# 2.`~`# 5.`(bcrypt→OTP→token hash→pre_auth→access), 06 안내 문구
+- `admin_server/service_projects.py`: 파일 순서 기준으로 Main Functions 1·2(목록→create) 교환, `# 1.`/`# 2.` 마커 정합
+
+Changed files: Backend/auth_server/deps.py, Backend/auth_server/security.py, Backend/admin_server/service_projects.py, docs/log/log.md
+
+540. 2026-04-22 Backend 전 모듈 `# N.` 규칙·etl·peak 등 서비스 반영
+Purpose: 라우터만이 아니라 `*_server`·`core`·`mail`·`api_server` 전역에 함수 번호 규칙을 적용한다는 범위를 규칙에 명시하고, 대형 `etl_server/service.py`·`db_load_service.py` 등 Main Functions 대비 주석 누락 구간을 정리한다.
+
+Changes:
+
+- `.cursor/rules/project-conventions.mdc`: 적용 범위(모든 Python 모듈)·`[Main Functions]`와 `# N.` 대응 규칙 보강
+- `etl_server/service.py`: `# 1.`~`# 11.`·`# 11a.` 구간 주석, Main Functions 10·11 줄과 본문 정합
+- `etl_server/db_load_service.py`: `# 1.`~`# 7.`·상단 내부 구간 주석, Main Functions 요약을 본문 번호에 맞게 조정
+- `query_studio_server/peak_guard.py`: `# 1.`~`# 5.`·`# 4a.`
+- `api_server/middleware/correlation.py`: `# 1.`(미들웨어 클래스)
+
+Changed files: .cursor/rules/project-conventions.mdc, Backend/etl_server/service.py, Backend/etl_server/db_load_service.py, Backend/query_studio_server/peak_guard.py, Backend/api_server/middleware/correlation.py, docs/log/log.md
+
+539. 2026-04-22 auth·admin router: 06 여정 우선 물리 순서·섹션 번호
+Purpose: project-conventions의 1순위(06 흐름)를 auth·admin 라우터에 반영한다. 엔드포인트 정의 순서·`# N.` 섹션·상단 [Endpoints]를 읽기 순서와 일치시킨다.
+
+Changes:
+
+- `auth_server/router.py`: invite/validate → signup → create-org → login → verify → refresh → logout → me… 순으로 재배치, 엔드포인트별 `# 1.`~`# 11.`
+- `admin_server/router.py`: org·departments·invite-codes를 상단으로 이동, 전사 `GET/PATCH /tables`를 `GET /projects` 앞(Phase 6 테이블 후 프로젝트 생성)으로 이동, `# 1`~`# 1b`·`# 2`~`# 5` 정리
+
+Changed files: Backend/auth_server/router.py, Backend/admin_server/router.py, docs/log/log.md
+
+538. 2026-04-22 project-conventions: 백엔드 `# N.` 부여 우선순위(06·유사성·내부)
+Purpose: 함수 번호를 “단조·주석 일치”만이 아니라, 고객 여정·기능 묶음·내부 헬퍼 재사용 순으로 재배치할 때 동일한 판단 기준을 쓰도록 규칙에 명시한다.
+
+Changes:
+
+- `.cursor/rules/project-conventions.mdc`: `06_CUSTOMER_JOURNEY` 우선 → 유사 기능 연번 → 블록 내 내부 헬퍼(호출 많을수록 상대적 저번) 순서 및 충돌 시 1>3 명시
+
+Changed files: .cursor/rules/project-conventions.mdc, docs/log/log.md
+
+537. 2026-04-22 Backend: 함수 번호 단조·주석 정합 전수 수정
+Purpose: Backend 전역에서 `# N.` 주석이 줄 순서대로 단조 증가하는지 스캔하고, 불일치·중복을 고객 여정(로그인·초대·QS) 기준으로 정리한다.
+
+Changes:
+
+- `auth_server/service.py`: `insert_login_log`를 Main Functions·코드 모두 `4a`로 정렬(로그인 흐름 공용 헬퍼)
+- `admin_server/service_users.py`: `assert_invite_dptmt_allowed`·`list_departments_for_invite`·`_norm_email`을 `# 3` 초대 이후로 이동해 번호 역행 제거
+- `query_studio_server/router.py`: `# 9a`/`# 9b` 분리·`save_query_as_table_status`를 `# 19a`로 구분, Helpers 목록 중복 번호 정리
+- `etl_server/table_master_hook.py`: 문서 순서(1 upsert, 2 texts)와 동일하게 함수 배치
+
+Changed files: Backend/auth_server/service.py, Backend/admin_server/service_users.py, Backend/query_studio_server/router.py, Backend/etl_server/table_master_hook.py, docs/log/log.md
+
+536. 2026-04-22 docs/main/09: 07 스타일 수동 문서·생성기 제거
+Purpose: 표 셀·HTML `<br>`에 의존하지 않고 `07_USER_FUNCTIONAL_GUIDE.md`와 같이 원문에서도 읽기 쉬운 구조(목차, `---`, 번호·들여쓴 목록, 모듈별 소제목)로 정리한다. 자동 생성 스크립트는 유지 부담만 커져 삭제한다.
+
+Changes:
+
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md`: §1~§4를 목록·`####` 단위로 재작성, 하단은 수집 스크립트 안내만 유지
+- `scripts/generate_docs_main_09.py` 삭제
+- `scripts/_collect_imports_for_docs.py`: 모듈 설명을 “JSON만 보조”로 수정
+
+Changed files: docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, scripts/_collect_imports_for_docs.py, docs/log/log.md  
+Deleted files: scripts/generate_docs_main_09.py
+
+535. 2026-04-22 docs/main/09: 설명 셀 마침표 보존·psycopg2 `<br>`
+Purpose: `_format_desc_cell`의 `다.` 꼬리 처리가 문장 끝 마침표를 잘라 `이다`처럼 보이던 문제를 없애고, psycopg2 두 문장 설명은 명시적 `<br>`로 나눈다.
+
+Changes:
+
+- `generate_docs_main_09.py`: 잘못된 `endswith("다.")` 분기 제거, psycopg2 blurb에 `<br>` 삽입, 모듈 헤더 설명 한 줄 보강
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md` 재생성
+
+Changed files: scripts/generate_docs_main_09.py, docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, docs/log/log.md
+
+534. 2026-04-22 docs/main/09: 표 셀 `<br>` 줄바꿈
+Purpose: 표가 한 줄로 너무 길어 보이지 않게, 심볼·설명 셀에 HTML 줄바꿈을 넣고 문서 상단에 렌더 안내를 추가한다.
+
+Changes:
+
+- `generate_docs_main_09.py`: `_join_syms`, `_format_desc_cell`, §1·§2·§3.2 본문, npm 설명 문자열, 안내 문구
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md` 재생성
+
+Changed files: scripts/generate_docs_main_09.py, docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, docs/log/log.md
+
+533. 2026-04-22 docs/main/09: §3·§4 설명 초보 기준 풀어쓰기
+Purpose: 표준·pip·npm 설명을 전문 용어 한 줄이 아니라, 초보자가 **왜 쓰는지**를 따라갈 수 있게 문장으로 바꾼다.
+
+Changes:
+
+- `generate_docs_main_09.py`: `_STDLIB_BLURB`·`_PY_PIP_BLURB`·`_NPM_PACKAGE_BLURB` 전면 교체, §3.2 도입·표 헤더(풀어쓴 설명) 정리
+- `09_TECH_STACK_AND_IMPORT_CATALOG.md` 재생성
+
+Changed files: scripts/generate_docs_main_09.py, docs/main/09_TECH_STACK_AND_IMPORT_CATALOG.md, docs/log/log.md
 
 532. 2026-04-22 docs/main/09: 스캔 기반 심볼·미사용 제외
 Purpose: 09를 “실제로 쓰는 외부 것만” 풀어 쓴다. import 심볼을 스캔해 표에 넣고, 코드에 없는 pip·npm·인프라는 §1에서 빼며 공식 문서로 떠넘기는 문장을 제거한다.

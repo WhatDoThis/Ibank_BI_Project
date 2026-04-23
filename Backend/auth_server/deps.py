@@ -2,6 +2,7 @@
 Backend.auth_server.deps (Bearer access JWT 의존성)
 ================================================
 보호 라우트용 access 토큰 검증. 비활성·잠금 계정은 DB 조회로 차단(require_active_access).
+본 모듈 `# N.` 순서는 docs/main/06 Phase 4(세션·JWT) 흐름과 동일하게 읽는다.
 
 [Main Functions]
 ===========
@@ -34,6 +35,7 @@ def _hash_access_token_raw(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+# 1.
 def _parse_bearer_access_token(authorization: str | None) -> tuple[str, dict[str, Any]]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="인증이 필요합니다.")
@@ -54,6 +56,7 @@ def _parse_bearer_access_token(authorization: str | None) -> tuple[str, dict[str
     return token, payload
 
 
+# 2.
 def get_access_payload(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
@@ -61,7 +64,7 @@ def get_access_payload(
     return payload
 
 
-# 2.
+# 3.
 def ensure_user_active_not_locked(conn, user_id: int) -> None:
     """user_info 기준 비활성(N)·잠금(Y)이면 403."""
     uid = int(user_id)
@@ -89,7 +92,6 @@ def ensure_user_active_not_locked(conn, user_id: int) -> None:
         cur.close()
 
 
-# 3a.
 def _assert_access_session_bound(conn, token: str, payload: dict[str, Any]) -> None:
     uid = int(payload["user_id"])
     sid_raw = payload.get("session_log_id")

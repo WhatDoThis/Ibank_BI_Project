@@ -3,13 +3,30 @@ Backend.admin_server.change_notify (권한·역할·계정 변경 알림+메일)
 ====================================================
 관리 API에서 **커밋 성공 후** 호출한다. `actor_user_id`와 대상이 같으면 **앱 알림·이메일 모두 생략**.
 `notification_info`는 `insert_notification(..., autocommit=True)`로 즉시 반영한다.
+본문 `# N.`은 파일 읽기 순서이며, `2a`~`2c`·`4a`~`4c`는 동일 흐름 블록 내 연번이다.
 
 [Main Functions]
 ===========
-1. fetch_user_email_for_notify — 대상 이메일 조회
-2. notify_org_role_changed / notify_etl_access_changed / notify_user_management_changed
-3. notify_project_pmssn_changed
-4. notify_user_suspended / notify_user_activated
+1. fetch_user_email_for_notify — 대상 사용자 이메일 조회(본문 `# 1.`)
+2a. notify_org_role_changed — 조직 역할 변경 알림+메일(본문 `# 2a.`)
+2b. notify_etl_access_changed — ETL 자격 변경 알림+메일(본문 `# 2b.`)
+2c. notify_user_management_changed — 사용자 관리 일괄 변경 알림+메일(본문 `# 2c.`)
+3. notify_project_pmssn_changed — 프로젝트 권한 템플릿 변경 알림+메일(본문 `# 3.`)
+4a. notify_user_suspended — 정지 안내 메일(알림 없음, 본문 `# 4a.`)
+4b. notify_user_activated — 활성화 알림+메일(본문 `# 4b.`)
+4c. fetch_pmssn_name — pmssn_master_id→표시명(알림·메일 본문용, 본문 `# 4c.`)
+
+[Endpoints/Classes/Functions]
+=======================
+- fetch_user_email_for_notify(conn, user_id) -> str | None
+- notify_org_role_changed(conn, actor_user_id, target_user_id, old_dvsn, new_dvsn) -> None
+- notify_etl_access_changed(conn, actor_user_id, target_user_id, old_yn, new_yn) -> None
+- notify_user_management_changed(conn, actor_user_id, target_user_id, *, dvsn_changed, etl_changed, proj_changed, old_dvsn, new_dvsn, old_etl, new_etl) -> None
+- notify_project_pmssn_changed(conn, actor_user_id, target_user_id, project_name, old_pmssn_name, new_pmssn_name, *, project_info_id) -> None
+- notify_user_suspended(conn, actor_user_id, target_user_id) -> None
+- notify_user_activated(conn, actor_user_id, target_user_id) -> None
+- fetch_pmssn_name(conn, pmssn_master_id) -> str
+- (내부·번호 없음) _skip_self, _actor_label, _safe_run — 자기 자신 생략·처리자 표시·예외 삼킴 로깅
 
 [Dependencies]
 =========

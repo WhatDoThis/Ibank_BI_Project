@@ -16,6 +16,18 @@ pmssn_master/pmssn_master_detail 기반 권한 옵션·목록·사용현황 조�
 7. update_custom_role — 사용 중(project_ptcpnt_info)이면 pmssn_list 변경만 거부(권한명은 허용)
 8. delete_custom_role — 동일
 
+[Endpoints/Classes/Functions]
+=======================
+- list_roles_for_dept(conn, dptmt_info_id) -> list[dict]
+- list_permission_options_for_dept(conn, dptmt_info_id) -> list[str]
+- list_role_usages(conn, dptmt_info_id, pmssn_master_id) -> list[dict]
+- list_role_project_participants(conn, dptmt_info_id, pmssn_master_id) -> list[dict]
+- list_user_role_usages(conn, dptmt_info_id, user_id) -> list[dict]
+- create_custom_role(conn, actor_user_id, …) -> int
+- update_custom_role(conn, actor_user_id, …) -> None
+- delete_custom_role(conn, actor_user_id, …) -> None
+- (내부) _pmssn_list_sorted_key, _user_department_display_from_join, _attach_user_department_display, _assert_accessible_role
+
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log

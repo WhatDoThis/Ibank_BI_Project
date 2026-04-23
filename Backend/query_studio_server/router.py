@@ -10,14 +10,15 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 3. _resolve_table_display_label / _resolve_column_display_label: 유저 JSON → 파일 → table_master(테이블명만) → 코드 기본 → 물리명
 4. _get_table_label, _get_column_label: 유저 컨텍스트 없을 때 파일+기본만
 5. _load_column_labels: 파일 column_labels만
-4. _log: 디버그 로그 출력·파일 기록
-5. _contains_dangerous_sql: Backend.core.sql_safety 래퍼(디버그 로그)
-6. _fetch_relationships: FK/추론 관계 조회(`*, project_info_id` 필수, 병합 허용 집합)
-7. _compute_relationships_all_raw: FK+추론 전체 관계 계산(무캐시)
-7a. _compute_relationships_all: peak_guard(TTL 캐시·동시성 상한) 적용 래퍼
-8. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성(create_user_id 컬럼 포함)
-9. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드, CREATE 후 table_master·매핑 upsert 3회 재시도)
-10. _upsert_table_master_and_mapping: table_master(db_type,table_name,table_label,table_dscrtn)·create_user_id UPSERT 후 프로젝트 매핑
+6. _log: 디버그 로그 출력·파일 기록
+7. _contains_dangerous_sql: Backend.core.sql_safety 래퍼(디버그 로그)
+8. _fetch_relationships: FK/추론 관계 조회(`*, project_info_id` 필수, 병합 허용 집합)
+9. _compute_relationships_all_raw: FK+추론 전체 관계 계산(무캐시)
+9a. _compute_relationships_all: peak_guard(TTL 캐시·동시성 상한) 적용 래퍼
+9b. _resolve_project_table_db_type / _qs_mapped_table_conn: list/describe/고유값용 main_db 매핑 검증·연결 선택
+10. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성(create_user_id 컬럼 포함)
+11. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드, CREATE 후 table_master·매핑 upsert 3회 재시도)
+12. _upsert_table_master_and_mapping: table_master(db_type,table_name,table_label,table_dscrtn)·create_user_id UPSERT 후 프로젝트 매핑
 
 [Endpoints]
 ===========
@@ -540,6 +541,7 @@ def _compute_relationships_all_raw(conn, project_info_id: int):
     return _fetch_relationships(conn, "all", table_columns, project_info_id=int(project_info_id))
 
 
+# 9a.
 def _compute_relationships_all(conn, project_info_id: int, backend_cfg=None):
     """
     전체 관계 계산. backend.query_studio_peak_guard 가 있으면 TTL 캐시·동시 계산 상한 적용. project_info_id 필수.
@@ -599,7 +601,7 @@ def _peak_guard_503_busy():
     )
 
 
-# 10a.
+# 9b.
 def _resolve_project_table_db_type(
     project_info_id: int,
     table_name: str,
@@ -1487,7 +1489,7 @@ def save_query_as_table(
         return JSONResponse(status_code=500, content={"error": str(e), "message": "저장 요청 실패"})
 
 
-# 19.
+# 19a.
 @router.get("/save-query-as-table/status/{job_id}")
 def save_query_as_table_status(
     job_id: str,
