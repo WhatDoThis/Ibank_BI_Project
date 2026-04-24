@@ -3,7 +3,7 @@ Backend.admin_server.change_notify (권한·역할·계정 변경 알림+메일)
 ====================================================
 관리 API에서 **커밋 성공 후** 호출한다. `actor_user_id`와 대상이 같으면 **앱 알림·이메일 모두 생략**.
 `notification_info`는 `insert_notification(..., autocommit=True)`로 즉시 반영한다.
-이메일·앱 메타(`summary_plain`)는 동일한 ◎ 블록(변경 범위·관리자·변경 내용)을 사용한다. 조직 역할은 사용자 관리 UI와 동일한 **S/A/B/C/SADEV** 표기, HTML 메일에서 역할·Y/N은 `<strong>` 처리.
+이메일은 `_notice_email_bodies`의 ◎ 블록(여백·HTML)을 사용하고, 앱 알림 JSON에는 이메일 본문과 분리된 **`noti_summary`**(짧은 줄바꿈·빈 줄 최소)만 넣는다. 조직 역할은 사용자 관리 UI와 동일한 **S/A/B/C/SADEV** 표기, HTML 메일에서 역할·Y/N은 `<strong>` 처리.
 
 [Main Functions]
 ===========
@@ -26,7 +26,7 @@ Backend.admin_server.change_notify (권한·역할·계정 변경 알림+메일)
 - notify_user_suspended(conn, actor_user_id, target_user_id) -> None
 - notify_user_activated(conn, actor_user_id, target_user_id) -> None
 - fetch_pmssn_name(conn, pmssn_master_id) -> str
-- (내부) _skip_self, _actor_admin_pair, _dvsn_letter, _notice_email_bodies, _meta_pack, _safe_run
+- (내부) _skip_self, _actor_admin_pair, _dvsn_letter, _notice_email_bodies, _noti_summary_for_admin_notice(앱 `noti_summary`), _meta_pack, _safe_run
 - actor_plain_html_for_email(conn, actor_user_id) -> tuple[str, str] — 프로젝트 초대 메일용 닉(이메일) plain·html
 
 [Dependencies]
@@ -174,6 +174,19 @@ def _notice_email_bodies(
     return plain, html_body
 
 
+def _noti_summary_for_admin_notice(scope: str, admin_plain: str, change_plain: str) -> str:
+    """앱 알림 패널용 요약. 이메일 `_notice_email_bodies` 평문과 분리(과도한 빈 줄 없음)."""
+    sc = (scope or "").strip() or "—"
+    lines: list[str] = [f"범위: {sc}", f"관리자: {admin_plain}"]
+    raw = (change_plain or "").strip()
+    if raw:
+        for para in raw.split("\n\n"):
+            p = para.strip()
+            if p:
+                lines.append(p)
+    return "\n".join(lines)
+
+
 def _org_role_change_plain(old_dvsn: str, new_dvsn: str) -> str:
     o = _dvsn_letter(old_dvsn)
     n = _dvsn_letter(new_dvsn)
@@ -237,12 +250,13 @@ def notify_org_role_changed(
     ch = _org_role_change_html(old_dvsn, new_dvsn)
     body_plain, body_html = _notice_email_bodies("조직 역할", admin_plain, admin_html, cp, ch)
     title = "조직 역할 변경"[:200]
+    noti_sum = _noti_summary_for_admin_notice("조직 역할", admin_plain, cp)
     meta = _meta_pack(
         {
             "actor_user_id": actor_user_id,
             "old_user_dvsn": old_dvsn,
             "new_user_dvsn": new_dvsn,
-            "summary_plain": body_plain,
+            "noti_summary": noti_sum,
         }
     )
 
@@ -276,12 +290,13 @@ def notify_etl_access_changed(
     ch = _etl_change_html(old_yn, new_yn)
     body_plain, body_html = _notice_email_bodies("ETL 관리", admin_plain, admin_html, cp, ch)
     title = "ETL 관리 변경"[:200]
+    noti_sum = _noti_summary_for_admin_notice("ETL 관리", admin_plain, cp)
     meta = _meta_pack(
         {
             "actor_user_id": actor_user_id,
             "old_etl_yn": old_yn,
             "new_etl_yn": new_yn,
-            "summary_plain": body_plain,
+            "noti_summary": noti_sum,
         }
     )
 
@@ -350,13 +365,14 @@ def notify_user_management_changed(
     change_html = "<br><br>".join(c_html_parts)
     body_plain, body_html = _notice_email_bodies(scope, admin_plain, admin_html, change_plain, change_html)
     title = "사용자 관리 변경"[:200]
+    noti_sum = _noti_summary_for_admin_notice(scope, admin_plain, change_plain)
     meta = _meta_pack(
         {
             "actor_user_id": actor_user_id,
             "dvsn_changed": dvsn_changed,
             "etl_changed": etl_changed,
             "proj_changed": proj_changed,
-            "summary_plain": body_plain,
+            "noti_summary": noti_sum,
         }
     )
 
@@ -394,13 +410,14 @@ def notify_project_pmssn_changed(
     ch = _project_pmssn_change_html(pname, old_pmssn_name, new_pmssn_name)
     body_plain, body_html = _notice_email_bodies("프로젝트 권한", admin_plain, admin_html, cp, ch)
     title = "프로젝트 권한 변경"[:200]
+    noti_sum = _noti_summary_for_admin_notice("프로젝트 권한", admin_plain, cp)
     meta = _meta_pack(
         {
             "actor_user_id": actor_user_id,
             "project_info_id": int(project_info_id),
             "old_pmssn_name": old_pmssn_name,
             "new_pmssn_name": new_pmssn_name,
-            "summary_plain": body_plain,
+            "noti_summary": noti_sum,
         }
     )
 
@@ -459,7 +476,8 @@ def notify_user_activated(
     ch = escape(cp)
     body_plain, body_html = _notice_email_bodies("계정 활성화", admin_plain, admin_html, cp, ch)
     title = "계정 활성화"[:200]
-    meta = _meta_pack({"actor_user_id": actor_user_id, "summary_plain": body_plain})
+    noti_sum = _noti_summary_for_admin_notice("계정 활성화", admin_plain, cp)
+    meta = _meta_pack({"actor_user_id": actor_user_id, "noti_summary": noti_sum})
 
     def _go() -> None:
         insert_notification(conn, tid, NOTI_ACTIVATED, title, meta, autocommit=True)

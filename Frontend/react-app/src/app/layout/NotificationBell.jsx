@@ -12,7 +12,7 @@
  * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm, app/auth/AuthContext
  * - project_invite·widget_board_invite: 수락·거절·만료 표시(위젯 보드는 작업 프로젝트 일치 필요)
  * - 수락/거절·초대 JSON 등 내부용 noti_content는 제목·보조줄만 표시(원문 JSON 비노출)
- * - `summary_plain` 알림: 관리 변경·프로젝트 초대 등 보조줄(tryNotiSummaryPlain, pre-line)
+ * - `noti_summary`(구 `summary_plain` 호환): 관리 변경·프로젝트 초대 보조줄(tryNotiSummaryPlain, pre-line)
  * - project_invite: 수락 전 안내·수락 완료(needs_select 시 홈 선택 안내)·토스트와 행 문구 정렬
  * - 거절: 패널 상단 토스트
  */
@@ -116,14 +116,14 @@ const NOTI_SUMMARY_PLAIN_TYPES = new Set([
   'project_invite',
 ])
 
-/** `summary_plain`이 있는 알림: 관리 변경·프로젝트 초대 등(줄바꿈 유지) */
+/** `noti_summary`(없으면 구 `summary_plain`) 알림: 관리 변경·프로젝트 초대 등(줄바꿈 유지) */
 function tryNotiSummaryPlain(notiType, raw) {
   const t = (notiType || '').trim()
   if (!NOTI_SUMMARY_PLAIN_TYPES.has(t)) return null
   if (!raw || !String(raw).trim().startsWith('{')) return null
   try {
     const o = JSON.parse(raw)
-    const s = o?.summary_plain
+    const s = o?.noti_summary ?? o?.summary_plain
     return typeof s === 'string' && s.trim() ? s.trim() : null
   } catch {
     return null
@@ -161,6 +161,7 @@ function shouldShowNotiContentBody(notiType, raw) {
       'proj_changed',
       'old_pmssn_name',
       'new_pmssn_name',
+      'noti_summary',
       'summary_plain',
     ])
     const onlyInternalMeta = keys.every((k) => internalKeys.has(k))

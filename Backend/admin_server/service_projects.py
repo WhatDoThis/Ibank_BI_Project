@@ -25,14 +25,14 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 - list_members(conn, …) / cancel_project_invite / add_member / update_member_role / remove_member
 - validate_invite_user_project(conn, …) -> None
 - (내부) _sync_project_table_mappings*, _assert_project_owned*, _notify_project_member_*,
-  초대 제목·`summary_plain`·`format_invite_deadline_kr` 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
+  초대 제목·`noti_summary`·`format_invite_deadline_kr` 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
 
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
 - Backend.admin_server.audit_sql_catalog
 - Backend.admin_server.change_notify
-- Backend.mail.outbound (`send_project_invite_existing_user_email`, `format_invite_deadline_kr`, `build_project_invite_plain_body`)
+- Backend.mail.outbound (`send_project_invite_existing_user_email`, `format_invite_deadline_kr`, `build_project_invite_noti_summary`)
 - Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
 - Backend.core.auth_config.get_app_url
 - Backend.core.invite_expiry.invite_expired_from_payload
@@ -60,7 +60,7 @@ from Backend.admin_server.service_roles import (
 from Backend.core import auth_config
 from Backend.core.invite_expiry import invite_expired_from_payload
 from Backend.mail.outbound import (
-    build_project_invite_plain_body,
+    build_project_invite_noti_summary,
     format_invite_deadline_kr,
     send_project_invite_existing_user_email,
 )
@@ -563,20 +563,14 @@ def create_project_full(
             ).isoformat()
             dept_dn = _fetch_project_department_name_for_mail(cur, pid)
             perm_line = _fetch_pmssn_permission_line_for_mail(cur, imid)
-            inv_plain, inv_html = change_notify.actor_plain_html_for_email(
-                conn, int(actor_user_id)
-            )
-            base_u = auth_config.get_app_url()
-            app_open = f"{base_u.rstrip('/')}/" if base_u else ""
+            inv_plain, _ = change_notify.actor_plain_html_for_email(conn, int(actor_user_id))
             dl_kr = format_invite_deadline_kr(invite_expires_at)
-            summ_plain = build_project_invite_plain_body(
+            noti_sum = build_project_invite_noti_summary(
                 project_name=str(pname),
                 project_department_name=dept_dn,
                 permission_line=perm_line,
                 inviter_plain=inv_plain,
                 deadline_kr=dl_kr,
-                app_url=app_open or "(앱 URL 없음)",
-                include_bell_footer=False,
             )
             title = _short_project_invite_title(str(pname))
             payload = json.dumps(
@@ -585,7 +579,7 @@ def create_project_full(
                     "pmssn_master_id": imid,
                     "invite_user_id": actor_user_id,
                     "invite_expires_at": invite_expires_at,
-                    "summary_plain": summ_plain,
+                    "noti_summary": noti_sum,
                 },
                 ensure_ascii=False,
             )
@@ -1344,18 +1338,14 @@ def add_member(
         ).isoformat()
         dept_dn = _fetch_project_department_name_for_mail(cur, pid)
         perm_line = _fetch_pmssn_permission_line_for_mail(cur, int(mid))
-        inv_plain, inv_html = change_notify.actor_plain_html_for_email(conn, int(aid))
-        base_u = auth_config.get_app_url()
-        app_open = f"{base_u.rstrip('/')}/" if base_u else ""
+        inv_plain, _ = change_notify.actor_plain_html_for_email(conn, int(aid))
         dl_kr = format_invite_deadline_kr(invite_expires_at)
-        summ_plain = build_project_invite_plain_body(
+        noti_sum = build_project_invite_noti_summary(
             project_name=str(pname),
             project_department_name=dept_dn,
             permission_line=perm_line,
             inviter_plain=inv_plain,
             deadline_kr=dl_kr,
-            app_url=app_open or "(앱 URL 없음)",
-            include_bell_footer=False,
         )
         title = _short_project_invite_title(str(pname))
         payload = json.dumps(
@@ -1364,7 +1354,7 @@ def add_member(
                 "pmssn_master_id": mid,
                 "invite_user_id": aid,
                 "invite_expires_at": invite_expires_at,
-                "summary_plain": summ_plain,
+                "noti_summary": noti_sum,
             },
             ensure_ascii=False,
         )

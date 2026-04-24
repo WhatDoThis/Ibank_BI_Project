@@ -1,6 +1,6 @@
 /**
  * app/layout/notification-bell.css — NotificationBell 전용
- * nb-panel__toast, nb-item--invite-done·nb-item__meta--done·nb-item__meta--invite-hint(project_invite 안내), nb-item__meta--summary-plain(summary_plain 줄바꿈)
+ * nb-panel__toast, nb-item--invite-done·nb-item__meta--done·nb-item__meta--invite-hint(project_invite 안내), nb-item__meta--summary-plain(noti_summary 줄바꿈)
  */
 
 .nb-wrap {

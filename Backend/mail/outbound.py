@@ -8,13 +8,13 @@ Backend.mail.outbound (발송용 메시지 조립·호출)
 1. send_login_code_email — ◎ 인증 코드·5분 강조(HTML)·평문(빈 줄)
 2. send_invite_email — ◎ 가입 링크·유효 일수·초대코드 안내(HTML 링크)
 3. format_invite_deadline_kr — UTC ISO → 한국 시각 `YYYY/MM/DD HH:MM:SS`(접미사 없음)
-4. build_project_invite_plain_body — 프로젝트 초대 평문(앱 알림·메일 공용 블록)
+4. build_project_invite_plain_body / build_project_invite_noti_summary — 초대 평문(메일 등) / 알림 벨용 짧은 요약
 5. send_plain_notice_email_try — 관리 알림 등, 실패 시 로그만(선택 `body_html` 시 HTML 파트 추가)
 6. send_project_invite_existing_user_email — 가입 완료자 타부서 프로젝트 초대(◎ 블록·KR 만료·HTML)
 
 [Endpoints/Classes/Functions]
 =======================
-- send_login_code_email, send_invite_email, format_invite_deadline_kr, build_project_invite_plain_body
+- send_login_code_email, send_invite_email, format_invite_deadline_kr, build_project_invite_plain_body, build_project_invite_noti_summary
 - send_plain_notice_email_try, send_project_invite_existing_user_email
 
 [Dependencies]
@@ -101,6 +101,34 @@ def build_project_invite_plain_body(
             ]
         )
     return "\n".join(lines)
+
+
+def build_project_invite_noti_summary(
+    *,
+    project_name: str,
+    project_department_name: str,
+    permission_line: str,
+    inviter_plain: str,
+    deadline_kr: str,
+    max_perm_chars: int = 140,
+) -> str:
+    """프로젝트 초대 알림 벨용. `build_project_invite_plain_body`(메일용)와 분리·빈 줄 없음."""
+    pname = (project_name or "").strip() or "—"
+    pdept = (project_department_name or "").strip() or "—"
+    perm = (permission_line or "").strip() or "—"
+    if len(perm) > int(max_perm_chars):
+        perm = perm[: int(max_perm_chars) - 1].rstrip() + "…"
+    who = (inviter_plain or "").strip() or "—"
+    dl = (deadline_kr or "").strip() or "—"
+    return "\n".join(
+        [
+            f"프로젝트: {pname}",
+            f"부서: {pdept}",
+            f"권한: {perm}",
+            f"초대: {who}",
+            f"만료: {dl}",
+        ]
+    )
 
 
 # 1.
