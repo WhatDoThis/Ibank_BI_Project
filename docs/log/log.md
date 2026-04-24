@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+555. 2026-04-20 초대·알림: KR시각(무접미)·빈줄·프로젝트 summary_plain·짧은 제목
 554. 2026-04-20 메일: 로그인코드·가입초대·프로젝트초대 ◎ 형식·HTML / 초대 알림 제목 요약
 553. 2026-04-20 관리 변경 알림·이메일: ◎ 형식·SADEV 표기·HTML 굵게·앱 summary_plain
 552. 2026-04-20 프로젝트 목록: 설명 열만 폭 축소·전역 정렬 th 스타일 되돌림
@@ -557,6 +558,18 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+555. 2026-04-20 초대·알림: KR시각(무접미)·빈줄·프로젝트 summary_plain·짧은 제목
+Purpose: 만료 시각을 한국(Asia/Seoul)으로 표시하고 UTC 접미사를 제거한다. 메일·관리 알림 본문에 빈 줄을 넣고, 프로젝트 초대는 `summary_plain`+짧은 `noti_title`로 패널 가독성을 높인다.
+
+Changes:
+
+- `outbound`: `format_invite_deadline_kr`, `build_project_invite_plain_body`, 로그인·가입·프로젝트 초대 평문/HTML 여백
+- `change_notify`: 관리 메일 ◎ 간격·알림 제목 단순화·복합 변경 내용 줄간격
+- `service_projects`: 초대 JSON `summary_plain`, 제목 `프로젝트 초대: 이름`
+- `NotificationBell`·`notification-bell.css`: `tryNotiSummaryPlain`, 중복 만료·ADMIN 힌트 축소
+
+Changed files: Backend/mail/outbound.py, Backend/admin_server/change_notify.py, Backend/admin_server/service_projects.py, Frontend/react-app/src/app/layout/NotificationBell.jsx, Frontend/react-app/src/app/layout/notification-bell.css, docs/log/log.md
 
 554. 2026-04-20 메일: 로그인코드·가입초대·프로젝트초대 ◎ 형식·HTML / 초대 알림 제목 요약
 Purpose: 로그인 2차 인증·신규 가입 초대·기존 사용자 프로젝트 초대 메일을 ◎ 블록·HTML 강조로 통일하고, `project_invite` 알림 제목을 진행부서·권한·초대자·만료 요약으로 바꾼다.

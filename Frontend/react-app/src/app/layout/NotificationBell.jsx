@@ -12,7 +12,7 @@
  * - shared/api/notificationsClient, shared/api/authClient, shared/utils/crudConfirm, app/auth/AuthContext
  * - project_invite·widget_board_invite: 수락·거절·만료 표시(위젯 보드는 작업 프로젝트 일치 필요)
  * - 수락/거절·초대 JSON 등 내부용 noti_content는 제목·보조줄만 표시(원문 JSON 비노출)
- * - org_role_changed 등 관리 변경: `summary_plain`(◎ 블록)을 보조줄로 표시(tryAdminChangeSummary)
+ * - `summary_plain` 알림: 관리 변경·프로젝트 초대 등 보조줄(tryNotiSummaryPlain, pre-line)
  * - project_invite: 수락 전 안내·수락 완료(needs_select 시 홈 선택 안내)·토스트와 행 문구 정렬
  * - 거절: 패널 상단 토스트
  */
@@ -55,6 +55,8 @@ const PANEL_TOAST_MS = 5200
 /** 수락 가능한 초대 행에 표시 — JWT·/me 권한과 동기화되는 이유 안내 */
 const PROJECT_INVITE_HINT_PENDING =
   '수락하면 이 프로젝트가 현재 작업 프로젝트로 바뀌며, 부여된 권한으로 쿼리 스튜디오·대시보드·위젯보드를 이용할 수 있습니다.'
+
+const PROJECT_INVITE_HINT_PENDING_SHORT = '아래에서 수락 또는 거절할 수 있습니다.'
 
 const PROJECT_INVITE_HINT_DONE =
   '수락 완료 · 이 프로젝트가 선택된 상태입니다. 사이드바에서 작업 메뉴를 여세요.'
@@ -105,18 +107,19 @@ function isUnread(row) {
   return r !== 'Y'
 }
 
-const ADMIN_CHANGE_SUMMARY_TYPES = new Set([
+const NOTI_SUMMARY_PLAIN_TYPES = new Set([
   'org_role_changed',
   'etl_access_changed',
   'user_mgmt_changed',
   'project_pmssn_changed',
   'user_activated',
+  'project_invite',
 ])
 
-/** 관리 변경 알림: noti_content JSON의 `summary_plain`(이메일과 동일 ◎ 블록)만 보조줄로 표시 */
-function tryAdminChangeSummary(notiType, raw) {
+/** `summary_plain`이 있는 알림: 관리 변경·프로젝트 초대 등(줄바꿈 유지) */
+function tryNotiSummaryPlain(notiType, raw) {
   const t = (notiType || '').trim()
-  if (!ADMIN_CHANGE_SUMMARY_TYPES.has(t)) return null
+  if (!NOTI_SUMMARY_PLAIN_TYPES.has(t)) return null
   if (!raw || !String(raw).trim().startsWith('{')) return null
   try {
     const o = JSON.parse(raw)
@@ -499,7 +502,7 @@ export function NotificationBell() {
                 const inv = isInvite ? parseProjectInvitePayload(row.noti_content) : null
                 const wbInv = isWbInvite ? parseWidgetBoardInvitePayload(row.noti_content) : null
                 const invitePid = inv?.projectId
-                const adminChangeSummary = tryAdminChangeSummary(row.noti_type, row.noti_content)
+                const notiSummaryPlain = tryNotiSummaryPlain(row.noti_type, row.noti_content)
                 const nidKey =
                   row.notification_info_id != null ? String(row.notification_info_id) : ''
                 const inviteResolved =
@@ -544,13 +547,13 @@ export function NotificationBell() {
                       onClick={() => handleReadOne(row)}
                     >
                       <div className="nb-item__title">{row.noti_title || '(제목 없음)'}</div>
-                      {adminChangeSummary ? (
-                        <div className="nb-item__meta nb-item__meta--admin-summary">{adminChangeSummary}</div>
+                      {notiSummaryPlain ? (
+                        <div className="nb-item__meta nb-item__meta--summary-plain">{notiSummaryPlain}</div>
                       ) : null}
-                      {!adminChangeSummary && shouldShowNotiContentBody(row.noti_type, row.noti_content) ? (
+                      {!notiSummaryPlain && shouldShowNotiContentBody(row.noti_type, row.noti_content) ? (
                         <div className="nb-item__meta">{row.noti_content}</div>
                       ) : null}
-                      {isInvite && expLine ? (
+                      {isInvite && expLine && !notiSummaryPlain ? (
                         <div className="nb-item__meta nb-item__meta--expire">{expLine}</div>
                       ) : null}
                       {isWbInvite && wbExpLine ? (
@@ -568,7 +571,9 @@ export function NotificationBell() {
                       ) : null}
                       {isInvite && inviteActions ? (
                         <div className="nb-item__meta nb-item__meta--invite-hint" role="note">
-                          {PROJECT_INVITE_HINT_PENDING}
+                          {notiSummaryPlain
+                            ? PROJECT_INVITE_HINT_PENDING_SHORT
+                            : PROJECT_INVITE_HINT_PENDING}
                         </div>
                       ) : null}
                       {isWbInvite && wbInviteActions ? (
@@ -583,7 +588,7 @@ export function NotificationBell() {
                             : PROJECT_INVITE_HINT_DONE}
                         </div>
                       ) : null}
-                      {ADMIN_NOTI_TYPE_HINT[row.noti_type] ? (
+                      {ADMIN_NOTI_TYPE_HINT[row.noti_type] && !notiSummaryPlain ? (
                         <div className="nb-item__meta nb-item__meta--invite-hint" role="note">
                           {ADMIN_NOTI_TYPE_HINT[row.noti_type]}
                         </div>

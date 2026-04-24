@@ -25,15 +25,16 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 - list_members(conn, …) / cancel_project_invite / add_member / update_member_role / remove_member
 - validate_invite_user_project(conn, …) -> None
 - (내부) _sync_project_table_mappings*, _assert_project_owned*, _notify_project_member_*,
-  초대 제목·메일용 `_format_invite_deadline_noti` 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
+  초대 제목·`summary_plain`·`format_invite_deadline_kr` 등 — `#` 없음·라우터는 `router.py`·`service_users` 경유
 
 [Dependencies]
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
 - Backend.admin_server.audit_sql_catalog
 - Backend.admin_server.change_notify
-- Backend.mail.outbound.send_project_invite_existing_user_email
+- Backend.mail.outbound (`send_project_invite_existing_user_email`, `format_invite_deadline_kr`, `build_project_invite_plain_body`)
 - Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
+- Backend.core.auth_config.get_app_url
 - Backend.core.invite_expiry.invite_expired_from_payload
 - json
 - psycopg2, psycopg2.errors, psycopg2.extras.Json(feature_flags)
@@ -56,8 +57,13 @@ from Backend.admin_server.service_roles import (
     _attach_user_department_display,
     _user_department_display_from_join,
 )
+from Backend.core import auth_config
 from Backend.core.invite_expiry import invite_expired_from_payload
-from Backend.mail.outbound import send_project_invite_existing_user_email
+from Backend.mail.outbound import (
+    build_project_invite_plain_body,
+    format_invite_deadline_kr,
+    send_project_invite_existing_user_email,
+)
 from Backend.notification_server.service import (
     delete_notification_by_id_in_txn,
     delete_project_invite_notifications_for_project_in_txn,
@@ -76,24 +82,9 @@ _DEFAULT_FEATURE_FLAGS: dict[str, bool] = {"query": True, "dash": True, "widget"
 _PROJECT_INVITE_VALID_DAYS = 7
 
 
-def _format_invite_deadline_noti(iso_utc: str) -> str:
-    """알림 제목용 만료 표기 `YYYY/MM/DD HH:MM:SS UTC`."""
-    try:
-        s = iso_utc.strip().replace("Z", "+00:00")
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        dt = dt.astimezone(timezone.utc)
-        return dt.strftime("%Y/%m/%d %H:%M:%S") + " UTC"
-    except Exception:
-        return iso_utc.strip()
-
-
-def _truncate_ui(s: str, n: int) -> str:
-    t = (s or "").strip()
-    if n < 2 or len(t) <= n:
-        return t
-    return t[: n - 1] + "…"
+def _short_project_invite_title(pname: str) -> str:
+    p = (pname or "").strip() or "프로젝트"
+    return f"프로젝트 초대: {p}"[:200]
 
 
 def _fetch_project_department_name_for_mail(cur, project_info_id: int) -> str:
@@ -137,27 +128,6 @@ def _fetch_pmssn_permission_line_for_mail(cur, pmssn_master_id: int) -> str:
     if not items:
         return name
     return f"{name} / {', '.join(items)}"
-
-
-def _project_invite_noti_title(
-    pname: str,
-    dept: str,
-    perm_line: str,
-    inv_plain: str,
-    deadline: str,
-) -> str:
-    perm_s = _truncate_ui(perm_line, 56)
-    inv_s = _truncate_ui(inv_plain, 44)
-    parts = [
-        "프로젝트 초대",
-        pname or "—",
-        dept,
-        perm_s,
-        inv_s,
-        f"만료 {deadline}",
-    ]
-    out = " · ".join(p for p in parts if p)
-    return out[:200]
 
 
 def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
@@ -596,16 +566,26 @@ def create_project_full(
             inv_plain, inv_html = change_notify.actor_plain_html_for_email(
                 conn, int(actor_user_id)
             )
-            deadline_s = _format_invite_deadline_noti(invite_expires_at)
-            title = _project_invite_noti_title(
-                str(pname), dept_dn, perm_line, inv_plain, deadline_s
+            base_u = auth_config.get_app_url()
+            app_open = f"{base_u.rstrip('/')}/" if base_u else ""
+            dl_kr = format_invite_deadline_kr(invite_expires_at)
+            summ_plain = build_project_invite_plain_body(
+                project_name=str(pname),
+                project_department_name=dept_dn,
+                permission_line=perm_line,
+                inviter_plain=inv_plain,
+                deadline_kr=dl_kr,
+                app_url=app_open or "(앱 URL 없음)",
+                include_bell_footer=False,
             )
+            title = _short_project_invite_title(str(pname))
             payload = json.dumps(
                 {
                     "project_info_id": pid,
                     "pmssn_master_id": imid,
                     "invite_user_id": actor_user_id,
                     "invite_expires_at": invite_expires_at,
+                    "summary_plain": summ_plain,
                 },
                 ensure_ascii=False,
             )
@@ -1365,16 +1345,26 @@ def add_member(
         dept_dn = _fetch_project_department_name_for_mail(cur, pid)
         perm_line = _fetch_pmssn_permission_line_for_mail(cur, int(mid))
         inv_plain, inv_html = change_notify.actor_plain_html_for_email(conn, int(aid))
-        deadline_s = _format_invite_deadline_noti(invite_expires_at)
-        title = _project_invite_noti_title(
-            str(pname), dept_dn, perm_line, inv_plain, deadline_s
+        base_u = auth_config.get_app_url()
+        app_open = f"{base_u.rstrip('/')}/" if base_u else ""
+        dl_kr = format_invite_deadline_kr(invite_expires_at)
+        summ_plain = build_project_invite_plain_body(
+            project_name=str(pname),
+            project_department_name=dept_dn,
+            permission_line=perm_line,
+            inviter_plain=inv_plain,
+            deadline_kr=dl_kr,
+            app_url=app_open or "(앱 URL 없음)",
+            include_bell_footer=False,
         )
+        title = _short_project_invite_title(str(pname))
         payload = json.dumps(
             {
                 "project_info_id": pid,
                 "pmssn_master_id": mid,
                 "invite_user_id": aid,
                 "invite_expires_at": invite_expires_at,
+                "summary_plain": summ_plain,
             },
             ensure_ascii=False,
         )
