@@ -27,6 +27,7 @@ project_ptcpnt_info 기준 목록. 프로젝트 선택은 auth_server.rotate_ses
   delete_notification_by_id_in_txn, notify_inviter_project_invite_resolved)
 - Backend.core.invite_expiry.invite_expired_from_payload
 - Backend.project_server.audit_emit.emit_project_log
+- Backend.core.change_tracker (초대 수락 시 `project_ptcpnt_info` track_insert)
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from Backend.notification_server.service import (
     insert_notification,
     notify_inviter_project_invite_resolved,
 )
+from Backend.core.change_tracker import track_insert
 from Backend.project_server.audit_emit import emit_project_log
 
 
@@ -174,6 +176,24 @@ def accept_project_invite(
             """,
             (user_id, inv_uid, pid, mid),
         )
+        cur.execute(
+            """
+            SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+            WHERE project_info_id = %s AND ptcpnt_user_id = %s
+            """,
+            (pid, user_id),
+        )
+        pp_ins = cur.fetchone()
+        if pp_ins and pp_ins.get("project_ptcpnt_info_id") is not None:
+            track_insert(
+                conn,
+                "project_ptcpnt_info",
+                "project_ptcpnt_info_id",
+                int(pp_ins["project_ptcpnt_info_id"]),
+                actor_user_id=int(user_id),
+                project_info_id=int(pid),
+                channel="project",
+            )
         nid = int(notification_info_id)
         notify_inviter_project_invite_resolved(
             conn,

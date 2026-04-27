@@ -1,15 +1,20 @@
 /**
  * user-history.css (UserHistoryPage 전용 스타일)
  * ================================================
- * 탭·필터(인풋·셀렉트·적용 버튼 높이 정합)·placeholder·테이블 th·JSON 셀·CSV 모달
+ * 탭·필터·테이블 th·JSON 셀·CSV 모달·데이터 추적 내역 모달
  *
  * [Main Functions]
  * ===========
- * - .user-history__tabs / __tab: 탭 전환
+ * - .user-history__tabs / __tab: 탭 전환(login·system·changes)
+ * - .user-history__sort-hint: changes 탭 고정 정렬 문구
  * - .user-history__filters: `admin-list-filters`와 조합(폼 제출 Enter)·페이지 전용 보조만
  * - .user-history__toolbar: CSV 등 테이블 상단 보조 액션
  * - 목록 하단 페이지네이션: `AdminListPaginationFooter` + `admin-list-pagination.css`
- * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태
+ * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태·「변경」열 버튼
+ * - `.user-history__list-change-tr`·`__list-change-detail-tr`: 데이터 추적(`changes`) 목록·바로 아래 상세(JSON 복사)
+ * - `.user-history__changes-json-heading`·`__changes-json-details`·`__btn-copy-json`: 변경 필드·이전/변경 데이터 복사(동일 글자 크기)
+ * - `.user-history__track-detail-chevron`: 상세 열 ▼/▲ 표시
+ * - `.user-history__modal-changes`: 변경 내역 모달(목록·changed_fields pre·old/new details·correlation_id 푸터)
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
  * - 시스템 테이블: `col-fingerprint`·`fingerprint-inner`(sql_fingerprint 말줄임·overflow hidden)
  *
@@ -60,6 +65,16 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+/* `changes` 탭: API 정렬 고정 안내(셀렉트 대체) */
+.user-history__sort-hint {
+  margin: 0;
+  padding: 4px 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+  flex: 1 0 100%;
 }
 
 .user-history__table-wrap {
@@ -180,3 +195,312 @@
 .user-history__modal-error {
   margin: 10px 0 0;
 }
+
+/* 시스템 목록 — 변경 열 */
+.user-history__table-wrap .admin-users__table th.user-history__col-change,
+.user-history__table-wrap .admin-users__table td.user-history__col-change {
+  width: 4.5rem;
+  min-width: 4rem;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.user-history__change-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.user-history__change-btn:hover {
+  border-color: var(--color-action-primary);
+  color: var(--color-action-primary);
+}
+
+/* 데이터 추적 내역 모달 */
+.user-history__modal-changes.admin-users__modal {
+  max-width: 760px;
+  width: min(100%, 760px);
+}
+
+.user-history__changes-empty,
+.user-history__changes-hint {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.user-history__changes-table-wrap {
+  margin: 12px 0 0;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+}
+
+.user-history__changes-table {
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
+.user-history__changes-table th,
+.user-history__changes-table td {
+  padding: 6px 10px;
+  vertical-align: middle;
+}
+
+.user-history__track-detail-chevron {
+  display: inline-block;
+  min-width: 1.25rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.user-history__changes-tr {
+  cursor: pointer;
+}
+
+.user-history__changes-tr:hover {
+  background: var(--primary-light, rgba(0, 0, 0, 0.04));
+}
+
+.user-history__changes-tr--selected {
+  background: var(--primary-light, rgba(0, 0, 0, 0.06));
+  outline: 1px solid var(--color-border-light);
+  outline-offset: -1px;
+}
+
+.user-history__change-row-btn {
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--color-action-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.user-history__change-row-btn:hover {
+  color: var(--color-text);
+}
+
+.user-history__changes-detail {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.user-history__changes-detail-label {
+  margin: 0 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-history__changes-json {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: #f8f9fb;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user-history__changes-json--fields {
+  max-height: 180px;
+}
+
+.user-history__changes-nested {
+  margin: 0 0 8px;
+}
+
+.user-history__changes-nested > summary {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.user-history__changes-nested > summary::-webkit-details-marker {
+  display: none;
+}
+
+.user-history__changes-nested[open] > summary {
+  margin-bottom: 6px;
+}
+
+.user-history__changes-nested .user-history__changes-json {
+  max-height: 200px;
+  margin-bottom: 0;
+}
+
+.user-history__changes-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.user-history__changes-cid {
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--color-text-muted);
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+/* `changes` 탭: 메인 목록 행 선택·하단 상세 패널 */
+.user-history__changes-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.user-history__list-change-tr {
+  cursor: pointer;
+}
+
+.user-history__list-change-tr:hover {
+  background: var(--primary-light, rgba(0, 0, 0, 0.04));
+}
+
+.user-history__list-change-tr--selected {
+  background: var(--primary-light, rgba(0, 0, 0, 0.06));
+  outline: 1px solid var(--color-border-light);
+  outline-offset: -1px;
+}
+
+.user-history__changes-list-detail {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  background: var(--surface-muted, #f8f9fa);
+}
+
+.user-history__changes-list-detail--inline {
+  margin-top: 0;
+}
+
+.user-history__changes-list-detail--modal-inline {
+  margin-top: 0;
+}
+
+.user-history__changes-json--scroll {
+  max-height: 200px;
+  overflow: auto;
+}
+
+.user-history__changes-list-detail .user-history__changes-footer {
+  margin-top: 12px;
+}
+
+/* `changes` 탭: 선택 행 바로 아래 상세 행 */
+.user-history__list-change-detail-tr .user-history__list-change-detail-td {
+  padding: 0 14px 12px;
+  vertical-align: top;
+  background: var(--surface-muted, #f8f9fb);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.user-history__changes-modal-detail-tr .user-history__changes-modal-detail-td {
+  padding: 0 10px 10px;
+  vertical-align: top;
+  background: var(--surface-muted, #f8f9fb);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.user-history__changes-json-block {
+  margin-bottom: 10px;
+}
+
+.user-history__changes-json-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.user-history__changes-json-heading span {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-history__btn-copy-json {
+  flex-shrink: 0;
+  padding: 4px 10px !important;
+  font-size: 0.8125rem !important;
+  line-height: 1.25 !important;
+}
+
+.user-history__changes-json-details {
+  margin: 0 0 10px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  padding: 6px 10px 10px;
+  background: #fff;
+}
+
+.user-history__changes-json-details > .user-history__changes-json-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 4px 0 6px;
+  list-style: none;
+}
+
+.user-history__changes-json-details > .user-history__changes-json-summary::-webkit-details-marker {
+  display: none;
+}
+
+.user-history__changes-json-summary-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-history__changes-json-details:not([open]) .user-history__btn-copy-json {
+  display: none;
+}
+
+.user-history__changes-json-details[open] > .user-history__changes-json-summary {
+  border-bottom: 1px solid var(--color-border-light);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+}
+
+.user-history__changes-json-details .user-history__changes-json {
+  margin-bottom: 0;
+}
+

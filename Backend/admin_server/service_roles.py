@@ -32,6 +32,7 @@ pmssn_master/pmssn_master_detail 기반 권한 옵션·목록·사용현황 조�
 =========
 - Backend.admin_server.audit_emit.emit_admin_system_log
 - Backend.admin_server.audit_sql_catalog
+- Backend.core.change_tracker (pmssn_master `data_change_log` track_insert/update/delete)
 - (conn, SQL만)
 """
 
@@ -41,6 +42,7 @@ from typing import Any
 
 from Backend.admin_server import audit_sql_catalog
 from Backend.admin_server.audit_emit import emit_admin_system_log
+from Backend.core.change_tracker import track_delete, track_insert, track_update
 
 
 def _pmssn_list_sorted_key(value: Any) -> tuple[str, ...]:
@@ -328,6 +330,15 @@ def create_custom_role(
             (dptmt_info_id, name, pmssn_list or [], actor_user_id),
         )
         rid = int(cur.fetchone()["pmssn_master_id"])
+        track_insert(
+            conn,
+            "pmssn_master",
+            "pmssn_master_id",
+            rid,
+            actor_user_id=int(actor_user_id),
+            project_info_id=None,
+            channel="admin",
+        )
         conn.commit()
         emit_admin_system_log(
             int(actor_user_id),
@@ -386,16 +397,38 @@ def update_custom_role(
                         "프로젝트에 배정된 권한은 상세 권한 목록을 변경할 수 없습니다. "
                         "멤버에게 배정된 권한을 다른 권한으로 바꾼 뒤 수정하세요."
                     )
-        if pmssn_name is not None:
-            cur.execute(
-                audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_NAME,
-                ((pmssn_name or "").strip(), pmssn_master_id),
-            )
-        if pmssn_list is not None:
-            cur.execute(
-                audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_LIST,
-                (pmssn_list, pmssn_master_id),
-            )
+        au = int(actor_user_id or 0)
+        if au > 0:
+            with track_update(
+                conn,
+                "pmssn_master",
+                "pmssn_master_id",
+                int(pmssn_master_id),
+                actor_user_id=au,
+                project_info_id=None,
+                channel="admin",
+            ):
+                if pmssn_name is not None:
+                    cur.execute(
+                        audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_NAME,
+                        ((pmssn_name or "").strip(), pmssn_master_id),
+                    )
+                if pmssn_list is not None:
+                    cur.execute(
+                        audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_LIST,
+                        (pmssn_list, pmssn_master_id),
+                    )
+        else:
+            if pmssn_name is not None:
+                cur.execute(
+                    audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_NAME,
+                    ((pmssn_name or "").strip(), pmssn_master_id),
+                )
+            if pmssn_list is not None:
+                cur.execute(
+                    audit_sql_catalog.SQL_PMSSN_MASTER_UPDATE_LIST,
+                    (pmssn_list, pmssn_master_id),
+                )
         conn.commit()
         emit_admin_system_log(
             actor_user_id,
@@ -447,6 +480,17 @@ def delete_custom_role(
         )
         if cur.fetchone():
             raise ValueError("프로젝트에서 사용 중인 권한은 삭제할 수 없습니다.")
+        au_del = int(actor_user_id or 0)
+        if au_del > 0:
+            track_delete(
+                conn,
+                "pmssn_master",
+                "pmssn_master_id",
+                int(pmssn_master_id),
+                actor_user_id=au_del,
+                project_info_id=None,
+                channel="admin",
+            )
         cur.execute(
             audit_sql_catalog.SQL_PMSSN_MASTER_DELETE,
             (pmssn_master_id,),

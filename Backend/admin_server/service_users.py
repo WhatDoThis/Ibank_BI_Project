@@ -44,6 +44,7 @@ Backend.admin_server.service_users (유저·초대·부서)
 - (ETL 메타 조회용 로컬 헬퍼 _admin_etl_q, _admin_etl_table_columns_lower, _admin_etl_select_cols — etl_server 패키지 import 회피)
 - Backend.admin_server.service_projects.validate_invite_user_project
 - Backend.auth_server.permissions (get_effective_permission_ids_for_me, is_project_participant)
+- Backend.core.change_tracker (`user_info`·`project_ptcpnt_info`·`dptmt_info`·이관 대상 테이블 등 `data_change_log` 추적, 실패는 로그만)
 """
 
 from __future__ import annotations
@@ -70,6 +71,7 @@ from Backend.auth_server.permissions import (
 from Backend.core import auth_config
 from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 from Backend.core import db as core_db
+from Backend.core.change_tracker import track_delete, track_insert, track_update
 from Backend.core.user_dvsn_codes import canon_user_dvsn
 
 _log = logging.getLogger(__name__)
@@ -1385,10 +1387,26 @@ def suspend_user(
         _evaluate_ownership_target_or_raise(
             conn, int(target_user_id), "u", "N", for_suspend=True
         )
-        cur.execute(
-            audit_sql_catalog.SQL_USER_SUSPEND,
-            (target_user_id,),
-        )
+        _au = int(actor_user_id) if actor_user_id is not None else 0
+        if _au > 0:
+            with track_update(
+                conn,
+                "user_info",
+                "user_id",
+                int(target_user_id),
+                actor_user_id=_au,
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_USER_SUSPEND,
+                    (target_user_id,),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_USER_SUSPEND,
+                (target_user_id,),
+            )
         # 순환 import 방지: auth_server.service ↔ admin_server 로딩 체인 상 모듈 최상단에서 import 금지
         from Backend.auth_server.service import invalidate_all_sessions
 
@@ -1431,10 +1449,26 @@ def activate_user(
         if not row:
             raise ValueError("사용자를 찾을 수 없습니다.")
         _assert_suspend_activate_target(actor_dvsn, row.get("user_dvsn") or "")
-        cur.execute(
-            audit_sql_catalog.SQL_USER_ACTIVATE,
-            (target_user_id,),
-        )
+        _au = int(actor_user_id) if actor_user_id is not None else 0
+        if _au > 0:
+            with track_update(
+                conn,
+                "user_info",
+                "user_id",
+                int(target_user_id),
+                actor_user_id=_au,
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_USER_ACTIVATE,
+                    (target_user_id,),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_USER_ACTIVATE,
+                (target_user_id,),
+            )
         conn.commit()
         _emit_admin_system_log(
             actor_user_id,
@@ -1502,6 +1536,37 @@ def delete_inactive_user(
             audit_sql_catalog.SQL_DELETE_NOTIFICATION_INFO_BY_USER,
             (tid,),
         )
+        del_detail: dict[str, Any] = {}
+        cur.execute(
+            "SELECT COUNT(*)::int AS c FROM project_ptcpnt_info WHERE ptcpnt_user_id = %s",
+            (tid,),
+        )
+        pc_row = cur.fetchone()
+        ptc_cnt = int((pc_row or {}).get("c") or 0)
+        if ptc_cnt > 50:
+            del_detail["skipped_track_delete_project_ptcpnt"] = True
+            del_detail["project_ptcpnt_count"] = ptc_cnt
+        else:
+            cur.execute(
+                """
+                SELECT project_ptcpnt_info_id, project_info_id
+                FROM project_ptcpnt_info
+                WHERE ptcpnt_user_id = %s
+                """,
+                (tid,),
+            )
+            for pr in cur.fetchall():
+                ppid = int(pr["project_ptcpnt_info_id"])
+                pr_pid = pr.get("project_info_id")
+                track_delete(
+                    conn,
+                    "project_ptcpnt_info",
+                    "project_ptcpnt_info_id",
+                    ppid,
+                    actor_user_id=aid,
+                    project_info_id=int(pr_pid) if pr_pid is not None else None,
+                    channel="admin",
+                )
         cur.execute(
             audit_sql_catalog.SQL_DELETE_PROJECT_PTCPNT_BY_PARTICIPANT_USER,
             (tid,),
@@ -1509,6 +1574,15 @@ def delete_inactive_user(
         cur.execute(
             audit_sql_catalog.SQL_DELETE_EMAIL_INVITE_BY_CODE_CREATOR,
             (tid,),
+        )
+        track_delete(
+            conn,
+            "user_info",
+            "user_id",
+            tid,
+            actor_user_id=aid,
+            project_info_id=None,
+            channel="admin",
         )
         cur.execute(
             audit_sql_catalog.SQL_DELETE_USER_INFO_BY_ID,
@@ -1524,7 +1598,7 @@ def delete_inactive_user(
             business_action="user_delete_inactive",
             risk_tier="HIGH",
             target_summary=f"deleted_user_id={tid}",
-            detail_json={"affected_user_id": tid},
+            detail_json={"affected_user_id": tid, **del_detail},
         )
     except ValueError:
         conn.rollback()
@@ -1582,10 +1656,26 @@ def set_user_dvsn_admin_user(
                 raise ValueError("해당 조직 역할은 이 API로 변경할 수 없습니다.")
             if nd not in ("a", "o", "u"):
                 raise ValueError("허용되지 않는 조직 역할입니다.")
-        cur.execute(
-            audit_sql_catalog.SQL_USER_ROLE_CHANGE,
-            (nd, target_user_id),
-        )
+        _au = int(actor_user_id) if actor_user_id is not None else 0
+        if _au > 0:
+            with track_update(
+                conn,
+                "user_info",
+                "user_id",
+                int(target_user_id),
+                actor_user_id=_au,
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_USER_ROLE_CHANGE,
+                    (nd, target_user_id),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_USER_ROLE_CHANGE,
+                (nd, target_user_id),
+            )
         conn.commit()
         _emit_admin_system_log(
             actor_user_id,
@@ -1649,10 +1739,26 @@ def set_user_etl_flag(
             raise ValueError("SA_DEV 계정의 etl_yn은 변경할 수 없습니다.")
         if flag == "N":
             _raise_if_etl_registry_blocks_clearing_etl_yn(int(target_user_id))
-        cur.execute(
-            audit_sql_catalog.SQL_USER_ETL_FLAG,
-            (flag, target_user_id),
-        )
+        _au = int(actor_user_id) if actor_user_id is not None else 0
+        if _au > 0:
+            with track_update(
+                conn,
+                "user_info",
+                "user_id",
+                int(target_user_id),
+                actor_user_id=_au,
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_USER_ETL_FLAG,
+                    (flag, target_user_id),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_USER_ETL_FLAG,
+                (flag, target_user_id),
+            )
         conn.commit()
         _emit_admin_system_log(
             actor_user_id,
@@ -2084,10 +2190,26 @@ def update_department_in_org_settings(
     params.append(int(dptmt_info_id))
     cur = conn.cursor()
     try:
-        cur.execute(
-            f"UPDATE dptmt_info SET {', '.join(sets)} WHERE dptmt_info_id = %s",
-            params,
-        )
+        au_d = int(actor_user_id or 0)
+        if au_d > 0:
+            with track_update(
+                conn,
+                "dptmt_info",
+                "dptmt_info_id",
+                int(dptmt_info_id),
+                actor_user_id=au_d,
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    f"UPDATE dptmt_info SET {', '.join(sets)} WHERE dptmt_info_id = %s",
+                    params,
+                )
+        else:
+            cur.execute(
+                f"UPDATE dptmt_info SET {', '.join(sets)} WHERE dptmt_info_id = %s",
+                params,
+            )
         if cur.rowcount == 0:
             conn.rollback()
             raise ValueError("부서를 찾을 수 없습니다.")
@@ -2133,6 +2255,17 @@ def delete_department_in_org_settings(
     _assert_department_clear_for_invalidate_or_remove(conn, tid)
     cur = conn.cursor()
     try:
+        au_dd = int(actor_user_id or 0)
+        if au_dd > 0:
+            track_delete(
+                conn,
+                "dptmt_info",
+                "dptmt_info_id",
+                tid,
+                actor_user_id=au_dd,
+                project_info_id=None,
+                channel="admin",
+            )
         cur.execute(
             audit_sql_catalog.SQL_DEPT_DELETE,
             (tid,),
@@ -2215,6 +2348,15 @@ def create_department(
             conn.rollback()
             raise ValueError("부서 등록에 실패했습니다.")
         new_id = int(row["dptmt_info_id"] if hasattr(row, "get") else row[0])
+        track_insert(
+            conn,
+            "dptmt_info",
+            "dptmt_info_id",
+            new_id,
+            actor_user_id=int(actor_user_id),
+            project_info_id=None,
+            channel="admin",
+        )
         conn.commit()
         _emit_admin_system_log(
             int(actor_user_id),
@@ -2242,10 +2384,26 @@ def update_department_name(
         raise ValueError("부서명이 필요합니다.")
     cur = conn.cursor()
     try:
-        cur.execute(
-            audit_sql_catalog.SQL_DEPT_UPDATE_NAME_ONLY,
-            (name, dptmt_info_id),
-        )
+        au_dn = int(actor_user_id or 0)
+        if au_dn > 0:
+            with track_update(
+                conn,
+                "dptmt_info",
+                "dptmt_info_id",
+                int(dptmt_info_id),
+                actor_user_id=au_dn,
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_DEPT_UPDATE_NAME_ONLY,
+                    (name, dptmt_info_id),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_DEPT_UPDATE_NAME_ONLY,
+                (name, dptmt_info_id),
+            )
         if cur.rowcount == 0:
             conn.rollback()
             raise ValueError("부서를 찾을 수 없습니다.")
@@ -3054,11 +3212,27 @@ def transfer_resource_ownership(
                     "선택한 사용자는 테이블 마스터를 위임받을 권한이 없습니다. "
                     "(매핑 프로젝트에서 query.execute 또는 동일 부서 SA/A·SA_DEV)"
                 )
+            au_tm = int(actor_user_id or 0)
             try:
-                cur.execute(
-                    audit_sql_catalog.SQL_OWNERSHIP_TABLE_MASTER,
-                    (tid, rid, fid),
-                )
+                if au_tm > 0:
+                    with track_update(
+                        conn,
+                        "table_master",
+                        "table_master_id",
+                        rid,
+                        actor_user_id=au_tm,
+                        project_info_id=None,
+                        channel="admin",
+                    ):
+                        cur.execute(
+                            audit_sql_catalog.SQL_OWNERSHIP_TABLE_MASTER,
+                            (tid, rid, fid),
+                        )
+                else:
+                    cur.execute(
+                        audit_sql_catalog.SQL_OWNERSHIP_TABLE_MASTER,
+                        (tid, rid, fid),
+                    )
             except psycopg2.errors.UndefinedColumn as e:
                 raise ValueError(
                     "table_master.create_user_id 컬럼이 없습니다. DB DDL을 확인하세요."
@@ -3116,10 +3290,26 @@ def transfer_resource_ownership(
                     "부서 생성자는 해당 부서와 동일 부서 트리(상·하위 포함) 소속 사용자에게만 이관할 수 있습니다."
                 )
             assert_invite_dptmt_allowed(conn, actor_dvsn, int(actor_dptmt), dept_pk)
-            cur.execute(
-                audit_sql_catalog.SQL_OWNERSHIP_DPTMT_CREATOR,
-                (tid, rid, fid),
-            )
+            au_dc = int(actor_user_id or 0)
+            if au_dc > 0:
+                with track_update(
+                    conn,
+                    "dptmt_info",
+                    "dptmt_info_id",
+                    rid,
+                    actor_user_id=au_dc,
+                    project_info_id=None,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_OWNERSHIP_DPTMT_CREATOR,
+                        (tid, rid, fid),
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.SQL_OWNERSHIP_DPTMT_CREATOR,
+                    (tid, rid, fid),
+                )
             if cur.rowcount == 0:
                 conn.rollback()
                 raise ValueError("부서 생성자 이관에 실패했습니다.")
@@ -3160,10 +3350,26 @@ def transfer_resource_ownership(
                     "이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다."
                 )
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
-            cur.execute(
-                audit_sql_catalog.SQL_OWNERSHIP_WIDGET_BOARD_OWNER,
-                (tid, rid, fid),
-            )
+            au_wbo = int(actor_user_id or 0)
+            if au_wbo > 0:
+                with track_update(
+                    conn,
+                    "widget_board",
+                    "widget_board_id",
+                    rid,
+                    actor_user_id=au_wbo,
+                    project_info_id=None,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_OWNERSHIP_WIDGET_BOARD_OWNER,
+                        (tid, rid, fid),
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.SQL_OWNERSHIP_WIDGET_BOARD_OWNER,
+                    (tid, rid, fid),
+                )
             if cur.rowcount == 0:
                 conn.rollback()
                 raise ValueError("위젯 보드 소유 이관에 실패했습니다.")
@@ -3183,7 +3389,8 @@ def transfer_resource_ownership(
         if rt == "project_invite":
             cur.execute(
                 """
-                SELECT pp.project_ptcpnt_info_id, pp.invite_user_id, pp.ptcpnt_user_id,
+                SELECT pp.project_ptcpnt_info_id, pp.project_info_id,
+                       pp.invite_user_id, pp.ptcpnt_user_id,
                        pi.dptmt_info_id
                 FROM project_ptcpnt_info pp
                 JOIN project_info pi ON pi.project_info_id = pp.project_info_id
@@ -3204,10 +3411,27 @@ def transfer_resource_ownership(
                     "이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다."
                 )
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
-            cur.execute(
-                audit_sql_catalog.SQL_OWNERSHIP_PROJECT_INVITE,
-                (tid, rid, fid),
-            )
+            inv_pid = int(irow["project_info_id"])
+            au_pi = int(actor_user_id or 0)
+            if au_pi > 0:
+                with track_update(
+                    conn,
+                    "project_ptcpnt_info",
+                    "project_ptcpnt_info_id",
+                    rid,
+                    actor_user_id=au_pi,
+                    project_info_id=inv_pid,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_OWNERSHIP_PROJECT_INVITE,
+                        (tid, rid, fid),
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.SQL_OWNERSHIP_PROJECT_INVITE,
+                    (tid, rid, fid),
+                )
             if cur.rowcount == 0:
                 conn.rollback()
                 raise ValueError("초대자 이관에 실패했습니다.")
@@ -3237,10 +3461,26 @@ def transfer_resource_ownership(
             if to_dpt != pd:
                 raise ValueError("이관 대상은 프로젝트 소속 부서와 동일한 부서 사용자여야 합니다.")
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, pd)
-            cur.execute(
-                audit_sql_catalog.SQL_OWNERSHIP_PROJECT_CREATE_USER,
-                (tid, rid),
-            )
+            au_pj = int(actor_user_id or 0)
+            if au_pj > 0:
+                with track_update(
+                    conn,
+                    "project_info",
+                    "project_info_id",
+                    rid,
+                    actor_user_id=au_pj,
+                    project_info_id=rid,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_OWNERSHIP_PROJECT_CREATE_USER,
+                        (tid, rid),
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.SQL_OWNERSHIP_PROJECT_CREATE_USER,
+                    (tid, rid),
+                )
             conn.commit()
             _emit_ownership_transfer_log(
                 actor_user_id,
@@ -3269,10 +3509,26 @@ def transfer_resource_ownership(
             if md and to_dpt != md:
                 raise ValueError("이관 대상은 권한 소속 부서와 동일한 부서 사용자여야 합니다.")
             assert_invite_dptmt_allowed(conn, actor_dvsn, actor_dptmt, md)
-            cur.execute(
-                audit_sql_catalog.SQL_OWNERSHIP_PMSSN_MASTER_USER,
-                (tid, rid),
-            )
+            au_pm = int(actor_user_id or 0)
+            if au_pm > 0:
+                with track_update(
+                    conn,
+                    "pmssn_master",
+                    "pmssn_master_id",
+                    rid,
+                    actor_user_id=au_pm,
+                    project_info_id=None,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_OWNERSHIP_PMSSN_MASTER_USER,
+                        (tid, rid),
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.SQL_OWNERSHIP_PMSSN_MASTER_USER,
+                    (tid, rid),
+                )
             conn.commit()
             _emit_ownership_transfer_log(
                 actor_user_id,
@@ -3701,10 +3957,19 @@ def update_user_management(
             nd = int(dptmt_info_id)
             if nd not in allow_ids:
                 raise ValueError("해당 부서로는 변경할 수 없습니다.")
-            cur.execute(
-                audit_sql_catalog.SQL_USER_INFO_SET_DPTMT_ID,
-                (nd, tid),
-            )
+            with track_update(
+                conn,
+                "user_info",
+                "user_id",
+                tid,
+                actor_user_id=int(actor_user_id),
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_USER_INFO_SET_DPTMT_ID,
+                    (nd, tid),
+                )
 
         if user_dvsn is not None:
             td_before = canon_user_dvsn(target.get("user_dvsn"))
@@ -3716,20 +3981,38 @@ def update_user_management(
                 mgmt_track["dvsn"] = True
                 mgmt_track["old_dvsn"] = td_before
                 mgmt_track["new_dvsn"] = nd
-                cur.execute(
-                    audit_sql_catalog.SQL_USER_ROLE_CHANGE,
-                    (nd, tid),
-                )
+                with track_update(
+                    conn,
+                    "user_info",
+                    "user_id",
+                    tid,
+                    actor_user_id=int(actor_user_id),
+                    project_info_id=None,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_USER_ROLE_CHANGE,
+                        (nd, tid),
+                    )
                 if nd == "u":
                     # 조직 역할 u 전환 시 DB에서 etl_yn 강제 N — 일괄 알림 요약에 ETL 변경도 포함(2.5·액션 표)
                     if cur_etl == "Y":
                         mgmt_track["etl"] = True
                         mgmt_track["old_etl"] = "Y"
                         mgmt_track["new_etl"] = "N"
-                    cur.execute(
-                        audit_sql_catalog.SQL_USER_INFO_SET_ETL_YN_FORCE_N,
-                        (tid,),
-                    )
+                    with track_update(
+                        conn,
+                        "user_info",
+                        "user_id",
+                        tid,
+                        actor_user_id=int(actor_user_id),
+                        project_info_id=None,
+                        channel="admin",
+                    ):
+                        cur.execute(
+                            audit_sql_catalog.SQL_USER_INFO_SET_ETL_YN_FORCE_N,
+                            (tid,),
+                        )
 
         if etl_yn is not None:
             flag = (etl_yn or "").strip().upper()
@@ -3759,10 +4042,19 @@ def update_user_management(
                 mgmt_track["etl"] = True
                 mgmt_track["old_etl"] = prev_e
                 mgmt_track["new_etl"] = flag
-            cur.execute(
-                audit_sql_catalog.SQL_USER_ETL_FLAG,
-                (flag, tid),
-            )
+            with track_update(
+                conn,
+                "user_info",
+                "user_id",
+                tid,
+                actor_user_id=int(actor_user_id),
+                project_info_id=None,
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_USER_ETL_FLAG,
+                    (flag, tid),
+                )
 
         desired_list = project_assignments if project_assignments is not None else None
         if desired_list is None and project_info_ids is not None:
@@ -3820,6 +4112,25 @@ def update_user_management(
                         audit_sql_catalog.SQL_PROJECT_PTCPNT_INFO_INSERT_ON_CONFLICT,
                         (tid, int(actor_user_id), pid, desired_map[pid]),
                     )
+                    if cur.rowcount and int(cur.rowcount) > 0:
+                        cur.execute(
+                            """
+                            SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+                            WHERE project_info_id = %s AND ptcpnt_user_id = %s
+                            """,
+                            (pid, tid),
+                        )
+                        ins_row = cur.fetchone()
+                        if ins_row and ins_row.get("project_ptcpnt_info_id") is not None:
+                            track_insert(
+                                conn,
+                                "project_ptcpnt_info",
+                                "project_ptcpnt_info_id",
+                                int(ins_row["project_ptcpnt_info_id"]),
+                                actor_user_id=int(actor_user_id),
+                                project_info_id=pid,
+                                channel="admin",
+                            )
             for pid in same_ids:
                 if int(current_pmssn_by_project.get(pid, 0)) == int(desired_map[pid]):
                     continue
@@ -3834,12 +4145,54 @@ def update_user_management(
                     if int(prow["dptmt_info_id"]) != int(actor_dptmt):
                         raise ValueError("타부서 프로젝트 권한은 변경할 수 없습니다.")
                 _assert_pmssn_allowed_for_project(cur, pid, desired_map[pid])
-                proj_changed = True
                 cur.execute(
-                    audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
-                    (desired_map[pid], pid, tid),
+                    """
+                    SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+                    WHERE project_info_id = %s AND ptcpnt_user_id = %s
+                    """,
+                    (pid, tid),
                 )
+                same_pp = cur.fetchone()
+                _ppid_m = int(same_pp["project_ptcpnt_info_id"]) if same_pp and same_pp.get("project_ptcpnt_info_id") is not None else None
+                proj_changed = True
+                if _ppid_m is not None:
+                    with track_update(
+                        conn,
+                        "project_ptcpnt_info",
+                        "project_ptcpnt_info_id",
+                        _ppid_m,
+                        actor_user_id=int(actor_user_id),
+                        project_info_id=pid,
+                        channel="admin",
+                    ):
+                        cur.execute(
+                            audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
+                            (desired_map[pid], pid, tid),
+                        )
+                else:
+                    cur.execute(
+                        audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
+                        (desired_map[pid], pid, tid),
+                    )
             for pid in remove_ids:
+                cur.execute(
+                    """
+                    SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+                    WHERE project_info_id = %s AND ptcpnt_user_id = %s
+                    """,
+                    (pid, tid),
+                )
+                rm_pp = cur.fetchone()
+                if rm_pp and rm_pp.get("project_ptcpnt_info_id") is not None:
+                    track_delete(
+                        conn,
+                        "project_ptcpnt_info",
+                        "project_ptcpnt_info_id",
+                        int(rm_pp["project_ptcpnt_info_id"]),
+                        actor_user_id=int(actor_user_id),
+                        project_info_id=pid,
+                        channel="admin",
+                    )
                 cur.execute(
                     audit_sql_catalog.SQL_MEMBER_REMOVE,
                     (pid, tid),

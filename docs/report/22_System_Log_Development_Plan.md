@@ -14,7 +14,7 @@
 | 배경 | [§1 배경·목표](#1-배경목표) | 기능 요구 vs 현행 갭 |
 | 설계 | [§2 원칙·비범위](#2-원칙비범위) | ETL 분리·SQL·개인정보 |
 | 설계 | [§3 아키텍처 선택](#3-아키텍처-선택) | `system_log_server`·**§3.3 로그인 이력 조회 통합** |
-| DB | [§4 `system_log` 스키마](#4-system_log-스키마-적용-ddl과-동기) | 테이블·인덱스·확장 |
+| DB | [§4 `system_log` 스키마](#4-system_log-스키마-적용-ddl과-동기) | 테이블·인덱스·확장·**§4.4** `data_change_log` 링크 |
 | 1차 | [§5 Phase 1 — 인프라](#5-phase-1-system_log_server--저장-인프라) | 패키지·API·DDL·**§5.1 무중단 적용** |
 | 2차 | [§6 Phase 2 — 계측](#6-phase-2-백엔드-계측-매핑) | 우선순위·**§6.4~6.6** 매핑·검증 |
 | 횡단 | [§7 상관 ID·HTTP 컨텍스트](#7-요청-상관-id--http-컨텍스트) | 미들웨어·UA·IP |
@@ -39,7 +39,7 @@
 - **법무·ISMS-P 대응 전체** → `07` §12 선택 과제와 운영 규정 문서가 주도(본 문서는 구현 계획만).
 
 **교차 참조**  
-`docs/main/07_USER_FUNCTIONAL_GUIDE.md`(§12 과제 1·3), `docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/main/05_PERMISSION_GUIDE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`, `docs/report/21_Backend_Package_Refactoring_Inventory.md`  
+`docs/main/07_USER_FUNCTIONAL_GUIDE.md`(§12 과제 1·3), `docs/main/02_BACKEND_GUIDE.md`, `docs/main/03_API_GUIDE.md`, `docs/main/04_DB_ARCHITECTURE.md`, `docs/main/05_PERMISSION_GUIDE.md`, `docs/report/17_SystemDB_Commercialization_Implementation_Guide.md`, `docs/report/21_Backend_Package_Refactoring_Inventory.md`, **`docs/report/25_Data_Change_Log_And_Tracking_Plan.md`**(데이터 변경 before/after·`data_change_log`)  
 **프론트 UX 레퍼런스(탭·URL)**: `Frontend/react-app/src/packages/etl/ETLPage.jsx` — `useSearchParams`, `tab` 쿼리, `setSourceTypeAndUrl` 패턴.
 
 ---
@@ -169,6 +169,13 @@
 
 - 월 단위 **RANGE partition**(또는 아카이브 테이블 이동)은 **데이터 적재 후 Phase 3**에서 운영과 합의.  
 - 1차는 단일 테이블 + 인덱스로 시작해도 됨(행 수 모니터링 후 파티션).
+
+### 4.4 `data_change_log`(변경 추적)와의 관계
+
+- **`system_log`**: 한 사용자 액션당 **한 행 집약** 원칙(§2.7)을 유지한다.  
+- **`data_change_log`**: 같은 요청에서 바뀐 **레코드별** before/after·diff를 남긴다. 연결 키는 **`request_correlation_id` = `correlation_id`(UUID)** 논리 조인(비FK).  
+- DDL은 저장소 `.sql` 파일 없이 운영 수동 실행 — **스키마·Phase·통합 이력 UI·커서 명령문**은 **[25_Data_Change_Log_And_Tracking_Plan.md](./25_Data_Change_Log_And_Tracking_Plan.md)** 가 정본이다.  
+- `detail_json`에 선택 키 `change_log_count`(int)를 두는 경우 **04 §13** 표와 문구를 동기화한다.
 
 ---
 

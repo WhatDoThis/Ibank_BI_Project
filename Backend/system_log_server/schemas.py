@@ -6,6 +6,7 @@ system_log·로그인 이력 목록 API용 모델.
 [Classes]
 ===========
 - SystemLogItemOut, SystemLogListOut — system_log (`actor_user_email` 조인)
+- ChangeLogItemOut, ChangeLogListOut — `data_change_log` (`user_email`·`project_name` 조인, system_log `correlation_id` 연동·필터 목록)
 - LoginHistoryItemOut, LoginHistoryListOut — user_login_log (me·org)
 
 [Dependencies]
@@ -55,6 +56,37 @@ class SystemLogListOut(BaseModel):
     """페이지 목록 응답."""
 
     items: list[SystemLogItemOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class ChangeLogItemOut(BaseModel):
+    """data_change_log 한 행(목록·모달: `actor_user_email`·`project_name` 은 조인 보강)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    change_log_id: int
+    correlation_id: str
+    actor_user_id: int
+    actor_user_email: str | None = None
+    project_info_id: int | None = None
+    project_name: str | None = None
+    target_table: str
+    target_pk_column: str
+    target_pk_value: str
+    operation: str
+    old_data: dict[str, Any] | None = None
+    new_data: dict[str, Any] | None = None
+    changed_fields: dict[str, Any] | None = None
+    channel: str
+    created_at: datetime
+
+
+class ChangeLogListOut(BaseModel):
+    """데이터 변경 로그 페이징 응답."""
+
+    items: list[ChangeLogItemOut]
     total: int
     page: int
     page_size: int

@@ -235,7 +235,7 @@ Frontend/react-app/
 - **`components/AdminSortableTh.jsx`**: 정렬 가능 `th`(화살표·nd-rank 스타일과 동일 계열)
 - **`components/AdminListPaginationFooter.jsx`**: 건수 요약·10·20·50개·«‹›»·페이지 입력(스타일은 동일 파일에서 `admin-list-pagination.css` side-effect import)
 - **`hooks/useResetListPage.js`**: 필터·정렬·원본 행 집합 등 의존 값이 바뀌면 클라이언트 목록 페이지를 1로 리셋
-- **`utils/crudConfirm.js`**, **`userDvsnDisplay.js`**, **`passwordPolicy.js`**: 관리·가입 공통
+- **`utils/crudConfirm.js`**, **`userDvsnDisplay.js`**, **`passwordPolicy.js`**: 관리·가입 공통. `userDvsnDisplay.js` 는 `user_dvsn` 저장 코드를 목록용 짧은 표기(SA개발자·S·A·B·C)로만 바꾼다(**08_TERMINOLOGY.md §1.1**).
 
 **엔드포인트 추가 시**: 해당 패키지 `api/*Client.js` 및 필요 시 `shared/api/*`·`http.js` 수정한다. 저장소에는 **루트 단일 `client.js`** 를 두지 않는다.
 

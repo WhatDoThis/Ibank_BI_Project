@@ -1,27 +1,29 @@
 /**
- * app/admin/UserHistoryPage.jsx (통합 이력 조회 — 로그인·시스템)
+ * app/admin/UserHistoryPage.jsx (통합 이력 조회 — 로그인·시스템·데이터 추적)
  * ============================================================
- * `docs/report/22` §8.1: `tab=login|system` URL 동기화(ETLPage 패턴). 로그인은 GET …/login-history/org, 시스템은 GET …/system-logs.
+ * `docs/report/22` §8.1: `tab=login|system|changes` URL 동기화(ETLPage 패턴). 로그인은 GET …/login-history/org, 시스템은 GET …/system-logs, 데이터 추적은 GET …/change-logs(`getChangeLogsPaged`, 시스템 이력 테이블 열 정렬·라벨에 맞춤).
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼(Enter=적용·초기화)·시스템 상세·테이블(IP·sql_fingerprint)·정렬·CSV 모달·하단 페이지네이션(AdminListPaginationFooter·서버 total·10/20/50·탭 전환 시 페이지만 초기화)
+ * 1. UserHistoryPage — 필터 폼·시스템 상세·시스템「변경」모달·`changes`(데이터 추적) 탭: 시스템 이력과 동일 열 흐름·행 재클릭 시 상세 접기·JSON 복사·페이지네이션(AdminListPaginationFooter)
  *
  * [Dependencies]
  * =========
  * - react-router-dom (useSearchParams, Link)
- * - shared/api/systemLogClient (getLoginHistoryOrg, getSystemLogsOrg, downloadUserHistoryCsv)
+ * - shared/api/systemLogClient (getLoginHistoryOrg, getSystemLogsOrg, getSystemLogChanges, getChangeLogsPaged, downloadUserHistoryCsv)
  * - app/admin/admin-pages.css(`ap__back` 상단 링크), app/admin/admin-users.css, app/admin/admin-list-table.css(필터 바·1~6과 동일), app/admin/user-history.css
  * - shared/components/AdminListPaginationFooter(admin-list-pagination.css 포함)
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import AdminListPaginationFooter from '@/shared/components/AdminListPaginationFooter.jsx'
 import {
   downloadUserHistoryCsv,
+  getChangeLogsPaged,
   getLoginHistoryOrg,
+  getSystemLogChanges,
   getSystemLogsOrg,
 } from '@/shared/api/systemLogClient.js'
 
@@ -30,7 +32,7 @@ import './admin-users.css'
 import './admin-list-table.css'
 import './user-history.css'
 
-const VALID_TABS = ['login', 'system']
+const VALID_TABS = ['login', 'system', 'changes']
 
 /** 서버 `MAX_CSV_EXPORT_ROWS` 와 동일(안내·확인 버튼 비활성) */
 const CSV_MAX_ROWS = 50000
@@ -118,6 +120,15 @@ function dateInputBounds(fromD, toD) {
 }
 
 function buildAppliedFilterLines(applied, tab) {
+  if (tab === 'changes') {
+    const lines = []
+    if (applied.fromD?.trim()) lines.push(`일시 시작: ${applied.fromD}`)
+    if (applied.toD?.trim()) lines.push(`일시 종료: ${applied.toD}`)
+    if (applied.chgTable?.trim()) lines.push(`대상 테이블: ${applied.chgTable.trim()}`)
+    if (applied.chgPk?.trim()) lines.push(`PK 값: ${applied.chgPk.trim()}`)
+    if (applied.chgChannel?.trim()) lines.push(`카테고리: ${applied.chgChannel.trim()}`)
+    return lines.length ? lines : ['없음']
+  }
   const lines = []
   if (applied.userKey?.trim()) lines.push(`사용자: ${applied.userKey.trim()}`)
   if (applied.fromD?.trim()) lines.push(`일시 시작: ${applied.fromD}`)
@@ -134,8 +145,11 @@ function buildAppliedFilterLines(applied, tab) {
   return lines.length ? lines : ['없음']
 }
 
-/** 적용된 정렬(서버 `sort_by`·`sort_dir`와 동일, 단일). */
+/** 적용된 정렬(서버 `sort_by`·`sort_dir`와 동일, 단일). `changes` 탭은 API 고정 정렬. */
 function buildSortLines(tab, applied) {
+  if (tab === 'changes') {
+    return ['정렬: 일시 내림차순(고정)']
+  }
   const byNorm =
     tab === 'login' ? applied.sortLoginBy || 'create_dtm' : applied.sortSystemBy || 'create_dtm'
   const dirNorm =
@@ -163,6 +177,94 @@ function shortenJson(obj, max = 100) {
   } catch {
     return '—'
   }
+}
+
+/** 모달 `pre`용: 객체·배열만 pretty-print, 그 외 문자열. */
+function formatJsonForPre(v) {
+  if (v === undefined || v === null) return '—'
+  if (typeof v === 'string') return v
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch {
+    return String(v)
+  }
+}
+
+/** 클립보드 복사(실패 시 prompt 폴백). */
+async function copyStringToClipboard(text) {
+  const s = String(text ?? '')
+  try {
+    await navigator.clipboard.writeText(s)
+  } catch {
+    try {
+      window.prompt('클립보드 복사에 실패했습니다. 아래를 선택해 복사(Ctrl+C)하세요.', s)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** `changes` 탭·시스템 로그 변경 모달 공통 — changed_fields·이전/변경 데이터 JSON·복사. */
+function DataChangeLogDetailBlocks({ row, layoutClass }) {
+  const wrap = layoutClass || 'user-history__changes-list-detail'
+  const cf = formatJsonForPre(row?.changed_fields)
+  const od = formatJsonForPre(row?.old_data)
+  const nd = formatJsonForPre(row?.new_data)
+  return (
+    <div className={wrap}>
+      <div className="user-history__changes-json-block">
+        <div className="user-history__changes-json-heading">
+          <span>변경 필드</span>
+          <button
+            type="button"
+            className="ibank-btn-toolbar ibank-btn-toolbar--secondary user-history__btn-copy-json"
+            onClick={() => copyStringToClipboard(cf)}
+          >
+            JSON 복사
+          </button>
+        </div>
+        <pre className="user-history__changes-json user-history__changes-json--fields user-history__changes-json--scroll">
+          {cf}
+        </pre>
+      </div>
+
+      <details className="user-history__changes-json-details">
+        <summary className="user-history__changes-json-summary">
+          <span className="user-history__changes-json-summary-text">이전 데이터</span>
+          <button
+            type="button"
+            className="ibank-btn-toolbar ibank-btn-toolbar--secondary user-history__btn-copy-json"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              copyStringToClipboard(od)
+            }}
+          >
+            JSON 복사
+          </button>
+        </summary>
+        <pre className="user-history__changes-json user-history__changes-json--scroll">{od}</pre>
+      </details>
+
+      <details className="user-history__changes-json-details">
+        <summary className="user-history__changes-json-summary">
+          <span className="user-history__changes-json-summary-text">변경 데이터</span>
+          <button
+            type="button"
+            className="ibank-btn-toolbar ibank-btn-toolbar--secondary user-history__btn-copy-json"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              copyStringToClipboard(nd)
+            }}
+          >
+            JSON 복사
+          </button>
+        </summary>
+        <pre className="user-history__changes-json user-history__changes-json--scroll">{nd}</pre>
+      </details>
+    </div>
+  )
 }
 
 function formatYnStatus(yn) {
@@ -195,6 +297,9 @@ export default function UserHistoryPage() {
   const [channel, setChannel] = useState('')
   const [actionKind, setActionKind] = useState('')
   const [successYn, setSuccessYn] = useState('')
+  const [chgTable, setChgTable] = useState('')
+  const [chgPk, setChgPk] = useState('')
+  const [chgChannel, setChgChannel] = useState('')
   const [sortLoginBy, setSortLoginBy] = useState('create_dtm')
   const [sortLoginDir, setSortLoginDir] = useState('desc')
   const [sortSystemBy, setSortSystemBy] = useState('create_dtm')
@@ -208,6 +313,9 @@ export default function UserHistoryPage() {
     channel: '',
     actionKind: '',
     successYn: '',
+    chgTable: '',
+    chgPk: '',
+    chgChannel: '',
     sortLoginBy: 'create_dtm',
     sortLoginDir: 'desc',
     sortSystemBy: 'create_dtm',
@@ -224,6 +332,15 @@ export default function UserHistoryPage() {
   const [csvError, setCsvError] = useState('')
   const [csvConfirmOpen, setCsvConfirmOpen] = useState(false)
 
+  const [changesModalOpen, setChangesModalOpen] = useState(false)
+  const [changesSystemLogId, setChangesSystemLogId] = useState(null)
+  const [changesLoading, setChangesLoading] = useState(false)
+  const [changesError, setChangesError] = useState('')
+  const [changes, setChanges] = useState([])
+  const [selectedChangeIdx, setSelectedChangeIdx] = useState(null)
+  /** `changes` 탭 목록 행 선택(인라인 상세 패널) */
+  const [selectedListChangeIdx, setSelectedListChangeIdx] = useState(null)
+
   const setTab = useCallback(
     (next) => {
       setSearchParams(
@@ -236,6 +353,7 @@ export default function UserHistoryPage() {
       )
       // 필터·정렬 draft/applied는 유지하고, 탭별 목록만 다시 보기 위해 페이지만 초기화
       setPage(1)
+      setSelectedListChangeIdx(null)
     },
     [setSearchParams]
   )
@@ -254,6 +372,9 @@ export default function UserHistoryPage() {
       channel: channel.trim(),
       actionKind: actionKind.trim(),
       successYn: successYn.trim(),
+      chgTable: chgTable.trim(),
+      chgPk: chgPk.trim(),
+      chgChannel: chgChannel.trim(),
       sortLoginBy,
       sortLoginDir,
       sortSystemBy,
@@ -261,7 +382,22 @@ export default function UserHistoryPage() {
     })
     setError('')
     setPage(1)
-  }, [userKey, fromD, toD, ipContains, channel, actionKind, successYn, sortLoginBy, sortLoginDir, sortSystemBy, sortSystemDir])
+  }, [
+    userKey,
+    fromD,
+    toD,
+    ipContains,
+    channel,
+    actionKind,
+    successYn,
+    chgTable,
+    chgPk,
+    chgChannel,
+    sortLoginBy,
+    sortLoginDir,
+    sortSystemBy,
+    sortSystemDir,
+  ])
 
   const resetFilters = useCallback(() => {
     setUserKey('')
@@ -271,6 +407,9 @@ export default function UserHistoryPage() {
     setChannel('')
     setActionKind('')
     setSuccessYn('')
+    setChgTable('')
+    setChgPk('')
+    setChgChannel('')
     setSortLoginBy('create_dtm')
     setSortLoginDir('desc')
     setSortSystemBy('create_dtm')
@@ -283,6 +422,9 @@ export default function UserHistoryPage() {
       channel: '',
       actionKind: '',
       successYn: '',
+      chgTable: '',
+      chgPk: '',
+      chgChannel: '',
       sortLoginBy: 'create_dtm',
       sortLoginDir: 'desc',
       sortSystemBy: 'create_dtm',
@@ -328,6 +470,32 @@ export default function UserHistoryPage() {
     setCsvConfirmOpen(false)
   }, [csvBusy])
 
+  const openChangesModal = useCallback(async (systemLogId) => {
+    setChangesModalOpen(true)
+    setChangesSystemLogId(systemLogId)
+    setChangesError('')
+    setSelectedChangeIdx(null)
+    setChangesLoading(true)
+    setChanges([])
+    try {
+      const data = await getSystemLogChanges(systemLogId)
+      setChanges(Array.isArray(data) ? data : [])
+    } catch (e) {
+      setChangesError(e?.message || '변경 내역을 불러오지 못했습니다.')
+    } finally {
+      setChangesLoading(false)
+    }
+  }, [])
+
+  const closeChangesModal = useCallback(() => {
+    if (changesLoading) return
+    setChangesModalOpen(false)
+    setChangesSystemLogId(null)
+    setChangesError('')
+    setChanges([])
+    setSelectedChangeIdx(null)
+  }, [changesLoading])
+
   const executeCsvDownload = useCallback(async () => {
     setCsvError('')
     setCsvBusy(true)
@@ -351,6 +519,15 @@ export default function UserHistoryPage() {
   }, [csvConfirmOpen, closeCsvConfirm])
 
   useEffect(() => {
+    if (!changesModalOpen) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeChangesModal()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [changesModalOpen, closeChangesModal])
+
+  useEffect(() => {
     const t = (searchParams.get('tab') || 'login').toLowerCase()
     if (!VALID_TABS.includes(t)) {
       setSearchParams(
@@ -367,6 +544,9 @@ export default function UserHistoryPage() {
   const load = useCallback(async () => {
     setError('')
     setLoading(true)
+    if (tab === 'changes') {
+      setSelectedListChangeIdx(null)
+    }
     try {
       const base = {
         page,
@@ -376,7 +556,19 @@ export default function UserHistoryPage() {
         to: applied.toD || undefined,
         ip_contains: applied.ipContains || undefined,
       }
-      if (tab === 'login') {
+      if (tab === 'changes') {
+        const data = await getChangeLogsPaged({
+          page,
+          page_size: pageSize,
+          from: applied.fromD || undefined,
+          to: applied.toD || undefined,
+          target_table: applied.chgTable || undefined,
+          target_pk_value: applied.chgPk || undefined,
+          channel: applied.chgChannel || undefined,
+        })
+        setItems(data?.items ?? [])
+        setTotal(Number(data?.total) || 0)
+      } else if (tab === 'login') {
         const data = await getLoginHistoryOrg({
           ...base,
           sort_by: applied.sortLoginBy || undefined,
@@ -414,6 +606,8 @@ export default function UserHistoryPage() {
   const filterLines = buildAppliedFilterLines(applied, tab)
   const sortLines = buildSortLines(tab, applied)
   const totalRowsLabel = `${Number(total || 0).toLocaleString('ko-KR')}행`
+  const selectedChange =
+    selectedChangeIdx != null && changes[selectedChangeIdx] != null ? changes[selectedChangeIdx] : null
   return (
     <div className="admin-users user-history">
       <Link to="/admin/users" className="ap__back">
@@ -449,6 +643,15 @@ export default function UserHistoryPage() {
         >
           시스템 이력
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'changes'}
+          className={`user-history__tab${tab === 'changes' ? ' user-history__tab--active' : ''}`}
+          onClick={() => setTab('changes')}
+        >
+          데이터 추적
+        </button>
       </div>
 
       <form
@@ -457,17 +660,19 @@ export default function UserHistoryPage() {
         onKeyDown={handleFiltersFormKeyDown}
         aria-label="이력 필터"
       >
-        <div className="admin-list-filters__field admin-list-filters__field--grow">
-          <label htmlFor="uh-filter-user">사용자</label>
-          <input
-            id="uh-filter-user"
-            type="text"
-            value={userKey}
-            onChange={(e) => setUserKey(e.target.value)}
-            placeholder="contains"
-            autoComplete="off"
-          />
-        </div>
+        {tab !== 'changes' ? (
+          <div className="admin-list-filters__field admin-list-filters__field--grow">
+            <label htmlFor="uh-filter-user">사용자</label>
+            <input
+              id="uh-filter-user"
+              type="text"
+              value={userKey}
+              onChange={(e) => setUserKey(e.target.value)}
+              placeholder="contains"
+              autoComplete="off"
+            />
+          </div>
+        ) : null}
         <div className="admin-list-filters__field">
           <label htmlFor="uh-filter-from">일시 시작</label>
           <input
@@ -500,17 +705,56 @@ export default function UserHistoryPage() {
             onChange={(e) => setToD(e.target.value)}
           />
         </div>
-        <div className="admin-list-filters__field">
-          <label htmlFor="uh-filter-ip">IP</label>
-          <input
-            id="uh-filter-ip"
-            type="text"
-            value={ipContains}
-            onChange={(e) => setIpContains(e.target.value)}
-            placeholder="contains"
-            autoComplete="off"
-          />
-        </div>
+        {tab !== 'changes' ? (
+          <div className="admin-list-filters__field">
+            <label htmlFor="uh-filter-ip">IP</label>
+            <input
+              id="uh-filter-ip"
+              type="text"
+              value={ipContains}
+              onChange={(e) => setIpContains(e.target.value)}
+              placeholder="contains"
+              autoComplete="off"
+            />
+          </div>
+        ) : null}
+        {tab === 'changes' ? (
+          <>
+            <div className="admin-list-filters__field admin-list-filters__field--grow">
+              <label htmlFor="uh-filter-chg-table">대상 테이블</label>
+              <input
+                id="uh-filter-chg-table"
+                type="text"
+                value={chgTable}
+                onChange={(e) => setChgTable(e.target.value)}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-filter-chg-pk">PK 값</label>
+              <input
+                id="uh-filter-chg-pk"
+                type="text"
+                value={chgPk}
+                onChange={(e) => setChgPk(e.target.value)}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+            <div className="admin-list-filters__field">
+              <label htmlFor="uh-filter-chg-channel">카테고리</label>
+              <input
+                id="uh-filter-chg-channel"
+                type="text"
+                value={chgChannel}
+                onChange={(e) => setChgChannel(e.target.value)}
+                placeholder="contains"
+                autoComplete="off"
+              />
+            </div>
+          </>
+        ) : null}
         {tab === 'system' ? (
           <>
             <div className="admin-list-filters__field">
@@ -579,7 +823,8 @@ export default function UserHistoryPage() {
               </select>
             </div>
           </>
-        ) : (
+        ) : null}
+        {tab === 'system' ? (
           <>
             <div className="admin-list-filters__field admin-list-filters__field--sortwide">
               <label htmlFor="uh-sort-system-by">정렬 기준</label>
@@ -609,7 +854,12 @@ export default function UserHistoryPage() {
               </select>
             </div>
           </>
-        )}
+        ) : null}
+        {tab === 'changes' ? (
+          <p className="user-history__sort-hint" role="status">
+            정렬: 일시 내림차순(고정). 행을 다시 클릭하면 상세가 접힙니다.
+          </p>
+        ) : null}
         <div className="admin-list-filters__actions">
           <button type="submit" className="ibank-btn-toolbar" disabled={loading}>
             필터 적용
@@ -674,7 +924,7 @@ export default function UserHistoryPage() {
               )}
             </tbody>
           </table>
-        ) : (
+        ) : tab === 'system' ? (
           <table className="admin-users__table">
             <thead>
               <tr>
@@ -686,12 +936,13 @@ export default function UserHistoryPage() {
                 <th>IP</th>
                 <th className="user-history__col-fingerprint">SQL 지문</th>
                 <th className="user-history__col-detail">상세내용</th>
+                <th className="user-history__col-change">변경</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={8} className="user-history__empty">
+                  <td colSpan={9} className="user-history__empty">
                     기록이 없습니다.
                   </td>
                 </tr>
@@ -713,11 +964,92 @@ export default function UserHistoryPage() {
                       </span>
                     </td>
                     <td className="user-history__col-detail">{formatSystemDetailCell(row)}</td>
+                    <td className="user-history__col-change">
+                      <button
+                        type="button"
+                        className="user-history__change-btn"
+                        aria-label="연결된 데이터 추적 내역"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openChangesModal(row.system_log_id)
+                        }}
+                      >
+                        <span aria-hidden="true">📋</span> 조회
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+        ) : (
+          <div className="user-history__changes-tab">
+            <table className="admin-users__table">
+              <thead>
+                <tr>
+                  <th>일시</th>
+                  <th>카테고리</th>
+                  <th>대상 테이블</th>
+                  <th>행위</th>
+                  <th>PK</th>
+                  <th>사용자(이메일)</th>
+                  <th>프로젝트</th>
+                  <th className="user-history__col-change">상세</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 && !loading ? (
+                  <tr>
+                    <td colSpan={8} className="user-history__empty">
+                      기록이 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((row, idx) => {
+                    const rk = `${idx}-${String(row.created_at)}-${String(row.target_table)}-${String(row.target_pk_value)}`
+                    const open = selectedListChangeIdx === idx
+                    return (
+                      <Fragment key={rk}>
+                        <tr
+                          className={
+                            open
+                              ? 'user-history__list-change-tr user-history__list-change-tr--selected'
+                              : 'user-history__list-change-tr'
+                          }
+                          onClick={() =>
+                            setSelectedListChangeIdx((cur) => (cur === idx ? null : idx))
+                          }
+                        >
+                          <td>{formatDtm(row.created_at)}</td>
+                          <td>{row.channel || '—'}</td>
+                          <td>{row.target_table || '—'}</td>
+                          <td>{row.operation || '—'}</td>
+                          <td>{row.target_pk_column || '—'}</td>
+                          <td>{row.actor_user_email || row.actor_user_id || '—'}</td>
+                          <td>{(row.project_name && String(row.project_name).trim()) || '—'}</td>
+                          <td className="user-history__col-change">
+                            <span className="user-history__track-detail-chevron" aria-hidden="true">
+                              {open ? '▲' : '▼'}
+                            </span>
+                          </td>
+                        </tr>
+                        {open ? (
+                          <tr className="user-history__list-change-detail-tr" aria-live="polite">
+                            <td colSpan={8} className="user-history__list-change-detail-td">
+                              <DataChangeLogDetailBlocks
+                                row={row}
+                                layoutClass="user-history__changes-list-detail user-history__changes-list-detail--inline"
+                              />
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -789,6 +1121,115 @@ export default function UserHistoryPage() {
                 disabled={csvBusy || total > CSV_MAX_ROWS}
               >
                 {csvBusy ? '다운로드 중…' : '확인'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {changesModalOpen ? (
+        <div className="admin-users__modal-backdrop" role="presentation" onClick={closeChangesModal}>
+          <div
+            className="admin-users__modal user-history__modal-changes"
+            role="dialog"
+            aria-labelledby="user-history-changes-title"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="user-history-changes-title" className="admin-users__modal-title">
+              데이터 추적 내역
+            </h2>
+            {changesSystemLogId != null ? (
+              <p className="admin-users__modal-hint">system_log_id: {String(changesSystemLogId)}</p>
+            ) : null}
+
+            {changesLoading ? <p className="admin-users__hint">불러오는 중…</p> : null}
+            {changesError && !changesLoading ? (
+              <p className="admin-users__error user-history__modal-error">{changesError}</p>
+            ) : null}
+
+            {!changesLoading && !changesError && changes.length === 0 ? (
+              <p className="user-history__changes-empty">연결된 데이터 추적 기록이 없습니다.</p>
+            ) : null}
+
+            {!changesLoading && !changesError && changes.length > 0 ? (
+              <>
+                <div className="user-history__changes-table-wrap">
+                  <table className="admin-users__table user-history__changes-table">
+                    <thead>
+                      <tr>
+                        <th>일시</th>
+                        <th>카테고리</th>
+                        <th>대상 테이블</th>
+                        <th>행위</th>
+                        <th>PK</th>
+                        <th>사용자(이메일)</th>
+                        <th>프로젝트</th>
+                        <th className="user-history__col-change">상세</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {changes.map((ch, i) => {
+                        const mk = `${i}-${String(ch?.target_table)}-${String(ch?.target_pk_value)}-${String(ch?.created_at)}`
+                        const open = selectedChangeIdx === i
+                        return (
+                          <Fragment key={mk}>
+                            <tr
+                              className={
+                                open
+                                  ? 'user-history__changes-tr user-history__changes-tr--selected'
+                                  : 'user-history__changes-tr'
+                              }
+                              onClick={() =>
+                                setSelectedChangeIdx((cur) => (cur === i ? null : i))
+                              }
+                            >
+                              <td>{formatDtm(ch?.created_at)}</td>
+                              <td>{ch?.channel ?? '—'}</td>
+                              <td>{ch?.target_table ?? '—'}</td>
+                              <td>{ch?.operation ?? '—'}</td>
+                              <td>{ch?.target_pk_column ?? '—'}</td>
+                              <td>{ch?.actor_user_email || ch?.actor_user_id || '—'}</td>
+                              <td>
+                                {(ch?.project_name && String(ch.project_name).trim()) || '—'}
+                              </td>
+                              <td className="user-history__col-change">
+                                <span className="user-history__track-detail-chevron" aria-hidden="true">
+                                  {open ? '▲' : '▼'}
+                                </span>
+                              </td>
+                            </tr>
+                            {open && selectedChange ? (
+                              <tr className="user-history__changes-modal-detail-tr" aria-live="polite">
+                                <td colSpan={8} className="user-history__changes-modal-detail-td">
+                                  <DataChangeLogDetailBlocks
+                                    row={selectedChange}
+                                    layoutClass="user-history__changes-list-detail user-history__changes-list-detail--modal-inline"
+                                  />
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {changes.length > 0 && selectedChangeIdx == null ? (
+                  <p className="user-history__changes-hint">행을 클릭하면 아래에 상세가 펼쳐집니다. 같은 행을 다시 누르면 접습니다.</p>
+                ) : null}
+              </>
+            ) : null}
+
+            <div className="admin-users__modal-actions">
+              <button
+                type="button"
+                className="ibank-btn-toolbar"
+                onClick={closeChangesModal}
+                disabled={changesLoading}
+              >
+                닫기
               </button>
             </div>
           </div>

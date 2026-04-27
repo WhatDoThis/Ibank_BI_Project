@@ -31,6 +31,7 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_ty
 - Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, validate_table_identifier, validate_column_name, get_allowed_tables_by_project, format_value, _table_exists)
 - Backend.core.sql_safety.contains_dangerous_sql
 - Backend.widget_board_server.audit_emit.emit_widget_board_log
+- Backend.core.change_tracker (widget_board·widget_item·widget_board_share `data_change_log`, patch_layout·알림 제외; `create_board`·`add_widget` 은 INSERT 커서 닫은 뒤 `track_insert` 로 동일 연결에서 스냅샷 SELECT 안정화)
 """
 
 from __future__ import annotations
@@ -61,11 +62,17 @@ from Backend.notification_server.service import (
 )
 from Backend.widget_board_server import schemas
 from Backend.widget_board_server.audit_emit import emit_widget_board_log
+from Backend.core.change_tracker import capture_before, track_delete, track_insert, track_update
 from Backend.core.sql_safety import contains_dangerous_sql
 
 _DEFAULT_LIMIT = 500
 _INVITE_VALID_DAYS = 7
 _SCOPES = frozenset({"private", "project"})
+_TRACK_BULK_DELETE_LIMIT = 10
+
+
+def _widget_board_share_pk(board_id: int, shared_user_id: int) -> str:
+    return f"{int(board_id)}:{int(shared_user_id)}"
 
 
 # --- data_config 날짜 필터 (컬럼 추가 없음, JSON만 사용) ---
@@ -401,8 +408,31 @@ def create_board(
             (int(project_id), int(user_id), name, dsc, sc),
         )
         row = cur.fetchone()
-        conn.commit()
         out_row = dict(row)
+        bid = int(out_row["widget_board_id"])
+    except pg_errors.StringDataRightTruncation:
+        cur.close()
+        conn.rollback()
+        raise ValueError(
+            "보드 설명(또는 이름)이 DB에 허용된 길이를 초과합니다. 내용을 줄여 주세요."
+        ) from None
+    except Exception:
+        cur.close()
+        conn.rollback()
+        raise
+    else:
+        cur.close()
+    try:
+        track_insert(
+            conn,
+            "widget_board",
+            "widget_board_id",
+            bid,
+            actor_user_id=int(user_id),
+            project_info_id=int(project_id),
+            channel="widget_board",
+        )
+        conn.commit()
         emit_widget_board_log(
             int(user_id),
             business_action="widget_board_create",
@@ -413,16 +443,9 @@ def create_board(
             },
         )
         return out_row
-    except pg_errors.StringDataRightTruncation:
-        conn.rollback()
-        raise ValueError(
-            "보드 설명(또는 이름)이 DB에 허용된 길이를 초과합니다. 내용을 줄여 주세요."
-        ) from None
     except Exception:
         conn.rollback()
         raise
-    finally:
-        cur.close()
 
 
 # 3.
@@ -519,8 +542,17 @@ def patch_board(
     cur = conn.cursor()
     try:
         q = f"UPDATE widget_board SET {', '.join(fields)} WHERE widget_board_id = %s RETURNING *"
-        cur.execute(q, params)
-        row = cur.fetchone()
+        with track_update(
+            conn,
+            "widget_board",
+            "widget_board_id",
+            int(board_id),
+            actor_user_id=uid,
+            project_info_id=int(project_id),
+            channel="widget_board",
+        ):
+            cur.execute(q, params)
+            row = cur.fetchone()
         conn.commit()
         if not row:
             raise ValueError("보드를 찾을 수 없습니다.")
@@ -556,18 +588,68 @@ def delete_board(conn, user_id: int, project_id: int, board_id: int) -> None:
         raise ValueError("비활성화한 뒤에만 삭제할 수 있습니다.")
     cur = conn.cursor()
     try:
+        uid_del = int(user_id)
+        pid_del = int(project_id)
+        bid_del = int(board_id)
+        cur.execute(
+            """
+            SELECT widget_item_id FROM widget_item
+            WHERE widget_board_id = %s
+            """,
+            (bid_del,),
+        )
+        wi_ids = [int(r["widget_item_id"]) for r in cur.fetchall()]
+        if len(wi_ids) <= _TRACK_BULK_DELETE_LIMIT:
+            for wid in wi_ids:
+                track_delete(
+                    conn,
+                    "widget_item",
+                    "widget_item_id",
+                    wid,
+                    actor_user_id=uid_del,
+                    project_info_id=pid_del,
+                    channel="widget_board",
+                )
         cur.execute(
             "DELETE FROM widget_item WHERE widget_board_id = %s",
-            (board_id,),
+            (bid_del,),
         )
+        cur.execute(
+            """
+            SELECT shared_user_id FROM widget_board_share
+            WHERE widget_board_id = %s
+            """,
+            (bid_del,),
+        )
+        su_ids = [int(r["shared_user_id"]) for r in cur.fetchall()]
+        if len(su_ids) <= _TRACK_BULK_DELETE_LIMIT:
+            for su in su_ids:
+                track_delete(
+                    conn,
+                    "widget_board_share",
+                    "widget_board_id",
+                    _widget_board_share_pk(bid_del, su),
+                    actor_user_id=uid_del,
+                    project_info_id=pid_del,
+                    channel="widget_board",
+                )
         cur.execute(
             "DELETE FROM widget_board_share WHERE widget_board_id = %s",
-            (board_id,),
+            (bid_del,),
         )
-        delete_widget_board_notifications_for_board_in_txn(conn, int(board_id))
+        delete_widget_board_notifications_for_board_in_txn(conn, bid_del)
+        track_delete(
+            conn,
+            "widget_board",
+            "widget_board_id",
+            bid_del,
+            actor_user_id=uid_del,
+            project_info_id=pid_del,
+            channel="widget_board",
+        )
         cur.execute(
             "DELETE FROM widget_board WHERE widget_board_id = %s",
-            (board_id,),
+            (bid_del,),
         )
         if cur.rowcount == 0:
             conn.rollback()
@@ -633,8 +715,24 @@ def add_widget(
             ),
         )
         row = cur.fetchone()
-        conn.commit()
         out_w = dict(row)
+    except Exception:
+        cur.close()
+        conn.rollback()
+        raise
+    else:
+        cur.close()
+    try:
+        track_insert(
+            conn,
+            "widget_item",
+            "widget_item_id",
+            int(out_w["widget_item_id"]),
+            actor_user_id=int(user_id),
+            project_info_id=int(project_id),
+            channel="widget_board",
+        )
+        conn.commit()
         emit_widget_board_log(
             int(user_id),
             business_action="widget_create",
@@ -649,8 +747,6 @@ def add_widget(
     except Exception:
         conn.rollback()
         raise
-    finally:
-        cur.close()
 
 
 def patch_widget(
@@ -725,8 +821,17 @@ def patch_widget(
         fields.append("update_dtm = NOW()")
         params.extend([widget_id, board_id])
         q = f"UPDATE widget_item SET {', '.join(fields)} WHERE widget_item_id = %s AND widget_board_id = %s RETURNING *"
-        cur.execute(q, params)
-        row = cur.fetchone()
+        with track_update(
+            conn,
+            "widget_item",
+            "widget_item_id",
+            int(widget_id),
+            actor_user_id=int(user_id),
+            project_info_id=int(project_id),
+            channel="widget_board",
+        ):
+            cur.execute(q, params)
+            row = cur.fetchone()
         conn.commit()
         out_w = dict(row)
         emit_widget_board_log(
@@ -751,6 +856,15 @@ def delete_widget(conn, user_id: int, project_id: int, board_id: int, widget_id:
     assert_board_edit(conn, user_id, project_id, board_id)
     cur = conn.cursor()
     try:
+        track_delete(
+            conn,
+            "widget_item",
+            "widget_item_id",
+            int(widget_id),
+            actor_user_id=int(user_id),
+            project_info_id=int(project_id),
+            channel="widget_board",
+        )
         cur.execute(
             """
             DELETE FROM widget_item
@@ -830,15 +944,50 @@ def upsert_share(
         raise ValueError("본인에게 공유할 수 없습니다.")
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO widget_board_share (widget_board_id, shared_user_id, can_edit)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (widget_board_id, shared_user_id)
-            DO UPDATE SET can_edit = EXCLUDED.can_edit
-            """,
-            (board_id, int(body.shared_user_id), bool(body.can_edit)),
-        )
+        pid_sh = int(project_id)
+        uid_sh = int(user_id)
+        bid_sh = int(board_id)
+        sid = int(body.shared_user_id)
+        pkv = _widget_board_share_pk(bid_sh, sid)
+        before_sh = capture_before(conn, "widget_board_share", "widget_board_id", pkv)
+        if before_sh is not None:
+            with track_update(
+                conn,
+                "widget_board_share",
+                "widget_board_id",
+                pkv,
+                actor_user_id=uid_sh,
+                project_info_id=pid_sh,
+                channel="widget_board",
+            ):
+                cur.execute(
+                    """
+                    INSERT INTO widget_board_share (widget_board_id, shared_user_id, can_edit)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (widget_board_id, shared_user_id)
+                    DO UPDATE SET can_edit = EXCLUDED.can_edit
+                    """,
+                    (bid_sh, sid, bool(body.can_edit)),
+                )
+        else:
+            cur.execute(
+                """
+                INSERT INTO widget_board_share (widget_board_id, shared_user_id, can_edit)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (widget_board_id, shared_user_id)
+                DO UPDATE SET can_edit = EXCLUDED.can_edit
+                """,
+                (bid_sh, sid, bool(body.can_edit)),
+            )
+            track_insert(
+                conn,
+                "widget_board_share",
+                "widget_board_id",
+                pkv,
+                actor_user_id=uid_sh,
+                project_info_id=pid_sh,
+                channel="widget_board",
+            )
         conn.commit()
         emit_widget_board_log(
             int(user_id),
@@ -996,6 +1145,15 @@ def accept_widget_board_invite(
             """,
             (board_id, uid, can_edit),
         )
+        track_insert(
+            conn,
+            "widget_board_share",
+            "widget_board_id",
+            _widget_board_share_pk(int(board_id), uid),
+            actor_user_id=uid,
+            project_info_id=pid,
+            channel="widget_board",
+        )
         mark_notification_read_in_txn(conn, uid, nid)
         inv_uid = int(payload.get("inviter_user_id") or 0)
         notify_inviter_widget_board_invite_resolved(
@@ -1099,6 +1257,9 @@ def delete_share(conn, user_id: int, project_id: int, board_id: int, shared_user
     tu = int(shared_user_id)
     cur = conn.cursor()
     try:
+        pid_ds = int(project_id)
+        uid_ds = int(user_id)
+        bid_ds = int(board_id)
         cur.execute(
             """
             UPDATE widget_item
@@ -1107,14 +1268,23 @@ def delete_share(conn, user_id: int, project_id: int, board_id: int, shared_user
               AND active_yn = 'Y'
               AND create_user_id = %s
             """,
-            (owner_id, board_id, tu),
+            (owner_id, bid_ds, tu),
+        )
+        track_delete(
+            conn,
+            "widget_board_share",
+            "widget_board_id",
+            _widget_board_share_pk(bid_ds, tu),
+            actor_user_id=uid_ds,
+            project_info_id=pid_ds,
+            channel="widget_board",
         )
         cur.execute(
             """
             DELETE FROM widget_board_share
             WHERE widget_board_id = %s AND shared_user_id = %s
             """,
-            (board_id, tu),
+            (bid_ds, tu),
         )
         conn.commit()
         emit_widget_board_log(

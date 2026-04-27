@@ -18,7 +18,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 9b. _resolve_project_table_db_type / _qs_mapped_table_conn: list/describe/고유값용 main_db 매핑 검증·연결 선택
 10. _ensure_queue_table: save_query_as_table 작업 큐 테이블 생성(create_user_id 컬럼 포함)
 11. _save_table_worker: 쿼리 결과 저장 워커 (백그라운드, CREATE 후 table_master·매핑 upsert 3회 재시도)
-12. _upsert_table_master_and_mapping: table_master(db_type,table_name,table_label,table_dscrtn)·create_user_id UPSERT 후 프로젝트 매핑
+12. _upsert_table_master_and_mapping: table_master·table_project_mapping UPSERT + `data_change_log` track_* (create_user_id>0일 때)
 
 [Endpoints]
 ===========
@@ -38,6 +38,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 [Dependencies]
 =========
 - Backend.query_studio_server.audit_emit.emit_query_studio_log
+- Backend.core.change_tracker (`_upsert_table_master_and_mapping` 내 track_insert·track_update)
 - Backend.core.db, Backend.core.sql_safety, Backend.core.sql_fingerprint.compute_sql_fingerprint_hex, Backend.core.dependencies(get_db·get_config·get_system_db)
 - Backend.auth_server.deps.require_active_access, Backend.auth_server.permissions(require_permission, compute_effective_project_permission_ids, get_user_dvsn_lower, is_project_active)
 - require_query_read_perm / require_query_execute_perm: 테스트·오버라이드용 공통 Depends 대상
@@ -64,6 +65,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from Backend.core import db
+from Backend.core.change_tracker import track_insert, track_update
 from Backend.core.sql_fingerprint import compute_sql_fingerprint_hex
 from Backend.core.sql_safety import contains_dangerous_sql as _core_contains_dangerous_sql
 from Backend.query_studio_server import peak_guard
@@ -1095,8 +1097,9 @@ def _upsert_table_master_and_mapping(
 
         tl = _t(table_label)
         td = _t(table_dscrtn)
-        cur.execute(
-            """
+        aid = int(create_user_id or 0)
+        pid = int(project_info_id)
+        insert_tm_sql = """
             INSERT INTO table_master (
                 db_type, table_name, create_dtm, update_dtm, create_user_id,
                 table_label, table_dscrtn
@@ -1116,14 +1119,47 @@ def _upsert_table_master_and_mapping(
                     ELSE table_master.table_dscrtn
                 END
             RETURNING table_master_id
-            """,
-            (dt, table_name, create_user_id, tl, td),
+            """
+        cur.execute(
+            "SELECT table_master_id FROM table_master WHERE db_type = %s AND table_name = %s",
+            (dt, table_name),
         )
-        row = cur.fetchone()
-        table_master_id = int(row["table_master_id"])
+        ex_tm = cur.fetchone()
+        params_tm = (dt, table_name, create_user_id, tl, td)
+        if ex_tm is not None:
+            tmid_ex = int(ex_tm["table_master_id"])
+            if aid > 0:
+                with track_update(
+                    conn,
+                    "table_master",
+                    "table_master_id",
+                    tmid_ex,
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="query_studio",
+                ):
+                    cur.execute(insert_tm_sql, params_tm)
+            else:
+                cur.execute(insert_tm_sql, params_tm)
+            row = cur.fetchone()
+            table_master_id = int(row["table_master_id"])
+        else:
+            cur.execute(insert_tm_sql, params_tm)
+            row = cur.fetchone()
+            table_master_id = int(row["table_master_id"])
+            if aid > 0:
+                track_insert(
+                    conn,
+                    "table_master",
+                    "table_master_id",
+                    table_master_id,
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="query_studio",
+                )
         cur.execute(
             "SELECT feature_flags FROM project_info WHERE project_info_id = %s",
-            (int(project_info_id),),
+            (pid,),
         )
         ff_row = cur.fetchone()
         ff_raw = ff_row.get("feature_flags") if ff_row else None
@@ -1140,8 +1176,7 @@ def _upsert_table_master_and_mapping(
         w_on = bool(ff.get("widget", True))
         wb_auto = q_on and w_on
         wb_yn = "Y" if wb_auto else "N"
-        cur.execute(
-            """
+        insert_map_sql = """
             INSERT INTO table_project_mapping (
                 project_info_id, table_master_id, create_dtm,
                 use_query_studio_yn, use_widgetboard_yn
@@ -1152,9 +1187,40 @@ def _upsert_table_master_and_mapping(
                     WHEN %s THEN 'Y'
                     ELSE table_project_mapping.use_widgetboard_yn
                 END
-            """,
-            (int(project_info_id), table_master_id, wb_yn, wb_auto),
+            """
+        cur.execute(
+            "SELECT 1 FROM table_project_mapping WHERE project_info_id = %s AND table_master_id = %s",
+            (pid, table_master_id),
         )
+        has_map = cur.fetchone() is not None
+        pkv = f"{pid}:{table_master_id}"
+        params_map = (pid, table_master_id, wb_yn, wb_auto)
+        if has_map:
+            if aid > 0:
+                with track_update(
+                    conn,
+                    "table_project_mapping",
+                    "project_info_id",
+                    pkv,
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="query_studio",
+                ):
+                    cur.execute(insert_map_sql, params_map)
+            else:
+                cur.execute(insert_map_sql, params_map)
+        else:
+            cur.execute(insert_map_sql, params_map)
+            if aid > 0:
+                track_insert(
+                    conn,
+                    "table_project_mapping",
+                    "project_info_id",
+                    pkv,
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="query_studio",
+                )
         conn.commit()
     except Exception:
         conn.rollback()

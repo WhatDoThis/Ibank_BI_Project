@@ -7,7 +7,9 @@
  * ===========
  * 1. getSystemLogsOrg — system_log 목록 페이징(필터·정렬, 기본 page_size 10)
  * 2. getLoginHistoryOrg — 부서 트리 범위 로그인 이력 페이징(필터·정렬, 기본 page_size 10)
- * 3. downloadUserHistoryCsv — 동일 필터·정렬 CSV(blob, 파일명 `*_YYYYMMDD_hhmmss.csv`, 상한 초과 시 400)
+ * 3. downloadUserHistoryCsv — login·system·changes 탭 CSV(blob, 파일명 `login_log_*` / `system_log_*` / `data_track_*` + 타임스탬프, 상한 초과 시 400)
+ * 4. getSystemLogChanges — system_log_id별 data_change_log 항목 배열(JSON 배열 응답)
+ * 5. getChangeLogsPaged — change_log 목록 페이징(필터·`from`·`to`, ChangeLogListOut)
  *
  * [Dependencies]
  * =========
@@ -32,13 +34,15 @@ function filenameFromContentDisposition(cd, fallback) {
 }
 
 /**
- * @param {'login'|'system'} tab
+ * @param {'login'|'system'|'changes'} tab
  */
 function orgLogCsvFallbackFilename(tab) {
   const d = new Date()
   const z = (n) => String(n).padStart(2, '0')
   const ts = `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
-  return tab === 'login' ? `login_log_${ts}.csv` : `system_log_${ts}.csv`
+  if (tab === 'login') return `login_log_${ts}.csv`
+  if (tab === 'changes') return `data_track_${ts}.csv`
+  return `system_log_${ts}.csv`
 }
 
 /** @param {Record<string, string|number|undefined|null>} params */
@@ -89,8 +93,8 @@ export async function getLoginHistoryOrg(p = {}) {
 
 // 3.
 /**
- * @param {'login'|'system'} tab
- * @param {{ userKey: string, fromD: string, toD: string, ipContains: string, channel: string, actionKind: string, successYn: string, sortLoginBy: string, sortLoginDir: string, sortSystemBy: string, sortSystemDir: string }} applied
+ * @param {'login'|'system'|'changes'} tab
+ * @param {{ userKey: string, fromD: string, toD: string, ipContains: string, channel: string, actionKind: string, successYn: string, chgTable: string, chgPk: string, chgChannel: string, sortLoginBy: string, sortLoginDir: string, sortSystemBy: string, sortSystemDir: string }} applied
  */
 export async function downloadUserHistoryCsv(tab, applied) {
   const base = {
@@ -106,14 +110,22 @@ export async function downloadUserHistoryCsv(tab, applied) {
           sort_by: applied.sortLoginBy || undefined,
           sort_dir: applied.sortLoginDir || undefined,
         })}`
-      : `/api/system-logs/export.csv${toQuery({
-          ...base,
-          channel: applied.channel || undefined,
-          action_kind: applied.actionKind || undefined,
-          success_yn: applied.successYn || undefined,
-          sort_by: applied.sortSystemBy || undefined,
-          sort_dir: applied.sortSystemDir || undefined,
-        })}`
+      : tab === 'changes'
+        ? `/api/system-logs/change-logs/export.csv${toQuery({
+            from: applied.fromD || undefined,
+            to: applied.toD || undefined,
+            target_table: applied.chgTable || undefined,
+            target_pk_value: applied.chgPk || undefined,
+            channel: applied.chgChannel || undefined,
+          })}`
+        : `/api/system-logs/export.csv${toQuery({
+            ...base,
+            channel: applied.channel || undefined,
+            action_kind: applied.actionKind || undefined,
+            success_yn: applied.successYn || undefined,
+            sort_by: applied.sortSystemBy || undefined,
+            sort_dir: applied.sortSystemDir || undefined,
+          })}`
   const norm = path.startsWith('/') ? path : `/${path}`
   const url = `${apiBaseUrl()}${norm}`
   const headers = {}
@@ -138,5 +150,33 @@ export async function downloadUserHistoryCsv(tab, applied) {
   a.click()
   a.remove()
   URL.revokeObjectURL(a.href)
+}
+
+// 4.
+/**
+ * @param {string|number} systemLogId
+ * @returns {Promise<unknown[]>} 백엔드 JSON 배열(래핑 없음)
+ */
+export async function getSystemLogChanges(systemLogId) {
+  const data = await request(
+    'GET',
+    `/api/system-logs/${encodeURIComponent(String(systemLogId))}/changes`
+  )
+  return Array.isArray(data) ? data : []
+}
+
+// 5.
+/** @param {{ page?: number, page_size?: number, target_table?: string, target_pk_value?: string, channel?: string, from?: string, to?: string }} p */
+export async function getChangeLogsPaged(p = {}) {
+  const qs = toQuery({
+    page: p.page ?? 1,
+    page_size: p.page_size ?? 10,
+    target_table: p.target_table,
+    target_pk_value: p.target_pk_value,
+    channel: p.channel,
+    from: p.from,
+    to: p.to,
+  })
+  return request('GET', `/api/system-logs/change-logs${qs}`)
 }
 

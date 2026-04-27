@@ -35,6 +35,7 @@ Backend.admin_server.service_projects (프로젝트·멤버)
 - Backend.mail.outbound (`send_project_invite_existing_user_email`, `format_invite_deadline_kr`, `build_project_invite_noti_summary`)
 - Backend.notification_server.service (`insert_notification`, `*_in_txn`, `fetch_*`, `user_display_label_for_notification`, pending 조회)
 - Backend.core.auth_config.get_app_url
+- Backend.core.change_tracker (`project_info`·`project_ptcpnt_info`·`table_project_mapping`·`widget_board` 등 `data_change_log` 추적)
 - Backend.core.invite_expiry.invite_expired_from_payload
 - json
 - psycopg2, psycopg2.errors, psycopg2.extras.Json(feature_flags)
@@ -58,6 +59,7 @@ from Backend.admin_server.service_roles import (
     _user_department_display_from_join,
 )
 from Backend.core import auth_config
+from Backend.core.change_tracker import track_delete, track_insert, track_update
 from Backend.core.invite_expiry import invite_expired_from_payload
 from Backend.mail.outbound import (
     build_project_invite_noti_summary,
@@ -146,9 +148,20 @@ def normalize_feature_flags_for_db(raw: Any) -> dict[str, bool]:
 
 
 def _sync_project_table_mappings_with_usage(
-    cur, project_info_id: int, entries: list[dict[str, Any]]
+    cur,
+    project_info_id: int,
+    entries: list[dict[str, Any]],
+    *,
+    actor_user_id: int | None = None,
 ) -> None:
     """table_project_mapping 을 엔트리와 일치시킨다. 둘 다 N이면 해당 행은 제외(미매핑)."""
+    conn = cur.connection
+    aid = int(actor_user_id or 0)
+    pid = int(project_info_id)
+
+    def _tpm_pk(tmid: int) -> str:
+        return f"{pid}:{int(tmid)}"
+
     normalized: list[tuple[int, str, str]] = []
     seen: set[int] = set()
     for raw in entries:
@@ -176,24 +189,111 @@ def _sync_project_table_mappings_with_usage(
         normalized.append((tmid, "Y" if qs else "N", "Y" if wb else "N"))
     ids = [x[0] for x in normalized]
     if not ids:
+        if aid > 0:
+            cur.execute(
+                """
+                SELECT table_master_id FROM table_project_mapping
+                WHERE project_info_id = %s
+                """,
+                (pid,),
+            )
+            rem_all = cur.fetchall()
+            if len(rem_all) > 50:
+                pass
+            else:
+                for dr in rem_all:
+                    track_delete(
+                        conn,
+                        "table_project_mapping",
+                        "project_info_id",
+                        _tpm_pk(int(dr["table_master_id"])),
+                        actor_user_id=aid,
+                        project_info_id=pid,
+                        channel="admin",
+                    )
         cur.execute(
             audit_sql_catalog.SQL_DELETE_TABLE_PROJECT_MAPPING_BY_PROJECT,
-            (int(project_info_id),),
+            (pid,),
         )
         return
     ph = ", ".join(["%s"] * len(ids))
+    if aid > 0:
+        cur.execute(
+            f"""
+            SELECT table_master_id FROM table_project_mapping
+            WHERE project_info_id = %s AND table_master_id NOT IN ({ph})
+            """,
+            (pid, *ids),
+        )
+        rem = cur.fetchall()
+        if len(rem) <= 50:
+            for dr in rem:
+                track_delete(
+                    conn,
+                    "table_project_mapping",
+                    "project_info_id",
+                    _tpm_pk(int(dr["table_master_id"])),
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="admin",
+                )
     cur.execute(
         audit_sql_catalog.sql_delete_table_project_mapping_not_in(ph),
-        (int(project_info_id), *ids),
+        (pid, *ids),
     )
     for tmid, qyn, wyn in normalized:
-        cur.execute(
-            audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_UPSERT_USAGE_FLAGS,
-            (int(project_info_id), tmid, qyn, wyn),
-        )
+        pkv = _tpm_pk(tmid)
+        if aid > 0:
+            cur.execute(
+                """
+                SELECT 1 FROM table_project_mapping
+                WHERE project_info_id = %s AND table_master_id = %s
+                """,
+                (pid, tmid),
+            )
+            exists = cur.fetchone() is not None
+            if exists:
+                with track_update(
+                    conn,
+                    "table_project_mapping",
+                    "project_info_id",
+                    pkv,
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="admin",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_UPSERT_USAGE_FLAGS,
+                        (pid, tmid, qyn, wyn),
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_UPSERT_USAGE_FLAGS,
+                    (pid, tmid, qyn, wyn),
+                )
+                track_insert(
+                    conn,
+                    "table_project_mapping",
+                    "project_info_id",
+                    pkv,
+                    actor_user_id=aid,
+                    project_info_id=pid,
+                    channel="admin",
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_UPSERT_USAGE_FLAGS,
+                (pid, tmid, qyn, wyn),
+            )
 
 
-def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: list[int]) -> None:
+def _sync_project_table_mappings(
+    cur,
+    project_info_id: int,
+    table_master_ids: list[int],
+    *,
+    actor_user_id: int | None = None,
+) -> None:
     """레거시: 나열된 table_master 는 쿼리 스튜디오·위젯보드 모두 Y (main 테이블만)."""
     ids = list(dict.fromkeys(int(x) for x in table_master_ids if x is not None))
     entries: list[dict[str, Any]] = []
@@ -212,7 +312,9 @@ def _sync_project_table_mappings(cur, project_info_id: int, table_master_ids: li
             "use_query_studio": True,
             "use_widgetboard": True,
         })
-    _sync_project_table_mappings_with_usage(cur, project_info_id, entries)
+    _sync_project_table_mappings_with_usage(
+        cur, project_info_id, entries, actor_user_id=actor_user_id
+    )
 
 
 def _user_in_actor_dept_scope(cur, actor_dptmt_id: int, target_user_id: int) -> bool:
@@ -449,6 +551,15 @@ def create_project_full(
             ),
         )
         pid = int(cur.fetchone()["project_info_id"])
+        track_insert(
+            conn,
+            "project_info",
+            "project_info_id",
+            pid,
+            actor_user_id=int(actor_user_id),
+            project_info_id=int(pid),
+            channel="admin",
+        )
 
         _assert_pmssn_for_project(cur, pid, int(creator_pmssn_master_id))
 
@@ -458,7 +569,9 @@ def create_project_full(
         )
 
         if table_mappings is not None:
-            _sync_project_table_mappings_with_usage(cur, pid, list(table_mappings))
+            _sync_project_table_mappings_with_usage(
+                cur, pid, list(table_mappings), actor_user_id=int(actor_user_id)
+            )
         else:
             for tmid in tid_list:
                 cur.execute(
@@ -475,6 +588,15 @@ def create_project_full(
                 cur.execute(
                     audit_sql_catalog.SQL_TABLE_PROJECT_MAPPING_INSERT_UPSERT_YY,
                     (pid, tmid),
+                )
+                track_insert(
+                    conn,
+                    "table_project_mapping",
+                    "project_info_id",
+                    f"{pid}:{int(tmid)}",
+                    actor_user_id=int(actor_user_id),
+                    project_info_id=int(pid),
+                    channel="admin",
                 )
 
         members_added = 0
@@ -690,10 +812,26 @@ def update_project(
             params.append(Json(normalize_feature_flags_for_db(feature_flags)))
         if sets:
             params.append(project_info_id)
-            cur.execute(
-                audit_sql_catalog.sql_project_info_update(sets),
-                params,
-            )
+            au_up = int(actor_user_id or 0)
+            if au_up > 0:
+                with track_update(
+                    conn,
+                    "project_info",
+                    "project_info_id",
+                    int(project_info_id),
+                    actor_user_id=au_up,
+                    project_info_id=int(project_info_id),
+                    channel="project",
+                ):
+                    cur.execute(
+                        audit_sql_catalog.sql_project_info_update(sets),
+                        params,
+                    )
+            else:
+                cur.execute(
+                    audit_sql_catalog.sql_project_info_update(sets),
+                    params,
+                )
         elif (
             feature_flags is None
             and table_master_ids is None
@@ -712,10 +850,18 @@ def update_project(
 
         if table_mappings is not None:
             _sync_project_table_mappings_with_usage(
-                cur, project_info_id, list(table_mappings)
+                cur,
+                project_info_id,
+                list(table_mappings),
+                actor_user_id=actor_user_id,
             )
         elif table_master_ids is not None:
-            _sync_project_table_mappings(cur, project_info_id, list(table_master_ids))
+            _sync_project_table_mappings(
+                cur,
+                project_info_id,
+                list(table_master_ids),
+                actor_user_id=actor_user_id,
+            )
 
         conn.commit()
         emit_admin_system_log(
@@ -744,10 +890,27 @@ def deactivate_project(
     cur = conn.cursor()
     try:
         _assert_project_owned_allow_inactive(cur, dptmt_info_id, project_info_id)
-        cur.execute(
-            audit_sql_catalog.SQL_PROJECT_DEACTIVATE,
-            (project_info_id,),
-        )
+        au_da = int(actor_user_id or 0)
+        pid_da = int(project_info_id)
+        if au_da > 0:
+            with track_update(
+                conn,
+                "project_info",
+                "project_info_id",
+                pid_da,
+                actor_user_id=au_da,
+                project_info_id=pid_da,
+                channel="project",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_PROJECT_DEACTIVATE,
+                    (project_info_id,),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_PROJECT_DEACTIVATE,
+                (project_info_id,),
+            )
         conn.commit()
         emit_admin_system_log(
             actor_user_id,
@@ -880,7 +1043,10 @@ def purge_inactive_project(
             audit_sql_catalog.SQL_PURGE_SELECT_WIDGET_BOARD_IDS_BY_PROJECT,
             (pid,),
         )
-        for wb_row in cur.fetchall():
+        board_rows = list(cur.fetchall())
+        purge_detail: dict[str, Any] = {}
+        aid_pg = int(actor_user_id or 0)
+        for wb_row in board_rows:
             bid = int(wb_row["widget_board_id"])
             try:
                 cur.execute("SAVEPOINT sp_admin_purge_wb_notif")
@@ -888,6 +1054,34 @@ def purge_inactive_project(
                 cur.execute("RELEASE SAVEPOINT sp_admin_purge_wb_notif")
             except Exception:
                 cur.execute("ROLLBACK TO SAVEPOINT sp_admin_purge_wb_notif")
+
+        if aid_pg > 0:
+            board_ids = [int(r["widget_board_id"]) for r in board_rows]
+            nb = len(board_ids)
+            if nb <= 10:
+                for bid in board_ids:
+                    track_delete(
+                        conn,
+                        "widget_board",
+                        "widget_board_id",
+                        bid,
+                        actor_user_id=aid_pg,
+                        project_info_id=pid,
+                        channel="admin",
+                    )
+            else:
+                for bid in board_ids[:10]:
+                    track_delete(
+                        conn,
+                        "widget_board",
+                        "widget_board_id",
+                        bid,
+                        actor_user_id=aid_pg,
+                        project_info_id=pid,
+                        channel="admin",
+                    )
+                purge_detail["skipped_track_delete_widget_board"] = True
+                purge_detail["widget_board_count"] = nb
 
         cur.execute(
             audit_sql_catalog.SQL_PURGE_WIDGET_ITEM_USING_PROJECT,
@@ -902,14 +1096,74 @@ def purge_inactive_project(
             (pid,),
         )
 
+        if aid_pg > 0:
+            cur.execute(
+                """
+                SELECT table_master_id FROM table_project_mapping
+                WHERE project_info_id = %s
+                """,
+                (pid,),
+            )
+            tpm_rows = cur.fetchall()
+            nmap = len(tpm_rows)
+            if nmap <= 50:
+                for mr in tpm_rows:
+                    track_delete(
+                        conn,
+                        "table_project_mapping",
+                        "project_info_id",
+                        f"{pid}:{int(mr['table_master_id'])}",
+                        actor_user_id=aid_pg,
+                        project_info_id=pid,
+                        channel="admin",
+                    )
+            else:
+                purge_detail["skipped_track_delete_table_project_mapping"] = True
+                purge_detail["table_project_mapping_count"] = nmap
+
         cur.execute(
             audit_sql_catalog.SQL_PURGE_TABLE_PROJECT_MAPPING_BY_PROJECT,
             (pid,),
         )
+        if aid_pg > 0:
+            cur.execute(
+                """
+                SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+                WHERE project_info_id = %s
+                """,
+                (pid,),
+            )
+            pp_rows = cur.fetchall()
+            npc = len(pp_rows)
+            if npc <= 50:
+                for pr in pp_rows:
+                    track_delete(
+                        conn,
+                        "project_ptcpnt_info",
+                        "project_ptcpnt_info_id",
+                        int(pr["project_ptcpnt_info_id"]),
+                        actor_user_id=aid_pg,
+                        project_info_id=pid,
+                        channel="admin",
+                    )
+            else:
+                purge_detail["skipped_track_delete_project_ptcpnt"] = True
+                purge_detail["project_ptcpnt_count"] = npc
+
         cur.execute(
             audit_sql_catalog.SQL_PURGE_PROJECT_PTCPNT_BY_PROJECT,
             (pid,),
         )
+        if aid_pg > 0:
+            track_delete(
+                conn,
+                "project_info",
+                "project_info_id",
+                pid,
+                actor_user_id=aid_pg,
+                project_info_id=pid,
+                channel="admin",
+            )
         cur.execute(
             audit_sql_catalog.SQL_PURGE_PROJECT_INFO_BY_ID,
             (pid,),
@@ -919,7 +1173,7 @@ def purge_inactive_project(
             actor_user_id,
             business_action="project_purge",
             action_kind="DELETE",
-            detail_json={"project_info_id": pid},
+            detail_json={"project_info_id": pid, **purge_detail},
             risk_tier="HIGH",
         )
     except ValueError:
@@ -1285,6 +1539,24 @@ def add_member(
                 audit_sql_catalog.SQL_PROJECT_PTCPNT_INFO_INSERT,
                 (target_uid, aid, pid, mid),
             )
+            cur.execute(
+                """
+                SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+                WHERE project_info_id = %s AND ptcpnt_user_id = %s
+                """,
+                (pid, target_uid),
+            )
+            add_row = cur.fetchone()
+            if add_row and add_row.get("project_ptcpnt_info_id") is not None:
+                track_insert(
+                    conn,
+                    "project_ptcpnt_info",
+                    "project_ptcpnt_info_id",
+                    int(add_row["project_ptcpnt_info_id"]),
+                    actor_user_id=int(aid),
+                    project_info_id=int(pid),
+                    channel="admin",
+                )
             _notify_project_member_added_pair(
                 conn, cur, pid, str(pname_immediate), aid, target_uid
             )
@@ -1432,23 +1704,39 @@ def update_member_role(
                 )
         cur.execute(
             """
-            SELECT pmssn_master_id FROM project_ptcpnt_info
+            SELECT project_ptcpnt_info_id, pmssn_master_id FROM project_ptcpnt_info
             WHERE project_info_id = %s AND ptcpnt_user_id = %s
             """,
             (project_info_id, ptcpnt_user_id),
         )
         prev_row = cur.fetchone()
         prev_mid = int(prev_row["pmssn_master_id"]) if prev_row else None
+        _ppid_role = int(prev_row["project_ptcpnt_info_id"]) if prev_row and prev_row.get("project_ptcpnt_info_id") is not None else None
         cur.execute(
             "SELECT project_name FROM project_info WHERE project_info_id = %s",
             (int(project_info_id),),
         )
         pn_mu = cur.fetchone()
         pname_mu = (pn_mu or {}).get("project_name") or ""
-        cur.execute(
-            audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
-            (pmssn_master_id, project_info_id, ptcpnt_user_id),
-        )
+        if _ppid_role is not None and int(actor_user_id or 0) > 0:
+            with track_update(
+                conn,
+                "project_ptcpnt_info",
+                "project_ptcpnt_info_id",
+                _ppid_role,
+                actor_user_id=int(actor_user_id),
+                project_info_id=int(project_info_id),
+                channel="admin",
+            ):
+                cur.execute(
+                    audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
+                    (pmssn_master_id, project_info_id, ptcpnt_user_id),
+                )
+        else:
+            cur.execute(
+                audit_sql_catalog.SQL_MEMBER_ROLE_UPDATE,
+                (pmssn_master_id, project_info_id, ptcpnt_user_id),
+            )
         if cur.rowcount == 0:
             conn.rollback()
             raise ValueError("멤버를 찾을 수 없습니다.")
@@ -1517,6 +1805,24 @@ def remove_member(
             (int(project_info_id),),
         )
         pname_rm = (cur.fetchone() or {}).get("project_name") or ""
+        cur.execute(
+            """
+            SELECT project_ptcpnt_info_id FROM project_ptcpnt_info
+            WHERE project_info_id = %s AND ptcpnt_user_id = %s
+            """,
+            (project_info_id, ptcpnt_user_id),
+        )
+        rem_pp = cur.fetchone()
+        if rem_pp and rem_pp.get("project_ptcpnt_info_id") is not None and int(actor_user_id) > 0:
+            track_delete(
+                conn,
+                "project_ptcpnt_info",
+                "project_ptcpnt_info_id",
+                int(rem_pp["project_ptcpnt_info_id"]),
+                actor_user_id=int(actor_user_id),
+                project_info_id=int(project_info_id),
+                channel="admin",
+            )
         cur.execute(
             audit_sql_catalog.SQL_MEMBER_REMOVE,
             (project_info_id, ptcpnt_user_id),

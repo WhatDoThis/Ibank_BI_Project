@@ -1315,7 +1315,7 @@ GET /api/admin/projects/{id}/members
 | `list_projects_in_dept` | 부서 소속 프로젝트 목록 (`creator_email` 포함) |
 | `list_projects_for_participant` | 참여 프로젝트 목록 (역할명·`creator_email`) |
 | `create_project_full` | **단일 트랜잭션**: `project_info` + creator 멤버 + 매핑(table_mappings→채널 플래그 / `table_master_ids` 호환→양쪽 Y, main만) + 부서 내 멤버 + 타부서 알림 |
-| `update_project` | 프로젝트 수정 (`feature_flags`·`table_mappings`(우선) 또는 `table_master_ids` 동기화, `o` 제한) |
+| `update_project` | 프로젝트 수정 (`feature_flags`·`table_mappings`(우선) 또는 `table_master_ids` 동기화, **`o` 는 생명주기·기능스위치·매핑 변경 불가** — `active_yn`·purge·생성은 **SA개발자·SA·A** 쪽) |
 | `deactivate_project` | 소프트 삭제 (`active_yn=N`) |
 | `purge_inactive_project` | 비활성만 물리 삭제 (위젯보드 알림·위젯·공유·보드 → 테이블 매핑 → 참여 → 알림·초대 참조 정리 후 DELETE) |
 | `get_inactive_project_purge_preview` | 비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 수 요약 반환 |
@@ -1382,8 +1382,8 @@ GET /api/admin/projects/{id}/members
 | `GET /api/admin/roles/{id}/usages` | 역할 사용현황 |
 | `GET /api/admin/roles/permission-options` | 권한 옵션 |
 | `GET/POST /api/admin/projects` | 프로젝트 목록 / 생성 (`create_project_full` — `table_mappings` 전달 시 채널별 플래그, 미전달 시 `table_master_ids` 호환·양쪽 Y) |
-| `PATCH /api/admin/projects/{id}` | 프로젝트 수정 (`feature_flags`·`table_mappings` 동기화. `table_mappings`와 `table_master_ids` 동시 전달 시 `table_mappings` 우선. 운영자(o) 변경 불가) |
-| `DELETE /api/admin/projects/{id}` | 소프트 삭제 (비활성화) |
+| `PATCH /api/admin/projects/{id}` | 프로젝트 수정 (`feature_flags`·`table_mappings` 동기화. `table_mappings`와 `table_master_ids` 동시 전달 시 `table_mappings` 우선). **운영자(`o`)** 는 이름·설명 등 허용 필드만; 본문에 **`active_yn`(활성/비활성 전환)** 을 넣으면 라우터에서 **403**. 서비스 `update_project` 의 기능 스위치·매핑 제한과 병행 |
+| `DELETE /api/admin/projects/{id}` | 소프트 삭제(비활성화). **SA개발자·SA·A** 등 생명주기 관리 권한으로만; **운영자(`o`)** 불가 |
 | `GET /api/admin/projects/{id}/purge-preview` | 비활성 프로젝트 물리 삭제 전 위젯보드·위젯·공유 행 요약 |
 | `DELETE /api/admin/projects/{id}/purge` | 비활성 프로젝트만 DB에서 제거. 위젯보드(알림·위젯·공유·보드)·참여·매핑·알림·초대 참조 선행 정리 후 DELETE |
 | `GET /api/admin/invite-codes` | 초대코드 목록 |
@@ -1407,7 +1407,7 @@ GET /api/admin/projects/{id}/members
 
 | 경로 | Depends | 대상 |
 |------|---------|------|
-| `GET /api/system-logs`, `…/export.csv`, `GET …/login-history/org`, `…/org/export.csv` | `require_org_admin` | `sa_dev`·`sa`·`a` |
+| `GET /api/system-logs`, `…/export.csv`, `GET …/{system_log_id}/changes`, `GET …/change-logs`, `GET …/login-history/org`, `…/org/export.csv` | `require_org_admin` | `sa_dev`·`sa`·`a` |
 | `GET …/login-history/me` | `require_active_access` | 본인 `user_login_log` |
 
 #### `GET /api/system-logs` (시스템 감사 목록)
@@ -1427,12 +1427,40 @@ GET /api/admin/projects/{id}/members
 
 **응답**: `{ items, total, page, page_size }`
 
-**통합 이력 UI(`/admin/user-history`)**: `Frontend/react-app/src/shared/api/systemLogClient.js` 가 목록 요청에 **`page_size` 기본 10**을 붙이고, 화면에서 **10·20·50건**만 고른다. 로그인 조직 API는 서버가 최대 **50**, 시스템 목록은 최대 **200**으로 클램프한다. 탭을 바꿔도 같은 `page_size` 를 유지하며, 응답의 `page_size` 로 선택값을 덮어쓰지 않는다.
+**통합 이력 UI(`/admin/user-history`)**: `Frontend/react-app/src/shared/api/systemLogClient.js` 가 목록 요청에 **`page_size` 기본 10**을 붙이고, 화면에서 **10·20·50건**만 고른다. 로그인 조직 API는 서버가 최대 **50**, 시스템 목록·**데이터 변경(`change-logs`)** 목록은 최대 **200**으로 클램프한다. 탭을 바꿔도 같은 `page_size` 를 유지하며, 응답의 `page_size` 로 선택값을 덮어쓰지 않는다.
 
 **조회 범위**
 
 - **`sa_dev`**: 전체.
 - **`sa`·`a`**: `actor_user_id` 가 액터 부서 **하위 트리**(재귀 CTE)에 속한 **활성** 사용자인 행만. `actor_user_id` **NULL** 행은 제외.
+
+#### `data_change_log` 조회 (`GET /api/system-logs/{system_log_id}/changes`, `GET /api/system-logs/change-logs`)
+
+**배경**: `data_change_log`는 서비스 레이어에서 캡처한 행 단위 변경(before/after·diff)을 남기며, `system_log.request_correlation_id`와 `correlation_id`(UUID)로 논리 연결한다. 설계·Phase: **docs/report/25_Data_Change_Log_And_Tracking_Plan.md**, 스키마 정본: **04** §13a.
+
+**`GET /api/system-logs/{system_log_id}/changes`**
+
+- 해당 `system_log` 행이 조직 어드민에게 **`GET /api/system-logs` 목록과 동일 가시 범위**에 있을 때, 그 행의 `request_correlation_id`로 연결된 `data_change_log`를 `change_log_id` 오름차순으로 반환한다.
+- `request_correlation_id`가 **NULL**이면 응답은 **빈 배열 `[]`**.
+- 가시 범위 밖이거나 `system_log_id`가 없으면 **404**.
+- 응답: **JSON 배열**(`ChangeLogItemOut` 목록). 프론트 `getSystemLogChanges`가 배열로 수신한다.
+
+**`GET /api/system-logs/change-logs`**
+
+- `data_change_log` 레코드 타임라인 페이징. 부서 트리 스코프는 **`data_change_log.actor_user_id`** 기준으로 `GET /api/system-logs`의 `actor_user_id` 스코프와 **동일 패턴**(`sa_dev` 전체 / `sa`·`a`는 하위 트리 활성 사용자).
+
+**쿼리**
+
+| 파라미터 | 설명 |
+|----------|------|
+| `target_table`, `target_pk_value`, `channel` | 선택 필터(`channel`은 목록 API와 동일하게 부분 일치 계열) |
+| `from`, `to` | 날짜. **둘 다 주면** (종료−시작) 일수 **≤ 92일**, 위반 시 **400** |
+| `page` | 기본 `1` |
+| `page_size` | 기본 `50`, 최대 `200` |
+
+**응답**: `{ items, total, page, page_size }`
+
+**통합 이력 UI**: `?tab=system`에서 행별 **「변경」**으로 상세 모달(지연 로딩). `?tab=changes`에서는 본 API만으로 목록·인라인 상세(`getChangeLogsPaged`). 이 탭에는 CSV를 제공하지 않는다.
 
 #### `GET /api/system-logs/export.csv`
 

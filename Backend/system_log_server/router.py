@@ -10,6 +10,9 @@ system_log 목록·로그인 이력(me·org) 조회.
 3. GET /api/system-logs/login-history/me — 본인 로그인 이력(활성 세션, 페이징)
 4. GET /api/system-logs/login-history/org — 조직 어드민, 부서 트리 범위·정렬·페이징
 5. GET /api/system-logs — 조직 어드민, system_log 필터·정렬·페이징
+6. GET /api/system-logs/change-logs/export.csv — `data_change_log` CSV(파일명 `data_track_…`, 목록·filter 동일)
+7. GET /api/system-logs/{system_log_id}/changes — `request_correlation_id`로 연결된 `data_change_log`
+8. GET /api/system-logs/change-logs — `data_change_log` 필터·페이징
 
 [Dependencies]
 =========
@@ -20,7 +23,7 @@ system_log 목록·로그인 이력(me·org) 조회.
 
 조회·CSV 공통: `from`·`to` 가 모이면 기간 일수 상한 `MAX_HISTORY_FILTER_SPAN_DAYS`(약 3개월).
 CSV 감사 append: `_safe_actor_user_id` 로 `actor_user_id` 0·비정수 적재 방지.
-CSV 파일명: `_org_log_csv_attachment_filename` — `login_log_` / `system_log_` + Asia/Seoul `YYYYMMDD_hhmmss`.
+CSV 파일명: `_org_log_csv_attachment_filename` — `login_log_` / `system_log_` / `data_track_` + Asia/Seoul `YYYYMMDD_hhmmss`.
 """
 
 from datetime import date, datetime
@@ -56,9 +59,9 @@ def _safe_actor_user_id(actor: dict) -> int | None:
 
 
 def _org_log_csv_attachment_filename(prefix: str) -> str:
-    """조직 이력 CSV 다운로드 파일명. prefix: login_log | system_log (Asia/Seoul, `YYYYMMDD_hhmmss`)."""
+    """조직 이력 CSV 다운로드 파일명. prefix: login_log | system_log | data_track (Asia/Seoul, `YYYYMMDD_hhmmss`)."""
     safe = prefix.strip().lower().replace(" ", "_")
-    if safe not in ("login_log", "system_log"):
+    if safe not in ("login_log", "system_log", "data_track"):
         safe = "system_log"
     ts = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d_%H%M%S")
     return f"{safe}_{ts}.csv"
@@ -315,6 +318,110 @@ def list_system_logs(
     )
     items = [schemas.SystemLogItemOut.model_validate(x) for x in raw["items"]]
     return schemas.SystemLogListOut(
+        items=items,
+        total=raw["total"],
+        page=raw["page"],
+        page_size=raw["page_size"],
+    )
+
+
+# 6.
+@router.get("/change-logs/export.csv")
+def export_data_change_logs_csv(
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+    target_table: str | None = Query(None),
+    target_pk_value: str | None = Query(None),
+    channel: str | None = Query(None),
+    from_dtm: date | None = Query(None, alias="from"),
+    to_dtm: date | None = Query(None, alias="to"),
+):
+    _validate_history_filter_date_range(from_dtm, to_dtm)
+    uid = _safe_actor_user_id(actor)
+    try:
+        n, body = service.export_data_change_logs_csv_bytes(
+            conn,
+            actor,
+            target_table=target_table,
+            target_pk_value=target_pk_value,
+            channel=channel,
+            from_dtm=from_dtm,
+            to_dtm=to_dtm,
+        )
+    except ValueError as e:
+        raise _csv_row_limit_http(e) from e
+    audit_emit.emit_csv_export_audit(
+        uid,
+        export_kind="data_change_log",
+        row_count=n,
+        detail_json={
+            "target_table": target_table,
+            "target_pk_value": target_pk_value,
+            "channel": channel,
+            "from": from_dtm.isoformat() if from_dtm else None,
+            "to": to_dtm.isoformat() if to_dtm else None,
+        },
+    )
+    fn = _org_log_csv_attachment_filename("data_track")
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fn}"',
+        },
+    )
+
+
+# 7.
+@router.get(
+    "/{system_log_id}/changes",
+    response_model=list[schemas.ChangeLogItemOut],
+    response_model_exclude_none=True,
+)
+def list_data_changes_for_system_log(
+    system_log_id: int,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    raw = service.get_change_logs_by_system_log_id(
+        conn, actor, int(system_log_id)
+    )
+    if raw is None:
+        raise HTTPException(status_code=404, detail="system_log 를 찾을 수 없습니다.")
+    return [schemas.ChangeLogItemOut.model_validate(x) for x in raw]
+
+
+# 8.
+@router.get(
+    "/change-logs",
+    response_model=schemas.ChangeLogListOut,
+    response_model_exclude_none=True,
+)
+def list_data_change_logs(
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+    target_table: str | None = Query(None),
+    target_pk_value: str | None = Query(None),
+    channel: str | None = Query(None),
+    from_dtm: date | None = Query(None, alias="from"),
+    to_dtm: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+):
+    _validate_history_filter_date_range(from_dtm, to_dtm)
+    raw = service.list_data_change_logs_paged(
+        conn,
+        actor,
+        target_table=target_table,
+        target_pk_value=target_pk_value,
+        channel=channel,
+        from_dtm=from_dtm,
+        to_dtm=to_dtm,
+        page=page,
+        page_size=page_size,
+    )
+    items = [schemas.ChangeLogItemOut.model_validate(x) for x in raw["items"]]
+    return schemas.ChangeLogListOut(
         items=items,
         total=raw["total"],
         page=raw["page"],

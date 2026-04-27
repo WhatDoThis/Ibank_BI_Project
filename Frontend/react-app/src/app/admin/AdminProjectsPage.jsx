@@ -710,7 +710,7 @@ export default function AdminProjectsPage() {
               : '부서 소속 프로젝트를 관리합니다. 멤버는 활성 프로젝트 행의 작업영역에서 설정합니다. 비활성화 후에는 조직 어드민(S·A)에게만 활성·삭제 버튼이 표시됩니다.'}
           </p>
         </div>
-        {isOrgAdmin ? (
+        {canProjectLifecycle ? (
           <button type="button" className="ibank-btn-toolbar" onClick={openCreateModal}>
             프로젝트 생성
           </button>

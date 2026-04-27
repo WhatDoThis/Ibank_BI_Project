@@ -4,7 +4,7 @@
 
 1. 개요·용도 — 문서 상단(`**용도**`·정본·동시성)  
 2. ERD 개요 — 아래 **코드 블록** 트리  
-3. `ibank_system_data (public)` — 테이블 **1. ~ 13.**  
+3. `ibank_system_data (public)` — 테이블 **1. ~ 13a.**  
 4. `ibank_etl_data (public)` — 테이블 **13. ~ 25.**  
 5. 테이블 분류 요약 — system / ETL 목록 표  
 6. 부록 A — `sql_fingerprint` 계측 (1)(2)·카탈로그 액션 체크리스트  
@@ -17,7 +17,7 @@
 **용도**
 
 - `ibank_system_data.public` 과 `ibank_etl_data.public` 의 **테이블·컬럼·제약·인덱스·FK** 정의.
-- 감사 테이블 **`system_log`** 의 DDL·저장 규약·지문 규칙은 **본 문서 §13**에 둔다. (요약·카탈로그 액션 목록은 **부록 A**.)
+- 감사 테이블 **`system_log`** 의 DDL·저장 규약·지문 규칙은 **본 문서 §13**에 두고, 변경 추적 테이블 **`data_change_log`** 는 **§13a**에 둔다. (요약·카탈로그 액션 목록은 **부록 A**.)
 - 런타임 설정·서버 구동 개요는 **`docs/main/02_BACKEND_GUIDE.md`** 를 본다.
 - 애플리케이션이 PostgreSQL에 붙는 **연결 풀(4종)·TCP keepalive·유휴 끊김(stale) 시 재연결** 정책은 스키마 범위 밖이며 **`docs/main/03_API_GUIDE.md`** §1.3 을 본다.
 
@@ -61,6 +61,7 @@ table_master (독립 — 전사 공통, 부서 FK 없음; db_type은 main|dash)
 query_studio_user_labels (복합 PK user_id+project_info_id; DDL상 FK 없음)
 
 system_log (독립 — 감사·추적 append-only; `actor_user_id`는 `user_info` 논리 참조·**DDL상 FK 없음**)
+    └── data_change_log (독립 — before/after·diff 저장; `correlation_id`로 system_log.request_correlation_id와 논리 조인, **DDL상 FK 없음**)
 
 etl_connections (독립 — 전사 공통, 부서 FK 없음)
     └── etl_tables (connection_id FK)
@@ -98,7 +99,7 @@ server_timezones (독립 — ibank_etl_data.public)
 
 ## ibank_system_data (public)
 
-아래 **1. ~ 13.** 는 `ibank_system_data.public` 테이블 정의다.
+아래 **1. ~ 13a.** 는 `ibank_system_data.public` 테이블 정의다.
 
 ### 테이블 인덱스 (system)
 
@@ -119,6 +120,7 @@ server_timezones (독립 — ibank_etl_data.public)
 12c. `widget_board_share` — 위젯 보드 공유  
 12d. `widget_item` — 위젯 아이템  
 13. `system_log` — 시스템 감사·추적 로그  
+13a. `data_change_log` — 데이터 변경 추적(before/after·diff)
 
 ---
 
@@ -682,6 +684,52 @@ detail_json              jsonb           NOT NULL DEFAULT '{}' 확장(JSON)
 - `idx_system_log_business_action` btree(`business_action`, `create_dtm` DESC) WHERE `business_action` IS NOT NULL
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13a. data_change_log (데이터 변경 추적 로그)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**요약**
+
+- `ibank_system_data.public` 에 둔다.
+- 서비스 레이어에서 캡처한 변경 전/후 스냅샷·필드 diff를 기록한다.
+- `correlation_id`는 `system_log.request_correlation_id`와 **논리적으로** 연결한다(FK는 두지 않음).
+
+PRIMARY KEY: `data_change_log_pkey` (`change_log_id`) — `BIGSERIAL`.
+
+컬럼명                    타입             제약조건        설명
+───────────────────────  ──────────────  ────────────  ─────────────────
+change_log_id            bigserial       NOT NULL PK   일련번호
+correlation_id           uuid            NOT NULL      `system_log.request_correlation_id`와 조인 키(논리)
+actor_user_id            integer         NOT NULL      변경 수행자 user_id
+project_info_id          integer         NULL          프로젝트 컨텍스트(선택)
+target_table             varchar(80)     NOT NULL      변경 대상 테이블명
+target_pk_column         varchar(80)     NOT NULL DEFAULT 'id' 대상 PK 컬럼명
+target_pk_value          varchar(128)    NOT NULL      대상 PK 값(문자열 통일)
+operation                varchar(10)     NOT NULL      INSERT | UPDATE | DELETE
+old_data                 jsonb           NULL          변경 전 스냅샷(DELETE/UPDATE)
+new_data                 jsonb           NULL          변경 후 스냅샷(INSERT/UPDATE)
+changed_fields           jsonb           NULL          변경 필드 diff(JSON)
+channel                  varchar(40)     NOT NULL      채널(admin, project, etl, ...)
+created_at               timestamptz     NOT NULL DEFAULT now() 기록 시각
+
+CHECK:
+
+- `chk_data_change_log_operation`: `operation IN ('INSERT', 'UPDATE', 'DELETE')`
+
+인덱스:
+
+- `idx_dcl_correlation` btree(`correlation_id`)
+- `idx_dcl_actor_created` btree(`actor_user_id`, `created_at` DESC)
+- `idx_dcl_target` btree(`target_table`, `target_pk_value`)
+- `idx_dcl_created` btree(`created_at` DESC)
+- `idx_dcl_channel_created` btree(`channel`, `created_at` DESC)
+- `idx_dcl_changed_fields` gin(`changed_fields`)
+
+OWNER:
+
+- 적용 결과 기준 `data_change_log` 및 시퀀스(`data_change_log_change_log_id_seq`)는 **`ibankbi`**.
+
+
 ---
 
 ## ibank_etl_data (public)
@@ -1102,7 +1150,7 @@ sort_order               smallint        DEFAULT 0     정렬 순서
 
 구분              테이블 수    테이블 목록
 ──────────────── ────────── ──────────────────────
-ibank_system_data   17       dptmt_info, user_info,
+ibank_system_data   18       dptmt_info, user_info,
                              email_invite_code_master,
                              session_log, user_login_log,
                              pmssn_master_detail,
@@ -1115,7 +1163,8 @@ ibank_system_data   17       dptmt_info, user_info,
                              widget_board,
                              widget_board_share,
                              widget_item,
-                             system_log
+                             system_log,
+                             data_change_log
 
 ETL (ibank_etl_data) 13     etl_connections,
                              etl_tables,

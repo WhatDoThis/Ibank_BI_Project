@@ -1,6 +1,22 @@
 # Log
 
 ## Log Index
+578. 2026-04-27 통합 이력: 데이터 추적 탭 CSV export(백엔드·프론트)
+577. 2026-04-27 통합 이력: 데이터 추적 탭 UI·API(actor_email·project_name)·상세 토글
+576. 2026-04-27 Frontend: 통합 이력 데이터 변경 상세 인라인·JSON 복사(UserHistoryPage)
+575. 2026-04-27 Backend: data_change_log 미적재 수정(record_change SAVEPOINT·track_insert None 판정·위젯 INSERT 커서 닫고 track)
+574. 2026-04-27 Frontend: AdminProjectsPage 미정의 isOrgAdmin → canProjectLifecycle 수정(페이지 렌더 실패)
+573. 2026-04-27 Backend: data_change_log 위젯·프로젝트 초대·QS upsert 계측(widget_board_server·project_server·router)
+572. 2026-04-27 Backend: data_change_log 전수 확장(change_tracker·admin 서비스·report/25 §5)
+571. 2026-04-27 report/25: 목표 수집 범위(system_log 정합·QS)·멀티 DB 이슈 §1a 명문화
+570. 2026-04-27 docs: data_change_log API·통합 이력 03·07·25 정합 점검 반영
+569. 2026-04-27 Frontend: 통합 이력 `tab=changes` 데이터 변경 탭·getChangeLogsPaged(report/25 §7.2)
+568. 2026-04-27 Frontend: 통합 이력 시스템 탭 변경 내역 모달(report/25 §7.1·§7.3 Phase 1.4)
+567. 2026-04-27 Backend: data_change_log Phase1 구현(change_tracker·admin·system_log_server API)
+566. 2026-04-27 docs/main/04: data_change_log 반영(§13a·테이블수 18·OWNER)
+565. 2026-04-27 report/25 보완: PK·correlation 경로·UI 트리거·루프 트래킹 명시
+564. 2026-04-27 docs/report/25: 데이터 변경 추적 계획서·ReportIndex·수동 DDL·통합 이력 UI 제안
+563. 2026-04-27 docs/main: 로그 536 이후 반영(역할 표기·O 프로젝트·알림 요약)
 562. 2026-04-27 Admin: 프로젝트 O(운영) 생명주기 UI·PATCH active_yn 403 명시
 561. 2026-04-24 Frontend: USER_DVSN_CODE_* 상수 전파 제거(비교는 리터럴·표시 문구만 유지)
 560. 2026-04-24 Frontend: sa_dev 리터럴 단일화(USER_DVSN_CODE_SA_DEV)·주석 자연어화
@@ -565,6 +581,182 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+578. 2026-04-27 통합 이력: 데이터 추적 탭 CSV export(백엔드·프론트)
+Purpose: 데이터 추적 탭도 목록과 동일 필터로 CSV를 받을 수 있게 하고, 화면 열에 더해 `changed_fields`·`old_data`·`new_data`를 JSON 열로 포함한다.
+
+Changes:
+
+- `Backend/system_log_server/service.py`: `_dcl_filter_where_params` 공통화, `export_data_change_logs_csv_bytes`(BOM·5만 행 상한·JSON 열 3개)
+- `Backend/system_log_server/router.py`: `GET /change-logs/export.csv`, 감사 `export_kind=data_change_log`, 파일명 `data_track_*`
+- `systemLogClient.js`: `tab==='changes'` → GET `/api/system-logs/change-logs/export.csv`, 폴백 파일명 `data_track_*`
+- `UserHistoryPage.jsx`: CSV 버튼 `changes` 탭 활성화, 툴팁 통일
+
+Changed files: Backend/system_log_server/service.py, Backend/system_log_server/router.py, Frontend/react-app/src/shared/api/systemLogClient.js, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, docs/log/log.md
+
+577. 2026-04-27 통합 이력: 데이터 추적 탭 UI·API(actor_email·project_name)·상세 토글
+Purpose: 탭명·열 라벨을 시스템 이력과 맞추고, `change-logs` 응답에 행위자 이메일·프로젝트명을 포함한다. 상세는 행 재클릭으로 접고, correlation·change_log_id 노출을 줄인다.
+
+Changes:
+
+- `Backend/system_log_server/service.py`·`schemas.py`: `list_data_change_logs_paged`·`get_change_logs_by_system_log_id` SELECT 에 `user_info`·`project_info` LEFT JOIN, `ChangeLogItemOut` 에 `actor_user_email`·`project_name`
+- `UserHistoryPage.jsx`·`user-history.css`: 탭「데이터 추적」, 표 헤더(카테고리·행위·PK·사용자(이메일)·프로젝트명·상세), 행 토글, 상세 블록 라벨·JSON 복사 글꼴 통일
+
+Changed files: Backend/system_log_server/service.py, Backend/system_log_server/schemas.py, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+576. 2026-04-27 Frontend: 통합 이력 데이터 변경 상세 인라인·JSON 복사(UserHistoryPage)
+Purpose: `changes` 탭·시스템 로그「변경」모달에서 목록 행을 누르면 상세가 해당 행 바로 아래에 나오고, `changed_fields`·`old_data`·`new_data`를 JSON 문자열로 복사할 수 있게 한다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `DataChangeLogDetailBlocks` 공통 블록·`copyStringToClipboard`; 목록+모달 tbody에 상세 `tr` 삽입; `old`/`new`는 펼침 시 summary 오른쪽에만 JSON 복사 버튼 표시; correlation_id는 표시만
+- `user-history.css`: 인라인 상세·json-heading·details 복사 버튼·모달 테이블 영역 높이 조정
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+575. 2026-04-27 Backend: data_change_log 미적재 수정(record_change SAVEPOINT·track_insert None 판정·위젯 INSERT 커서 닫고 track)
+Purpose: 운영 DB에 `data_change_log` 행이 전혀 쌓이지 않던 현상을 제거한다. `track_insert`의 `if not row`가 빈 dict 스냅샷을 건너뛰는 문제, 동일 연결에서 INSERT 커서가 열린 채 `capture_before` SELECT가 실패·무행할 수 있는 타이밍, DCL INSERT 실패 시 상위 트랜잭션과의 정합을 정리한다.
+
+Changes:
+
+- `Backend/core/change_tracker.py`: `record_change`에 요청 단위 `SAVEPOINT`로 DCL INSERT 격리; `track_insert`는 `row is None`일 때만 스킵, `track_delete`는 `before is None`·빈 스냅샷 분리
+- `Backend/widget_board_server/service.py`: `create_board`·`add_widget`에서 RETURNING 처리 후 INSERT 커서를 닫은 뒤 `track_insert` 호출
+
+Changed files: Backend/core/change_tracker.py, Backend/widget_board_server/service.py, docs/log/log.md
+
+574. 2026-04-27 Frontend: AdminProjectsPage 미정의 isOrgAdmin → canProjectLifecycle 수정(페이지 렌더 실패)
+Purpose: JSX에서 정의되지 않은 `isOrgAdmin` 참조로 `ReferenceError`가 발생해 프로젝트 관리 화면이 비어 보이던 문제를 제거한다.
+
+Changes:
+
+- `AdminProjectsPage.jsx`: 프로젝트 생성 버튼 표시 조건을 기존 `canManageProjectLifecycle(me)` 결과인 `canProjectLifecycle`로 통일
+
+Changed files: Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, docs/log/log.md
+
+573. 2026-04-27 Backend: data_change_log 위젯·프로젝트 초대·QS upsert 계측(widget_board_server·project_server·router)
+Purpose: admin 외 `widget_board_server/service.py` CRUD·공유, `project_server` 초대 수락 멤버 INSERT, `query_studio_server` 저장 테이블 upsert에 `track_*`를 연결하고 `widget_board_share` 복합 PK를 `change_tracker`에 등록한다.
+
+Changes:
+
+- `Backend/core/change_tracker.py`: `widget_board_share` 복합 PK, 복합 테이블 `assert_table_identifier` 완화
+- `Backend/widget_board_server/service.py`, `Backend/project_server/service.py`, `Backend/query_studio_server/router.py`: 계측
+- `docs/report/25_Data_Change_Log_And_Tracking_Plan.md` §5·문서 이력, `docs/log/log.md`
+
+Changed files: Backend/core/change_tracker.py, Backend/widget_board_server/service.py, Backend/project_server/service.py, Backend/query_studio_server/router.py, docs/report/25_Data_Change_Log_And_Tracking_Plan.md, docs/log/log.md
+
+572. 2026-04-27 Backend: data_change_log 전수 확장(change_tracker·admin 서비스·report/25 §5)
+Purpose: `audit_sql_catalog` 정합 admin 쓰기 경로에 `track_*`를 넓히고, `table_project_mapping` 복합 PK·purge/비활성 삭제 시 대량 생략 메모를 반영한다.
+
+Changes:
+
+- `Backend/core/change_tracker.py`: 화이트리스트 확장, `COMPOSITE_PK_TABLES`·`capture_before` 복합 WHERE
+- `Backend/admin_server/service_users.py`, `service_projects.py`, `service_roles.py`: 부서·프로젝트·권한·이관·purge·매핑 sync 계측
+- `docs/report/25_Data_Change_Log_And_Tracking_Plan.md`: §1a·§5·문서 이력 갱신
+
+Changed files: Backend/core/change_tracker.py, Backend/admin_server/service_users.py, Backend/admin_server/service_projects.py, Backend/admin_server/service_roles.py, docs/report/25_Data_Change_Log_And_Tracking_Plan.md, docs/log/log.md
+
+571. 2026-04-27 report/25: 목표 수집 범위(system_log 정합·QS)·멀티 DB 이슈 §1a 명문화
+Purpose: 제품 목표( `ibank_system_data` 에서 system_log 계측과 정합되는 테이블 변경 전부, Query Studio 물리 테이블·신규 테이블 포함)와 현행 Phase 1 구현 범위의 차이를 계획서에 분리 기술하고, QS·멀티 DB 시 `data_change_log` 적재 방식을 설계 분기로 정리한다.
+
+Changes:
+
+- `docs/report/25_Data_Change_Log_And_Tracking_Plan.md`: §1a 신설(목표 A·B·갭 표·현행 한 줄·QS 설계 이슈), §5 상단에 §1a 참조 문구, 문서 이력 행
+
+Changed files: docs/report/25_Data_Change_Log_And_Tracking_Plan.md, docs/log/log.md
+
+570. 2026-04-27 docs: data_change_log API·통합 이력 03·07·25 정합 점검 반영
+Purpose: 구현된 백엔드·프론트와 정본 문서를 재대조하고, API 가이드·기능 가이드·계획서에 누락된 `data_change_log` 조회·통합 이력 3탭 서술을 반영한다.
+
+Changes:
+
+- `docs/main/03_API_GUIDE.md` §3.4: 인가 표에 `…/changes`·`…/change-logs` 추가, `data_change_log` 조회 절·통합 이력 UI 문구 보강
+- `docs/main/07_USER_FUNCTIONAL_GUIDE.md` §12.1: `tab=changes`·시스템 탭 변경 모달·API·클라이언트·스키마 §13a·`change_tracker` 정리
+- `docs/report/25_Data_Change_Log_And_Tracking_Plan.md` §10·문서 이력: 구현 반영 문구·일자 행
+
+Changed files: docs/main/03_API_GUIDE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/report/25_Data_Change_Log_And_Tracking_Plan.md, docs/log/log.md
+
+569. 2026-04-27 Frontend: 통합 이력 `tab=changes` 데이터 변경 탭·getChangeLogsPaged(report/25 §7.2)
+Purpose: `docs/report/25` §7.2에 따라 `UserHistoryPage`에 세 번째 탭(데이터 변경)을 추가하고 `GET /api/system-logs/change-logs`(`getChangeLogsPaged`)로 목록·필터·인라인 상세를 구현한다.
+
+Changes:
+
+- `app/admin/UserHistoryPage.jsx`: `VALID_TABS`·`tab=changes`·전용 필터(기간·대상 테이블·PK·채널)·`getChangeLogsPaged` 로드·9열 테이블·행 선택·`changed_fields`/old_data/new_data·correlation_id 복사·고정 정렬 안내·CSV 비활성
+- `app/admin/user-history.css`: 변경 탭 목록·상세 패널·고정 정렬 힌트·행 선택
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+568. 2026-04-27 Frontend: 통합 이력 시스템 탭 변경 내역 모달(report/25 §7.1·§7.3 Phase 1.4)
+Purpose: `docs/report/25` §7.1·§7.3에 따라 통합 사용자 이력의 시스템 탭에서 `system_log_id` 기준 `data_change_log`를 조회·표시한다.
+
+Changes:
+
+- `shared/api/systemLogClient.js`: `getSystemLogChanges`, `getChangeLogsPaged` 추가(JSON 배열·`toQuery` 규약)
+- `app/admin/UserHistoryPage.jsx`: 시스템 테이블「변경」열·모달(목록·`changed_fields`·old/new details·`correlation_id` 복사)
+- `app/admin/user-history.css`: 변경 버튼·모달·`pre`·details 스타일
+
+Changed files: Frontend/react-app/src/shared/api/systemLogClient.js, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+567. 2026-04-27 Backend: data_change_log Phase1 구현(change_tracker·admin·system_log_server API)
+Purpose: `docs/report/25_Data_Change_Log_And_Tracking_Plan.md` 기준으로 백엔드 변경추적 로깅 1차 범위를 한 번에 구현한다. 서비스 레이어에서 `data_change_log`를 기록하고, `system_log`와 `correlation_id`로 연결 조회 가능한 API를 추가한다.
+
+Changes:
+
+- `Backend/core/change_tracker.py` 신규: PII 스트립·식별자 화이트리스트·before/after 캡처·diff 계산·INSERT/UPDATE/DELETE 기록(track_*) 구현(실패 시 logger.exception, commit 금지)
+- `Backend/admin_server/service_users.py`: `user_info` 업데이트 경로와 `update_user_management`의 참여자 add/update/delete 경로에 track_* 연동(`project_ptcpnt_info_id` 선조회 후 적용)
+- `Backend/admin_server/service_projects.py`: `add_member(track_insert)`, `update_member_role(track_update)`, `remove_member(track_delete)` 연동
+- `Backend/system_log_server/service.py|schemas.py|router.py`: `GET /api/system-logs/{system_log_id}/changes`, `GET /api/system-logs/change-logs` 추가 및 기존 부서 스코프 규칙 재사용
+- 변경 파일 대상 문법/임포트 검증 및 린트 점검 통과
+
+Changed files: Backend/core/change_tracker.py, Backend/admin_server/service_users.py, Backend/admin_server/service_projects.py, Backend/system_log_server/service.py, Backend/system_log_server/schemas.py, Backend/system_log_server/router.py, docs/log/log.md
+
+566. 2026-04-27 docs/main/04: data_change_log 반영(§13a·테이블수 18·OWNER)
+Purpose: 운영 DB에 `data_change_log`가 적용 완료되어, `docs/main/04_DB_ARCHITECTURE.md`에 변경 추적 테이블 구조와 `system_log` 연계를 정식 반영한다.
+
+Changes:
+
+- 목차·개요·ERD에 `data_change_log`와 `system_log.request_correlation_id` 논리 조인 관계 추가
+- `ibank_system_data` 구간을 `1.~13a`로 확장하고 `13a. data_change_log` 항목 신설
+- `data_change_log` 전용 절 추가: 13개 컬럼·CHECK·6개 인덱스·OWNER(`ibankbi`)·시퀀스 반영
+- 테이블 분류 요약의 `ibank_system_data` 테이블 수를 17→18로 갱신
+
+Changed files: docs/main/04_DB_ARCHITECTURE.md, docs/log/log.md
+
+565. 2026-04-27 report/25 보완: PK·correlation 경로·UI 트리거·루프 트래킹 명시
+Purpose: DB 적용 결과를 기준으로 계획서를 재검증해, PK 컬럼 오해(`user_key`)를 제거하고 `request_context` 상관 ID 경로를 고정하며, 시스템 이력 화면의 변경조회 트리거와 `update_user_management` 루프 추적 규칙을 명확히 한다.
+
+Changes:
+
+- `docs/report/25`: Phase 1 표에 `target_pk_column` 추가(`user_info=user_id`, `project_ptcpnt_info=project_ptcpnt_info_id`)
+- `docs/report/25`: `project_ptcpnt_info` 복합 조건 경로는 ID 선조회 후 track_* 적용으로 명시
+- `docs/report/25`: 상관 ID import 경로를 `Backend.core.request_context.get_request_correlation_id`로 통일
+- `docs/report/25`: UserHistory 시스템 탭은 행 클릭 대신 아이콘 버튼 지연 로딩 원칙으로 명시
+- `docs/report/25`: `update_user_management` 루프별 track_*·동일 correlation_id 공유 규칙 추가
+
+Changed files: docs/report/25_Data_Change_Log_And_Tracking_Plan.md, docs/log/log.md
+
+564. 2026-04-27 docs/report/25: 데이터 변경 추적 계획서·ReportIndex·수동 DDL·통합 이력 UI 제안
+Purpose: `system_log`와 분리된 `data_change_log`·서비스 레이어 추적·UUID 상관 ID 연결을 Phase별로 정리하고, DDL은 문서 §3 수동 실행(저장소 mig/sql 미생성), `UserHistoryPage` 시스템 탭 변경 표시·API·커서 명령문을 포함한다.
+
+Changes:
+
+- `docs/report/25_Data_Change_Log_And_Tracking_Plan.md` 신규(§1~§10)
+- `docs/report/00_ReportIndex.md` 25행 추가·24행 설명 정합
+- `docs/report/22_System_Log_Development_Plan.md` §0 교차 참조·§4.4 `data_change_log`·목차 행 보강
+
+Changed files: docs/report/25_Data_Change_Log_And_Tracking_Plan.md, docs/report/00_ReportIndex.md, docs/report/22_System_Log_Development_Plan.md, docs/log/log.md
+
+563. 2026-04-27 docs/main: 로그 536 이후 반영(역할 표기·O 프로젝트·알림 요약)
+Purpose: `docs/log/log.md` 최신 항목(557~562 및 556 알림 등)과 `docs/main` 정본을 맞춘다. 동일 주제는 최신 동작·용어로 통일한다.
+
+Changes:
+
+- `08_TERMINOLOGY.md`: §1.1 관리 UI 짧은 표기(SA개발자·S/A/B/C)·고객 향 문구 주의
+- `07_USER_FUNCTIONAL_GUIDE.md`: 조직 역할 표에 SA개발자·08 링크, §11.1·11.2 자격에 SA개발자, §11.3·11.4 목록·수정·멤버·O 생명주기 제한·403·SA개발자 포함 정합, §11.5 상위 부서 문구, §12.2 알림 요약·메일 형식 한 줄
+- `03_API_GUIDE.md`: `PATCH/DELETE /api/admin/projects/{id}`·`update_project` 설명에 O 제한·`active_yn` 403
+- `05_PERMISSION_GUIDE.md`: `sa_dev`·`o` 행을 최신 정책·08 참조로 보강
+- `01_FRONTEND_GUIDE.md`: `userDvsnDisplay.js` 와 08 §1.1 연결
+
+Changed files: docs/main/08_TERMINOLOGY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/05_PERMISSION_GUIDE.md, docs/main/01_FRONTEND_GUIDE.md, docs/log/log.md
 
 562. 2026-04-27 Admin: 프로젝트 O(운영) 생명주기 UI·PATCH active_yn 403 명시
 Purpose: 운영(o)은 프로젝트 생성·비활성(DELETE)·활성(PATCH active_yn)·purge를 할 수 없어야 한다. 비활성 행에서 SA~A만 활성·완전 삭제가 보이는 것은 설계상 정상임을 안내 문구로 정리한다.
