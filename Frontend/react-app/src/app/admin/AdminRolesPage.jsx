@@ -1,7 +1,7 @@
 /**
  * app/admin/AdminRolesPage.jsx (권한 관리·사용현황 드릴다운)
  * ===============================================
- * 권한 목록·우상단「권한 생성」모달·수정/삭제·사용현황(사용자 부서 열·요약 행은 프로젝트명/사용자명 일반 텍스트, 이동은 작업 열 `프로젝트`/`권한` 버튼). 생성일·수정일 열, 목록 필터·컬럼 정렬(내림·오름·해제). 생성자 열은 이메일 셀 패턴(본인만 배지). 사용 중(usage_count>0) 커스텀 권한은 상세 목록 편집·전송 없이 권한명만 저장(`ap__notice--locked`). 수정 실패는 모달 `editError`·스냅샷으로 폼 복구.
+ * 권한 CRUD·사용현황 드릴다운·목록 필터·정렬. 사용 중 커스텀 권한은 이름만 저장(잠금 안내). 안내 문구는 DB 객체·컬럼명 대신 사용자용 표현을 쓴다.
  *
  * [Main Functions]
  * ===========
@@ -68,7 +68,7 @@ function parsePmssnInput(s) {
     .filter(Boolean)
 }
 
-/** API의 pmssn_list(배열·문자열)를 편집용 문자열 배열로 정규화 */
+/** API가 내려주는 권한 상세 목록(배열·문자열)을 편집용 문자열 배열로 정규화 */
 function pmssnListToArray(pl) {
   if (Array.isArray(pl)) {
     return pl.map((x) => String(x).trim()).filter(Boolean)
@@ -533,8 +533,7 @@ export default function AdminRolesPage() {
         <div>
           <h1 className="ap__title">권한 관리</h1>
           <p className="ap__hint">
-            목록에는 전사 시스템 기본 권한과 본인 부서에 등록된 커스텀 권한만 표시됩니다. 시스템 기본 권한은 조회만
-            가능합니다.
+            목록에는 본인 부서에 등록된 커스텀 권한과 그 권한에 포함되는 권한상세목록(전사 공통)만 표시됩니다.
           </p>
         </div>
         <button type="button" className="ibank-btn-toolbar" onClick={openCreateModal}>
@@ -558,7 +557,7 @@ export default function AdminRolesPage() {
           >
             <h3 id="pmssn-create-title">프로젝트 권한 생성</h3>
             <p className="ap__hint ap__hint--tight">
-              권한명과 권한 상세 목록을 지정합니다. 상세는 `pmssn_master_detail`에 정의된 항목만 선택할 수 있습니다.
+              권한명과 권한 상세 목록을 지정합니다. 상세 항목은 시스템에 미리 등록된 권한 템플릿 범위에서만 선택할 수 있습니다.
             </p>
             <form className="ap__modal-form" onSubmit={handleCreate}>
               <label className="ap__label">

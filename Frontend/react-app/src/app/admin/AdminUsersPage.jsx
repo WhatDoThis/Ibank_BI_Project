@@ -1,15 +1,7 @@
 /**
  * app/admin/AdminUsersPage.jsx (부서 사용자 관리 S8)
  * ===========================================
- * SA_DEV 전사 사용자 목록(부서·조직 역할·ETL순), 그 외 동일 부서. 부서/하위부서명·ETL 컬럼. 목록 필터(조직 역할은 목록에 존재하는 user_dvsn만 셀렉트)·컬럼 정렬(내림·오름·해제). 변경·정지·비활성 삭제 시 소유 매트릭스 불가면 409·blocking_assets(등록 부서 생성자 포함)·활성 행은 목록에서 이관(dptmt_creator). change-options: `user_dvsn_options`, `projects[].pmssn_options`.
- * 본인 행: 이메일 옆「본인」배지. 활성: 목록·변경·정지. 비활성: 활성·삭제만(본인은 활성만·비활성화 시 호버 안내). 작업물 패널은 활성이면서 목록을 연 경우만 표시. 삭제 409 시 모달은 안내만(목록 열기 없음).
- * 사용자 변경 모달: SA·SA_DEV만 ETL 관리자 자격(etl_yn) 토글. 프로젝트 참여는 표(프로젝트명+권한배지 한 줄·부서명 우측 정렬·선택) + project_department_display·행 그룹 구분.
- * SA_DEV가 마지막 SA를 하향 변경할 때는 저장 직전 추가 확인(confirm)으로 오조작을 방지.
- * 작업물 목록이 비어 있으면 빈 화면 대신 "생성/등록 이력 없음" 안내 문구를 표시.
- * 테이블 마스터가 ETL 생성 테이블이면 목록에서 └ 연쇄 이관 예정을 안내하고, · 줄로 ETL 테이블·Job·배치 Job 식별 라벨을 함께 표시.
- * 「초대자 등록상태」섹션(invite_user_id)·이관(project_invite)·정지/삭제 가드(409) 연동.
- * 작업물 패널: 카테고리(섹션)별 헤더·하위 목록. 각 섹션「전체이관」은 해당 섹션만(전체 작업물 통합 아님). ETL은 대분류로 묶고 하위 6종은 중분류·동일 etl_infra 수신 규칙으로 대분류 전체이관 가능.
- * 정지/삭제 409 모달「목록 열고 이관」: 행 펼침과 함께 `getAdminUserWorkAssets`를 반드시 호출(toggleWorkPanel만 쓰면 미로드·이관 시 dptmt_info_id=NaN 쿼리 오류 방지).
+ * SA개발자(전사 운영) 랭크는 전사 목록, 그 외는 관리 트리 내 동일 부서. 필터·정렬·변경·정지·삭제·초대·작업물·소유권 이관. UI 문구는 DB 컬럼명 대신 사용자용 용어를 쓴다.
  *
  * [Main Functions]
  * ===========
@@ -17,9 +9,8 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, app/auth/AuthContext, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, admin-list-table.css
- * - react-router-dom Link — `/admin/user-history` 통합 이력(22 §8.1)
- * 이메일 초대: 발송 성공 시 모달을 닫은 뒤 `alert`로 완료 안내(기존에는 모달을 즉시 닫아 메시지가 보이지 않음).
+ * - shared/api/adminClient, AuthContext, crudConfirm, userDvsnDisplay, adminListTable, useResetListPage, AdminSortableTh, AdminListPaginationFooter, admin-list-table.css, admin-users.css
+ * - react-router-dom Link — `/admin/user-history`
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
@@ -79,7 +70,7 @@ function formatDtm(v) {
   }
 }
 
-/** GET change-options: `user_dvsn_options`, `projects[].pmssn_options`, `projects[].project_department_display`(없으면 대시) */
+/** 사용자 변경 API 응답: 조직 역할 선택지·프로젝트별 권한(역할) 옵션·표시용 부서명 등 */
 function projectChangeDeptLabel(p) {
   const v = p?.project_department_display
   if (v != null && String(v).trim() !== '') return String(v).trim()
@@ -90,7 +81,7 @@ function isActive(row) {
   return (row.user_active_yn || '').toUpperCase() === 'Y'
 }
 
-/** ETL 관리자 자격: sa_dev·레거시 etl_manager·또는 etl_yn=Y (프로젝트 pmssn과 무관, 05 문서와 동일) */
+/** ETL 관리 자격(인프라) 보유: SA개발자 랭크·구 ETL 관리자 구분·또는 자격 부여(Y). 프로젝트 참여 권한과 무관 */
 function hasEtlInfra(row) {
   const d = String(row.user_dvsn || '')
     .trim()
@@ -138,7 +129,7 @@ function userComparable(row, key) {
 const ROLE_VALUES_SA = ['sa', 'a', 'o', 'u']
 const ROLE_VALUES_ADMIN = ['a', 'o', 'u']
 
-/** 초대 시 선택 가능한 `invite_target_dvsn` 값 목록 (`value`만 사용, 표시는 formatUserDvsnDisplay) */
+/** 초대 시 선택 가능한 조직 역할 코드 목록(value는 API용, 표시는 formatUserDvsnDisplay) */
 function roleChoices(actorDvsn) {
   const d = (actorDvsn || '').toLowerCase()
   if (d === 'sa_dev' || d === 'sa') return ROLE_VALUES_SA.map((value) => ({ value }))
@@ -370,7 +361,7 @@ export default function AdminUsersPage() {
       const needP = Number.isFinite(pid) && pid >= 1
       const needM = Number.isFinite(mid) && mid >= 1
       if (needP !== needM) {
-        setInviteMsg('U 초대 시 프로젝트와 프로젝트 권한(pmssn)은 둘 다 선택하거나 둘 다 비웁니다.')
+        setInviteMsg('일반 사용자(C)로 초대할 때는 프로젝트와 프로젝트 권한을 함께 선택하거나, 둘 다 비워 두세요.')
         return
       }
     }
@@ -630,7 +621,7 @@ export default function AdminUsersPage() {
     const selected = (changeForm.project_info_ids || []).map((x) => Number(x))
     const hasMissingRole = selected.some((pid) => Number(changeForm.project_roles?.[pid] || 0) <= 0)
     if (hasMissingRole) {
-      setChangeErr('체크한 프로젝트의 권한(pmssn)을 모두 선택하세요.')
+      setChangeErr('선택한 프로젝트마다 프로젝트 권한(역할)을 지정하세요.')
       return
     }
     const actorDvsn = String(changeCtx.options?.actor_user_dvsn || '').toLowerCase().trim()
@@ -641,7 +632,7 @@ export default function AdminUsersPage() {
     if (actorDvsn === 'sa_dev' && isSaDemotion && isLastSa) {
       const dptName = String(changeCtx.options?.last_sa_department_name || '해당')
       const ok = window.confirm(
-        `${dptName} 부서의 마지막 SA 사용자입니다. 정말 권한을 변경하시겠습니까?`,
+        `${dptName} 부서의 마지막 S 랭크 사용자입니다. 정말 권한을 변경하시겠습니까?`,
       )
       if (!ok) return
     }
@@ -1054,8 +1045,8 @@ export default function AdminUsersPage() {
           <h1 className="admin-users__title">사용자 관리</h1>
           <p className="admin-users__hint">
             {actorDvsn === 'sa_dev'
-              ? 'SA_DEV는 전사 사용자를 부서·조직 역할 순으로 봅니다. SA·A는 관리 트리 내 사용자만 표시됩니다. 정지 전 이관 필요 자산(프로젝트·커스텀 권한·ETL 등록)이 있으면 안내합니다.'
-              : '관리 트리 내 사용자만 표시됩니다. 프로젝트·권한 템플릿 이관은 sa_dev·sa·a, ETL 등록 건 이관은 동일 부서 ETL 관리자 자격(etl_yn 또는 SA_DEV)이 있는 사용자가 받을 수 있습니다.'}
+              ? 'SA개발자: 전사 목록(부서·랭크·ETL 순). 정지·삭제 전 이관이 필요하면 안내합니다.'
+              : '관리 트리 내 사용자만 표시됩니다. 이관 수신은 서버 조건·랭크(S·A·B·C)·ETL 자격을 따릅니다.'}
           </p>
         </div>
         <div className="admin-users__header-actions">
@@ -1098,8 +1089,8 @@ export default function AdminUsersPage() {
             </h2>
             <p className="admin-users__modal-hint">
               {canSetEtlOnInvite
-                ? '부서(sa_dev는 전체, sa·a는 본인 부서 트리)를 선택한 뒤 조직 역할·옵션을 지정합니다.'
-                : 'a(Admin)은 본인 부서 트리 내로만 초대할 수 있습니다.'}
+                ? '부서를 선택한 뒤 조직 역할·옵션을 지정합니다.'
+                : 'A 관리자는 본인 부서 트리 내로만 초대할 수 있습니다.'}
             </p>
             <form className="admin-users__invite-form admin-users__modal-form" onSubmit={handleInviteSubmit}>
               <label className="admin-users__field admin-users__field--full">
@@ -1130,7 +1121,7 @@ export default function AdminUsersPage() {
                   </select>
                 </label>
                 <label className="admin-users__field">
-                  조직 역할 (가입 후 user_dvsn)
+                  조직 역할 (가입 시 부여)
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
@@ -1151,7 +1142,7 @@ export default function AdminUsersPage() {
                     checked={inviteEtl}
                     onChange={(e) => setInviteEtl(e.target.checked)}
                   />
-                  가입 직후 ETL 관리자 자격 (etl_yn=Y)
+                  가입 직후 ETL 관리 자격 부여
                 </label>
               ) : null}
               {inviteRole === 'u' ? (
@@ -1172,7 +1163,7 @@ export default function AdminUsersPage() {
                     </select>
                   </label>
                   <label className="admin-users__field">
-                    프로젝트 권한 (pmssn)
+                    프로젝트 권한(역할)
                     <select
                       value={invitePmssnId}
                       onChange={(e) => setInvitePmssnId(e.target.value)}
@@ -1279,13 +1270,21 @@ export default function AdminUsersPage() {
                     .trim() === 'sa_dev' ? (
                   <div className="admin-users__field">
                     ETL 관리자 자격
-                    <p className="admin-users__hint">SA_DEV 계정은 etl_yn을 변경할 수 없습니다.</p>
+                    <p className="admin-users__hint">
+                      {actorDvsn === 'sa_dev'
+                        ? 'SA개발자 계정은 ETL 관리 자격을 바꿀 수 없습니다.'
+                        : '해당 계정은 ETL 관리 자격을 바꿀 수 없습니다.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="admin-users__field">
                     ETL 관리자 자격
                     <p className="admin-users__hint">
-                      현재 {changeForm.etl_yn === 'Y' ? '부여(Y)' : '미부여(N)'} — SA 또는 SA_DEV만 변경할 수 있습니다.
+                      현재{' '}
+                      {changeForm.etl_yn === 'Y'
+                        ? 'ETL 관리 자격이 부여된 상태입니다.'
+                        : 'ETL 관리 자격이 없습니다.'}{' '}
+                      — 이 항목을 변경할 권한이 없습니다.
                     </p>
                   </div>
                 )}
@@ -1420,49 +1419,18 @@ export default function AdminUsersPage() {
             <p className="admin-users__modal-hint">{transferCtx.label}</p>
             {transferCtx.bulkItems && transferCtx.bulkItems.length >= 2 ? (
               <p className="admin-users__modal-hint admin-users__modal-hint--emph">
-                {transferCtx.bulkItems.every((x) => x.etlInfra) ? (
-                  <>
-                    <strong>「{transferCtx.categoryTitle || 'ETL'}」</strong> 범위의 ETL 등록 건만{' '}
-                    {transferCtx.bulkItems.length}건 이관합니다. 수신 조건은 모두{' '}
-                    <strong>ETL 관리자(활성·etl_yn 또는 SA_DEV·관리 범위)</strong>로 동일합니다.
-                    <span className="admin-users__modal-hint-break">
-                      수신 후보 목록은 <strong>첫 번째 항목</strong> 기준으로 조회됩니다.
-                    </span>
-                    {transferCtx.categoryTitle === 'ETL' ? (
-                      <>
-                        {' '}
-                        프로젝트·권한·테이블 마스터(원장) 등 <strong>비ETL</strong> 섹션은 포함되지 않습니다.
-                      </>
-                    ) : (
-                      <>
-                        {' '}
-                        다른 대분류(프로젝트·권한·테이블 마스터·ETL의 다른 중분류 일괄)는 이 작업에 포함되지 않습니다.
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <strong>「{transferCtx.categoryTitle || '이 카테고리'}」</strong> 안의 이관 가능 항목{' '}
-                    {transferCtx.bulkItems.length}건만 이관합니다. 위·아래 다른 섹션은 <strong>포함되지 않습니다</strong>.
-                    <span className="admin-users__modal-hint-break">
-                      수신 후보 목록은 <strong>첫 번째 항목</strong> 기준으로 조회됩니다. 테이블 마스터 등은 항목별 수신
-                      조건이 달라 동일 수신자로 일부만 성공할 수 있습니다.
-                    </span>
-                  </>
-                )}
+                <strong>「{transferCtx.categoryTitle || '선택'}」</strong> 이관 가능 항목 {transferCtx.bulkItems.length}
+                건만 묶어 처리합니다. 다른 섹션은 제외되며, 후보 목록은 <strong>첫 항목</strong> 기준입니다.
+                {!transferCtx.bulkItems.every((x) => x.etlInfra) ? (
+                  <span className="admin-users__modal-hint-break">
+                    항목별 수신 조건이 다르면 같은 사용자에게 일부만 적용될 수 있습니다.
+                  </span>
+                ) : null}
               </p>
             ) : null}
             <p className="admin-users__modal-hint">
-              아래 목록은 서버에서 이관 수신이 가능한 사용자만 골라 보여 줍니다. 부서원 전체가 아니며, 원 소유자는 제외됩니다.
-            </p>
-            <p className="admin-users__modal-hint">
-              {transferCtx.etlInfra
-                ? '조건: 동일 부서·활성·(ETL 관리자 자격 etl_yn=Y 또는 SA_DEV 조직 역할)·관리자 관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
-                : transferCtx.resourceType === 'table_master'
-                  ? '조건: 매핑 프로젝트에서 query.execute(저장 테이블과 동일) 또는 원 소유자와 동일 부서 SA/A, 또는 SA_DEV·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
-                  : transferCtx.resourceType === 'dptmt_creator'
-                    ? '조건: 해당 부서와 동일 부서 트리(상·하위) 소속·활성·부서 추가 가능 조직 역할(SA 또는 SA_DEV)·관리 범위 내. 부서 SA는 SA_DEV 수신 불가.'
-                    : '조건: 동일 부서 + 활성·SA_DEV·SA·A 조직 역할이 관리 범위 내.'}
+              아래는 서버가 허용한 수신 사용자만입니다(원 소유자 제외). 동일 부서·활성·랭크(S·A·B·C 등)·ETL
+              자격·관리 범위·항목 유형별 규칙을 따릅니다.
             </p>
             {transferErr ? <p className="admin-users__error">{transferErr}</p> : null}
             {transferLoading ? (
@@ -1487,13 +1455,7 @@ export default function AdminUsersPage() {
                   <div className="admin-users__empty" role="status">
                     <p className="admin-users__empty-title">이관을 받을 수 있는 사용자가 없습니다</p>
                     <p className="admin-users__hint">
-                      {transferCtx.etlInfra
-                        ? '동일 부서에서 ETL 관리자 자격(etl_yn=Y) 또는 SA_DEV이면서, 귀하의 관리 범위에 속한 다른 활성 사용자가 없습니다.'
-                        : transferCtx.resourceType === 'table_master'
-                          ? '테이블 마스터 수신 조건(query.execute·동일 부서 SA/A·SA_DEV 등)과 관리 범위를 동시에 만족하는 다른 사용자가 없습니다.'
-                          : transferCtx.resourceType === 'dptmt_creator'
-                            ? '동일 부서 트리에서 부서 생성 가능(SA·SA_DEV)이면서 관리 범위에 속한 다른 활성 사용자가 없습니다.'
-                            : '동일 부서의 SA_DEV·SA·A 중 관리 범위에 속한 다른 활성 사용자가 없습니다.'}
+                      이관 조건과 관리 범위를 동시에 만족하는 다른 활성 사용자가 없습니다.
                     </p>
                   </div>
                 )}
@@ -1569,7 +1531,7 @@ export default function AdminUsersPage() {
               </select>
             </div>
             <div className="admin-list-filters__field">
-              <label htmlFor="admin-user-f-etl">ETL</label>
+              <label htmlFor="admin-user-f-etl">ETL 관리 자격</label>
               <select
                 id="admin-user-f-etl"
                 value={userFilters.etl}
@@ -1665,9 +1627,9 @@ export default function AdminUsersPage() {
                   activeKey={userSort.key}
                   dir={userSort.dir}
                   onSort={handleUserSort}
-                  title="ETL API(etl_db) 관리 자격: SA_DEV 또는 user_info.etl_yn=Y. 프로젝트 권한(pmssn, 예: project_all)과 별개입니다."
+                  title="ETL DB 연동·인프라 관리 자격은 조직 정책과 계정 설정으로 결정됩니다. 프로젝트에서 부여하는 권한과는 별개입니다."
                 >
-                  ETL 관리
+                  ETL 관리 자격
                 </AdminSortableTh>
                 <AdminSortableTh
                   sortKey="status"
@@ -1710,7 +1672,7 @@ export default function AdminUsersPage() {
                     : isSelf
                       ? '본인 계정입니다. 목록에서 작업물 확인·소유 이관만 가능합니다.'
                       : isAdminLockedSa
-                        ? 'Admin(A)은 SA 사용자의 변경·정지·활성·삭제를 할 수 없습니다.'
+                        ? 'A는 S 랭크 사용자의 변경·정지·활성·삭제를 할 수 없습니다.'
                         : ''
                 const expanded = expandedUid === uid
                 const work = workByUser[uid]

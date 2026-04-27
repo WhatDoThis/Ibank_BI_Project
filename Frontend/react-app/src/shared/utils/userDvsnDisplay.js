@@ -1,7 +1,7 @@
 /**
- * shared/utils/userDvsnDisplay.js (조직 역할 user_dvsn UI 표기)
+ * shared/utils/userDvsnDisplay.js (조직 역할 코드 → 화면 랭크 표기)
  * ============================================================
- * API·DB의 `user_dvsn`(소문자 코드)을 화면에만 짧은 표기로 매핑한다. 요청 바디·비교 로직은 원문 코드를 그대로 쓴다.
+ * API·DB의 조직 역할(소문자 코드)을 화면용 랭크 문자열만 반환한다. 요청 바디·비교 로직은 저장 코드를 그대로 쓴다.
  *
  * [Main Functions]
  * ===========
@@ -14,7 +14,7 @@
 
 /** @type {Readonly<Record<string, string>>} */
 export const USER_DVSN_DISPLAY_BY_CANON = Object.freeze({
-  sa_dev: 'SADEV',
+  sa_dev: 'SA개발자',
   sa: 'S',
   a: 'A',
   o: 'B',
@@ -22,7 +22,7 @@ export const USER_DVSN_DISPLAY_BY_CANON = Object.freeze({
 })
 
 /**
- * @param {string | null | undefined} raw `user_info.user_dvsn` 등
+ * @param {string | null | undefined} raw 조직 역할 저장 코드
  * @returns {string}
  */
 export function formatUserDvsnDisplay(raw) {

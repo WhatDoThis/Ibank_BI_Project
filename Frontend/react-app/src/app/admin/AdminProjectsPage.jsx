@@ -1,12 +1,7 @@
 /**
- * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성 모달·수정·비활성)
+ * app/admin/AdminProjectsPage.jsx (프로젝트 목록·생성·수정·비활성·purge)
  * ==========================================================
- * GET/POST/PATCH/DELETE /api/admin/projects — 생성·비활성·purge(DB삭제)는 canAccessOrgAdmin(sa_dev·sa·a)만.
- * 생성·프로젝트 활성화·비활성화·purge 성공 시 notifyParticipatingProjectsChanged(헤더 드롭다운 재조회). 비활성화·purge: 현재 작업 프로젝트면 refreshMe 후 홈(/)으로 이동.
- * 생성·수정 모달: 동일 폼(수정 시 멤버 초대 섹션 제외). 테이블 매핑은 QS·위젯보드용으로 main_db(table_master)만 API에서 내려줌; 대시보드 허용 테이블은 별도(서버 table_master·feature_flags). QS/WB는 페이지 선택과 연동.
- * 생성 모달은 배경(오버레이) 클릭으로 닫지 않음 — 닫기·취소 버튼만(입력 실수 방지).
- * 목록 테이블: 프로젝트명·프로젝트설명 열 분리·ap__cell-clip·설명 정렬 th `ap__th-project-desc`, 수정일·필터·헤더 정렬. 작업 열은 AdminUsersPage와 동일 패턴(활성: 멤버·수정·비활성화 / 비활성: 활성·삭제만).
- * 생성자 열은 이메일 셀 패턴(본인만 배지).
+ * 생성·비활성·활성·purge는 canManageProjectLifecycle(SA개발자·S·A, o 제외). o는 이름·설명·멤버 링크·수정만. 성공 시 참여 알림 갱신; purge 시 홈 이동. 생성 모달은 오버레이 클릭으로 닫지 않음.
  *
  * [Main Functions]
  * ===========
@@ -14,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/admin/adminAccess.js, app/auth/AuthContext.jsx, admin-list-table.css
+ * - react-router-dom, shared/api/adminClient, shared/utils/crudConfirm, shared/utils/userDvsnDisplay(formatUserDvsnDisplay), shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/admin/adminAccess.js(canManageProjectLifecycle), app/auth/AuthContext.jsx, admin-list-table.css
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -46,7 +41,7 @@ import {
 import { confirmCrud } from '@/shared/utils/crudConfirm.js'
 import { formatUserDvsnDisplay } from '@/shared/utils/userDvsnDisplay.js'
 
-import { canAccessOrgAdmin, isCreatorSelf } from '@/app/admin/adminAccess.js'
+import { canManageProjectLifecycle, isCreatorSelf } from '@/app/admin/adminAccess.js'
 
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import './admin-pages.css'
@@ -114,7 +109,7 @@ function projectComparable(row, key) {
 export default function AdminProjectsPage() {
   const navigate = useNavigate()
   const { me, refreshMe, notifyParticipatingProjectsChanged } = useAuth()
-  const isOrgAdmin = canAccessOrgAdmin(me)
+  const canProjectLifecycle = canManageProjectLifecycle(me)
   const isOperator = (me?.user_dvsn || '').trim().toLowerCase() === 'o'
 
   const [items, setItems] = useState([])
@@ -220,6 +215,7 @@ export default function AdminProjectsPage() {
   }
 
   async function openCreateModal() {
+    if (!canProjectLifecycle) return
     setError('')
     resetProjectFormFields()
     setProjectDialog({ mode: 'create' })
@@ -605,6 +601,7 @@ export default function AdminProjectsPage() {
   }
 
   async function handleDeactivate(projectInfoId) {
+    if (!canProjectLifecycle) return
     if (!confirmCrud('프로젝트를 비활성화할까요? (소프트 삭제)')) return
     setBusyId(projectInfoId)
     setError('')
@@ -625,6 +622,7 @@ export default function AdminProjectsPage() {
   }
 
   async function handleActivateProject(projectInfoId) {
+    if (!canProjectLifecycle) return
     if (!confirmCrud('이 프로젝트를 활성화할까요?')) return
     setBusyId(projectInfoId)
     setError('')
@@ -644,6 +642,7 @@ export default function AdminProjectsPage() {
   }
 
   async function openPurgeDialog(projectInfoId) {
+    if (!canProjectLifecycle) return
     setError('')
     setPurgeDialog({
       phase: 'loading',
@@ -707,8 +706,8 @@ export default function AdminProjectsPage() {
           <h1 className="ap__title">프로젝트 관리</h1>
           <p className="ap__hint">
             {isOperator
-              ? '참여 중인 프로젝트만 표시될 수 있습니다. 이름·설명 수정은 가능하며, 신규 생성·비활성화·활성화·삭제는 조직 어드민만 가능합니다.'
-              : '부서 소속 프로젝트를 관리합니다. 멤버는 활성 프로젝트 행의 링크에서 설정합니다. 비활성화 후에는 조직 어드민만 활성·삭제만 표시됩니다.'}
+              ? '참여 중인 프로젝트만 표시될 수 있습니다. 이름·설명 수정·멤버 관리는 가능합니다. 신규 생성·비활성·활성·삭제는 운영(O) 계정으로는 할 수 없으며, 조직 어드민(S·A)만 가능합니다.'
+              : '부서 소속 프로젝트를 관리합니다. 멤버는 활성 프로젝트 행의 작업영역에서 설정합니다. 비활성화 후에는 조직 어드민(S·A)에게만 활성·삭제 버튼이 표시됩니다.'}
           </p>
         </div>
         {isOrgAdmin ? (
@@ -1352,7 +1351,7 @@ export default function AdminProjectsPage() {
                             >
                               수정
                             </button>
-                            {isOrgAdmin ? (
+                            {canProjectLifecycle ? (
                               <button
                                 type="button"
                                 className="ibank-btn-table ibank-btn-table--danger"
@@ -1363,7 +1362,7 @@ export default function AdminProjectsPage() {
                               </button>
                             ) : null}
                           </>
-                        ) : isOrgAdmin ? (
+                        ) : canProjectLifecycle ? (
                           <>
                             <button
                               type="button"

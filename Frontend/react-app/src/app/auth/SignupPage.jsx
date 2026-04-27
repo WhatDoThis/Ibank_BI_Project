@@ -66,7 +66,7 @@ export default function SignupPage() {
           : '',
       ].filter(Boolean)
       const extra = []
-      if (row.invite_etl_yn === 'Y') extra.push('ETL 자격 포함')
+      if (row.invite_etl_yn === 'Y') extra.push('ETL 관리 자격 포함')
       if (row.has_project_attachment) {
         const pName = row.invite_project_name || '프로젝트'
         const rName = row.invite_pmssn_name || '역할'

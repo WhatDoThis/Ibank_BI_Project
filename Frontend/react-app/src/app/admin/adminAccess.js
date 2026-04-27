@@ -1,12 +1,13 @@
 /**
  * app/admin/adminAccess.js (조직 어드민 UI 판별)
  * ======================================
- * user_dvsn(조직 역할) 허용값: sa_dev, sa, a, o, u 만. 그 외는 canonUserDvsn 이 빈 문자열 → 메뉴·접근 없음.
+ * 조직 역할 저장값은 백엔드와 동일한 다섯 가지 소문자 코드만 허용. 화면 랭크 표기는 userDvsnDisplay와 맞춘다.
  * 백엔드 user_dvsn_codes·require_org_admin 과 동일 집합.
  *
  * [Main Functions]
  * ===========
- * - canonUserDvsn, canAccessOrgAdmin, canAccessDeptSettings, canAccessProjectAdminPages(o 포함)
+ * - canonUserDvsn, canAccessOrgAdmin, canManageProjectLifecycle(o 제외·생성·비활성·활성·purge)
+ * - canAccessDeptSettings, canAccessProjectAdminPages(o 포함)
  * - meLoginEmail(/me 의 email·호환 user_email), isCreatorSelf, isEtlCreateLabelSelf(생성자 열·본인 배지)
  *
  * [Dependencies]
@@ -28,13 +29,24 @@ export function canAccessOrgAdmin(me) {
   return c === 'sa_dev' || c === 'sa' || c === 'a'
 }
 
-/** sa·sa_dev — 백엔드 require_super_admin 과 동일 */
+/**
+ * 프로젝트 생성·소프트 비활성(DELETE)·활성(PATCH active_yn)·purge — 운영(o) 제외.
+ * ORG_ADMIN에 o가 포함되는 실수가 있어도 o는 false.
+ * @param {{ user_dvsn?: string | null } | null} me
+ */
+export function canManageProjectLifecycle(me) {
+  const c = canonUserDvsn(me)
+  if (c === 'o') return false
+  return c === 'sa_dev' || c === 'sa' || c === 'a'
+}
+
+/** S·전사 운영(SA개발자) — 백엔드 require_super_admin 과 동일 */
 export function canAccessDeptSettings(me) {
   const c = canonUserDvsn(me)
   return c === 'sa' || c === 'sa_dev'
 }
 
-/** sa_dev·sa·a·o — /api/admin/projects·멤버(참여 시) */
+/** 전사 운영·S·A·B(운영) — /api/admin/projects·멤버(참여 시) */
 export function canAccessProjectAdminPages(me) {
   const c = canonUserDvsn(me)
   return c === 'sa_dev' || c === 'sa' || c === 'a' || c === 'o'

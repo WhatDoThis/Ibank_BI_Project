@@ -1,7 +1,7 @@
 /**
  * app/guards/EtlAccessRoute.jsx (ETL 라우트 가드)
  * ======================================
- * sa_dev 또는 etl_yn=Y 가 아니면 `/` 로 이동. ProtectedLayout 하위에서만 사용.
+ * 전사 운영(SA개발자) 랭크가 아니면서 ETL 관리 자격도 없으면 `/` 로 이동. ProtectedLayout 하위에서만 사용.
  *
  * [Main Functions]
  * ===========

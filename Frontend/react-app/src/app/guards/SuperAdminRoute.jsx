@@ -1,7 +1,7 @@
 /**
- * app/guards/SuperAdminRoute.jsx (슈퍼어드민·SA_DEV 전용 가드)
+ * app/guards/SuperAdminRoute.jsx (슈퍼어드민·SA개발자 전용 가드)
  * ==================================================
- * 부서 설정 등 require_super_admin API 화면. sa·sa_dev 만 통과.
+ * 부서 설정 등 require_super_admin API 화면. S·SA개발자 랭크만 통과.
  *
  * [Main Functions]
  * ===========

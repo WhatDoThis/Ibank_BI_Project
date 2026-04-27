@@ -3,7 +3,7 @@ Backend.admin_server.change_notify (권한·역할·계정 변경 알림+메일)
 ====================================================
 관리 API에서 **커밋 성공 후** 호출한다. `actor_user_id`와 대상이 같으면 **앱 알림·이메일 모두 생략**.
 `notification_info`는 `insert_notification(..., autocommit=True)`로 즉시 반영한다.
-이메일은 `_notice_email_bodies`의 ◎ 블록(여백·HTML)을 사용하고, 앱 알림 JSON에는 이메일 본문과 분리된 **`noti_summary`**(짧은 줄바꿈·빈 줄 최소)만 넣는다. 조직 역할은 사용자 관리 UI와 동일한 **S/A/B/C/SADEV** 표기, HTML 메일에서 역할·Y/N은 `<strong>` 처리.
+이메일은 `_notice_email_bodies`의 ◎ 블록(여백·HTML)을 사용하고, 앱 알림 JSON에는 이메일 본문과 분리된 **`noti_summary`**(짧은 줄바꿈·빈 줄 최소)만 넣는다. 조직 역할은 사용자 관리 UI와 동일한 **SA개발자·S·A·B·C** 표기, HTML 메일에서 역할·Y/N은 `<strong>` 처리.
 
 [Main Functions]
 ===========
@@ -55,7 +55,7 @@ NOTI_PROJECT_PMSSN = "project_pmssn_changed"
 NOTI_ACTIVATED = "user_activated"
 
 _DVSN_LETTER: dict[str, str] = {
-    "sa_dev": "SADEV",
+    "sa_dev": "SA개발자",
     "sa": "S",
     "a": "A",
     "o": "B",

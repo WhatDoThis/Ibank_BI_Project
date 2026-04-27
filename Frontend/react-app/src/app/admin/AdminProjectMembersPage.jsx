@@ -1,10 +1,7 @@
 /**
  * app/admin/AdminProjectMembersPage.jsx (프로젝트 멤버)
  * =============================================
- * GET members: items(참여) + pending_invites(미수락 타부서 알림), user_department_display. 멤버 목록 필터·헤더 정렬(참여일시=create_dtm). POST/PATCH/DELETE members.
- * 상단「멤버 추가」: ap__modal--create-wide·부서 내 테이블 + 타부서 검색 초대·멤버에 없을 때「본인을 멤버로 추가」(재참여).
- * API: 부서 트리 소속은 즉시 추가(outcome member_added), 타부서는 project_invite 알림(outcome invite_sent). 본인은 멤버·초대대기가 아니면 목록·추가 가능(add_member).
- * pending 행: 초대중·초대 취소. 활성 행: 권한 편집·제거.
+ * 멤버·초대 대기 목록, 필터·정렬, 추가·권한·삭제. 조직 랭크 열은 formatUserDvsnDisplay.
  *
  * [Main Functions]
  * ===========

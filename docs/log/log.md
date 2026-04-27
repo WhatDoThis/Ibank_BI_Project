@@ -1,6 +1,12 @@
 # Log
 
 ## Log Index
+562. 2026-04-27 Admin: 프로젝트 O(운영) 생명주기 UI·PATCH active_yn 403 명시
+561. 2026-04-24 Frontend: USER_DVSN_CODE_* 상수 전파 제거(비교는 리터럴·표시 문구만 유지)
+560. 2026-04-24 Frontend: sa_dev 리터럴 단일화(USER_DVSN_CODE_SA_DEV)·주석 자연어화
+559. 2026-04-24 Admin UI: DB 컬럼명 노출 제거(ETL 관리 자격 등 사용자 용어)
+558. 2026-04-24 Admin UI: 비 sa_dev 화면에서 SA개발자 문구 제거·중립 안내
+557. 2026-04-24 Frontend admin: 조직 랭크 표기(SA개발자·S·B·C)·설명 간결화·알림 동기
 556. 2026-04-20 알림 noti_summary: 이메일 본문과 분리·벨 패널 간결 표시
 555. 2026-04-20 초대·알림: KR시각(무접미)·빈줄·프로젝트 summary_plain·짧은 제목
 554. 2026-04-20 메일: 로그인코드·가입초대·프로젝트초대 ◎ 형식·HTML / 초대 알림 제목 요약
@@ -559,6 +565,71 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+562. 2026-04-27 Admin: 프로젝트 O(운영) 생명주기 UI·PATCH active_yn 403 명시
+Purpose: 운영(o)은 프로젝트 생성·비활성(DELETE)·활성(PATCH active_yn)·purge를 할 수 없어야 한다. 비활성 행에서 SA~A만 활성·완전 삭제가 보이는 것은 설계상 정상임을 안내 문구로 정리한다.
+
+Changes:
+
+- adminAccess: canManageProjectLifecycle(o 명시 배제, SA개발자·S·A만 true)
+- AdminProjectsPage: 생성·비활성·활성·purge 버튼·openCreateModal·핸들러 가드
+- admin_server router: PATCH /projects/{id} 에서 o가 active_yn 을 보내면 403(기존 service 검증 보조)
+
+Changed files: Frontend/react-app/src/app/admin/adminAccess.js, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, Backend/admin_server/router.py, docs/log/log.md
+
+561. 2026-04-24 Frontend: USER_DVSN_CODE_* 상수 전파 제거(비교는 리터럴·표시 문구만 유지)
+Purpose: 보이는 문구만 정리하면 되므로, `USER_DVSN_CODE_SA_DEV` 등 공통 상수 import·전파를 되돌리고 비교는 기존 `'sa_dev'` 리터럴로 복귀한다. `USER_DVSN_DISPLAY_BY_CANON`·화면 한글 안내는 유지.
+
+Changes:
+
+- `userDvsnDisplay`: 코드 상수 export 제거, 표 매핑 키 `sa_dev` 복귀
+- `adminAccess`·`AdminUsersPage`·`AdminOrgPage`·`etlAccess`: 상수 import·참조 제거, `'sa_dev'`·`'etl_manager'` 비교 복귀
+
+Changed files: Frontend/react-app/src/shared/utils/userDvsnDisplay.js, Frontend/react-app/src/app/admin/adminAccess.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminOrgPage.jsx, Frontend/react-app/src/app/guards/etlAccess.js, docs/log/log.md
+
+560. 2026-04-24 Frontend: sa_dev 리터럴 단일화(USER_DVSN_CODE_SA_DEV)·주석 자연어화
+Purpose: 이전 대화에서 화면·설명에서 기술 코드 노출을 줄이기로 한 연장으로, 저장 코드 문자열은 `userDvsnDisplay.js` 한 곳에만 두고 나머지는 상수 참조·한글 주석으로 통일한다.
+
+Changes:
+
+- `userDvsnDisplay`: `USER_DVSN_CODE_SA_DEV`·`USER_DVSN_CODE_ETL_MANAGER` export, 표 매핑 키 연동
+- `adminAccess`·`AdminUsersPage`·`AdminOrgPage`·`etlAccess`: 비교·집합에 상수 사용, 모듈·가드 주석에서 `sa_dev` 등 제거
+- `AdminProjectsPage`·`EtlAccessRoute`·`SuperAdminRoute`·`OrgAdminRoute`: 파일 머리말만 자연어 정리
+
+Changed files: Frontend/react-app/src/shared/utils/userDvsnDisplay.js, Frontend/react-app/src/app/admin/adminAccess.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminOrgPage.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, Frontend/react-app/src/app/guards/etlAccess.js, Frontend/react-app/src/app/guards/EtlAccessRoute.jsx, Frontend/react-app/src/app/guards/SuperAdminRoute.jsx, Frontend/react-app/src/app/guards/OrgAdminRoute.jsx, docs/log/log.md
+
+559. 2026-04-24 Admin UI: DB 컬럼명 노출 제거(ETL 관리 자격 등 사용자 용어)
+Purpose: 사용자 화면·툴팁·검증 메시지에서 etl_yn·pmssn 등 저장소 필드명을 쓰지 않고, ETL 관리 자격·프로젝트 권한(역할) 등 자연어로 통일한다.
+
+Changes:
+
+- `AdminUsersPage`: 초대·변경 모달·필터·테이블 열·에러 문구 정리, 모듈 주석 보강
+- `AdminRolesPage`: 권한 생성 모달 안내 문구
+- `SignupPage`: 초대 요약의 ETL 문구
+- `EtlAccessRoute`·`userDvsnDisplay`: 모듈 설명만 용어 정리
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/auth/SignupPage.jsx, Frontend/react-app/src/app/guards/EtlAccessRoute.jsx, Frontend/react-app/src/shared/utils/userDvsnDisplay.js, docs/log/log.md
+
+558. 2026-04-24 Admin UI: 비 sa_dev 화면에서 SA개발자 문구 제거·중립 안내
+Purpose: 일반 관리(S·A·B·C) 사용자 안내에는 운영(sa_dev) 역할명을 넣지 않고, sa_dev 본인에게만 해당 문구를 남긴다.
+
+Changes:
+
+- `AdminUsersPage`: 비 sa_dev 상단 힌트·이관 모달·ETL 열 툴팁·변경 모달 etl_yn 안내를 중립 문구로 조정. sa_dev 대상 etl_yn 불가 문구는 조회자가 sa_dev일 때만「SA개발자 계정」표기
+- `AdminOrgPage`·`AdminProjectsPage`·`AdminProjectMembersPage`·`adminAccess`·`userDvsnDisplay`: 개발용 파일머리말에서 고객향「SA개발자」나열 제거(코드명·유틸 참조로 정리)
+
+Changed files: Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminOrgPage.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, Frontend/react-app/src/app/admin/adminAccess.js, Frontend/react-app/src/shared/utils/userDvsnDisplay.js, docs/log/log.md
+
+557. 2026-04-24 Frontend admin: 조직 랭크 표기(SA개발자·S·B·C)·설명 간결화·알림 동기
+Purpose: `user_dvsn` 화면·안내 문구를 랭크 정책(SA_DEV→SA개발자, SA→S, O→B, U→C)에 맞추고 admin 패키지 장문 설명을 줄인다. 관리 변경 알림 문구는 UI와 동일 표기를 유지한다.
+
+Changes:
+
+- `userDvsnDisplay`: sa_dev 표기 `SA개발자`, 모듈 설명에 랭크 정책 명시
+- `AdminUsersPage`·`AdminOrgPage`·`AdminProjectsPage`·`AdminProjectMembersPage`·`AdminRolesPage`·`adminAccess`: 헤더·힌트·이관 모달 문구 정리 및 랭크 용어 통일
+- `change_notify`: `_DVSN_LETTER` sa_dev → SA개발자, 상단 docstring 표기 정합
+
+Changed files: Frontend/react-app/src/shared/utils/userDvsnDisplay.js, Frontend/react-app/src/app/admin/AdminUsersPage.jsx, Frontend/react-app/src/app/admin/AdminOrgPage.jsx, Frontend/react-app/src/app/admin/AdminProjectsPage.jsx, Frontend/react-app/src/app/admin/AdminProjectMembersPage.jsx, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, Frontend/react-app/src/app/admin/adminAccess.js, Backend/admin_server/change_notify.py, docs/log/log.md
 
 556. 2026-04-20 알림 noti_summary: 이메일 본문과 분리·벨 패널 간결 표시
 Purpose: 이메일은 ◎·빈 줄 유지, `notification_info.noti_content`에는 `noti_summary`만 넣어 알림 벨에서 읽기 쉽게 한다. 구 알림은 `summary_plain` 폴백으로 표시한다.

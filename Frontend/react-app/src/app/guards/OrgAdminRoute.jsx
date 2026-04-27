@@ -1,7 +1,7 @@
 /**
  * app/guards/OrgAdminRoute.jsx (조직 어드민 라우트 가드)
  * ============================================
- * a·sa·sa_dev 만 /admin/* 하위 접근.
+ * A·S·SA개발자(전사 운영) 랭크만 /admin/* 하위 접근.
  *
  * [Main Functions]
  * ===========

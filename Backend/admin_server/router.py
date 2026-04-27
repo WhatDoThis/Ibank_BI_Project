@@ -782,6 +782,12 @@ def admin_projects_patch(
     actor: dict = Depends(require_project_admin_or_operator_participant),
     conn=Depends(get_system_db),
 ):
+    c = canon_user_dvsn(actor.get("user_dvsn"))
+    if c == "o" and body.active_yn is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="프로젝트 운영자는 프로젝트 활성·비활성을 변경할 수 없습니다.",
+        )
     try:
         tm_patch = (
             [m.model_dump() for m in body.table_mappings]

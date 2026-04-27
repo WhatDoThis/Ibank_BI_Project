@@ -1,11 +1,7 @@
 /**
- * app/admin/AdminOrgPage.jsx (부서 정보 — sa·sa_dev)
+ * app/admin/AdminOrgPage.jsx (부서 정보)
  * ===================================================
- * GET /api/admin/org — 내 소속 부서명·코드 표시(읽기 전용).
- * GET/POST/PATCH/DELETE /api/admin/org/departments — 목록·추가·수정(사용여부 포함)·행 삭제(DB 삭제).
- * 부서 목록에 creator_email(생성자)·생성일·수정일 열, 필터·컬럼 정렬(내림·오름·해제). 사용자관리와 동일 이메일 셀·본인 행만 배지.
- * 부서 목록: 부서구분(상위·하위) 열, 상위 부서 없으면 상위 부서 칸은 「—」. SA는 본인 소속 행 수정·삭제 UI 비표시(백엔드 동일 정책).
- * 사용 안 함 저장 시 소속 사용자가 있으면 이관 대상 부서 선택 모달(사용 중 부서만·display_label).
+ * 내 소속 부서(읽기) + 부서 CRUD 목록. SA개발자(전사 운영)는 전체, S는 본인 트리만. 필터·정렬·생성자 열은 사용자 관리와 동일 패턴.
  *
  * [Main Functions]
  * ===========
@@ -531,7 +527,7 @@ export default function AdminOrgPage() {
   const listTitle = isSaDev ? '전체 부서 목록' : '소속 부서 트리'
   const canManageDept = isSaDev || isSuperAdmin
 
-  /** SA는 본인 소속 부서 행만 수정·삭제 불가(sa_dev는 전 행 가능). */
+  /** S는 본인 소속 부서 행만 수정·삭제 불가(SA개발자는 전 행 가능). */
   const canManageDeptRow = useCallback(
     (row) => {
       if (!canManageDept) return false
@@ -554,14 +550,11 @@ export default function AdminOrgPage() {
       <p className="admin-org__hint">
         {isSaDev ? (
           <>
-            SA_DEV: 조직 전체 부서를 보고, <strong>추가</strong> 시 최상위·하위를 선택할 수 있습니다.
-            <strong>수정</strong>에서 사용 여부를 바꿀 수 있고, <strong>삭제</strong>는 DB에서 행을 제거합니다.
+            <strong>SA개발자</strong>: 전체 부서. 추가 시 상위·하위 선택. 수정으로 사용 여부, 삭제는 DB 제거.
           </>
         ) : (
           <>
-            Super Admin: <strong>본인 소속 부서를 루트로 한 트리</strong>만 표시됩니다.{' '}
-            <strong>추가</strong> 시 상위는 본인 부서로 고정됩니다.{' '}
-            <strong>본인 소속(상위) 부서 행은 수정·삭제할 수 없고</strong>, 그 아래 하위 부서만 관리할 수 있습니다. 부서 번호 0은 목록에 나오지 않습니다.
+            <strong>S</strong>: 본인 부서를 루트로 한 트리만. 추가 시 상위 고정. 본인 상위 부서 행은 수정·삭제 불가(하위만). 번호 0은 목록 제외.
           </>
         )}
       </p>
