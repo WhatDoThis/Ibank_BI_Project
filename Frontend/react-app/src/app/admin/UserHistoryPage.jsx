@@ -1,11 +1,11 @@
 /**
  * app/admin/UserHistoryPage.jsx (통합 이력 조회 — 로그인·시스템·데이터 추적)
  * ============================================================
- * `docs/report/22` §8.1: `tab=login|system|changes` URL 동기화(ETLPage 패턴). 로그인은 GET …/login-history/org, 시스템은 GET …/system-logs, 데이터 추적은 GET …/change-logs(`getChangeLogsPaged`, 시스템 이력 테이블 열 정렬·라벨에 맞춤).
+ * `docs/report/22` §8.1: `tab=login|system|changes` URL 동기화(ETLPage 패턴). 로그인은 GET …/login-history/org, 시스템은 GET …/system-logs, 데이터 추적은 GET …/change-logs(`getChangeLogsPaged`, 시스템 이력과 동일하게 일시 오른쪽에 UUID·상관 ID 노출).
  *
  * [Main Functions]
  * ===========
- * 1. UserHistoryPage — 필터 폼·시스템 상세·시스템「변경」모달·`changes`(데이터 추적) 탭: 시스템 이력과 동일 열 흐름·행 재클릭 시 상세 접기·JSON 복사·페이지네이션(AdminListPaginationFooter)
+ * 1. UserHistoryPage — 필터 폼·시스템 상세·시스템「추적」모달(`has_scoped_change_logs`일 때만 조회 버튼)·`changes`(데이터 추적) 탭: 일시 다음 UUID·행 재클릭 시 상세 접기·JSON 복사·페이지네이션(AdminListPaginationFooter)
  *
  * [Dependencies]
  * =========
@@ -167,6 +167,19 @@ function formatDtm(v) {
   } catch {
     return String(v)
   }
+}
+
+/** 시스템 이력(`request_correlation_id`)·데이터 추적(`correlation_id`) — 일시 오른쪽 열. */
+function UuidTableCell({ value }) {
+  const s = value != null ? String(value).trim() : ''
+  if (!s) {
+    return <td className="user-history__col-uuid">—</td>
+  }
+  return (
+    <td className="user-history__col-uuid" title={s}>
+      <span className="user-history__uuid-inner">{s}</span>
+    </td>
+  )
 }
 
 function shortenJson(obj, max = 100) {
@@ -929,6 +942,7 @@ export default function UserHistoryPage() {
             <thead>
               <tr>
                 <th>일시</th>
+                <th className="user-history__col-uuid">UUID</th>
                 <th>페이지</th>
                 <th>행위</th>
                 <th>상태</th>
@@ -936,13 +950,13 @@ export default function UserHistoryPage() {
                 <th>IP</th>
                 <th className="user-history__col-fingerprint">SQL 지문</th>
                 <th className="user-history__col-detail">상세내용</th>
-                <th className="user-history__col-change">변경</th>
+                <th className="user-history__col-change">추적</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={9} className="user-history__empty">
+                  <td colSpan={10} className="user-history__empty">
                     기록이 없습니다.
                   </td>
                 </tr>
@@ -950,6 +964,7 @@ export default function UserHistoryPage() {
                 items.map((row) => (
                   <tr key={row.system_log_id}>
                     <td>{formatDtm(row.create_dtm)}</td>
+                    <UuidTableCell value={row.request_correlation_id} />
                     <td>{row.channel || '—'}</td>
                     <td>{row.action_kind || '—'}</td>
                     <td>{formatYnStatus(row.success_yn)}</td>
@@ -965,17 +980,23 @@ export default function UserHistoryPage() {
                     </td>
                     <td className="user-history__col-detail">{formatSystemDetailCell(row)}</td>
                     <td className="user-history__col-change">
-                      <button
-                        type="button"
-                        className="user-history__change-btn"
-                        aria-label="연결된 데이터 추적 내역"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openChangesModal(row.system_log_id)
-                        }}
-                      >
-                        <span aria-hidden="true">📋</span> 조회
-                      </button>
+                      {row.has_scoped_change_logs ? (
+                        <button
+                          type="button"
+                          className="user-history__change-btn"
+                          aria-label="연결된 데이터 추적 내역 조회"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openChangesModal(row.system_log_id)
+                          }}
+                        >
+                          <span aria-hidden="true">📋</span> 조회
+                        </button>
+                      ) : (
+                        <span className="user-history__track-empty" title="스코프 내 연결된 데이터 추적 없음">
+                          —
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -988,6 +1009,7 @@ export default function UserHistoryPage() {
               <thead>
                 <tr>
                   <th>일시</th>
+                  <th className="user-history__col-uuid">UUID</th>
                   <th>카테고리</th>
                   <th>대상 테이블</th>
                   <th>행위</th>
@@ -1000,7 +1022,7 @@ export default function UserHistoryPage() {
               <tbody>
                 {items.length === 0 && !loading ? (
                   <tr>
-                    <td colSpan={8} className="user-history__empty">
+                    <td colSpan={9} className="user-history__empty">
                       기록이 없습니다.
                     </td>
                   </tr>
@@ -1021,6 +1043,7 @@ export default function UserHistoryPage() {
                           }
                         >
                           <td>{formatDtm(row.created_at)}</td>
+                          <UuidTableCell value={row.correlation_id} />
                           <td>{row.channel || '—'}</td>
                           <td>{row.target_table || '—'}</td>
                           <td>{row.operation || '—'}</td>
@@ -1035,7 +1058,7 @@ export default function UserHistoryPage() {
                         </tr>
                         {open ? (
                           <tr className="user-history__list-change-detail-tr" aria-live="polite">
-                            <td colSpan={8} className="user-history__list-change-detail-td">
+                            <td colSpan={9} className="user-history__list-change-detail-td">
                               <DataChangeLogDetailBlocks
                                 row={row}
                                 layoutClass="user-history__changes-list-detail user-history__changes-list-detail--inline"
@@ -1159,6 +1182,7 @@ export default function UserHistoryPage() {
                     <thead>
                       <tr>
                         <th>일시</th>
+                        <th className="user-history__col-uuid">UUID</th>
                         <th>카테고리</th>
                         <th>대상 테이블</th>
                         <th>행위</th>
@@ -1185,6 +1209,7 @@ export default function UserHistoryPage() {
                               }
                             >
                               <td>{formatDtm(ch?.created_at)}</td>
+                              <UuidTableCell value={ch?.correlation_id} />
                               <td>{ch?.channel ?? '—'}</td>
                               <td>{ch?.target_table ?? '—'}</td>
                               <td>{ch?.operation ?? '—'}</td>
@@ -1201,7 +1226,7 @@ export default function UserHistoryPage() {
                             </tr>
                             {open && selectedChange ? (
                               <tr className="user-history__changes-modal-detail-tr" aria-live="polite">
-                                <td colSpan={8} className="user-history__changes-modal-detail-td">
+                                <td colSpan={9} className="user-history__changes-modal-detail-td">
                                   <DataChangeLogDetailBlocks
                                     row={selectedChange}
                                     layoutClass="user-history__changes-list-detail user-history__changes-list-detail--modal-inline"

@@ -8,6 +8,7 @@
  * - apiBaseUrl: getApiBase 정규화 (끝 슬래시 제거)
  * - request: method/path/body JSON API (Bearer·401 1회 재시도)
  * - fetchOkJson: GET + fetch + ok 검사 + json (동일)
+ * - fetchBlobWithAuth: GET CSV 등 바이너리 응답 (Bearer·401 1회 재시도·본문 소비 주의)
  *
  * [Dependencies]
  * =========
@@ -114,6 +115,48 @@ export function formatFetchErrorMessage(data, res) {
     return String(detail)
   }
   return data?.error || data?.message || `HTTP ${res.status}`
+}
+
+/**
+ * CSV 등 GET 바이너리. 401 시 refresh 1회 후 재시도 (`request`와 동일).
+ * 성공 시 `Response` 그대로 반환(호출측에서 blob·헤더 처리). 오류 시 JSON `detail` 파싱.
+ *
+ * @param {string} pathQuery '/api/...?...'
+ * @param {boolean} didRefresh
+ * @returns {Promise<Response>}
+ */
+export async function fetchBlobWithAuth(pathQuery, didRefresh = false) {
+  const norm = pathQuery.startsWith('/') ? pathQuery : `/${pathQuery}`
+  const url = `${apiBaseUrl()}${norm}`
+  const res = await fetch(url, { method: 'GET', headers: { ...buildAuthHeaders(norm) } })
+
+  if (res.status === 401 && shouldAttachAuth(norm) && !didRefresh) {
+    const ok = await tryRefreshOnce()
+    if (ok) return fetchBlobWithAuth(pathQuery, true)
+    await res.json().catch(() => ({}))
+    clearTokens()
+    redirectToLogin()
+    throw new Error('세션이 만료되었습니다. 다시 로그인하세요.')
+  }
+
+  const ct = (res.headers.get('content-type') || '').toLowerCase()
+  let data = {}
+  if (!res.ok || ct.includes('application/json')) {
+    data = await res.json().catch(() => ({}))
+  }
+
+  if (res.status === 403 && handleProjectForbidden(data)) {
+    throw new Error(typeof data?.detail === 'string' ? data.detail : 'Forbidden')
+  }
+
+  if (!res.ok) {
+    const msg = formatFetchErrorMessage(data, res)
+    const err = new Error(msg)
+    err.status = res.status
+    err.data = data
+    throw err
+  }
+  return res
 }
 
 /**

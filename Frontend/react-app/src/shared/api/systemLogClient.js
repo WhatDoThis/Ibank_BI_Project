@@ -7,18 +7,17 @@
  * ===========
  * 1. getSystemLogsOrg — system_log 목록 페이징(필터·정렬, 기본 page_size 10)
  * 2. getLoginHistoryOrg — 부서 트리 범위 로그인 이력 페이징(필터·정렬, 기본 page_size 10)
- * 3. downloadUserHistoryCsv — login·system·changes 탭 CSV(blob, 파일명 `login_log_*` / `system_log_*` / `data_track_*` + 타임스탬프, 상한 초과 시 400)
+ * 3. downloadUserHistoryCsv — login·system·changes 탭 CSV(blob, 파일명 `login_log_*` / `system_log_*` / `data_track_*` + 타임스탬프, 상한 초과 시 400; system·changes CSV는 일시 다음 UUID 열 포함)
  * 4. getSystemLogChanges — system_log_id별 data_change_log 항목 배열(JSON 배열 응답)
  * 5. getChangeLogsPaged — change_log 목록 페이징(필터·`from`·`to`, ChangeLogListOut)
  *
  * [Dependencies]
  * =========
- * - shared/api/http.js (request, apiBaseUrl, formatFetchErrorMessage)
- * - shared/auth/tokenStorage (getAccessToken)
+ * - shared/api/http.js (request, fetchBlobWithAuth, apiBaseUrl, formatFetchErrorMessage)
+ * - shared/auth/tokenStorage (미직접 import; Bearer·401 재시도는 http.fetchBlobWithAuth)
  */
 
-import { getAccessToken } from '../auth/tokenStorage.js'
-import { apiBaseUrl, formatFetchErrorMessage, request } from './http.js'
+import { apiBaseUrl, fetchBlobWithAuth, request } from './http.js'
 
 /**
  * @param {string | null} cd
@@ -127,18 +126,7 @@ export async function downloadUserHistoryCsv(tab, applied) {
             sort_dir: applied.sortSystemDir || undefined,
           })}`
   const norm = path.startsWith('/') ? path : `/${path}`
-  const url = `${apiBaseUrl()}${norm}`
-  const headers = {}
-  const at = getAccessToken()
-  if (at) headers.Authorization = `Bearer ${at}`
-  const res = await fetch(url, { method: 'GET', headers })
-  if (!res.ok) {
-    if (res.status === 401) {
-      throw new Error('세션이 만료되었습니다. 다시 로그인하세요.')
-    }
-    const data = await res.json().catch(() => ({}))
-    throw new Error(formatFetchErrorMessage(data, res))
-  }
+  const res = await fetchBlobWithAuth(norm)
   const blob = await res.blob()
   const fallback = orgLogCsvFallbackFilename(tab)
   const filename = filenameFromContentDisposition(res.headers.get('Content-Disposition'), fallback)

@@ -5,7 +5,7 @@ system_log 목록·로그인 이력(me·org) 조회.
 
 [Endpoints]
 ===========
-1. GET /api/system-logs/export.csv — system_log CSV(파일명 `system_log_YYYYMMDD_hhmmss.csv`, 동일 필터·행 상한·화면 표기)
+1. GET /api/system-logs/export.csv — system_log CSV(파일명 `system_log_YYYYMMDD_hhmmss.csv`, 동일 필터·행 상한·화면 표기·일시 다음 UUID)
 2. GET /api/system-logs/login-history/org/export.csv — org 로그인 이력 CSV(파일명 `login_log_YYYYMMDD_hhmmss.csv`)
 3. GET /api/system-logs/login-history/me — 본인 로그인 이력(활성 세션, 페이징)
 4. GET /api/system-logs/login-history/org — 조직 어드민, 부서 트리 범위·정렬·페이징

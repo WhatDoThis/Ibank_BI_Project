@@ -5,7 +5,7 @@ system_log·로그인 이력 목록 API용 모델.
 
 [Classes]
 ===========
-- SystemLogItemOut, SystemLogListOut — system_log (`actor_user_email` 조인)
+- SystemLogItemOut, SystemLogListOut — system_log (`actor_user_email` 조인·`has_scoped_change_logs` 스코프 내 `data_change_log` 존재)
 - ChangeLogItemOut, ChangeLogListOut — `data_change_log` (`user_email`·`project_name` 조인, system_log `correlation_id` 연동·필터 목록)
 - LoginHistoryItemOut, LoginHistoryListOut — user_login_log (me·org)
 
@@ -50,6 +50,7 @@ class SystemLogItemOut(BaseModel):
     risk_tier: str | None = None
     target_summary: str | None = None
     detail_json: dict[str, Any] = Field(default_factory=dict)
+    has_scoped_change_logs: bool = False
 
 
 class SystemLogListOut(BaseModel):

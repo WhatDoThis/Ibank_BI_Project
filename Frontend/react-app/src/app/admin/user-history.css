@@ -10,12 +10,13 @@
  * - .user-history__filters: `admin-list-filters`와 조합(폼 제출 Enter)·페이지 전용 보조만
  * - .user-history__toolbar: CSV 등 테이블 상단 보조 액션
  * - 목록 하단 페이지네이션: `AdminListPaginationFooter` + `admin-list-pagination.css`
- * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태·「변경」열 버튼
+ * - .user-history__table-wrap: 테이블·셀 좌우 패딩·상세열(th/td)·빈 상태·「추적」열 조회 버튼
  * - `.user-history__list-change-tr`·`__list-change-detail-tr`: 데이터 추적(`changes`) 목록·바로 아래 상세(JSON 복사)
  * - `.user-history__changes-json-heading`·`__changes-json-details`·`__btn-copy-json`: 변경 필드·이전/변경 데이터 복사(동일 글자 크기)
  * - `.user-history__track-detail-chevron`: 상세 열 ▼/▲ 표시
- * - `.user-history__modal-changes`: 변경 내역 모달(목록·changed_fields pre·old/new details·correlation_id 푸터)
+ * - `.user-history__modal-changes`: 데이터 추적 내역 모달(max 가로·뷰포트 높이·패딩·표 스크롤 영역·모달 내 JSON 블록)
  * - CSV 모달: 필터는 `modal-list`, 정렬은 단일 `modal-sort` 단락
+ * - 시스템·데이터 추적 테이블: `col-uuid`·`uuid-inner`(상관 UUID 말줄임·title 전체)
  * - 시스템 테이블: `col-fingerprint`·`fingerprint-inner`(sql_fingerprint 말줄임·overflow hidden)
  *
  * [Endpoints/Classes/Functions]
@@ -116,6 +117,32 @@
   white-space: nowrap;
 }
 
+.user-history__table-wrap .admin-users__table th.user-history__col-uuid,
+.user-history__table-wrap .admin-users__table td.user-history__col-uuid {
+  max-width: 8.5rem;
+  min-width: 4.5rem;
+  vertical-align: middle;
+  font-size: 0.75rem;
+}
+
+.user-history__changes-table-wrap .admin-users__table th.user-history__col-uuid,
+.user-history__changes-table-wrap .admin-users__table td.user-history__col-uuid {
+  max-width: 8.5rem;
+  min-width: 4.5rem;
+  vertical-align: middle;
+  font-size: 0.75rem;
+}
+
+.user-history__uuid-inner {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 상세내용 열: admin-users 전역 td nowrap·구 cell max-width 제거 — 셀 박스 폭=테이블 열 폭으로 thead 배경 단절 방지 */
 .user-history__table-wrap .admin-users__table th.user-history__col-detail,
 .user-history__table-wrap .admin-users__table td.user-history__col-detail {
@@ -196,7 +223,7 @@
   margin: 10px 0 0;
 }
 
-/* 시스템 목록 — 변경 열 */
+/* 시스템 목록 — 추적 열(조회) */
 .user-history__table-wrap .admin-users__table th.user-history__col-change,
 .user-history__table-wrap .admin-users__table td.user-history__col-change {
   width: 4.5rem;
@@ -226,10 +253,22 @@
   color: var(--color-action-primary);
 }
 
+/* 추적 열: 연결 `data_change_log` 없을 때 플레이스홀더 */
+.user-history__track-empty {
+  display: inline-block;
+  min-width: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
 /* 데이터 추적 내역 모달 */
 .user-history__modal-changes.admin-users__modal {
-  max-width: 760px;
-  width: min(100%, 760px);
+  max-width: min(1140px, 97vw);
+  width: min(100%, min(1140px, 97vw));
+  max-height: min(93vh, 920px);
+  padding: 22px 24px;
+  box-sizing: border-box;
 }
 
 .user-history__changes-empty,
@@ -241,10 +280,23 @@
 
 .user-history__changes-table-wrap {
   margin: 12px 0 0;
-  max-height: min(52vh, 420px);
+  max-height: min(58vh, 500px);
   overflow: auto;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-card);
+}
+
+/* 모달 전용: JSON 블록 여유 */
+.user-history__modal-changes .user-history__changes-json--fields {
+  max-height: 200px;
+}
+
+.user-history__modal-changes .user-history__changes-nested .user-history__changes-json {
+  max-height: 240px;
+}
+
+.user-history__modal-changes .user-history__changes-json--scroll {
+  max-height: 240px;
 }
 
 .user-history__changes-table {
@@ -431,6 +483,10 @@
   vertical-align: top;
   background: var(--surface-muted, #f8f9fb);
   border-bottom: 1px solid var(--color-border-light);
+}
+
+.user-history__modal-changes .user-history__changes-modal-detail-tr .user-history__changes-modal-detail-td {
+  padding: 0 12px 12px;
 }
 
 .user-history__changes-json-block {

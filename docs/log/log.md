@@ -1,6 +1,11 @@
 # Log
 
 ## Log Index
+583. 2026-04-28 통합 이력: 데이터 추적 조회 모달 폭·높이·패딩 확대
+582. 2026-04-28 통합 이력: 시스템「추적」열 조회 버튼 조건부(has_scoped_change_logs)
+581. 2026-04-28 통합 이력: 시스템「추적」헤더·데이터 추적 모달 폭 확대
+580. 2026-04-28 통합 이력: 시스템·데이터 추적 UUID 열·CSV·문서(03·07)
+579. 2026-04-28 통합 이력 CSV: 401 시 refresh 재시도(fetchBlobWithAuth·systemLogClient)
 578. 2026-04-27 통합 이력: 데이터 추적 탭 CSV export(백엔드·프론트)
 577. 2026-04-27 통합 이력: 데이터 추적 탭 UI·API(actor_email·project_name)·상세 토글
 576. 2026-04-27 Frontend: 통합 이력 데이터 변경 상세 인라인·JSON 복사(UserHistoryPage)
@@ -581,6 +586,64 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+583. 2026-04-28 통합 이력: 데이터 추적 조회 모달 폭·높이·패딩 확대
+Purpose: 시스템 탭 **조회**로 여는 데이터 추적 내역 모달을 위·아래·좌·우로 조금 넓혀 표·상세 JSON을 보기 쉽게 한다.
+
+Changes:
+
+- `user-history.css`: 모달 `max-width`·`vw`, `max-height`, 내부 `padding`, 표 스크롤 `max-height`, 모달 내 상세 셀·JSON 블록 높이
+
+Changed files: Frontend/react-app/src/app/admin/user-history.css, docs/log/log.md
+
+582. 2026-04-28 통합 이력: 시스템「추적」열 조회 버튼 조건부(has_scoped_change_logs)
+Purpose: 스코프 내 `data_change_log`가 상관 ID로 연결된 경우에만 **조회** 버튼을 두고, 없으면 `—`로 정리해 UI를 단순화한다.
+
+Changes:
+
+- `system_log_server/service.py`: `list_system_logs_paged` SELECT에 EXISTS·`has_scoped_change_logs`, 바인딩 순서
+- `system_log_server/schemas.py`: `SystemLogItemOut.has_scoped_change_logs`
+- `UserHistoryPage.jsx`: `row.has_scoped_change_logs`일 때만 버튼
+- `user-history.css`: `.user-history__track-empty`
+- `docs/main/03_API_GUIDE.md`·`docs/main/07_USER_FUNCTIONAL_GUIDE.md`: 응답 필드·UI 문구
+
+Changed files: Backend/system_log_server/service.py, Backend/system_log_server/schemas.py, Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/main/03_API_GUIDE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+581. 2026-04-28 통합 이력: 시스템「추적」헤더·데이터 추적 모달 폭 확대
+Purpose: 시스템 이력 테이블에서 연결 데이터 확인 열 헤더를 **추적**으로 바꾸고, **조회**로 여는 데이터 추적 내역 모달 가로 폭을 넓혀 표·JSON을 보기 쉽게 한다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: 시스템 탭 `th` 문구 `변경` → `추적`, 모듈 머리말
+- `user-history.css`: `.user-history__modal-changes` max-width 760px → `min(1040px, 96vw)`, 주석 정합
+- `docs/main/03_API_GUIDE.md`·`docs/main/07_USER_FUNCTIONAL_GUIDE.md`: UI 문구「추적」·조회 모달
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, docs/main/03_API_GUIDE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+580. 2026-04-28 통합 이력: 시스템·데이터 추적 UUID 열·CSV·문서(03·07)
+Purpose: 동일 API 요청에서 쌓인 `system_log` 행과 `data_change_log` 행을 한눈에 맞추기 위해, 통합 이력 **시스템**·**데이터 추적** 목록(및 시스템「추적」모달 표)에 일시 오른쪽 **UUID** 열을 둔다. CSV는 화면과 동일 계열로 `request_correlation_id`·`correlation_id`를 두 번째 컬럼에 넣는다.
+
+Changes:
+
+- `UserHistoryPage.jsx`: `UuidTableCell`·시스템/변경 목록·변경 모달 thead·tbody·colSpan
+- `user-history.css`: `col-uuid`·`uuid-inner`
+- `system_log_server/service.py`: `_SYSTEM_LOG_CSV_UI_HEADERS`·`_DATA_CHANGE_LOG_CSV_UI_HEADERS`·`_csv_uuid_display`·export SELECT/행
+- `system_log_server/router.py`: export 머리말
+- `systemLogClient.js`: 모듈 설명
+- `docs/main/03_API_GUIDE.md` §3.4: change-logs/export·UUID 헤더·UI 문구, system export 헤더, 잘못된「changes CSV 없음」삭제
+- `docs/main/07_USER_FUNCTIONAL_GUIDE.md` §12.1: 목록 UUID 열 한 줄
+
+Changed files: Frontend/react-app/src/app/admin/UserHistoryPage.jsx, Frontend/react-app/src/app/admin/user-history.css, Frontend/react-app/src/shared/api/systemLogClient.js, Backend/system_log_server/service.py, Backend/system_log_server/router.py, docs/main/03_API_GUIDE.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, docs/log/log.md
+
+579. 2026-04-28 통합 이력 CSV: 401 시 refresh 재시도(fetchBlobWithAuth·systemLogClient)
+Purpose: 데이터 추적·로그인·시스템 탭 공통 `downloadUserHistoryCsv` 가 raw `fetch`만 사용해 목록(`request`)과 달리 **액세스 토큰 만료 직후 401**이 나면 CSV만 실패할 수 있음. `http.js`에 `fetchBlobWithAuth`(401 시 refresh 1회·403 프로젝트 유도)를 추가하고 CSV 다운로드가 이를 사용하도록 변경한다.
+
+Changes:
+
+- `http.js`: `fetchBlobWithAuth` export, 모듈 머리말 [Main Functions] 보강
+- `systemLogClient.js`: `downloadUserHistoryCsv` → `fetchBlobWithAuth`, 미사용 `getAccessToken` import 제거
+
+Changed files: Frontend/react-app/src/shared/api/http.js, Frontend/react-app/src/shared/api/systemLogClient.js, docs/log/log.md
 
 578. 2026-04-27 통합 이력: 데이터 추적 탭 CSV export(백엔드·프론트)
 Purpose: 데이터 추적 탭도 목록과 동일 필터로 CSV를 받을 수 있게 하고, 화면 열에 더해 `changed_fields`·`old_data`·`new_data`를 JSON 열로 포함한다.

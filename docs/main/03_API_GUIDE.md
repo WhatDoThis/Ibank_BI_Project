@@ -1425,7 +1425,7 @@ GET /api/admin/projects/{id}/members
 | `sort_by` | `create_dtm` \| `system_log_id` \| `channel` \| `action_kind` \| `success_yn` \| `actor_user_id` |
 | `sort_dir` | `asc` \| `desc` (기본 `desc`) |
 
-**응답**: `{ items, total, page, page_size }`
+**응답**: `{ items, total, page, page_size }` — 각 `items[]`에 **`has_scoped_change_logs`**(bool)가 포함된다. 동일 `request_correlation_id`로 연결된 `data_change_log`가 **한 건이라도** 있고, 그 행이 **`GET /api/system-logs/change-logs`와 동일한 부서 트리 스코프** 안에 있을 때만 `true`이다(`request_correlation_id`가 NULL이면 `false`). 통합 이력 UI는 이 값이 `true`일 때만 시스템 탭 **「추적」** 열에 **조회** 버튼을 둔다.
 
 **통합 이력 UI(`/admin/user-history`)**: `Frontend/react-app/src/shared/api/systemLogClient.js` 가 목록 요청에 **`page_size` 기본 10**을 붙이고, 화면에서 **10·20·50건**만 고른다. 로그인 조직 API는 서버가 최대 **50**, 시스템 목록·**데이터 변경(`change-logs`)** 목록은 최대 **200**으로 클램프한다. 탭을 바꿔도 같은 `page_size` 를 유지하며, 응답의 `page_size` 로 선택값을 덮어쓰지 않는다.
 
@@ -1460,12 +1460,19 @@ GET /api/admin/projects/{id}/members
 
 **응답**: `{ items, total, page, page_size }`
 
-**통합 이력 UI**: `?tab=system`에서 행별 **「변경」**으로 상세 모달(지연 로딩). `?tab=changes`에서는 본 API만으로 목록·인라인 상세(`getChangeLogsPaged`). 이 탭에는 CSV를 제공하지 않는다.
+**`GET /api/system-logs/change-logs/export.csv`**
+
+- `GET …/change-logs` 와 **동일 필터**. 총건 **50,000행** 초과 시 **400**, 기간 상한 동일(92일).
+- UTF-8 BOM CSV. 한글 헤더: 일시, UUID, 카테고리, 대상 테이블, 행위, PK, 사용자(이메일), 프로젝트, 변경·이전·변경 데이터(JSON 열).
+- 파일명 기본: `data_track_YYYYMMDD_HHMMSS.csv` (Asia/Seoul, `Content-Disposition`).
+
+**통합 이력 UI**: `?tab=system`에서 행별 **「추적」→ 조회**로 상세 모달(지연 로딩). `?tab=changes`에서는 목록·인라인 상세(`getChangeLogsPaged`)와 위 CSV. 시스템·데이터 추적 목록은 일시 오른쪽 **UUID** 열(`request_correlation_id` / `correlation_id`)로 동일 요청 묶음을 확인한다.
 
 #### `GET /api/system-logs/export.csv`
 
 - 목록과 **동일 필터·정렬**.
 - 총건 **50,000행** 초과 시 **400**.
+- UTF-8 BOM CSV. 한글 헤더: 일시, UUID, 페이지, 행위, 상태, 사용자, IP, SQL 지문, 상세내용(화면 시스템 탭과 동일 계열).
 - 파일명 기본: `system_log_YYYYMMDD_HHMMSS.csv` (Asia/Seoul, `Content-Disposition`).
 
 #### 설정·계측(append)

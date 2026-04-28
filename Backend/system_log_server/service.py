@@ -6,12 +6,12 @@ Backend.system_log_server.service (system_log 목록 조회)
 [Main Functions]
 ===========
 1. `# 1.` _build_system_log_where — 목록·CSV 공통 WHERE(sl 별칭)
-2. `# 2.` list_system_logs_paged — GET /api/system-logs 비즈니스 조회(정렬 `sort_by`·`sort_dir`, `actor_user_email` 은 user_info 조인)
-3. `# 3.` export_system_logs_csv_bytes — 동일 필터·정렬·최대 `MAX_CSV_EXPORT_ROWS` 행 UTF-8 CSV(BOM, 화면 8열)
+2. `# 2.` list_system_logs_paged — GET /api/system-logs 비즈니스 조회(정렬 `sort_by`·`sort_dir`, `actor_user_email` 조인·`has_scoped_change_logs` EXISTS)
+3. `# 3.` export_system_logs_csv_bytes — 동일 필터·정렬·최대 `MAX_CSV_EXPORT_ROWS` 행 UTF-8 CSV(BOM, 화면 9열·일시 다음 UUID)
 4. _dcl_filter_where_params — `data_change_log` 목록·CSV 공통 WHERE(`dcl.` 접두; 스코프·테이블·PK·채널·기간)
 5. `# 4.` get_change_logs_by_system_log_id — `system_log_id` 가시 범위·`request_correlation_id` 로 연결된 변경 로그(`user_info`·`project_info` 조인으로 이메일·프로젝트명)
 6. `# 6.` list_data_change_logs_paged — GET `/api/system-logs/change-logs` 페이징(동일 조인, `_dcl_filter_where_params` 사용)
-7. `# 7.` export_data_change_logs_csv_bytes — 변경 이력 CSV(동일 필터·BOM·행 상한, JSON 열 3개)
+7. `# 7.` export_data_change_logs_csv_bytes — 변경 이력 CSV(동일 필터·BOM·행 상한·일시 다음 UUID, JSON 열 3개)
 
 [Endpoints/Classes/Functions]
 =======================
@@ -43,10 +43,11 @@ logger = logging.getLogger(__name__)
 
 MAX_CSV_EXPORT_ROWS = 50_000
 
-_SYSTEM_LOG_CSV_UI_HEADERS = ("일시", "페이지", "행위", "상태", "사용자", "IP", "SQL 지문", "상세내용")
+_SYSTEM_LOG_CSV_UI_HEADERS = ("일시", "UUID", "페이지", "행위", "상태", "사용자", "IP", "SQL 지문", "상세내용")
 
 _DATA_CHANGE_LOG_CSV_UI_HEADERS = (
     "일시",
+    "UUID",
     "카테고리",
     "대상 테이블",
     "행위",
@@ -142,6 +143,14 @@ def _csv_actor_user_display(d: dict[str, Any]) -> str:
     if aid is not None:
         return str(aid)
     return "—"
+
+
+def _csv_uuid_display(val: Any) -> str:
+    """통합 이력 화면·CSV: 상관 UUID 없으면 —."""
+    if val is None:
+        return "—"
+    s = str(val).strip()
+    return s if s else "—"
 
 
 _SL_RECURSIVE_SUBTREE = """
@@ -521,6 +530,7 @@ def export_data_change_logs_csv_bytes(
     export_sql = f"""
         SELECT
             dcl.created_at,
+            dcl.correlation_id,
             dcl.channel,
             dcl.target_table,
             dcl.operation,
@@ -563,9 +573,13 @@ def export_data_change_logs_csv_bytes(
         wr.writerow(list(_DATA_CHANGE_LOG_CSV_UI_HEADERS))
         for r in rows:
             d = dict(r)
+            cid = d.get("correlation_id")
+            if cid is not None:
+                d["correlation_id"] = str(cid)
             wr.writerow(
                 [
                     _csv_dtm_display(d.get("created_at")),
+                    _csv_uuid_display(d.get("correlation_id")),
                     d.get("channel") or "—",
                     d.get("target_table") or "—",
                     d.get("operation") or "—",
@@ -631,6 +645,12 @@ def list_system_logs_paged(
     count_sql = f"SELECT COUNT(*)::bigint AS c {base_from}"
 
     order_sql = _system_log_order_sql(sort_by, sort_dir)
+    scope_dcl_sql, p_scope_dcl = _build_data_change_log_scope_where(actor)
+    has_dcl_exists_sql = f"""(SELECT EXISTS (
+        SELECT 1 FROM data_change_log dcl
+        WHERE dcl.correlation_id = sl.request_correlation_id
+          AND ({scope_dcl_sql})
+    )) AS has_scoped_change_logs"""
     list_sql = f"""
         SELECT
             sl.system_log_id,
@@ -655,7 +675,8 @@ def list_system_logs_paged(
             sl.sql_template_key,
             sl.risk_tier,
             sl.target_summary,
-            sl.detail_json
+            sl.detail_json,
+            {has_dcl_exists_sql}
         {base_from}
         {order_sql}
         LIMIT %s OFFSET %s
@@ -667,8 +688,7 @@ def list_system_logs_paged(
         crow = cur.fetchone()
         total = int(crow["c"]) if crow and crow.get("c") is not None else 0
 
-        list_params = list(params)
-        list_params.extend([page_size, offset])
+        list_params = list(p_scope_dcl) + list(params) + [page_size, offset]
         cur.execute(list_sql, list_params)
         rows = cur.fetchall() or []
         items: list[dict[str, Any]] = []
@@ -683,6 +703,7 @@ def list_system_logs_paged(
                     d["detail_json"] = dict(dj) if hasattr(dj, "keys") else {}
                 except Exception:
                     d["detail_json"] = {}
+            d["has_scoped_change_logs"] = bool(d.get("has_scoped_change_logs"))
             items.append(d)
         return {"items": items, "total": total, "page": page, "page_size": page_size}
     except Exception:
@@ -708,7 +729,7 @@ def export_system_logs_csv_bytes(
     sort_dir: str | None = None,
 ) -> tuple[int, bytes]:
     """
-    목록 API와 동일 필터·정렬로 CSV. 헤더·셀 값은 사용자 이력 화면(시스템 탭)과 동일 규칙.
+    목록 API와 동일 필터·정렬로 CSV. 헤더·셀 값은 사용자 이력 화면(시스템 탭)과 동일 규칙(일시 다음 UUID).
     COUNT > MAX_CSV_EXPORT_ROWS 이면 ValueError (`CSV_EXPORT_ROW_LIMIT_EXCEEDED:총건수:상한`).
     """
     where_sql, params = _build_system_log_where(
@@ -727,6 +748,7 @@ def export_system_logs_csv_bytes(
     export_sql = f"""
         SELECT
             sl.create_dtm,
+            sl.request_correlation_id,
             sl.channel,
             sl.action_kind,
             sl.success_yn,
@@ -768,9 +790,13 @@ def export_system_logs_csv_bytes(
         w.writerow(list(_SYSTEM_LOG_CSV_UI_HEADERS))
         for r in rows:
             d = dict(r)
+            rid = d.get("request_correlation_id")
+            if rid is not None:
+                d["request_correlation_id"] = str(rid)
             w.writerow(
                 [
                     _csv_dtm_display(d.get("create_dtm")),
+                    _csv_uuid_display(d.get("request_correlation_id")),
                     d.get("channel") or "—",
                     d.get("action_kind") or "—",
                     _csv_success_yn_display(d.get("success_yn")),
