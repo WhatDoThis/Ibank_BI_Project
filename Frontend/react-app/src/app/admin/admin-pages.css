@@ -2,6 +2,7 @@
  * app/admin/admin-pages.css — AdminRoles·AdminProjects·AdminProjectMembers 공용
  * 버튼은 styles/shared-ui.css `ibank-btn-toolbar`·`ibank-btn-table` 사용. 링크형만 `ap__btn--link`.
  * ap__table: 반응형 clamp 폰트·nowrap·ap__cell-clip(말줄임); td.ap__mono는 줄바꿈 예외
+ * ap__table--roles: 권한상세목록 열(ap__th/ap__td-role-pmssn-list·ap__role-pmssn-list-text)은 말줄임 없이 줄바꿈·td는 vertical-align middle로 타 열과 행 정렬
  * ap__table--projects: 프로젝트 목록(프로젝트명·설명 열 말줄임 폭; 설명 정렬 헤더는 ap__th-project-desc)
  * ap__member-add-block / ap__member-add-inline: 멤버 추가 인풋·검색 한 줄. ap__select--table-in-cell: 권한 셀렉트
  * ap__create-section-tools: create 섹션 내 ap__select--sm + ibank-btn-toolbar 한 줄(높이·베이스라인·셀렉트 폭)
@@ -394,6 +395,33 @@
 .ap__table.ap__table--roles td .ap__row,
 .ap__table.ap__table--roles .ap__cell-actions {
   align-items: center;
+}
+
+/* 권한 관리: 권한상세목록 — ap__cell-clip 말줄임 대신 줄바꿈·열 폭·좌우 패딩 확보 */
+.ap__table.ap__table--roles th.ap__th-role-pmssn-list {
+  min-width: 12rem;
+  max-width: min(52vw, 720px);
+  white-space: normal;
+}
+
+.ap__table.ap__table--roles td.ap__td-role-pmssn-list {
+  min-width: 12rem;
+  max-width: min(52vw, 720px);
+  white-space: normal;
+  vertical-align: middle;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.ap__role-pmssn-list-text {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-family: ui-monospace, monospace;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.45;
 }
 
 /* 프로젝트 관리 목록: 명·설명 분리 열, 셀 단위 max-width로 말줄임 */

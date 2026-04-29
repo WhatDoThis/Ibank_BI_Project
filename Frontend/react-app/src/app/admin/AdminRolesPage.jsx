@@ -9,7 +9,7 @@
  *
  * [Dependencies]
  * =========
- * - shared/api/adminClient, shared/utils/crudConfirm, shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/auth/AuthContext, app/admin/adminAccess, admin-list-table.css
+ * - shared/api/adminClient, shared/utils/crudConfirm, shared/utils/adminListTable, shared/hooks/useResetListPage, shared/components/AdminSortableTh, shared/components/AdminListPaginationFooter, app/auth/AuthContext, app/admin/adminAccess, admin-pages.css(권한상세목록 열 ap__td-role-pmssn-list), admin-list-table.css
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -744,7 +744,13 @@ export default function AdminRolesPage() {
                 <AdminSortableTh sortKey="name" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
                   권한명
                 </AdminSortableTh>
-                <AdminSortableTh sortKey="list" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
+                <AdminSortableTh
+                  sortKey="list"
+                  activeKey={roleSort.key}
+                  dir={roleSort.dir}
+                  onSort={handleRoleSort}
+                  className="ap__th-role-pmssn-list"
+                >
                   권한상세목록
                 </AdminSortableTh>
                 <AdminSortableTh sortKey="usage" activeKey={roleSort.key} dir={roleSort.dir} onSort={handleRoleSort}>
@@ -775,11 +781,14 @@ export default function AdminRolesPage() {
                 const sys = isSystem(row)
                 const usageCount = Number(row?.usage_count || 0)
                 const inUse = usageCount > 0
+                const pmssnText = formatPmssnList(row.pmssn_list)
                 return (
                   <tr key={String(id)}>
                     <td>{row.pmssn_name || '—'}</td>
-                    <td>
-                      <span className="ap__cell-clip ap__cell-clip--mono">{formatPmssnList(row.pmssn_list)}</span>
+                    <td className="ap__td-role-pmssn-list">
+                      <span className="ap__role-pmssn-list-text" title={pmssnText || undefined}>
+                        {pmssnText}
+                      </span>
                     </td>
                     <td>
                       {inUse ? (

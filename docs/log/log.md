@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+585. 2026-04-28 Admin 권한 관리: 권한상세목록 열 세로 정렬 middle(타 컬럼과 행 맞춤)
+584. 2026-04-28 Admin 권한 관리: 권한상세목록 열 말줄임 해제·줄바꿈·패딩
 583. 2026-04-28 통합 이력: 데이터 추적 조회 모달 폭·높이·패딩 확대
 582. 2026-04-28 통합 이력: 시스템「추적」열 조회 버튼 조건부(has_scoped_change_logs)
 581. 2026-04-28 통합 이력: 시스템「추적」헤더·데이터 추적 모달 폭 확대
@@ -586,6 +588,25 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+585. 2026-04-28 Admin 권한 관리: 권한상세목록 열 세로 정렬 middle(타 컬럼과 행 맞춤)
+Purpose: 권한상세 `td`만 `vertical-align: top`이라 다른 열(`middle`)보다 위에 붙어 보이던 현상을 제거한다.
+
+Changes:
+
+- `admin-pages.css`: `ap__td-role-pmssn-list`를 `vertical-align: middle`로 변경, 파일 상단 주석 보강
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, docs/log/log.md
+
+584. 2026-04-28 Admin 권한 관리: 권한상세목록 열 말줄임 해제·줄바꿈·패딩
+Purpose: 권한 관리 목록에서 `ap__cell-clip` 한 줄 말줄임·좁은 `max-width`로 잘리던 권한상세목록을 읽기 쉽게 한다.
+
+Changes:
+
+- `admin-pages.css`: `ap__th-role-pmssn-list`·`ap__td-role-pmssn-list`·`ap__role-pmssn-list-text`(줄바꿈·열 폭·좌우 패딩)
+- `AdminRolesPage.jsx`: 해당 열·헤더 클래스, `title` 툴팁, `formatPmssnList` 단일 호출
+
+Changed files: Frontend/react-app/src/app/admin/admin-pages.css, Frontend/react-app/src/app/admin/AdminRolesPage.jsx, docs/log/log.md
 
 583. 2026-04-28 통합 이력: 데이터 추적 조회 모달 폭·높이·패딩 확대
 Purpose: 시스템 탭 **조회**로 여는 데이터 추적 내역 모달을 위·아래·좌·우로 조금 넓혀 표·상세 JSON을 보기 쉽게 한다.
