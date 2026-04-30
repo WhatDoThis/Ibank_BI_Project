@@ -6,9 +6,9 @@
  *
  * [Main Functions]
  * ===========
- * 1. /api/widget-boards 보드 로드·데이터 fetch; 위젯 생성·수정·삭제·레이아웃은 상단「저장」클릭 시 일괄 반영(시스템 로그·API 과다 호출 방지)
+ * 1. /api/widget-boards 보드 로드·데이터 fetch; 위젯 생성·수정·삭제·레이아웃은 상단「저장」클릭 시 일괄 반영. `recomputeBoardDirty`·`layoutSignature`/기준선 동기화로 RGL 자동 onLayoutChange에 의한「저장되지 않음」오탐 방지
  * 2. 데이터 위젯: 생성 마법사·설정 모달(취소 시 스냅샷 복구·확인 닫기·오버레이 비닫기)에서 테이블(list-tables=프로젝트 매핑 전체)·기간·지표·(단일 일) 차원; 저장 후 fetchWidgetData
- * 3. react-grid-layout 드래그/리사이즈(수정 권한 시에만)
+ * 3. react-grid-layout: onLayoutChange는 상태 동기화만; 배치「저장되지 않음」은 onDragStop·onResizeStop·hydrate 직후 기준선 동기화로 판별
  *
  * [Dependencies]
  * =========
@@ -103,6 +103,26 @@ const WIDGET_DATA_CONFIG_KEYS = [
   'limit'
 ]
 
+/** 설정 모달 스냅샷과 동일 여부 판별(저장 필요 UI 오탐 방지) */
+function widgetCfgFingerprintForDirty(cfg, layoutKey) {
+  if (!cfg) return `null|${layoutKey}`
+  const bits = [
+    String(layoutKey),
+    String(cfg.type ?? ''),
+    String(cfg.title ?? ''),
+    String(cfg.tableName ?? ''),
+    String(cfg.widgetItemId ?? ''),
+    String(cfg.dataSourceType ?? '')
+  ]
+  for (const k of WIDGET_DATA_CONFIG_KEYS) {
+    const v = cfg[k]
+    if (v === undefined || v === null || v === '') bits.push(`${k}:`)
+    else if (Array.isArray(v)) bits.push(`${k}:${JSON.stringify(v)}`)
+    else bits.push(`${k}:${String(v)}`)
+  }
+  return bits.join('\u001f')
+}
+
 // 0.
 /** 위젯 패치 시 서버에 보낼 data_config 병합(prev + patch) */
 function buildDataConfigForApi(prevCfg, patch) {
@@ -119,6 +139,15 @@ function buildDataConfigForApi(prevCfg, patch) {
   if (prevCfg.minW != null) o.minW = prevCfg.minW
   if (prevCfg.minH != null) o.minH = prevCfg.minH
   return o
+}
+
+/** 그리드 항목 i,x,y,w,h 정렬 후 직렬화 — 레이아웃 dirty·기준선 비교용 */
+function layoutSignature(lay) {
+  if (!Array.isArray(lay) || lay.length === 0) return ''
+  return [...lay]
+    .map((it) => `${it.i}:${Number(it.x)},${Number(it.y)},${Number(it.w)},${Number(it.h)}`)
+    .sort()
+    .join('|')
 }
 
 // 0a.
@@ -587,6 +616,11 @@ export default function WidgetboardPage() {
   const configsRef = useRef({})
   const layoutRef = useRef([])
   const saveBoardBusyRef = useRef(false)
+  /** onLayoutChange에서 기준선과 달라진 뒤(실질 배치 변경) */
+  const layoutDirtySinceHydrateRef = useRef(false)
+  /** hydrate/저장 직후 RGL 정규화 반영 후 `layoutSignature` 스냅 */
+  const layoutBaselineSignatureRef = useRef('')
+  const layoutBaselineNeedsSyncRef = useRef(false)
   const selectedBoardIdRef = useRef(null)
   /** 서버에 반영 대기 삭제(widget_item_id) */
   const pendingDeleteServerIdsRef = useRef(new Set())
@@ -610,6 +644,8 @@ export default function WidgetboardPage() {
   const settingsModalSnapshotRef = useRef(null)
   const pendingSettingsRecApplyRef = useRef(false)
   const settingsWidgetIdRef = useRef(null)
+  /** 데이터 마법사 오픈 여부 — RGL reflow 시 레이아웃 dirty 오탐 방지용 */
+  const dataWizardOpenRef = useRef(false)
   const [dragOver, setDragOver] = useState(false)
   /** 설정 모달용 GET …/profile — 추천·미리보기·TEMPORAL 여부 */
   const [settingsTableProfile, setSettingsTableProfile] = useState(null)
@@ -625,6 +661,7 @@ export default function WidgetboardPage() {
   layoutRef.current = layout
   selectedBoardIdRef.current = selectedBoardId
   settingsWidgetIdRef.current = settingsWidgetId
+  dataWizardOpenRef.current = dataWizard != null
 
   const cacheKeyForConfig = useCallback((cfg) => {
     if (cfg?.widgetItemId != null) {
@@ -653,9 +690,41 @@ export default function WidgetboardPage() {
     pendingDeleteServerIdsRef.current.clear()
     dirtyServerPatchWidgetIdsRef.current.clear()
     dirtyServerDataWidgetIdsRef.current.clear()
+    layoutDirtySinceHydrateRef.current = false
+    layoutBaselineSignatureRef.current = ''
+    layoutBaselineNeedsSyncRef.current = true
     setIsBoardDirty(false)
     setBoardSaveError(null)
   }, [])
+
+  const recomputeBoardDirty = useCallback(() => {
+    if (!canEditBoard) {
+      setIsBoardDirty(false)
+      return
+    }
+    const L = layoutRef.current || []
+    const C = configsRef.current || {}
+    const hasLocalOnly = L.some((it) => !C[it.i]?.widgetItemId)
+    const dirty =
+      layoutDirtySinceHydrateRef.current ||
+      pendingDeleteServerIdsRef.current.size > 0 ||
+      hasLocalOnly ||
+      dirtyServerPatchWidgetIdsRef.current.size > 0
+    setIsBoardDirty(Boolean(dirty))
+  }, [canEditBoard])
+
+  /** hydrate/저장 직후 RGL 정규화가 끝난 뒤 기준선 스냅(드래그 없이 안정화된 경우) */
+  useEffect(() => {
+    if (!layoutBaselineNeedsSyncRef.current) return undefined
+    const tid = window.setTimeout(() => {
+      if (!layoutBaselineNeedsSyncRef.current) return
+      layoutBaselineSignatureRef.current = layoutSignature(layoutRef.current)
+      layoutBaselineNeedsSyncRef.current = false
+      layoutDirtySinceHydrateRef.current = false
+      recomputeBoardDirty()
+    }, 150)
+    return () => window.clearTimeout(tid)
+  }, [layout, recomputeBoardDirty])
 
   const loadTables = useCallback(async () => {
     setTablesLoading(true)
@@ -898,9 +967,9 @@ export default function WidgetboardPage() {
         delete next[widgetId]
         return next
       })
-      if (canEditBoard) setIsBoardDirty(true)
+      if (canEditBoard) recomputeBoardDirty()
     },
-    [canEditBoard]
+    [canEditBoard, recomputeBoardDirty]
   )
 
   const handleDuplicate = useCallback(
@@ -932,12 +1001,14 @@ export default function WidgetboardPage() {
         ...prev,
         [newId]: dupCfg
       }))
-      setIsBoardDirty(true)
+      window.setTimeout(() => {
+        recomputeBoardDirty()
+      }, 0)
       if (cfg.type !== 'note' && cfg.tableName) {
         loadWidgetDataset({ ...dupCfg, canvasKey: newId })
       }
     },
-    [configs, layout, canEditBoard, loadWidgetDataset]
+    [configs, layout, canEditBoard, loadWidgetDataset, recomputeBoardDirty]
   )
 
   /** 로컬만 반영; 서버 위젯이면 저장 시 PATCH·데이터는 로컬 쿼리로 미리보기 */
@@ -955,9 +1026,9 @@ export default function WidgetboardPage() {
         if (reloadData) dirtyServerDataWidgetIdsRef.current.add(Number(wid))
       }
       if (reloadData) loadWidgetDataset({ ...nextCfg, canvasKey: widgetId })
-      setIsBoardDirty(true)
+      recomputeBoardDirty()
     },
-    [canEditBoard, loadWidgetDataset]
+    [canEditBoard, loadWidgetDataset, recomputeBoardDirty]
   )
 
   const handleOpenSettings = useCallback((id) => {
@@ -970,12 +1041,30 @@ export default function WidgetboardPage() {
   }, [])
 
   const handleSettingsConfirmClose = useCallback(() => {
+    const id = settingsWidgetId
+    const snap = settingsModalSnapshotRef.current
+      ? JSON.parse(JSON.stringify(settingsModalSnapshotRef.current))
+      : null
     settingsModalSnapshotRef.current = null
     setSettingsWidgetId(null)
     setSettingsTableProfile(null)
     setSettingsProfileLoading(false)
     pendingSettingsRecApplyRef.current = false
-  }, [])
+    window.setTimeout(() => {
+      if (id && snap) {
+        const cur = configsRef.current[id]
+        if (cur && widgetCfgFingerprintForDirty(snap, id) === widgetCfgFingerprintForDirty(cur, id)) {
+          const wn = snap.widgetItemId
+          if (wn != null) {
+            dirtyServerPatchWidgetIdsRef.current.delete(Number(wn))
+            dirtyServerDataWidgetIdsRef.current.delete(Number(wn))
+            void loadWidgetDataset({ ...snap, canvasKey: id })
+          }
+        }
+      }
+      recomputeBoardDirty()
+    }, 0)
+  }, [settingsWidgetId, loadWidgetDataset, recomputeBoardDirty])
 
   const handleSettingsCancel = useCallback(() => {
     const id = settingsWidgetId
@@ -988,23 +1077,16 @@ export default function WidgetboardPage() {
         dirtyServerDataWidgetIdsRef.current.delete(Number(wn))
         loadWidgetDataset({ ...snap, canvasKey: id })
       }
-      queueMicrotask(() => {
-        const L = layoutRef.current || []
-        const C = configsRef.current || {}
-        const hasLocalOnly = L.some((it) => !C[it.i]?.widgetItemId)
-        const dirty =
-          pendingDeleteServerIdsRef.current.size > 0 ||
-          hasLocalOnly ||
-          dirtyServerPatchWidgetIdsRef.current.size > 0
-        setIsBoardDirty(dirty)
-      })
+      window.setTimeout(() => {
+        recomputeBoardDirty()
+      }, 0)
     }
     settingsModalSnapshotRef.current = null
     setSettingsWidgetId(null)
     setSettingsTableProfile(null)
     setSettingsProfileLoading(false)
     pendingSettingsRecApplyRef.current = false
-  }, [settingsWidgetId, loadWidgetDataset])
+  }, [settingsWidgetId, loadWidgetDataset, recomputeBoardDirty])
 
   const handleConfigUpdate = useCallback(
     (widgetId, patch) => {
@@ -1044,12 +1126,47 @@ export default function WidgetboardPage() {
     [handleConfigUpdate]
   )
 
+  const applyLayoutGestureDirty = useCallback(
+    (newLayout) => {
+      if (!canEditBoard) return
+      if (dataWizardOpenRef.current || settingsWidgetIdRef.current) return
+      const lay = Array.isArray(newLayout) ? newLayout : layoutRef.current
+      const sig = layoutSignature(lay)
+      if (layoutBaselineNeedsSyncRef.current) {
+        layoutBaselineSignatureRef.current = sig
+        layoutBaselineNeedsSyncRef.current = false
+        layoutDirtySinceHydrateRef.current = false
+      } else {
+        const baseline = layoutBaselineSignatureRef.current
+        if (baseline !== '') {
+          layoutDirtySinceHydrateRef.current = sig !== baseline
+        }
+      }
+      recomputeBoardDirty()
+    },
+    [canEditBoard, recomputeBoardDirty]
+  )
+
   const onLayoutChange = useCallback(
     (newLayout) => {
       setLayout(newLayout)
-      if (canEditBoard) setIsBoardDirty(true)
+      if (canEditBoard) recomputeBoardDirty()
     },
-    [canEditBoard]
+    [canEditBoard, recomputeBoardDirty]
+  )
+
+  const onDragStop = useCallback(
+    (lay) => {
+      applyLayoutGestureDirty(lay)
+    },
+    [applyLayoutGestureDirty]
+  )
+
+  const onResizeStop = useCallback(
+    (lay) => {
+      applyLayoutGestureDirty(lay)
+    },
+    [applyLayoutGestureDirty]
   )
 
   const handlePaletteDragStart = (e, type) => {
@@ -1110,7 +1227,9 @@ export default function WidgetboardPage() {
         ...prev,
         [newId]: newCfg
       }))
-      setIsBoardDirty(true)
+      window.setTimeout(() => {
+        recomputeBoardDirty()
+      }, 0)
       settingsModalSnapshotRef.current = JSON.parse(JSON.stringify(newCfg))
       setSettingsWidgetId(newId)
       return
@@ -1164,13 +1283,15 @@ export default function WidgetboardPage() {
           ...prev,
           [newId]: nextCfg
         }))
-        setIsBoardDirty(true)
+        window.setTimeout(() => {
+          recomputeBoardDirty()
+        }, 0)
         loadWidgetDataset({ ...nextCfg, canvasKey: newId })
         setDataWizard(null)
         return
       }
     },
-    [dataWizard, canEditBoard, layout, loadWidgetDataset]
+    [dataWizard, canEditBoard, layout, loadWidgetDataset, recomputeBoardDirty]
   )
 
   const settingsConfig = settingsWidgetId ? configs[settingsWidgetId] : null
@@ -1373,6 +1494,8 @@ export default function WidgetboardPage() {
               className="layout"
               layout={layout}
               onLayoutChange={onLayoutChange}
+              onDragStop={onDragStop}
+              onResizeStop={onResizeStop}
               cols={12}
               rowHeight={60}
               margin={[16, 16]}
@@ -1531,63 +1654,73 @@ export default function WidgetboardPage() {
                     {(settingsTableProfile.total_rows ?? 0).toLocaleString('ko-KR')}행)
                   </summary>
                   <div className="wb-profile-preview-acc__inner">
-                    <table className="wb-profile-sum-table">
-                      <thead>
-                        <tr>
-                          <th>이름</th>
-                          <th>타입</th>
-                          <th>분류</th>
-                          <th>NULL%</th>
-                          <th>고유값</th>
-                          <th>Min</th>
-                          <th>Max</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {settingsTableProfile.columns.map((col) => (
-                          <tr key={col.name}>
-                            <td>{col.name}</td>
-                            <td>{col.pg_type ?? '-'}</td>
-                            <td>
-                              <span className={`wb-role-tag wb-role-tag--${String(col.semantic_role || '').toLowerCase()}`}>
-                                {(col.semantic_role && SEMANTIC_ROLE_LABEL_KO[col.semantic_role]) || col.semantic_role || '-'}
-                              </span>
-                            </td>
-                            <td>{typeof col.null_ratio === 'number' ? `${(col.null_ratio * 100).toFixed(1)}%` : '-'}</td>
-                            <td>{typeof col.distinct_count === 'number' ? col.distinct_count : '-'}</td>
-                            <td>{col.min_value != null ? String(col.min_value) : '—'}</td>
-                            <td>{col.max_value != null ? String(col.max_value) : '—'}</td>
+                    <section className="wb-profile-section wb-profile-section--columns" aria-labelledby="wb-set-profile-cols-title">
+                      <h4 id="wb-set-profile-cols-title" className="wb-profile-section__title">
+                        컬럼 정보
+                      </h4>
+                      <table className="wb-profile-sum-table wb-profile-col-meta-table">
+                        <thead>
+                          <tr>
+                            <th>이름</th>
+                            <th>타입</th>
+                            <th>분류</th>
+                            <th>NULL%</th>
+                            <th>고유값</th>
+                            <th>Min</th>
+                            <th>Max</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {Array.isArray(settingsTableProfile.sample_rows) && settingsTableProfile.sample_rows.length ? (
-                      <div className="wb-profile-sample-scroll">
-                        <table className="wb-profile-sum-table wb-profile-sample-table">
-                          <thead>
-                            <tr>
-                              {(settingsPreviewSampleColNames.length
-                                ? settingsPreviewSampleColNames
-                                : Object.keys(settingsTableProfile.sample_rows[0])
-                              ).map((k) => (
-                                <th key={k}>{k}</th>
-                              ))}
+                        </thead>
+                        <tbody>
+                          {settingsTableProfile.columns.map((col) => (
+                            <tr key={col.name}>
+                              <td>{col.name}</td>
+                              <td>{col.pg_type ?? '-'}</td>
+                              <td>
+                                <span className={`wb-role-tag wb-role-tag--${String(col.semantic_role || '').toLowerCase()}`}>
+                                  {(col.semantic_role && SEMANTIC_ROLE_LABEL_KO[col.semantic_role]) || col.semantic_role || '-'}
+                                </span>
+                              </td>
+                              <td>{typeof col.null_ratio === 'number' ? `${(col.null_ratio * 100).toFixed(1)}%` : '-'}</td>
+                              <td>{typeof col.distinct_count === 'number' ? col.distinct_count : '-'}</td>
+                              <td>{col.min_value != null ? String(col.min_value) : '—'}</td>
+                              <td>{col.max_value != null ? String(col.max_value) : '—'}</td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {settingsTableProfile.sample_rows.slice(0, 5).map((rw, ri) => (
-                              <tr key={ri}>
+                          ))}
+                        </tbody>
+                      </table>
+                    </section>
+                    {Array.isArray(settingsTableProfile.sample_rows) && settingsTableProfile.sample_rows.length ? (
+                      <section className="wb-profile-section wb-profile-section--sample" aria-labelledby="wb-set-profile-sample-title">
+                        <h4 id="wb-set-profile-sample-title" className="wb-profile-section__title">
+                          샘플 데이터
+                        </h4>
+                        <div className="wb-profile-sample-scroll">
+                          <table className="wb-profile-sum-table wb-profile-sample-table">
+                            <thead>
+                              <tr>
                                 {(settingsPreviewSampleColNames.length
                                   ? settingsPreviewSampleColNames
                                   : Object.keys(settingsTableProfile.sample_rows[0])
                                 ).map((k) => (
-                                  <td key={k}>{rw[k] != null ? String(rw[k]) : '—'}</td>
+                                  <th key={k}>{k}</th>
                                 ))}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {settingsTableProfile.sample_rows.slice(0, 5).map((rw, ri) => (
+                                <tr key={ri}>
+                                  {(settingsPreviewSampleColNames.length
+                                    ? settingsPreviewSampleColNames
+                                    : Object.keys(settingsTableProfile.sample_rows[0])
+                                  ).map((k) => (
+                                    <td key={k}>{rw[k] != null ? String(rw[k]) : '—'}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
                     ) : null}
                   </div>
                 </details>

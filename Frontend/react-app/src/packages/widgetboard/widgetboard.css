@@ -2,7 +2,7 @@
  * packages/widgetboard/widgetboard.css (위젯보드 스타일)
  * ======================================================
  * 왼쪽 팔레트·오른쪽 캔버스 레이아웃, 위젯 카드·드래그/드롭 영역, 헤더 보드 툴바, react-grid-layout 오버라이드,
- * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 초대 알림 모달(wb-invite-modal), 생성/수정(wb-board-form-modal), 설정·마법사(modal-settings·widget-data-wizard) 본문 스크롤, 완전 삭제 확인 스크롤 영역.
+ * 위젯보드 목록 모달 테이블(참여자·초대) 이메일 열 말줄임, 초대 알림 모달(wb-invite-modal), 생성/수정(wb-board-form-modal), 설정·마법사(modal-settings·widget-data-wizard 1100px/90vh)·프로파일 컬럼 메타/샘플 섹션, 완전 삭제 확인 스크롤 영역.
  */
 .widgetboard {
   width: 100%;
@@ -382,13 +382,13 @@
 
 /* 데이터 위젯 마법사·설정 기간 */
 .modal-content.widget-data-wizard {
-  max-width: 560px;
-  max-height: 85vh;
+  max-width: 1100px;
+  max-height: 90vh;
 }
 .widget-data-wizard .widget-wizard-body {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: min(68vh, 560px);
+  max-height: min(calc(90vh - 140px), 78vh);
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -626,8 +626,8 @@
 
 /* 설정 모달 (기본 대비 가로 +120px, 세로 패딩 +40px 수준) */
 .modal-content.modal-settings {
-  max-width: 600px;
-  max-height: 85vh;
+  max-width: 1100px;
+  max-height: 90vh;
 }
 .modal-settings .modal-header {
   padding: 26px 32px 16px;
@@ -636,7 +636,7 @@
 .modal-settings-body {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: min(68vh, 560px);
+  max-height: min(calc(90vh - 140px), 78vh);
   overflow-x: hidden;
   overflow-y: auto;
   padding: 20px 32px 16px;
@@ -1001,6 +1001,90 @@
 .wb-profile-preview-acc__inner {
   padding: 0 12px 12px;
 }
+.wb-profile-section {
+  margin-top: 14px;
+}
+.wb-profile-section:first-child {
+  margin-top: 0;
+}
+.wb-profile-section__title {
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.wb-profile-section--sample .wb-profile-sample-scroll {
+  height: 200px;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background: #fff;
+}
+.wb-profile-sample-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.wb-profile-sample-table thead th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-profile-sample-table tbody td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 프로파일「컬럼 정보」표: 분류·NULL%·고유값 고정 폭, 이름·타입·Min·Max는 말줄임 */
+.wb-profile-col-meta-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.wb-profile-col-meta-table th:nth-child(1),
+.wb-profile-col-meta-table td:nth-child(1),
+.wb-profile-col-meta-table th:nth-child(2),
+.wb-profile-col-meta-table td:nth-child(2),
+.wb-profile-col-meta-table th:nth-child(6),
+.wb-profile-col-meta-table td:nth-child(6),
+.wb-profile-col-meta-table th:nth-child(7),
+.wb-profile-col-meta-table td:nth-child(7) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.wb-profile-col-meta-table th:nth-child(3),
+.wb-profile-col-meta-table td:nth-child(3) {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-profile-col-meta-table th:nth-child(4),
+.wb-profile-col-meta-table td:nth-child(4) {
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-profile-col-meta-table th:nth-child(5),
+.wb-profile-col-meta-table td:nth-child(5) {
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wb-profile-sum-table {
   width: 100%;
   border-collapse: collapse;
@@ -1016,10 +1100,6 @@
 }
 .wb-profile-sum-table thead th {
   background: #f3f4f6;
-}
-.wb-profile-sample-scroll {
-  max-height: 200px;
-  overflow: auto;
 }
 .wb-wiz-note-row .widget-wizard-hint {
   margin-left: 0;

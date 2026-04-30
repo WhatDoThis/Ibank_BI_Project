@@ -1,6 +1,9 @@
 # Log
 
 ## Log Index
+603. 2026-04-30 Frontend 위젯보드: 저장되지 않음 오탐 감소(RGL layout·hydrate 기준선)
+602. 2026-04-30 Frontend 위젯보드: 생성·설정 모달 확대(900px/90vh)·프로파일 컬럼/샘플 구역·샘플 스크롤 400px
+601. 2026-04-30 Frontend 위젯보드: 저장 필요 UI 재계산(모달 취소·무변경 닫기 오탐 제거)
 600. 2026-04-30 Frontend 위젯보드: 미저장 데이터 QS 폴백 제거·pendingSave UI·useBlocker 주석 삭제
 599. 2026-04-30 Frontend 위젯보드: 추천 칩 제거·팔레트별 필터·설정 모달 안내 UI
 598. 2026-04-30 Frontend 위젯보드: 수동 저장·미저장 표시·이탈 경고(저장 시에만 위젯 API 반영)
@@ -603,6 +606,37 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+603. 2026-04-30 Frontend 위젯보드: 저장되지 않음 오탐 감소(RGL layout·hydrate 기준선)
+Purpose: RGL `onLayoutChange`가 마운트·너비·모달 등에서도 호출되어 실제 편집 없이「저장되지 않음」이 켜지던 문제를 줄인다.
+
+Changes:
+
+- `onLayoutChange`는 `setLayout`만; 배치 dirty는 `onDragStop`·`onResizeStop`과 hydrate 직후 기준선(`layoutSignature`) 동기화로만 반영
+- hydrate 후 150ms 타이머로 RGL 정규화 반영 기준선 스냅; 마법사·설정 모달 오픈 중에는 드래그 종료로 dirty 갱신 생략
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/log/log.md
+
+602. 2026-04-30 Frontend 위젯보드: 생성·설정 모달 확대(900px/90vh)·프로파일 컬럼/샘플 구역·샘플 스크롤 400px
+Purpose: 데이터 미리보기 가독성 향상. 마법사·위젯 설정 모달을 넓히고, 프로파일 카드 안에서 컬럼 요약과 샘플 행을 구분하며 샘플 영역 높이·가로 말줄임을 제한한다.
+
+Changes:
+
+- `widgetboard.css`: `.modal-content.modal-settings`·`.widget-data-wizard` 900px/90vh, 본문 max-height 조정, `.wb-profile-section*`·샘플 스크롤 400px, `.wb-profile-sample-table` 고정 레이아웃·tbody td overflow
+- `WidgetDataWizardModal.jsx`, `WidgetboardPage.jsx`: 미리보기 `section`+제목(컬럼 정보 / 샘플 데이터)
+
+Changed files: Frontend/react-app/src/packages/widgetboard/widgetboard.css, WidgetDataWizardModal.jsx, WidgetboardPage.jsx, docs/log/log.md
+
+601. 2026-04-30 Frontend 위젯보드: 저장 필요 UI 재계산(모달 취소·무변경 닫기 오탐 제거)
+Purpose: 설정 모달에서 수정하다 취소하거나 변경 없이 닫아도「저장되지 않음」이 남던 문제를 줄인다. ref 기반 `recomputeBoardDirty`·레이아웃 전용 dirty 플래그·지문 비교로 실제 반영 대기 작업이 있을 때만 표시한다.
+
+Changes:
+
+- `recomputeBoardDirty`, `layoutDirtySinceHydrateRef`, `widgetCfgFingerprintForDirty`
+- 설정 확인 닫기: 스냅샷과 동일하면 PATCH 대기 집합 정리 후 재계산
+- 설정 취소·복제·마법사·노트 드롭: `setTimeout(0)` 후 재계산(React 커밋 이후 ref 정합)
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/log/log.md
 
 600. 2026-04-30 Frontend 위젯보드: 미저장 데이터 QS 폴백 제거·pendingSave UI·useBlocker 주석 삭제
 Purpose: `widgetItemId` 없는 로컬 위젯 등에서 `describeTable`/`executeQuery`가 쿼리스튜디오로 가며 감사 로그가 `query_studio`로 남던 경로를 제거한다. `useBlocker`는 데이터 라우터 미사용으로 비활성 상태였으므로 주석 블록을 삭제한다.
