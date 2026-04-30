@@ -46,7 +46,7 @@
 
 - **쿼리 스튜디오**: 테이블·JOIN·집계·피벗·실행·페이지네이션·Claude SQL 해석. FK 기반으로 JOIN 가능 테이블을 제한한다.
 - **대시보드(/dashboard)**: 캠페인 대시보드 단일 UI. Star 물리 테이블·dash_db·API `/api/campaign-dashboard`. `/campaign-dashboard` 는 `/dashboard` 로 리다이렉트.
-- **위젯보드(/widgetboard)**: 드래그 앤 드롭 그리드. 쿼리 스튜디오·위젯 보드 API 연동.
+- **위젯보드(/widgetboard)**: 드래그 앤 드롭 그리드. 쿼리 스튜디오·`/api/widget-boards` 연동. 저장 테이블 위젯은 **`table_master.column_profiles`** 와 **`GET …/table/{table_master_id}/profile`** 로 컬럼 시맨틱·차트 추천·미리보기를 제공한다(상세 **docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md**).
 - **ETL(/etl)**: 파일·외부 DB → PostgreSQL 적재. 저장 DB 선택·매핑·동기화 모드·배치·폴더(SFTP/S3) 배치 등. 스키마·제약은 **04_DB_ARCHITECTURE.md**, 서버·모듈·한도는 **02_BACKEND_GUIDE.md** 를 본다.
 - **설정**: `.env` 없이 `Env/config/config.json` 만 사용한다.
 
@@ -213,6 +213,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 
 - 위젯보드: 보드·위젯·레이아웃·공유 설정은 system_db(`widget_board`, `widget_item`, `widget_board_share`)에 서버사이드 저장된다. API: `/api/widget-boards`.
 - 위젯 데이터 조회·쿼리 실행은 쿼리 스튜디오 API 등과 연동한다.
+- **저장 테이블(`saved_table`) 제작·설정**: `list-tables`(`mapping_usage=widgetboard`)·프로파일 **`GET /api/widget-boards/table/{table_master_id}/profile`** ·QS/ETL 테이블 등록 시 프로파일 갱신 흐름은 **docs/report/26** 과 **03_API_GUIDE.md §6.2**·**04_DB_ARCHITECTURE.md** `table_master.column_profiles` 를 본다.
 
 ### ETL
 
@@ -239,6 +240,7 @@ JSON 예시와 전체 키 설명은 **02_BACKEND_GUIDE.md §3** 을 본다.
 | 06_CUSTOMER_JOURNEY.md | 고객 여정 |
 | 07_USER_FUNCTIONAL_GUIDE.md | 일반 사용자 기능 설명 |
 | 08_TERMINOLOGY.md | `user_dvsn`·`pmssn_*` 등 용어·표기 통일 |
+| 09_TECH_STACK_AND_IMPORT_CATALOG.md | 외부 pip·npm 의존성·import 스캔 요약 |
 
 ---
 

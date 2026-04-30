@@ -1,6 +1,21 @@
 # Log
 
 ## Log Index
+600. 2026-04-30 Frontend 위젯보드: 미저장 데이터 QS 폴백 제거·pendingSave UI·useBlocker 주석 삭제
+599. 2026-04-30 Frontend 위젯보드: 추천 칩 제거·팔레트별 필터·설정 모달 안내 UI
+598. 2026-04-30 Frontend 위젯보드: 수동 저장·미저장 표시·이탈 경고(저장 시에만 위젯 API 반영)
+597. 2026-04-30 Backend: 백필 로컬 실행·profile_table JSON(date)·data_conn rollback
+596. 2026-04-30 Backend·report/26: backfill 대상 확장(빈 프로파일)·§4.3·4.4 문구
+595. 2026-04-30 docs/main·README: 위젯보드 프로파일·추천(report/26) 정본 반영
+594. 2026-04-30 report/26: §7 구현 반영·FE 체크리스트 완료·§7.8 백로그
+593. 2026-04-30 Frontend 위젯보드: 설정 추천 타이밍·scatter 칩 라벨·샘플 열 순서
+592. 2026-04-30 Backend 위젯 프로파일: 메타 중복 제거·집계 키워드·QS 커넥션·백필 conn 재사용
+591. 2026-04-30 Frontend 위젯보드 report/26 Phase 3·4 추천 UI·TEMPORAL 기간 처리
+590. 2026-04-30 Backend report/26 Phases 1·1-B·2 프로파일러·추천·QS/ETL 훅·API
+589. 2026-04-30 report/26: recommend 순회·role_summary Phase2·IDENTIFIER 확정·backfill 시그니처·data_config 시점
+588. 2026-04-30 report/26: 구현 막힘 포인트 반영(sample_rows·Rule5·ETL id·TTL·list-tables·bar·data_config)
+587. 2026-04-30 report/26: 제품 목적(위젯 제작 도구)·저장 연계 체크리스트 보강
+586. 2026-04-30 docs/report: 위젯보드 컬럼 프로파일·차트 추천 개발계획서(26)·ReportIndex
 585. 2026-04-28 Admin 권한 관리: 권한상세목록 열 세로 정렬 middle(타 컬럼과 행 맞춤)
 584. 2026-04-28 Admin 권한 관리: 권한상세목록 열 말줄임 해제·줄바꿈·패딩
 583. 2026-04-28 통합 이력: 데이터 추적 조회 모달 폭·높이·패딩 확대
@@ -588,6 +603,158 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+600. 2026-04-30 Frontend 위젯보드: 미저장 데이터 QS 폴백 제거·pendingSave UI·useBlocker 주석 삭제
+Purpose: `widgetItemId` 없는 로컬 위젯 등에서 `describeTable`/`executeQuery`가 쿼리스튜디오로 가며 감사 로그가 `query_studio`로 남던 경로를 제거한다. `useBlocker`는 데이터 라우터 미사용으로 비활성 상태였으므로 주석 블록을 삭제한다.
+
+Changes:
+
+- `loadWidgetDataset`: `fetchWidgetData` 가능 시만 서버 조회, 그 외 `pendingSave` 캐시(주석 처리된 폴백 코드 삭제)
+- `WidgetBlock`: `pendingSave`일 때「저장 후 데이터가 표시됩니다.」, 차트/KPI는 `!pendingSave`일 때만
+- 미사용 import·`escapeTableName` 제거, 모듈 주석 정리
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, docs/log/log.md
+
+599. 2026-04-30 Frontend 위젯보드: 추천 칩 제거·팔레트별 필터·설정 모달 안내 UI
+Purpose: 위젯 유형(템플릿)과 무관한 추천 칩·활성 스타일 혼동을 줄이고, 차트 유형은 기존 셀렉터로만 조정하도록 한다. 백엔드 추천은 `filterRecommendationsForWidget`로 팔레트 허용 차트에 맞게만 표시하고, 테이블 변경 시 자동 적용은 필터 후 1순위만 사용한다.
+
+Changes:
+
+- `chartMatchScore.js`: `uiChartTypesAllowedForWidgetPalette`, `filterRecommendationsForWidget`(비차트 팔레트는 빈 배열·안내 미표시)
+- `WidgetDataWizardModal.jsx`: 추천 칩·수동 플래그 제거, 안내 리스트·자동 적용은 필터된 1순위
+- `WidgetboardPage.jsx`: 설정 모달 동일 패턴(`settingsFilteredRecs`), 프로파일 fetch 후 패치에 필터 적용, 제거된 ref 참조 정리
+- `widgetboard.css`: `.wb-rec-hints` 등 안내 리스트 스타일
+- `26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md`: §7.2 등 문구를 안내 UI 기준으로 정합
+
+Changed files: Frontend/react-app/src/packages/widgetboard/utils/chartMatchScore.js, Frontend/react-app/src/packages/widgetboard/components/WidgetDataWizardModal.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/log/log.md
+
+598. 2026-04-30 Frontend 위젯보드: 수동 저장·미저장 표시·이탈 경고(저장 시에만 위젯 API 반영)
+Purpose: 편집마다 자동 저장되며 시스템 로그가 과다 적재되는 문제를 완화한다. 캔버스 변경은 로컬 상태로만 유지하고, 상단「저장」에서 삭제·생성·PATCH·레이아웃을 일괄 반영한다.
+
+Changes:
+
+- `WidgetboardPage.jsx`: `handleSaveBoard`(delete → add → update → `patchWidgetBoardLayout` → `hydrateFromServer`), 로컬 전용 위젯 키(`wb-local-*`), 미저장 시 서버 데이터 대신 로컬 쿼리로 미리보기(`dirtyServerDataWidgetIdsRef`), `useBlocker`·`beforeunload`, 설정 취소 시 서버 PATCH 제거·dirty 재계산
+- `widgetboard.css`: `.btn-save-board`, `.widgetboard-unsaved-hint`
+
+Changed files: Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+597. 2026-04-30 Backend: 백필 로컬 실행·profile_table JSON(date)·data_conn rollback
+Purpose: 사용자 요청에 따라 `backfill_missing_profiles`를 API와 동등하게 로컬 실행. 첫 실행 실패 원인(데이터 DB 트랜잭션 중단 연쇄·`date` JSON 직렬화)을 수정 후 재실행.
+
+Changes:
+
+- `column_profiler.py`: `profile_table`의 `min_value`/`max_value`를 `format_value`로 JSON 안전화; 백필 실패 시 해당 `db_type` 데이터 연결 `safe_rollback`
+- 로컬 실행 결과(요약): `success` 13, `failed` 1(`table_master_id=5` `sample_test_02` — main에 물리 테이블 없음)
+
+Changed files: Backend/widget_board_server/column_profiler.py, docs/log/log.md
+
+596. 2026-04-30 Backend·report/26: backfill 대상 확장(빈 프로파일)·§4.3·4.4 문구
+Purpose: `POST …/admin/backfill-profiles` 가 `column_profiles IS NULL` 만 처리해 빈 `{}` 등은 건너뛰던 문제를 완화 — NULL·`{}`·`columns` 키 없음·빈 `columns` 배열인 비삭제 행을 백필한다.
+
+Changes:
+
+- `column_profiler.py`: `backfill_missing_profiles` SELECT WHERE 보강·모듈 주석
+- `26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md`: §4.3·§4.4 백필·인증 문구 정합
+- `03_API_GUIDE.md`: 백필 API 표 설명(빈 프로파일 포함)
+
+Changed files: Backend/widget_board_server/column_profiler.py, docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/main/03_API_GUIDE.md, docs/log/log.md
+
+595. 2026-04-30 docs/main·README: 위젯보드 프로파일·추천(report/26) 정본 반영
+Purpose: log 586~594·report/26·실제 코드와 맞추어 제품 문서(`docs/main`)·루트 README에 위젯보드 컬럼 프로파일·`GET …/table/…/profile`·`role_summary`·`table_master.column_profiles`·백필 API·프론트 유틸을 반영한다.
+
+Changes:
+
+- `00_PRD.md`, `01_FRONTEND_GUIDE.md`, `02_BACKEND_GUIDE.md`, `03_API_GUIDE.md`, `04_DB_ARCHITECTURE.md`, `06_CUSTOMER_JOURNEY.md`, `07_USER_FUNCTIONAL_GUIDE.md`: 위젯보드 프로파일·추천 흐름 및 26번 계획서 교차 참조
+- `README.md`: 위젯보드 섹션 갱신·문서 표에 26·09 추가
+
+Changed files: docs/main/00_PRD.md, docs/main/01_FRONTEND_GUIDE.md, docs/main/02_BACKEND_GUIDE.md, docs/main/03_API_GUIDE.md, docs/main/04_DB_ARCHITECTURE.md, docs/main/06_CUSTOMER_JOURNEY.md, docs/main/07_USER_FUNCTIONAL_GUIDE.md, README.md, docs/log/log.md
+
+594. 2026-04-30 report/26: §7 구현 반영·FE 체크리스트 완료·§7.8 백로그
+Purpose: 계획서를 현재 프론트 구현(설정 모달 프로파일 완료 직후 추천 적용, scatter 칩·샘플 열 순서, 공통 컴포넌트 백로그)과 동기화하고 §9 FE 항목을 완료로 표시.
+
+Changes:
+
+- `26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md`: §7.1·7.2·7.5 보강, §7.8 추가, §9 FE 체크 `[x]`
+
+Changed files: docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/log/log.md
+
+593. 2026-04-30 Frontend 위젯보드: 설정 추천 타이밍·scatter 칩 라벨·샘플 열 순서
+Purpose: 리뷰 반영 — 설정 모달에서 테이블 변경 후 추천 자동 적용을 프로파일 fetch 완료 직후로 통합, scatter→line 칩 문구 명시, 미리보기 샘플 표 열 순서를 `columns`와 정합.
+
+Changes:
+
+- `chartMatchScore.js`: `formatRecommendationChipLabel`, `profileSampleTableColumnNames`, `calculateMatchScore` 세 번째 인자 JSDoc
+- `WidgetboardPage.jsx`: refs·fetch 내 추천 적용·칩 라벨·샘플 열 순서
+- `WidgetDataWizardModal.jsx`: 동일 칩·샘플 열 순서
+
+Changed files: Frontend/react-app/src/packages/widgetboard/utils/chartMatchScore.js, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/components/WidgetDataWizardModal.jsx, docs/log/log.md
+
+592. 2026-04-30 Backend 위젯 프로파일: 메타 중복 제거·집계 키워드·QS 커넥션·백필 conn 재사용
+Purpose: 코드 리뷰 반영 — `profile_table` 경로에서 information_schema 이중 조회 제거, 차트 집계 키워드 분기, QS 프로파일링 시 커넥션 미할당 시 `close` NameError 방지, 백필 시 `db_type`별 커넥션 재사용.
+
+Changes:
+
+- `column_profiler.py`: `fetch_column_stats(..., column_meta_list=)`, `profile_table`에서 메타 전달, `backfill_missing_profiles` 커넥션 캐시·일괄 close, TABLESAMPLE 백로그 주석
+- `chart_recommender.py`: `determine_aggregation` 컬럼명 키워드(SUM/AVG 등) §5.1.3
+- `query_studio_server/router.py`: `sys_prof_conn`/`data_prof_conn` None 초기화·단일 `finally`에서 close
+
+Changed files: Backend/widget_board_server/column_profiler.py, Backend/widget_board_server/chart_recommender.py, Backend/query_studio_server/router.py, docs/log/log.md
+
+591. 2026-04-30 Frontend 위젯보드 report/26 Phase 3·4 추천 UI·TEMPORAL 기간 처리
+Purpose: 테이블 프로파일 API와 list-tables `role_summary`를 활용해 위젯 마법사·설정 모달에서 차트 추천·축 라벨·적합도 정렬·샘플 미리보기를 제공하고, TEMPORAL이 없으면 기간 단위/UI를 숨긴다.
+
+Changes:
+
+- `GET /api/widget-boards/table/{table_master_id}/profile` 호출 위젯 전용 클라이언트(`getTableProfile`)·유틸 `chartMatchScore.js`(적합도·추천 패치)·`WidgetDataWizardModal`/`WidgetboardPage` 연동 및 `widgetboard.css` 칩·역할 태그·프리뷰 스타일
+
+Changed files: Frontend/react-app/src/packages/widgetboard/api/widgetBoardClient.js, Frontend/react-app/src/packages/widgetboard/utils/chartMatchScore.js, Frontend/react-app/src/packages/widgetboard/components/WidgetDataWizardModal.jsx, Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx, Frontend/react-app/src/packages/widgetboard/widgetboard.css, docs/log/log.md
+
+590. 2026-04-30 Backend report/26 Phases 1·1-B·2 프로파일러·추천·QS/ETL 훅·API
+Purpose: 문서 26에 따라 컬럼 프로파일·차트 추천·list-tables 보강·QS/ETL 등록 후 프로파일·GET profile·관리 백필을 동기 psycopg2로 구현한다.
+
+Changes:
+
+- 신규 `widget_board_server/column_profiler.py`·`chart_recommender.py`; 스키마·서비스·라우터(GET `/table/{id}/profile`)·`admin_router`(POST 백필); `core/db.get_allowed_tables_by_project` SELECT 확장; QS `list_tables`·`_upsert_table_master_and_mapping` 프로파일 훅; ETL `table_master_hook` RETURNING·프로파일; `api_server/main.py`에서 admin 라우터 별도 include
+
+Changed files: Backend/widget_board_server/column_profiler.py, Backend/widget_board_server/chart_recommender.py, Backend/widget_board_server/schemas.py, Backend/widget_board_server/service.py, Backend/widget_board_server/router.py, Backend/widget_board_server/__init__.py, Backend/core/db.py, Backend/query_studio_server/router.py, Backend/etl_server/table_master_hook.py, Backend/api_server/main.py, docs/log/log.md
+
+589. 2026-04-30 report/26: recommend 순회·role_summary Phase2·IDENTIFIER 확정·backfill 시그니처·data_config 시점
+Purpose: 피드백 반영 — 규칙 엔진 순회·Rule9 조건·Phase2에 list-tables role_summary·§8 의존성·IDENTIFIER(B) 확정·backfill `get_data_conn`·colorBy/aggregations Phase3 후속 명시.
+
+Changes:
+
+- `26_…Plan.md`: §5.1.4·Rule6 중복·§5.3.2 Phase2·§8·§11·§3.2·§4.3·§4.5·§1.0·§7.6·§9
+
+Changed files: docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/log/log.md
+
+588. 2026-04-30 report/26: 구현 막힘 포인트 반영(sample_rows·Rule5·ETL id·TTL·list-tables·bar·data_config)
+Purpose: 개발 계획서 26번에 실제 구현 시 혼동되기 쉬운 항목을 반영한다.
+
+Changes:
+
+- `sample_rows` 단일 출처(`fetch_column_stats`)·`profile_table` 패스스루, Rule 5=Rule 3 보조(rank2)·§4.2 `table_master_id` 획득·TTL은 DB `NOW()`·`role_summary`는 `GET /api/list-tables`+`db.get_allowed_tables_by_project`·bar 적합도 DIMENSION+MEASURE·`data_config` 키 표·§0 Phase 순서 주석·IDENTIFIER `amount_id` B안 등
+
+Changed files: docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/log/log.md
+
+587. 2026-04-30 report/26: 제품 목적(위젯 제작 도구)·저장 연계 체크리스트 보강
+Purpose: 개발 계획서가 컬럼 프로파일에만 매몰되지 않도록 북극성·E2E 흐름·위젯 저장 API 연계 검증 항목을 명시한다.
+
+Changes:
+
+- `26_…Plan.md`: §1.0 제품 목적·성공 기준·엔드투엔드 흐름, §1.1 기술 목표 분리, FE 파일에 `WidgetDataWizardModal.jsx`, §9 체크리스트에 저장 페이로드·진입점
+- `00_ReportIndex.md`: 26번 설명 한 줄 갱신
+
+Changed files: docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
+
+586. 2026-04-30 docs/report: 위젯보드 컬럼 프로파일·차트 추천 개발계획서(26)·ReportIndex
+Purpose: 위젯보드 시각화 엔진(프로파일·TTL·QS/ETL 트리거·백필·추천·FE) 구현을 커서/서브에이전트가 단일 문서로 진행할 수 있도록 계획서를 추가하고 인덱스를 갱신한다.
+
+Changes:
+
+- `docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md`: Phase 1~4, API 경로 정합, ETL 중앙 훅(`table_master_hook`), 동기/비동기 지침, 검증 체크리스트
+- `docs/report/00_ReportIndex.md`: 26번 행 추가
+
+Changed files: docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md, docs/report/00_ReportIndex.md, docs/log/log.md
 
 585. 2026-04-28 Admin 권한 관리: 권한상세목록 열 세로 정렬 middle(타 컬럼과 행 맞춤)
 Purpose: 권한상세 `td`만 `vertical-align: top`이라 다른 열(`middle`)보다 위에 붙어 보이던 현상을 제거한다.

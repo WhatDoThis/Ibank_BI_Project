@@ -411,6 +411,7 @@ update_dtm               timestamp       DEFAULT now() 수정일시
 
 - `main` / `dash` 등 **`db_type`별 물리 테이블**의 원장이다.
 - 부서 FK는 없다(전사 공통).
+- **위젯보드** 제작 UI는 `column_profiles`·`profile_updated_at`에 캐시된 컬럼 통계·시맨틱 역할·차트 추천을 사용한다(QS·ETL에서 테이블 등록 시 프로파일 갱신, **docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md**). 저장소에 마이그레이션 파일을 두지 않으므로 DDL은 운영에서 수동 적용한다.
 
 PRIMARY KEY: `pk_table_master` (`table_master_id`).  
 UNIQUE: `uq_table_master_unique` (`db_type`, `table_name`).
@@ -426,6 +427,8 @@ create_dtm               timestamp       DEFAULT now() 등록일시
 update_dtm               timestamp       DEFAULT now() 수정일시
 create_user_id           integer                       등록자 `user_id` (NULL 허용, 이 테이블에 FK 제약 없음)
 del_yn                   varchar(1)      DEFAULT N   삭제(비활성) 표시
+column_profiles          jsonb           NULL          컬럼 프로파일·샘플 행·추천용 JSON 캐시
+profile_updated_at       timestamptz     NULL          프로파일 마지막 갱신 시각
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

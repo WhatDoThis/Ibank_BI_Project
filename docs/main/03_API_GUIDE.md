@@ -2042,11 +2042,13 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 - `saved_table`: `get_allowed_tables_by_project(..., usage_widgetboard=True, db_type=main)` 만 허용; dash_db 테이블은 사용하지 않는다.
 - SQL 금지어 검사는 **`Backend.core.sql_safety`** 를 `query_studio_server` 와 공유한다.
 - `saved_table` 조회 시 `data_config`의 `dateStart`·`dateEnd`·`dateGrain`·`dateColumn`으로 기간 필터; 응답 `columns`에 `data_type`, `meta.applied_date_column` 반환.
+- **컬럼 프로파일·차트 추천**: `table_master.column_profiles` 캐시를 읽고, 프론트는 **`GET /api/widget-boards/table/{table_master_id}/profile`** 로 컬럼 메타·`recommendations`·`sample_rows` 등을 받는다. QS `list-tables`(`mapping_usage=widgetboard`) 응답 행에 **`role_summary`**(프로파일 기반 시맨틱 요약)가 포함될 수 있다. 설계·백필·관리자 API는 **docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md** 를 본다.
 
 #### `router.py` — 엔드포인트
 
 | 메서드 | 경로 | 핵심 |
 |--------|------|------|
+| `GET` | `/api/widget-boards/table/{table_master_id}/profile` | 프로젝트 매핑·권한 검증 후 컬럼 프로파일·차트 추천·샘플 행(`TableProfileResponse`) |
 | `GET` | `/api/widget-boards` | 접근 가능 보드 목록 (`is_owner`, `can_edit`, `owner`, `participant_count`, `widget_item_count`, `share_row_count`) |
 | `POST` | `/api/widget-boards` | 보드 생성 (프로젝트 참여자만) |
 | `GET` | `/api/widget-boards/{board_id}` | 보드 상세 + 위젯(layout 포함) + `can_edit`. 비활성 보드 → 에러 |
@@ -2064,6 +2066,12 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 | `POST` | `/api/widget-boards/{board_id}/share` | 지정 사용자 공유 upsert (소유자 전용, 활성 보드만) |
 | `DELETE` | `/api/widget-boards/{board_id}/share/{shared_user_id}` | 공유 제거 + 해당 사용자 create_user_id 소유 위젯을 소유자로 이관 |
 | `POST` | `/api/widget-boards/{board_id}/widgets/{widget_id}/data` | 위젯 데이터 조회 (saved_table: 기간 필터·data_type·meta / query: SQL 안전 검사 / note: 빈 응답) |
+
+**관리자 라우터** (`widget_board_server.admin_router`): `api_server/main.py` 에서 **`/api/widget-boards` 접두 + `Depends(require_org_admin)`** 로 별도 include.
+
+| 메서드 | 경로 | 핵심 |
+|--------|------|------|
+| `POST` | `/api/widget-boards/admin/backfill-profiles` | `column_profiles`가 **NULL·`{}`·빈 `columns`** 인 비삭제 행에 대해 프로파일 백필(`batch_size` 1~500, **docs/report/26** §4.3) |
 
 #### `service.py` — 핵심 함수
 
@@ -2087,11 +2095,14 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 | `list_board_participants` / `list_invite_candidates` | 참여자·후보 조회 |
 | `_allowed_saved_table` | `usage_widgetboard=True, db_type=main` 매핑 + 물리 존재 검사 |
 | `fetch_widget_data` | `saved_table`: 기간 필터(`dateStart/End/Grain/Column`)·`data_type` 포함 columns·`meta.applied_date_column` / `query`: SQL 안전 검사 / `note`: 빈 응답 / `campaign_dash`: 미지원 안내 |
+| `get_table_profile_with_recommendations` | `table_master_id`·프로젝트 접근 검증 후 `column_profiles` 로드 또는 온더플라이 프로파일·`chart_recommender` 결과 반환 |
 
 #### `schemas.py` — Pydantic 모델
 
 | 클래스 | 기능 |
 |--------|------|
+| `ColumnProfileItem` / `ChartRecommendationOut` / `TableProfileResponse` | 프로파일 API 응답 — 컬럼 메타·추천 리스트·샘플 행 등 |
+| `BackfillProfilesBody` | 관리자 백필 POST 바디(배치 크기 상한 등) |
 | `WidgetBoardCreateBody` | 보드 생성 (`board_dscrtn` 길이 검증) |
 | `WidgetBoardPatchBody` | 보드 수정 (`active_yn` bool 포함) |
 | `WidgetItemCreateBody` / `WidgetItemPatchBody` | 위젯 생성·수정 |
@@ -2106,7 +2117,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 |------|------|
 | `BOARD_DSCRTN_MAX_LEN` | board_dscrtn 허용 문자 수 (기본 1000) |
 
-프론트: **`Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx`**(캔버스), **`WidgetboardListPage.jsx`**(목록), **`api/widgetBoardClient.js`**. API·권한·데이터 흐름은 **본 문서 §6.2** 를 본다.
+프론트: **`Frontend/react-app/src/packages/widgetboard/WidgetboardPage.jsx`**(캔버스), **`WidgetboardListPage.jsx`**(목록), **`api/widgetBoardClient.js`**, **`utils/chartMatchScore.js`**, **`components/WidgetDataWizardModal.jsx`**. API·권한·데이터 흐름은 **본 문서 §6.2** 를 본다.
 
 ### 6.3 `query_studio_server`
 
@@ -2116,7 +2127,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 
 | 번호 | 메서드 | 경로 | 핵심 | 권한 |
 |------|--------|------|------|------|
-| 1 | `GET` | `/api/list-tables` | 프로젝트 매핑 테이블 목록 + 사이즈·라벨. `mapping_usage=query_studio` 또는 `widgetboard` | `require_active_access` + 채널별 권한 검사 |
+| 1 | `GET` | `/api/list-tables` | 프로젝트 매핑 테이블 목록 + 사이즈·라벨·**`role_summary`**(위젯보드 적합도용, 프로파일 없으면 null). `mapping_usage=query_studio` 또는 `widgetboard` | `require_active_access` + 채널별 권한 검사 |
 | 2 | `POST` | `/api/describe-table` | 테이블 컬럼 구조. `mapping_usage` 동일 | 위와 동일 |
 | 3 | `GET` | `/api/column-labels` | 테이블·컬럼 라벨 조회 (유저 JSON ∪ 파일) | `query.read` |
 | 4 | `POST` | `/api/column-labels` | 라벨 저장 (user_id+project_info_id별 system_db JSONB) | `query.read` |
@@ -2155,7 +2166,7 @@ ibank_{N}_star_1  (발송 팩트)           ibank_{N}_star_2  (회원 스냅샷)
 | `_fetch_relationships` | FK/추론 관계 조회. `project_info_id` 필수, 병합 허용 집합 기준 |
 | `_compute_relationships_all_raw` | FK+추론 전체 관계 계산 (캐시 없음) |
 | `_compute_relationships_all` | peak_guard 적용 래퍼 (TTL 캐시·세마포어). 관계 캐시·분석 스냅샷은 이 경로가 우선, `analysis_store`는 기존 호환 유지 |
-| `_upsert_table_master_and_mapping` | table_master UPSERT + `table_project_mapping` 연결. feature_flags에 따라 `use_widgetboard_yn` 자동 결정 |
+| `_upsert_table_master_and_mapping` | table_master UPSERT + `table_project_mapping` 연결. feature_flags에 따라 `use_widgetboard_yn` 자동 결정. 커밋 후 **위젯보드용 컬럼 프로파일**을 best-effort로 갱신(**docs/report/26**) |
 | `_save_table_worker` | 데몬 스레드: queued → running → CREATE TABLE AS → table_master upsert(3회 재시도) → completed/failed |
 
 ---

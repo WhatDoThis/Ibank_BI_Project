@@ -124,9 +124,9 @@ Frontend/react-app/
     │   │   └── components/           # KPI·차트·퍼널 등 (다수 .jsx)
     │   ├── widgetboard/              # /widgetboard (중첩 라우트: index 목록, :boardId 캔버스)
     │   │   ├── WidgetboardListPage.jsx, WidgetboardPage.jsx, index.jsx, widgetboard.css, constants.js
-    │   │   ├── api/widgetBoardClient.js
+    │   │   ├── api/widgetBoardClient.js              # getTableProfile 등
     │   │   ├── components/WidgetDataWizardModal.jsx
-    │   │   └── utils/dataUtils.js, dateRangePolicy.js
+    │   │   └── utils/chartMatchScore.js, dataUtils.js, dateRangePolicy.js
     │   └── etl/                      # /etl — ETLPage, index.jsx, etl.css, api/etlClient.js, utils/storageDb.js
     │       └── components/           # SourceTypeSelector, File/Db/Folder 폼, 배치·이력·저장DB·ETLTableList 등 + TargetTableSelectModal/ (서브폴더: CodeMapInlineEditor 등)
     └── shared/
@@ -184,9 +184,10 @@ Frontend/react-app/
 - **라우트 (`routes.jsx`)**
   - `/widgetboard` — `Outlet` 기준 **`/`(index)** → `WidgetboardListPage.jsx`(목록·생성·초대 등)
   - **`/:boardId`** → `WidgetboardPage.jsx`(캔버스·팔레트·편집)
-- **`WidgetboardPage.jsx`**: DnD 격자·위젯; 데이터는 `queryStudioClient.js`(`listTables`, `describeTable`, `executeQuery`) + `widgetBoardClient.js`(보드·레이아웃·참여자 등) 병행
+- **`WidgetboardPage.jsx`**: DnD 격자·위젯; 데이터는 `queryStudioClient.js`(`listTables` with `mapping_usage: 'widgetboard'`, `describeTable`, `executeQuery`) + `widgetBoardClient.js`(보드·레이아웃·참여자·**`getTableProfile`**) 병행. 저장 테이블 위젯 설정·생성 마법사에서 **`GET /api/widget-boards/table/{table_master_id}/profile`** 응답으로 추천 칩·컬럼 태그·적합도(optgroup)·샘플 미리보기·TEMPORAL 없을 때 일자 필터 숨김 등을 처리한다.
 - **`WidgetboardListPage.jsx`**: 프로젝트별 보드 카드, 생성·수정·초대·비활성·참여자 진입. **목록**은 S8과 동일한 `admin-list-filters`·정렬·`AdminListPaginationFooter`·`useResetListPage` 패턴을 쓰며, `admin-pages.css`·`admin-users.css`·`admin-list-table.css`를 import한다(위젯보드 전용 `widgetboard.css`와 병행).
-- **`components/WidgetDataWizardModal.jsx`**: 위젯 생성 마법사
+- **`components/WidgetDataWizardModal.jsx`**: 위젯 생성 마법사(프로파일·추천 UI는 설정 모달과 동일 패턴)
+- **`utils/chartMatchScore.js`**: 적합도·추천→`data_config` 패치·테이블 정렬·scatter→line 칩 라벨·샘플 열 순서 헬퍼
 - **`utils/dataUtils.js`**, **`utils/dateRangePolicy.js`**: 가공·조회 기간 상한
 - **`constants.js`**, **`index.jsx`**, **`widgetboard.css`**
 

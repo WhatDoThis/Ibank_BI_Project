@@ -2,23 +2,23 @@
  * packages/widgetboard/WidgetboardPage.jsx (위젯보드 캔버스)
  * ======================================================
  * 라우트 `/widgetboard/:boardId`. 왼쪽: 위젯 팔레트(드롭). 오른쪽: 캔버스. 목록은 WidgetboardListPage.
- * 연결한 테이블 기준 listTables/describeTable/executeQuery(main_db) → dataUtils로 KPI·차트·테이블 자동 렌더링.
+ * 연결한 테이블 기준 listTables(매핑) + 저장된 위젯은 fetchWidgetData → dataUtils로 KPI·차트·테이블 렌더링. 미저장 위젯은 저장 전 쿼리스튜디오 경유 없이 플레이스홀더만 표시.
  *
  * [Main Functions]
  * ===========
- * 1. /api/widget-boards 보드·위젯 CRUD·레이아웃 PATCH·데이터 fetch(저장 테이블)
- * 2. 데이터 위젯: 생성 마법사·설정 모달(취소 시 스냅샷 복구·확인 닫기·오버레이 비닫기)에서 테이블(list-tables=프로젝트 매핑 전체)·기간·지표·(단일 일) 차원; PATCH 완료 후 fetchWidgetData
+ * 1. /api/widget-boards 보드 로드·데이터 fetch; 위젯 생성·수정·삭제·레이아웃은 상단「저장」클릭 시 일괄 반영(시스템 로그·API 과다 호출 방지)
+ * 2. 데이터 위젯: 생성 마법사·설정 모달(취소 시 스냅샷 복구·확인 닫기·오버레이 비닫기)에서 테이블(list-tables=프로젝트 매핑 전체)·기간·지표·(단일 일) 차원; 저장 후 fetchWidgetData
  * 3. react-grid-layout 드래그/리사이즈(수정 권한 시에만)
  *
  * [Dependencies]
  * =========
- * - React, react-grid-layout, recharts, echarts, @/shared/api/queryStudioTableApi.js, ./api/widgetBoardClient.js, ./utils/dataUtils, ./utils/dateRangePolicy.js(formatWidgetPeriodSubtitle·formatWidgetPeriodSubtitleCompact), ./components/WidgetDataWizardModal.jsx, @/shared/utils/crudConfirm.js
+ * - React, react-router-dom, react-grid-layout, recharts, echarts, @/shared/api/queryStudioTableApi.js(listTables), ./api/widgetBoardClient.js(getTableProfile), ./utils/dataUtils, ./utils/chartMatchScore.js, ./utils/dateRangePolicy.js(formatWidgetPeriodSubtitle·formatWidgetPeriodSubtitleCompact), ./components/WidgetDataWizardModal.jsx, @/shared/utils/crudConfirm.js
  * - app/auth/AuthContext projectContextNonce·me: 프로젝트 변경 시 보드·위젯 API 재로드
  * - app/layout/ShellChromeOverrideContext: 셸·브레드크럼에 보드명 반영
  * - 프로젝트 변경·보드 없음·권한 없음(로드 실패) 시 `/widgetboard` 목록으로 replace 네비게이션(URL·캔버스 정리)
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/app/auth/AuthContext.jsx'
 import GridLayout from 'react-grid-layout/legacy'
 import { WidthProvider } from 'react-grid-layout/legacy'
@@ -40,21 +40,21 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import * as echarts from 'echarts'
-import { listTables, describeTable, executeQuery } from '@/shared/api/queryStudioTableApi.js'
+import { listTables } from '@/shared/api/queryStudioTableApi.js'
 import {
   getWidgetBoard,
   addWidget,
   updateWidget,
   deleteWidget,
   patchWidgetBoardLayout,
-  fetchWidgetData
+  fetchWidgetData,
+  getTableProfile
 } from '@/packages/widgetboard/api/widgetBoardClient.js'
 import {
   pickDimensionAndMetric,
   aggregateForChart,
   aggregateForChartByTimeGrain,
   computeKpi,
-  getDateColumns,
   resolveWidgetDateColumnName,
   isNumericType,
   isDimensionType,
@@ -67,6 +67,18 @@ import {
   formatWidgetPeriodSubtitleCompact,
   isMultiDayWidgetRange
 } from './utils/dateRangePolicy.js'
+import {
+  buildConfigPatchFromRecommendation,
+  calculateMatchScore,
+  filterRecommendationsForWidget,
+  uiChartTypesAllowedForWidgetPalette,
+  formatAxisOptionCaption,
+  formatRecommendationChipLabel,
+  hasTemporalColumn,
+  profileSampleTableColumnNames,
+  SEMANTIC_ROLE_LABEL_KO,
+  sortTablesByMatchScore
+} from './utils/chartMatchScore.js'
 import './widgetboard.css'
 import '@/app/admin/admin-pages.css'
 import { PageHeader } from '@/app/layout/PageHeader.jsx'
@@ -107,6 +119,81 @@ function buildDataConfigForApi(prevCfg, patch) {
   if (prevCfg.minW != null) o.minW = prevCfg.minW
   if (prevCfg.minH != null) o.minH = prevCfg.minH
   return o
+}
+
+// 0a.
+/** 저장 전 로컬 전용 위젯 그리드 키 (서버 widget_item_id 미부여) */
+function newLocalWidgetItemId() {
+  const u = globalThis.crypto?.randomUUID?.()
+  return u ? `wb-local-${u}` : `wb-local-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+// 0b.
+/** 서버 PATCH용 본문(현재 cfg 기준 전체 반영) */
+function buildUpdateWidgetBodyFromCfg(cfg) {
+  if (!cfg) return {}
+  const body = {
+    widget_title: cfg.title ?? '',
+    data_config: buildDataConfigForApi(cfg, {})
+  }
+  if (cfg.type === 'note') {
+    body.data_source_type = cfg.dataSourceType || 'query'
+    body.data_source_query = 'SELECT 1 LIMIT 0'
+    body.data_source_ref = null
+  } else {
+    body.data_source_type = 'saved_table'
+    body.data_source_ref = cfg.tableName ?? null
+  }
+  return body
+}
+
+// 0c.
+/** 로컬 위젯 → POST /widgets 바디 */
+function buildAddWidgetBodyFromLocal(cfg, layoutItem) {
+  const it = layoutItem || { x: 0, y: 0, w: 6, h: 4, minW: 2, minH: 2 }
+  const dc = buildDataConfigForApi(cfg || {}, {})
+  if (cfg?.type === 'note') {
+    return {
+      widget_type: 'note',
+      widget_title: cfg.title ?? '',
+      data_source_type: 'query',
+      data_source_query: 'SELECT 1 LIMIT 0',
+      data_source_ref: null,
+      data_config: dc,
+      layout_x: it.x ?? 0,
+      layout_y: it.y ?? 0,
+      layout_w: it.w ?? 4,
+      layout_h: it.h ?? 2,
+      widget_order: 0
+    }
+  }
+  return {
+    widget_type: cfg.type,
+    widget_title: (cfg.title ?? '').trim() || '새 위젯',
+    data_source_type: 'saved_table',
+    data_source_query: null,
+    data_source_ref: cfg.tableName ?? null,
+    data_config: dc,
+    layout_x: it.x ?? 0,
+    layout_y: it.y ?? 0,
+    layout_w: it.w ?? 6,
+    layout_h: it.h ?? 4,
+    widget_order: 0
+  }
+}
+
+// 0d.
+function remapWidgetAfterCreate(layout, configs, oldKey, row) {
+  const newId = String(row.widget_item_id)
+  const layout2 = layout.map((l) => (l.i === oldKey ? { ...l, i: newId } : l))
+  const { [oldKey]: oldCfg, ...rest } = configs
+  const newCfg = {
+    ...oldCfg,
+    widgetItemId: row.widget_item_id,
+    dataSourceType: row.data_source_type,
+    canvasKey: newId
+  }
+  return { layout: layout2, configs: { ...rest, [newId]: newCfg } }
 }
 
 const WidthProvidedGrid = WidthProvider(GridLayout)
@@ -165,6 +252,7 @@ function mapServerDetailToState(detail) {
       minH: dc.minH ?? sz.minH
     })
     nextConfigs[id] = {
+      canvasKey: id,
       type: w.widget_type,
       title: w.widget_title || '',
       tableName: w.data_source_type === 'saved_table' ? w.data_source_ref : undefined,
@@ -187,14 +275,6 @@ function mapServerDetailToState(detail) {
     }
   }
   return { layout: nextLayout, configs: nextConfigs }
-}
-
-// 2.
-/** SQL 식별자 이스케이프 (PostgreSQL: "name" 형태) */
-function escapeTableName(name) {
-  if (name == null) return '""'
-  const s = String(name).replace(/"/g, '""')
-  return `"${s}"`
 }
 
 // 6.
@@ -285,7 +365,14 @@ function WidgetBlock({
   const periodSubtitleDisplay =
     needsTable && tableName ? formatWidgetPeriodSubtitleCompact(periodCfg) : ''
 
-  const { columns = [], rows = [], error, loading, appliedDateColumn: serverAppliedDate } = tableData || {}
+  const {
+    columns = [],
+    rows = [],
+    error,
+    loading,
+    appliedDateColumn: serverAppliedDate,
+    pendingSave
+  } = tableData || {}
   const { dimensionKey: fallbackDim, metricKey: fallbackMetric } = pickDimensionAndMetric(columns)
   /** 복수 일 차트는 날짜 버킷 집계만 사용 — 서버가 알려 준 applied_date_column·컬럼 type 없이는 category 축으로 campaign_id 등이 잘못 쓰이기 쉬움 */
   const resolvedDateCol =
@@ -380,7 +467,10 @@ function WidgetBlock({
         {needsTable && tableName && loading && (
           <div className="widget-loading">데이터 로딩 중...</div>
         )}
-        {needsTable && tableName && !error && !loading && (
+        {needsTable && tableName && !error && !loading && pendingSave && (
+          <span className="widget-placeholder">저장 후 데이터가 표시됩니다.</span>
+        )}
+        {needsTable && tableName && !error && !loading && !pendingSave && (
           <>
             {type === 'kpi' && (
               <div className="widget-kpi-value">{Number(kpiValue).toLocaleString('ko-KR')}</div>
@@ -495,9 +585,15 @@ export default function WidgetboardPage() {
   const { projectContextNonce, me } = useAuth()
   const prevProjectNonceRef = useRef(undefined)
   const configsRef = useRef({})
+  const layoutRef = useRef([])
+  const saveBoardBusyRef = useRef(false)
   const selectedBoardIdRef = useRef(null)
-  const pendingLayoutRef = useRef(null)
-  const layoutDebounceTimerRef = useRef(null)
+  /** 서버에 반영 대기 삭제(widget_item_id) */
+  const pendingDeleteServerIdsRef = useRef(new Set())
+  /** 저장 시 PATCH 대상 서버 위젯 id */
+  const dirtyServerPatchWidgetIdsRef = useRef(new Set())
+  /** 저장 전까지 fetchWidgetData 대신 로컬 쿼리(미저장 변경 반영) */
+  const dirtyServerDataWidgetIdsRef = useRef(new Set())
   const [layout, setLayout] = useState([])
   const [configs, setConfigs] = useState({})
   const [selectedBoardId, setSelectedBoardId] = useState(null)
@@ -512,13 +608,23 @@ export default function WidgetboardPage() {
   const [settingsWidgetId, setSettingsWidgetId] = useState(null)
   /** 설정 모달 오픈 시점 config — 취소 시 서버·로컬 복구 */
   const settingsModalSnapshotRef = useRef(null)
+  const pendingSettingsRecApplyRef = useRef(false)
+  const settingsWidgetIdRef = useRef(null)
   const [dragOver, setDragOver] = useState(false)
+  /** 설정 모달용 GET …/profile — 추천·미리보기·TEMPORAL 여부 */
+  const [settingsTableProfile, setSettingsTableProfile] = useState(null)
+  const [settingsProfileLoading, setSettingsProfileLoading] = useState(false)
   /** 셸 헤더·브레드크럼·PageHeader 제목 — GET 보드 상세의 board_name */
   const [boardDisplayName, setBoardDisplayName] = useState('')
   const { setOverride: setShellChromeOverride } = useShellChrome()
+  const [isBoardDirty, setIsBoardDirty] = useState(false)
+  const [boardSaving, setBoardSaving] = useState(false)
+  const [boardSaveError, setBoardSaveError] = useState(null)
 
   configsRef.current = configs
+  layoutRef.current = layout
   selectedBoardIdRef.current = selectedBoardId
+  settingsWidgetIdRef.current = settingsWidgetId
 
   const cacheKeyForConfig = useCallback((cfg) => {
     if (cfg?.widgetItemId != null) {
@@ -530,7 +636,8 @@ export default function WidgetboardPage() {
       if (cfg.dateColumn) p.push(String(cfg.dateColumn))
       return p.join(':')
     }
-    if (cfg?.tableName) return cfg.tableName
+    const ck = cfg?.canvasKey != null ? String(cfg.canvasKey) : ''
+    if (cfg?.tableName) return `${ck}:${String(cfg.tableName)}`
     return null
   }, [])
 
@@ -543,6 +650,11 @@ export default function WidgetboardPage() {
     setConfigs(mapped.configs)
     setCanEditBoard(Boolean(detail?.can_edit))
     setTableDataCache({})
+    pendingDeleteServerIdsRef.current.clear()
+    dirtyServerPatchWidgetIdsRef.current.clear()
+    dirtyServerDataWidgetIdsRef.current.clear()
+    setIsBoardDirty(false)
+    setBoardSaveError(null)
   }, [])
 
   const loadTables = useCallback(async () => {
@@ -561,7 +673,7 @@ export default function WidgetboardPage() {
     }
   }, [])
 
-  /** 서버 위젯: /widgets/{id}/data. 로컬 폴백(비상): describe + executeQuery + 기간 필터 */
+  /** 서버 위젯만 /widgets/{id}/data. 미저장(로컬) 위젯은 쿼리스튜디오 미호출·pendingSave 플래그만 설정 */
   const loadWidgetDataset = useCallback(
     async (cfg) => {
       const key = cacheKeyForConfig(cfg)
@@ -573,7 +685,13 @@ export default function WidgetboardPage() {
         [key]: { columns: [], rows: [], loading: true, error: null, appliedDateColumn: null }
       }))
       try {
-        if (bid != null && wid != null && cfg?.type !== 'note') {
+        const useServerData =
+          bid != null &&
+          wid != null &&
+          cfg?.type !== 'note' &&
+          !dirtyServerDataWidgetIdsRef.current.has(Number(wid))
+
+        if (useServerData) {
           const data = await fetchWidgetData(bid, wid)
           const cols = (data?.columns || []).map((c) => ({
             name: c.name,
@@ -590,35 +708,15 @@ export default function WidgetboardPage() {
           }))
           return
         }
-        const tableName = cfg?.tableName
-        if (!tableName) {
-          setTableDataCache((prev) => ({
-            ...prev,
-            [key]: { columns: [], rows: [], loading: false, error: null, appliedDateColumn: null }
-          }))
-          return
-        }
-        const dr = { start: cfg?.dateStart, end: cfg?.dateEnd }
-        const descRes = await describeTable(tableName, { mappingUsage: 'widgetboard' })
-        const columns = descRes?.columns || []
-        const dateCols = getDateColumns(columns)
-        const dateCol = (cfg?.dateColumn && columns.some((c) => c.name === cfg.dateColumn) ? cfg.dateColumn : null) || dateCols[0]
-        let query = `SELECT * FROM ${escapeTableName(tableName)}`
-        if (dr?.start && dr?.end && dateCol) {
-          const escCol = `"${String(dateCol).replace(/"/g, '""')}"`
-          query += ` WHERE ${escCol} >= '${dr.start}' AND ${escCol} <= '${dr.end}'`
-        }
-        query += ' LIMIT 500'
-        const queryRes = await executeQuery(query)
-        const rows = queryRes?.data || []
         setTableDataCache((prev) => ({
           ...prev,
           [key]: {
-            columns,
-            rows,
+            columns: [],
+            rows: [],
             loading: false,
             error: null,
-            appliedDateColumn: dr?.start && dr?.end && dateCol ? String(dateCol) : null
+            appliedDateColumn: null,
+            pendingSave: true
           }
         }))
       } catch (e) {
@@ -659,7 +757,7 @@ export default function WidgetboardPage() {
       try {
         await hydrateFromServer(numericBoardId)
         if (cancelled) return
-      } catch (e) {
+      } catch {
         if (!cancelled) {
           setBoardDisplayName('')
           setSelectedBoardId(null)
@@ -687,6 +785,16 @@ export default function WidgetboardPage() {
   }, [numericBoardId, boardDisplayName, setShellChromeOverride])
 
   useEffect(() => {
+    if (!canEditBoard || !isBoardDirty) return undefined
+    const onBeforeUnload = (e) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [canEditBoard, isBoardDirty])
+
+  useEffect(() => {
     if (prevProjectNonceRef.current === undefined) {
       prevProjectNonceRef.current = projectContextNonce
       return
@@ -698,47 +806,91 @@ export default function WidgetboardPage() {
   }, [projectContextNonce, loadTables])
 
   useEffect(() => {
-    Object.values(configs).forEach((c) => {
-      if (c?.type === 'note') return
-      const k = cacheKeyForConfig(c)
-      if (!k || !c?.tableName) return
-      if (tableDataCache[k] === undefined) loadWidgetDataset(c)
+    layout.forEach((item) => {
+      const c = configs[item.i]
+      if (!c || c.type === 'note') return
+      const k = cacheKeyForConfig({ ...c, canvasKey: item.i })
+      if (!k || !c.tableName) return
+      if (tableDataCache[k] === undefined) loadWidgetDataset({ ...c, canvasKey: item.i })
     })
-  }, [configs, cacheKeyForConfig, loadWidgetDataset, tableDataCache])
-
-  const flushLayoutToServer = useCallback(() => {
-    const bid = selectedBoardIdRef.current
-    if (bid == null || !canEditBoard) return
-    const lay = pendingLayoutRef.current
-    if (!lay?.length) return
-    const items = lay.map((it) => ({
-      widget_item_id: Number(it.i),
-      layout_x: it.x,
-      layout_y: it.y,
-      layout_w: it.w,
-      layout_h: it.h
-    }))
-    patchWidgetBoardLayout(bid, items).catch((e) => console.warn('patchWidgetBoardLayout', e))
-  }, [canEditBoard])
+  }, [layout, configs, cacheKeyForConfig, loadWidgetDataset, tableDataCache])
 
   const handleRefresh = useCallback(() => {
-    Object.values(configs).forEach((c) => {
-      if (c?.type !== 'note' && (c?.widgetItemId != null || c?.tableName)) loadWidgetDataset(c)
+    layout.forEach((item) => {
+      const c = configs[item.i]
+      if (!c || c.type === 'note') return
+      if (c.widgetItemId != null || c.tableName) {
+        loadWidgetDataset({ ...c, canvasKey: item.i })
+      }
     })
-  }, [configs, loadWidgetDataset])
+  }, [layout, configs, loadWidgetDataset])
+
+  const handleSaveBoard = useCallback(async () => {
+    const bid = selectedBoardIdRef.current
+    if (bid == null || !canEditBoard || saveBoardBusyRef.current) return
+    saveBoardBusyRef.current = true
+    setBoardSaving(true)
+    setBoardSaveError(null)
+    setSettingsWidgetId(null)
+    settingsModalSnapshotRef.current = null
+    try {
+      let L = [...layoutRef.current]
+      let C = { ...configsRef.current }
+
+      const dels = [...pendingDeleteServerIdsRef.current]
+      for (const d of dels) {
+        await deleteWidget(bid, d)
+      }
+      pendingDeleteServerIdsRef.current.clear()
+
+      const pendingCreates = [...L]
+        .filter((it) => C[it.i]?.type && C[it.i]?.widgetItemId == null)
+        .sort((a, b) => a.y - b.y || a.x - b.x)
+      for (const it of pendingCreates) {
+        const cfg = C[it.i]
+        const row = await addWidget(bid, buildAddWidgetBodyFromLocal(cfg, it))
+        const r = remapWidgetAfterCreate(L, C, it.i, row)
+        L = r.layout
+        C = r.configs
+      }
+
+      const patchIds = [...dirtyServerPatchWidgetIdsRef.current]
+      for (const wid of patchIds) {
+        const found = Object.entries(C).find(([, v]) => Number(v?.widgetItemId) === Number(wid))
+        if (!found) continue
+        const [, cfg] = found
+        await updateWidget(bid, wid, buildUpdateWidgetBodyFromCfg(cfg))
+      }
+      dirtyServerPatchWidgetIdsRef.current.clear()
+      dirtyServerDataWidgetIdsRef.current.clear()
+
+      const layoutRows = L.map((it) => ({
+        widget_item_id: Number(it.i),
+        layout_x: it.x,
+        layout_y: it.y,
+        layout_w: it.w,
+        layout_h: it.h
+      })).filter((row) => Number.isFinite(row.widget_item_id) && row.widget_item_id > 0)
+      if (layoutRows.length) await patchWidgetBoardLayout(bid, layoutRows)
+
+      await hydrateFromServer(bid)
+    } catch (e) {
+      setBoardSaveError(e?.message || '저장에 실패했습니다.')
+    } finally {
+      saveBoardBusyRef.current = false
+      setBoardSaving(false)
+    }
+  }, [canEditBoard, hydrateFromServer])
 
   const handleDelete = useCallback(
-    async (widgetId) => {
+    (widgetId) => {
       if (!confirmCrud('이 위젯을 보드에서 제거할까요?')) return
-      const bid = selectedBoardIdRef.current
-      const wn = Number(widgetId)
-      if (bid != null && canEditBoard && !Number.isNaN(wn)) {
-        try {
-          await deleteWidget(bid, wn)
-        } catch (e) {
-          console.warn('deleteWidget', e)
-          return
-        }
+      const cfg = configsRef.current[widgetId]
+      const wid = cfg?.widgetItemId
+      if (wid != null && canEditBoard) {
+        pendingDeleteServerIdsRef.current.add(Number(wid))
+        dirtyServerPatchWidgetIdsRef.current.delete(Number(wid))
+        dirtyServerDataWidgetIdsRef.current.delete(Number(wid))
       }
       setLayout((prev) => prev.filter((it) => it.i !== widgetId))
       setConfigs((prev) => {
@@ -746,132 +898,64 @@ export default function WidgetboardPage() {
         delete next[widgetId]
         return next
       })
+      if (canEditBoard) setIsBoardDirty(true)
     },
     [canEditBoard]
   )
 
   const handleDuplicate = useCallback(
-    async (widgetId) => {
+    (widgetId) => {
       const cfg = configs[widgetId]
       const item = layout.find((it) => it.i === widgetId)
-      const bid = selectedBoardIdRef.current
-      if (!cfg || !item || bid == null || !canEditBoard) return
+      if (!cfg || !item || !canEditBoard) return
       const maxY = layout.length ? Math.max(...layout.map((it) => it.y + it.h)) : 0
-      const dc = {
-        noteContent: cfg.noteContent,
-        dimensionKey: cfg.dimensionKey,
-        metricKey: cfg.metricKey,
-        chartType: cfg.chartType,
-        visibleColumns: cfg.visibleColumns,
-        columnOrder: cfg.columnOrder,
-        sortKey: cfg.sortKey,
-        sortDir: cfg.sortDir,
-        dateGrain: cfg.dateGrain,
-        dateStart: cfg.dateStart,
-        dateEnd: cfg.dateEnd,
-        dateColumn: cfg.dateColumn,
-        minW: item.minW,
-        minH: item.minH
+      const newId = newLocalWidgetItemId()
+      setLayout((prev) => [
+        ...prev,
+        {
+          i: newId,
+          x: 0,
+          y: maxY,
+          w: item.w,
+          h: item.h,
+          minW: item.minW,
+          minH: item.minH
+        }
+      ])
+      const dupCfg = {
+        ...cfg,
+        canvasKey: newId,
+        widgetItemId: undefined,
+        dataSourceType: cfg.type === 'note' ? 'query' : cfg.dataSourceType
       }
-      try {
-        const row = await addWidget(bid, {
-          widget_type: cfg.type,
-          widget_title: cfg.title || '',
-          data_source_type: cfg.type === 'note' ? 'query' : 'saved_table',
-          data_source_query: cfg.type === 'note' ? 'SELECT 1 LIMIT 0' : null,
-          data_source_ref: cfg.tableName || null,
-          data_config: dc,
-          layout_x: 0,
-          layout_y: maxY,
-          layout_w: item.w,
-          layout_h: item.h,
-          widget_order: 0
-        })
-        const id = String(row.widget_item_id)
-        setLayout((prev) => [
-          ...prev,
-          {
-            i: id,
-            x: 0,
-            y: maxY,
-            w: item.w,
-            h: item.h,
-            minW: item.minW,
-            minH: item.minH
-          }
-        ])
-        setConfigs((prev) => ({
-          ...prev,
-          [id]: {
-            ...cfg,
-            widgetItemId: row.widget_item_id,
-            dataSourceType: row.data_source_type
-          }
-        }))
-        if (cfg.tableName) loadWidgetDataset({ ...cfg, widgetItemId: row.widget_item_id })
-      } catch (e) {
-        console.warn('addWidget duplicate', e)
+      setConfigs((prev) => ({
+        ...prev,
+        [newId]: dupCfg
+      }))
+      setIsBoardDirty(true)
+      if (cfg.type !== 'note' && cfg.tableName) {
+        loadWidgetDataset({ ...dupCfg, canvasKey: newId })
       }
     },
     [configs, layout, canEditBoard, loadWidgetDataset]
   )
 
-  /** PATCH 성공 후에만 데이터 조회: 서버 /widgets/{id}/data 는 DB의 data_config 를 읽으므로, PATCH 전에 fetch 하면 이전 기간·설정이 나올 수 있음 */
+  /** 로컬만 반영; 서버 위젯이면 저장 시 PATCH·데이터는 로컬 쿼리로 미리보기 */
   const persistWidgetPatch = useCallback(
     (widgetId, patch, prevCfg, nextCfg) => {
-      const bid = selectedBoardIdRef.current
+      if (!canEditBoard) return
       const wid = prevCfg?.widgetItemId
-      if (bid == null || wid == null || !canEditBoard) return undefined
-      const body = {}
-      if (patch.widget_title !== undefined || patch.title !== undefined) {
-        body.widget_title = patch.title ?? patch.widget_title ?? ''
-      }
-      if (patch.tableName !== undefined) {
-        body.data_source_ref = patch.tableName
-        body.data_source_type = 'saved_table'
-      }
-      const touchesDc = WIDGET_DATA_CONFIG_KEYS.some((k) => patch[k] !== undefined)
-      if (touchesDc) {
-        body.data_config = buildDataConfigForApi(prevCfg || {}, patch)
-      }
-      if (Object.keys(body).length === 0) return undefined
       const reloadData =
         nextCfg &&
         nextCfg.type !== 'note' &&
         (patch.tableName !== undefined ||
           WIDGET_DATA_CONFIG_KEYS.some((k) => patch[k] !== undefined))
-      return updateWidget(bid, wid, body)
-        .then(() => {
-          if (reloadData) loadWidgetDataset(nextCfg)
-        })
-        .catch((e) => console.warn('updateWidget', e))
-    },
-    [canEditBoard, loadWidgetDataset]
-  )
-
-  /** 설정 취소 시 전체 cfg를 스냅샷으로 되돌릴 때 한 번에 PATCH */
-  const persistWidgetFullConfig = useCallback(
-    (widgetId, cfg) => {
-      const bid = selectedBoardIdRef.current
-      const wid = cfg?.widgetItemId
-      if (bid == null || wid == null || !canEditBoard || !cfg) return undefined
-      const body = {
-        widget_title: cfg.title ?? '',
-        data_config: buildDataConfigForApi(cfg, {})
+      if (wid != null) {
+        dirtyServerPatchWidgetIdsRef.current.add(Number(wid))
+        if (reloadData) dirtyServerDataWidgetIdsRef.current.add(Number(wid))
       }
-      if (cfg.type === 'note') {
-        body.data_source_type = cfg.dataSourceType || 'query'
-        body.data_source_query = 'SELECT 1 LIMIT 0'
-        body.data_source_ref = null
-      } else {
-        body.data_source_type = 'saved_table'
-        body.data_source_ref = cfg.tableName ?? null
-      }
-      return updateWidget(bid, wid, body)
-        .then(() => {
-          if (cfg.type !== 'note') loadWidgetDataset(cfg)
-        })
-        .catch((e) => console.warn('updateWidget full', e))
+      if (reloadData) loadWidgetDataset({ ...nextCfg, canvasKey: widgetId })
+      setIsBoardDirty(true)
     },
     [canEditBoard, loadWidgetDataset]
   )
@@ -879,24 +963,48 @@ export default function WidgetboardPage() {
   const handleOpenSettings = useCallback((id) => {
     const c = configsRef.current[id]
     settingsModalSnapshotRef.current = c ? JSON.parse(JSON.stringify(c)) : null
+    pendingSettingsRecApplyRef.current = false
+    setSettingsTableProfile(null)
+    setSettingsProfileLoading(false)
     setSettingsWidgetId(id)
   }, [])
 
   const handleSettingsConfirmClose = useCallback(() => {
     settingsModalSnapshotRef.current = null
     setSettingsWidgetId(null)
+    setSettingsTableProfile(null)
+    setSettingsProfileLoading(false)
+    pendingSettingsRecApplyRef.current = false
   }, [])
 
   const handleSettingsCancel = useCallback(() => {
     const id = settingsWidgetId
     const snap = settingsModalSnapshotRef.current
     if (id && snap) {
-      setConfigs((prev) => ({ ...prev, [id]: { ...snap } }))
-      persistWidgetFullConfig(id, snap)
+      setConfigs((prev) => ({ ...prev, [id]: { ...snap, canvasKey: id } }))
+      const wn = snap.widgetItemId
+      if (wn != null) {
+        dirtyServerPatchWidgetIdsRef.current.delete(Number(wn))
+        dirtyServerDataWidgetIdsRef.current.delete(Number(wn))
+        loadWidgetDataset({ ...snap, canvasKey: id })
+      }
+      queueMicrotask(() => {
+        const L = layoutRef.current || []
+        const C = configsRef.current || {}
+        const hasLocalOnly = L.some((it) => !C[it.i]?.widgetItemId)
+        const dirty =
+          pendingDeleteServerIdsRef.current.size > 0 ||
+          hasLocalOnly ||
+          dirtyServerPatchWidgetIdsRef.current.size > 0
+        setIsBoardDirty(dirty)
+      })
     }
     settingsModalSnapshotRef.current = null
     setSettingsWidgetId(null)
-  }, [settingsWidgetId, persistWidgetFullConfig])
+    setSettingsTableProfile(null)
+    setSettingsProfileLoading(false)
+    pendingSettingsRecApplyRef.current = false
+  }, [settingsWidgetId, loadWidgetDataset])
 
   const handleConfigUpdate = useCallback(
     (widgetId, patch) => {
@@ -939,15 +1047,9 @@ export default function WidgetboardPage() {
   const onLayoutChange = useCallback(
     (newLayout) => {
       setLayout(newLayout)
-      if (!canEditBoard) return
-      pendingLayoutRef.current = newLayout
-      if (layoutDebounceTimerRef.current) clearTimeout(layoutDebounceTimerRef.current)
-      layoutDebounceTimerRef.current = setTimeout(() => {
-        layoutDebounceTimerRef.current = null
-        flushLayoutToServer()
-      }, 600)
+      if (canEditBoard) setIsBoardDirty(true)
     },
-    [canEditBoard, flushLayoutToServer]
+    [canEditBoard]
   )
 
   const handlePaletteDragStart = (e, type) => {
@@ -983,51 +1085,34 @@ export default function WidgetboardPage() {
 
     if (isNote) {
       const maxY = layout.length ? Math.max(...layout.map((it) => it.y + it.h)) : 0
-      ;(async () => {
-        try {
-          const row = await addWidget(bid, {
-            widget_type: type,
-            widget_title: '',
-            data_source_type: 'query',
-            data_source_query: 'SELECT 1 LIMIT 0',
-            data_source_ref: null,
-            data_config: {},
-            layout_x: 0,
-            layout_y: maxY,
-            layout_w: sizes.w,
-            layout_h: sizes.h,
-            widget_order: 0
-          })
-          const newId = String(row.widget_item_id)
-          setLayout((prev) => [
-            ...prev,
-            {
-              i: newId,
-              x: 0,
-              y: maxY,
-              w: sizes.w,
-              h: sizes.h,
-              minW: sizes.minW,
-              minH: sizes.minH
-            }
-          ])
-          const newCfg = {
-            type,
-            title: '',
-            tableName: null,
-            widgetItemId: row.widget_item_id,
-            dataSourceType: row.data_source_type
-          }
-          setConfigs((prev) => ({
-            ...prev,
-            [newId]: newCfg
-          }))
-          settingsModalSnapshotRef.current = JSON.parse(JSON.stringify(newCfg))
-          setSettingsWidgetId(newId)
-        } catch (err) {
-          console.warn('addWidget', err)
+      const newId = newLocalWidgetItemId()
+      setLayout((prev) => [
+        ...prev,
+        {
+          i: newId,
+          x: 0,
+          y: maxY,
+          w: sizes.w,
+          h: sizes.h,
+          minW: sizes.minW,
+          minH: sizes.minH
         }
-      })()
+      ])
+      const newCfg = {
+        canvasKey: newId,
+        type,
+        title: '',
+        tableName: null,
+        widgetItemId: undefined,
+        dataSourceType: 'query'
+      }
+      setConfigs((prev) => ({
+        ...prev,
+        [newId]: newCfg
+      }))
+      setIsBoardDirty(true)
+      settingsModalSnapshotRef.current = JSON.parse(JSON.stringify(newCfg))
+      setSettingsWidgetId(newId)
       return
     }
 
@@ -1036,85 +1121,51 @@ export default function WidgetboardPage() {
   }
 
   const handleDataWizardSubmit = useCallback(
-    async (payload) => {
+    (payload) => {
       if (!dataWizard || !canEditBoard) return
-      const bid = selectedBoardIdRef.current
-      if (bid == null) return
 
       if (dataWizard.widgetType) {
         const type = dataWizard.widgetType
         const maxY = layout.length ? Math.max(...layout.map((it) => it.y + it.h)) : 0
         const sz = DEFAULT_SIZES[type] || DEFAULT_SIZES.kpi
-        const dcBase = {
-          dateGrain: payload.dateGrain,
-          dateStart: payload.dateStart,
-          dateEnd: payload.dateEnd,
+        const newId = newLocalWidgetItemId()
+        setLayout((prev) => [
+          ...prev,
+          {
+            i: newId,
+            x: 0,
+            y: maxY,
+            w: sz.w,
+            h: sz.h,
+            minW: sz.minW,
+            minH: sz.minH
+          }
+        ])
+        const nextCfg = {
+          canvasKey: newId,
+          type,
+          title: payload.title?.trim() || '',
+          tableName: payload.tableName,
+          ...(payload.dateGrain != null &&
+          payload.dateStart != null &&
+          payload.dateEnd != null
+            ? { dateGrain: payload.dateGrain, dateStart: payload.dateStart, dateEnd: payload.dateEnd }
+            : {}),
+          dateColumn: payload.dateColumn || undefined,
+          metricKey: payload.metricKey || null,
+          dimensionKey: payload.dimensionKey || null,
+          chartType: payload.chartType,
           minW: sz.minW,
-          minH: sz.minH
+          minH: sz.minH,
+          widgetItemId: undefined,
+          dataSourceType: 'saved_table'
         }
-        if (payload.dateColumn) dcBase.dateColumn = payload.dateColumn
-        if (payload.metricKey) dcBase.metricKey = payload.metricKey
-        if (payload.dimensionKey) dcBase.dimensionKey = payload.dimensionKey
-        try {
-          const row = await addWidget(bid, {
-            widget_type: type,
-            widget_title: payload.title?.trim() || '새 위젯',
-            data_source_type: 'saved_table',
-            data_source_query: null,
-            data_source_ref: payload.tableName,
-            data_config: dcBase,
-            layout_x: 0,
-            layout_y: maxY,
-            layout_w: sz.w,
-            layout_h: sz.h,
-            widget_order: 0
-          })
-          const newId = String(row.widget_item_id)
-          setLayout((prev) => [
-            ...prev,
-            {
-              i: newId,
-              x: 0,
-              y: maxY,
-              w: sz.w,
-              h: sz.h,
-              minW: sz.minW,
-              minH: sz.minH
-            }
-          ])
-          setConfigs((prev) => ({
-            ...prev,
-            [newId]: {
-              type,
-              title: payload.title?.trim() || '',
-              tableName: payload.tableName,
-              dateGrain: payload.dateGrain,
-              dateStart: payload.dateStart,
-              dateEnd: payload.dateEnd,
-              dateColumn: payload.dateColumn || undefined,
-              metricKey: payload.metricKey || null,
-              dimensionKey: payload.dimensionKey || null,
-              minW: sz.minW,
-              minH: sz.minH,
-              widgetItemId: row.widget_item_id,
-              dataSourceType: 'saved_table'
-            }
-          }))
-          loadWidgetDataset({
-            type,
-            title: payload.title,
-            tableName: payload.tableName,
-            dateGrain: payload.dateGrain,
-            dateStart: payload.dateStart,
-            dateEnd: payload.dateEnd,
-            dateColumn: payload.dateColumn || undefined,
-            metricKey: payload.metricKey || null,
-            dimensionKey: payload.dimensionKey || null,
-            widgetItemId: row.widget_item_id
-          })
-        } catch (err) {
-          console.warn('addWidget wizard', err)
-        }
+        setConfigs((prev) => ({
+          ...prev,
+          [newId]: nextCfg
+        }))
+        setIsBoardDirty(true)
+        loadWidgetDataset({ ...nextCfg, canvasKey: newId })
         setDataWizard(null)
         return
       }
@@ -1125,16 +1176,124 @@ export default function WidgetboardPage() {
   const settingsConfig = settingsWidgetId ? configs[settingsWidgetId] : null
   const settingsCacheKey = settingsConfig ? cacheKeyForConfig(settingsConfig) : null
   const settingsTableData = settingsCacheKey ? tableDataCache[settingsCacheKey] : null
-  const settingsColumns = settingsTableData?.columns || []
+  const settingsColumns = useMemo(() => settingsTableData?.columns || [], [settingsTableData])
   /** 복수 일(시작≠끝)이면 차원은 기간 단위로 자동 집계·셀렉트 비활성. 단일 일만 차원(범주 축) 선택 가능 */
   const settingsDimLocked =
     Boolean(settingsConfig) &&
     isMultiDayWidgetRange(settingsConfig.dateStart, settingsConfig.dateEnd) &&
     ['lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge'].includes(settingsConfig.type)
 
+  const profileSemanticByColSettings = useMemo(() => {
+    const m = {}
+    settingsTableProfile?.columns?.forEach((c) => {
+      if (c?.name) m[c.name] = c.semantic_role
+    })
+    return m
+  }, [settingsTableProfile])
+
+  const settingsMergedColumns = useMemo(
+    () =>
+      settingsColumns.map((c) => ({
+        ...c,
+        semantic_role: profileSemanticByColSettings[c.name] ?? c.semantic_role
+      })),
+    [settingsColumns, profileSemanticByColSettings]
+  )
+
+  const settingsHasTemporal = hasTemporalColumn(settingsTableProfile)
+
+  const settingsTablesWithTier = useMemo(
+    () =>
+      sortTablesByMatchScore(tables, settingsConfig?.type || 'table').map((row) => ({
+        row,
+        name: String(row?.table_name ?? row?.[0] ?? '').trim(),
+        match: calculateMatchScore(settingsConfig?.type || 'table', row.role_summary ?? null)
+      })),
+    [tables, settingsConfig?.type]
+  )
+
+  const settingsFilteredRecs = useMemo(
+    () =>
+      DATA_LIKE_WIDGET_TYPES.includes(settingsConfig?.type) &&
+      settingsConfig?.type !== 'table' &&
+      settingsConfig?.type !== 'note'
+        ? filterRecommendationsForWidget(settingsTableProfile?.recommendations, settingsConfig.type)
+        : [],
+    [settingsConfig?.type, settingsTableProfile?.recommendations]
+  )
+
+  const settingsPreviewSampleColNames = useMemo(
+    () => profileSampleTableColumnNames(settingsTableProfile),
+    [settingsTableProfile]
+  )
+
   useEffect(() => {
     if (settingsWidgetId) loadTables()
   }, [settingsWidgetId, loadTables])
+
+  useEffect(() => {
+    if (!settingsWidgetId || !settingsConfig?.tableName?.trim()) {
+      setSettingsTableProfile(null)
+      setSettingsProfileLoading(false)
+      return undefined
+    }
+    const tn = settingsConfig.tableName.trim()
+    const tableRow = tables.find((t) => String(t?.table_name ?? t?.[0] ?? '').trim() === tn)
+    const tmid = tableRow?.table_master_id
+    if (tmid == null) {
+      setSettingsTableProfile(null)
+      setSettingsProfileLoading(false)
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      setSettingsProfileLoading(true)
+      try {
+        const p = await getTableProfile(tmid)
+        if (cancelled) return
+        setSettingsTableProfile(p)
+        /** 테이블 변경 직후 추천 적용: 별도 useEffect(settingsConfig)에 두면 배치 타이밍으로 누락될 수 있음 */
+        const widNow = settingsWidgetIdRef.current
+        const cfg = widNow ? configsRef.current[widNow] : null
+        if (widNow && cfg && pendingSettingsRecApplyRef.current && p?.recommendations?.length) {
+          const recList = filterRecommendationsForWidget(p.recommendations, cfg.type)
+          const rec = recList[0]
+          pendingSettingsRecApplyRef.current = false
+          if (rec) {
+            const patch = buildConfigPatchFromRecommendation(rec, p.columns || [], {
+              dateStart: cfg.dateStart,
+              dateEnd: cfg.dateEnd
+            })
+            handleConfigUpdate(widNow, patch)
+          }
+        }
+      } catch {
+        if (!cancelled) setSettingsTableProfile(null)
+      } finally {
+        if (!cancelled) setSettingsProfileLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [settingsWidgetId, settingsConfig?.tableName, tables, handleConfigUpdate])
+
+  useEffect(() => {
+    const wid = settingsWidgetId
+    if (!wid || !settingsTableProfile) return
+    if (!hasTemporalColumn(settingsTableProfile)) return
+    const dc = settingsConfig?.dateColumn
+    if (dc != null && String(dc).trim() !== '') return
+    const first = settingsTableProfile.columns.find((c) => c.semantic_role === 'TEMPORAL' && c.name)
+    if (!first?.name) return
+    handleConfigUpdate(wid, { dateColumn: first.name })
+  }, [
+    settingsWidgetId,
+    settingsTableProfile,
+    settingsConfig?.dateColumn,
+    settingsConfig?.tableName,
+    handleConfigUpdate
+  ])
 
   return (
     <div className="widgetboard">
@@ -1149,7 +1308,28 @@ export default function WidgetboardPage() {
       >
         <div className="widgetboard-header-actions">
           {!canEditBoard && !boardsLoading && <span className="widgetboard-readonly-hint">읽기 전용</span>}
+          {canEditBoard && isBoardDirty && !boardsLoading && (
+            <span className="widgetboard-unsaved-hint" title="상단 저장을 눌러야 서버에 반영됩니다">
+              저장되지 않음
+            </span>
+          )}
           {boardInitError && <div className="widgetboard-board-error" role="alert">{boardInitError}</div>}
+          {boardSaveError && (
+            <div className="widgetboard-board-error" role="alert">
+              {boardSaveError}
+            </div>
+          )}
+          <button
+            type="button"
+            className="btn-save-board"
+            onClick={() => {
+              void handleSaveBoard()
+            }}
+            disabled={!canEditBoard || !isBoardDirty || boardSaving || boardsLoading}
+            title="위젯 추가·수정·삭제·배치를 서버에 반영"
+          >
+            {boardSaving ? '저장 중…' : '저장'}
+          </button>
           <button type="button" className="btn-refresh" onClick={handleRefresh} title="전체 새로고침">
             ⟳ 새로고침
           </button>
@@ -1288,85 +1468,206 @@ export default function WidgetboardPage() {
                       value={settingsConfig.tableName ?? ''}
                       onChange={(e) => {
                         const v = (e.target.value || '').trim()
+                        pendingSettingsRecApplyRef.current = Boolean(v)
                         handleConfigUpdate(settingsWidgetId, {
                           tableName: v || null,
                           dimensionKey: null,
-                          metricKey: null
+                          metricKey: null,
+                          dateColumn: ''
                         })
                       }}
                     >
                       <option value="">선택…</option>
-                      {tables.map((t) => {
-                        const name = t?.table_name ?? t?.[0] ?? String(t)
+                      {['적합', '부분 적합', '프로파일 없음·기타', '부적합(참고)'].map((label, ig) => {
+                        const tiers = [['ok'], ['partial'], ['unknown'], ['bad']][ig]
+                        const items = settingsTablesWithTier.filter((x) => tiers.includes(x.match.tier))
+                        if (!items.length) return null
                         return (
-                          <option key={name} value={name}>{name}</option>
+                          <optgroup key={label} label={label}>
+                            {items.map(({ name, match }) => (
+                              <option key={name} value={name} disabled={match.tier === 'bad'} title={(match.missingLabels || []).join('; ')}>
+                                {name}{match.tier === 'unknown' ? ' · 프로파일 없음' : ''}
+                                {match.tier !== 'unknown' ? ` (${(match.score * 100).toFixed(0)}%)` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
                         )
                       })}
                     </select>
                   )}
+                  {settingsProfileLoading ? <span className="widget-wizard-hint">프로파일 로딩…</span> : null}
                 </div>
               )}
+              {settingsConfig.tableName &&
+              uiChartTypesAllowedForWidgetPalette(settingsConfig.type) != null &&
+              (settingsTableProfile?.recommendations || []).length > 0 &&
+              DATA_LIKE_WIDGET_TYPES.includes(settingsConfig.type) &&
+              settingsConfig.type !== 'table' &&
+              settingsConfig.type !== 'note' ? (
+                <div className="settings-row wb-wiz-recommend-row">
+                  <label>추천 안내</label>
+                  {settingsFilteredRecs.length > 0 ? (
+                    <ul className="wb-rec-hints">
+                      {settingsFilteredRecs.map((rec, idx) => (
+                        <li key={rec.rank ?? idx} className="wb-rec-hint-line">
+                          <span className="wb-rec-hint-label">{formatRecommendationChipLabel(rec)}</span>
+                          {rec.reason_ko ? (
+                            <span className="wb-rec-hint-reason"> — {String(rec.reason_ko)}</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="wb-rec-reason">
+                      이 위젯 유형에 맞는 차트 추천이 없습니다. 차트 유형·지표·축은 아래에서 직접 선택하세요.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {settingsTableProfile?.columns?.length ? (
+                <details className="wb-profile-preview-acc">
+                  <summary role="button" className="wb-profile-preview-acc__sum">
+                    데이터 미리보기 (샘플 {settingsTableProfile.sample_count ?? 0}행 / 전체{' '}
+                    {(settingsTableProfile.total_rows ?? 0).toLocaleString('ko-KR')}행)
+                  </summary>
+                  <div className="wb-profile-preview-acc__inner">
+                    <table className="wb-profile-sum-table">
+                      <thead>
+                        <tr>
+                          <th>이름</th>
+                          <th>타입</th>
+                          <th>분류</th>
+                          <th>NULL%</th>
+                          <th>고유값</th>
+                          <th>Min</th>
+                          <th>Max</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {settingsTableProfile.columns.map((col) => (
+                          <tr key={col.name}>
+                            <td>{col.name}</td>
+                            <td>{col.pg_type ?? '-'}</td>
+                            <td>
+                              <span className={`wb-role-tag wb-role-tag--${String(col.semantic_role || '').toLowerCase()}`}>
+                                {(col.semantic_role && SEMANTIC_ROLE_LABEL_KO[col.semantic_role]) || col.semantic_role || '-'}
+                              </span>
+                            </td>
+                            <td>{typeof col.null_ratio === 'number' ? `${(col.null_ratio * 100).toFixed(1)}%` : '-'}</td>
+                            <td>{typeof col.distinct_count === 'number' ? col.distinct_count : '-'}</td>
+                            <td>{col.min_value != null ? String(col.min_value) : '—'}</td>
+                            <td>{col.max_value != null ? String(col.max_value) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {Array.isArray(settingsTableProfile.sample_rows) && settingsTableProfile.sample_rows.length ? (
+                      <div className="wb-profile-sample-scroll">
+                        <table className="wb-profile-sum-table wb-profile-sample-table">
+                          <thead>
+                            <tr>
+                              {(settingsPreviewSampleColNames.length
+                                ? settingsPreviewSampleColNames
+                                : Object.keys(settingsTableProfile.sample_rows[0])
+                              ).map((k) => (
+                                <th key={k}>{k}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {settingsTableProfile.sample_rows.slice(0, 5).map((rw, ri) => (
+                              <tr key={ri}>
+                                {(settingsPreviewSampleColNames.length
+                                  ? settingsPreviewSampleColNames
+                                  : Object.keys(settingsTableProfile.sample_rows[0])
+                                ).map((k) => (
+                                  <td key={k}>{rw[k] != null ? String(rw[k]) : '—'}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
+              ) : null}
               {settingsConfig.type !== 'note' && DATA_LIKE_WIDGET_TYPES.includes(settingsConfig.type) && settingsConfig.tableName && (
                 <>
-                  <div className="settings-row">
-                    <label>기간 단위</label>
-                    <select
-                      className="widget-wizard-select"
-                      value={settingsConfig.dateGrain || 'day'}
-                      onChange={(e) => {
-                        const g = e.target.value
-                        const d = defaultRangeForGrain(g)
-                        handleDataWidgetRangePatch(settingsWidgetId, { dateGrain: g, dateStart: d.start, dateEnd: d.end })
-                      }}
-                    >
-                      <option value="day">일별 (최대 14일)</option>
-                      <option value="week">주별 (최대 12주)</option>
-                      <option value="month">월별 (최대 12개월)</option>
-                    </select>
-                  </div>
-                  <div className="settings-row widget-wizard-dates">
-                    <label>적용 기간</label>
-                    <div className="widget-wizard-date-row">
-                      <input
-                        type="date"
-                        className="date-input"
-                        value={settingsConfig.dateStart ?? ''}
-                        onChange={(e) => handleDataWidgetRangePatch(settingsWidgetId, { dateStart: e.target.value })}
-                      />
-                      <span>~</span>
-                      <input
-                        type="date"
-                        className="date-input"
-                        value={settingsConfig.dateEnd ?? ''}
-                        onChange={(e) => handleDataWidgetRangePatch(settingsWidgetId, { dateEnd: e.target.value })}
-                      />
-                    </div>
-                    {(() => {
-                      const v = validateWidgetDateRange(
-                        settingsConfig.dateGrain || 'day',
-                        settingsConfig.dateStart,
-                        settingsConfig.dateEnd
-                      )
-                      return !v.ok ? <p className="widget-wizard-error">{v.error}</p> : null
-                    })()}
-                  </div>
-                  {settingsColumns.some((c) => isDateType(c?.type)) && (
+                  {settingsHasTemporal ? (
+                    <>
+                      <div className="settings-row">
+                        <label>기간 단위</label>
+                        <select
+                          className="widget-wizard-select"
+                          value={settingsConfig.dateGrain || 'day'}
+                          onChange={(e) => {
+                            const g = e.target.value
+                            const d = defaultRangeForGrain(g)
+                            handleDataWidgetRangePatch(settingsWidgetId, { dateGrain: g, dateStart: d.start, dateEnd: d.end })
+                          }}
+                        >
+                          <option value="day">일별 (최대 14일)</option>
+                          <option value="week">주별 (최대 12주)</option>
+                          <option value="month">월별 (최대 12개월)</option>
+                        </select>
+                      </div>
+                      <div className="settings-row widget-wizard-dates">
+                        <label>적용 기간</label>
+                        <div className="widget-wizard-date-row">
+                          <input
+                            type="date"
+                            className="date-input"
+                            value={settingsConfig.dateStart ?? ''}
+                            onChange={(e) => handleDataWidgetRangePatch(settingsWidgetId, { dateStart: e.target.value })}
+                          />
+                          <span>~</span>
+                          <input
+                            type="date"
+                            className="date-input"
+                            value={settingsConfig.dateEnd ?? ''}
+                            onChange={(e) => handleDataWidgetRangePatch(settingsWidgetId, { dateEnd: e.target.value })}
+                          />
+                        </div>
+                        {(() => {
+                          const v = validateWidgetDateRange(
+                            settingsConfig.dateGrain || 'day',
+                            settingsConfig.dateStart,
+                            settingsConfig.dateEnd
+                          )
+                          return !v.ok ? <p className="widget-wizard-error">{v.error}</p> : null
+                        })()}
+                      </div>
+                      <div className="settings-row">
+                        <label>날짜 컬럼</label>
+                        <select
+                          className="widget-wizard-select"
+                          value={settingsConfig.dateColumn ?? ''}
+                          onChange={(e) =>
+                            handleConfigUpdate(settingsWidgetId, {
+                              dateColumn: e.target.value === '' ? '' : e.target.value
+                            })
+                          }
+                        >
+                          <option value="">자동</option>
+                          {[
+                            ...new Set([
+                              ...(settingsTableProfile?.columns || [])
+                                .filter((c) => c.semantic_role === 'TEMPORAL' && c.name)
+                                .map((c) => c.name),
+                              ...settingsColumns.filter((c) => isDateType(c?.type)).map((c) => c.name)
+                            ])
+                          ].map((nm) => (
+                            <option key={nm} value={nm}>
+                              {formatAxisOptionCaption(nm, profileSemanticByColSettings[nm])}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
                     <div className="settings-row">
-                      <label>날짜 컬럼</label>
-                      <select
-                        className="widget-wizard-select"
-                        value={settingsConfig.dateColumn ?? ''}
-                        onChange={(e) =>
-                          handleConfigUpdate(settingsWidgetId, {
-                            dateColumn: e.target.value === '' ? '' : e.target.value
-                          })
-                        }
-                      >
-                        <option value="">자동</option>
-                        {settingsColumns.filter((c) => isDateType(c?.type)).map((c) => (
-                          <option key={c.name} value={c.name}>{c.name}</option>
-                        ))}
-                      </select>
+                      <p className="settings-hint">일자 타입 컬럼이 없어 기간·기준일 필터는 적용하지 않습니다.</p>
                     </div>
                   )}
                 </>
@@ -1375,7 +1676,7 @@ export default function WidgetboardPage() {
                 settingsConfig.tableName &&
                 ['kpi', 'lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge'].includes(settingsConfig.type) && (
                 <>
-                  {settingsColumns.length > 0 && (
+                  {settingsMergedColumns.length > 0 && (
                     <>
                       {['lineChart', 'barChart', 'pieChart', 'echartsRadar', 'echartsGauge'].includes(settingsConfig.type) && (
                         <div className="settings-row">
@@ -1387,8 +1688,10 @@ export default function WidgetboardPage() {
                             disabled={settingsDimLocked}
                           >
                             <option value="">자동</option>
-                            {settingsColumns.filter((c) => isDimensionType(c?.type)).map((c) => (
-                              <option key={c.name} value={c.name}>{c.name}</option>
+                            {settingsMergedColumns.filter((c) => isDimensionType(c?.type)).map((c) => (
+                              <option key={c.name} value={c.name}>
+                                {formatAxisOptionCaption(c.name, c.semantic_role)}
+                              </option>
                             ))}
                           </select>
                           {settingsDimLocked ? (
@@ -1410,8 +1713,10 @@ export default function WidgetboardPage() {
                           onChange={(e) => handleConfigUpdate(settingsWidgetId, { metricKey: e.target.value || null })}
                         >
                           <option value="">자동</option>
-                          {settingsColumns.filter((c) => isNumericType(c?.type)).map((c) => (
-                            <option key={c.name} value={c.name}>{c.name}</option>
+                          {settingsMergedColumns.filter((c) => isNumericType(c?.type)).map((c) => (
+                            <option key={c.name} value={c.name}>
+                              {formatAxisOptionCaption(c.name, c.semantic_role)}
+                            </option>
                           ))}
                         </select>
                       </div>

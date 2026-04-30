@@ -33,7 +33,7 @@ SQL을 모르는 사용자도 엑셀처럼 드래그 앤 드롭으로 CRM 데이
 
 ### 위젯보드 (`/widgetboard`)
 
-드래그 앤 드롭 위젯 그리드 대시보드이다. 레이아웃·위젯 설정은 `localStorage`에 저장하고, 기존 대시보드·리포트 API를 활용한다.
+드래그 앤 드롭 위젯 그리드 대시보드이다. 보드·위젯·레이아웃·공유는 **`/api/widget-boards`** 로 서버 저장된다. 저장 테이블 위젯은 쿼리 스튜디오 **`list-tables`**(`mapping_usage=widgetboard`)와 **`GET /api/widget-boards/table/{table_master_id}/profile`** 로 컬럼 프로파일·차트 추천·미리보기·적합도 UI를 쓴다(`table_master.column_profiles` 캐시, QS/ETL 등록 시 갱신). 상세는 **docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md** 및 **docs/main/03_API_GUIDE.md** §6.2, **04_DB_ARCHITECTURE.md** `table_master`, **01_FRONTEND_GUIDE.md** §4.3.
 
 ### ETL (`/etl`, 단일 패키지)
 
@@ -243,7 +243,8 @@ DB 설정이 없으면 API 서버는 "DB 설정이 없습니다" 오류를 반�
 
 | 위치 | 용도 |
 |------|------|
-| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, **03_API_GUIDE**, 04_DB_ARCHITECTURE, **05_PERMISSION_GUIDE**, 06_CUSTOMER_JOURNEY, 07_USER_FUNCTIONAL_GUIDE, 08_TERMINOLOGY |
+| **docs/main/** | 현행 시스템 가이드: 00_PRD, 01_FRONTEND, 02_BACKEND, **03_API_GUIDE**, 04_DB_ARCHITECTURE, **05_PERMISSION_GUIDE**, 06_CUSTOMER_JOURNEY, 07_USER_FUNCTIONAL_GUIDE, 08_TERMINOLOGY, **09_TECH_STACK** |
+| **docs/report/26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md** | 위젯보드 컬럼 프로파일·차트 추천·프론트 Phase 3·4·API·수동 DDL |
 | **docs/report/22_System_Log_Development_Plan.md** | 시스템 감사·통합 이력 설계 |
 | **docs/report/03_AI_DEVELOP_GUIDE.md** | AI·온보딩 지도 |
 | **docs/README.md** | `docs` 폴더 구성(main / log / report) 안내 |

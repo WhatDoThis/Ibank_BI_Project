@@ -26,6 +26,7 @@ FastAPI 앱 생성·CORS·라우터 등록·예외 핸들러. config.backend로 
 8. etl_router: /api/etl/* — `dependencies=[require_etl_infrastructure]` (sa_dev 또는 etl_yn=Y)
 9. campaign_dashboard_router: /api/campaign-dashboard/* — Star 테이블(`dependencies=[require_permission("dashboard")]`)
 10. widget_board_router: /api/widget-boards/* — 위젯 보드 메타·레이아웃(`dependencies=[require_permission("widgetboard")]`)
+10a. widget_board_admin_router: POST /api/widget-boards/admin/backfill-profiles (`require_org_admin` 단독)
 
 [Dependencies]
 =========
@@ -55,12 +56,13 @@ from Backend.auth_server.permissions import require_etl_infrastructure, require_
 from Backend.project_server import router as project_router
 from Backend.notification_server import router as notification_router
 from Backend.admin_server import router as admin_router
+from Backend.admin_server.deps import require_org_admin
 from Backend.api_server.middleware.correlation import CorrelationIdMiddleware
 from Backend.api_server.routers import health_router, query_studio_router
 from Backend.system_log_server import router as system_log_router
 from Backend.etl_server import router as etl_router
 from Backend.campaign_dash_server import router as campaign_dashboard_router
-from Backend.widget_board_server import router as widget_board_router
+from Backend.widget_board_server import admin_router as widget_board_admin_router, router as widget_board_router
 
 from contextlib import asynccontextmanager
 
@@ -120,6 +122,11 @@ app.include_router(
 app.include_router(
     widget_board_router,
     dependencies=[Depends(require_permission("widgetboard"))],
+)
+app.include_router(
+    widget_board_admin_router,
+    prefix="/api/widget-boards",
+    dependencies=[Depends(require_org_admin)],
 )
 
 

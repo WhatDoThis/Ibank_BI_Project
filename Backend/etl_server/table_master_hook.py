@@ -9,12 +9,13 @@ ETL이 메인 DB에 물리 테이블을 만들거나 적재를 완료했을 때,
 
 [Main Functions]
 ===========
-1. upsert_table_master_after_load: 적재 성공 직후 호출. 연결·SQL 오류 시 예외를 삼키고 경고 로그만 남긴다.
+1. upsert_table_master_after_load: 적재 성공 직후 호출. UPSERT `RETURNING table_master_id` 후 커밋·별도 연결로 `ensure_profile(..., force=True)` 시도(실패는 로그만). UPSERT/SQL 오류 시 예외를 삼키고 경고 로그만 남긴다.
 2. table_master_texts_from_etl_row: etl_tables 행에서 table_label·table_dscrtn(레거시 description 폴백) 추출.
 
 [Dependencies]
 =========
-- Backend.core.db (get_db_connection_system_core)
+- Backend.core.db (get_db_connection_system_core, get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema)
+- Backend.widget_board_server.column_profiler.ensure_profile
 - psycopg2, psycopg2.extras.RealDictCursor
 """
 
@@ -60,6 +61,7 @@ def upsert_table_master_after_load(
     from Backend.core import db as core_db
 
     conn = None
+    tm_id = None
     try:
         conn = core_db.get_db_connection_system_core()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -84,12 +86,58 @@ def upsert_table_master_after_load(
                         THEN EXCLUDED.table_dscrtn
                         ELSE table_master.table_dscrtn
                     END
+                RETURNING table_master_id
                 """,
                 (dt, tn, create_user_id, tl, td),
             )
+            row_tm = cur.fetchone()
+            if row_tm is not None:
+                tm_id = int(row_tm["table_master_id"])
             conn.commit()
         finally:
             cur.close()
+        if tm_id is not None:
+            try:
+                from Backend.widget_board_server.column_profiler import ensure_profile
+
+                sch = (
+                    core_db.get_table_schema()
+                    if dt == "main"
+                    else core_db.get_dash_table_schema()
+                )
+                sys_prof_conn = core_db.get_db_connection_system_core()
+                data_prof_conn = (
+                    core_db.get_db_connection()
+                    if dt == "main"
+                    else core_db.get_db_connection_dash()
+                )
+                try:
+                    ensure_profile(
+                        sys_prof_conn,
+                        data_prof_conn,
+                        tm_id,
+                        sch,
+                        tn,
+                        force=True,
+                    )
+                finally:
+                    try:
+                        data_prof_conn.close()
+                    except Exception:
+                        pass
+                    try:
+                        sys_prof_conn.close()
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(
+                    "table_master 프로파일 실패 db_type=%s table=%s id=%s: %s",
+                    dt,
+                    tn,
+                    tm_id,
+                    e,
+                    exc_info=True,
+                )
     except Exception as e:
         logger.warning("table_master_upsert_fail db_type=%s table=%s (load_kept): %s", dt, tn, e)
         if conn:

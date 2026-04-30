@@ -2,10 +2,12 @@
 widget_board_server.router (/api/widget-boards)
 ===============================================
 위젯 보드 CRUD·레이아웃·공유·위젯 데이터. 라우터 단 `Depends(require_permission("widgetboard"))` 는 main.py include 시 부착.
+관리용 `admin_router`는 `require_org_admin`만 부착하여 별도 include 한다.
 
 [Endpoints]
 ===========
 (아래 순서 = 본 파일 `@router` 선언 순서·본문 `# N.` 대응)
+0. GET /table/{table_master_id}/profile — 컬럼 프로파일·차트 추천(`TableProfileResponse`)
 1. GET /api/widget-boards — 목록
 2. POST /api/widget-boards — 생성
 3. GET /api/widget-boards/{board_id} — 상세
@@ -22,6 +24,9 @@ widget_board_server.router (/api/widget-boards)
 14. DELETE /api/widget-boards/{board_id}/share/{shared_user_id} — `# 11.`
 15. POST /api/widget-boards/{board_id}/widgets/{widget_id}/data — `# 12.`
 
+[admin_router — main.py 에서 prefix `/api/widget-boards`·Depends(require_org_admin) 로 별도 include]
+- POST /admin/backfill-profiles — column_profiles 백필
+
 [본문 번호 규칙]
 ===========
 동일 `board_id` 접두 하위에 참가자·초대 후보를 두어 **`# 3b.`·`# 3c.`**; 초대·레이아웃·공유 구간은 **`# 9.`**대 **`# 9b.`** 등 부번호로 묶는다.
@@ -29,17 +34,24 @@ widget_board_server.router (/api/widget-boards)
 [Dependencies]
 =========
 - fastapi, Backend.auth_server.permissions.require_permission
+- Backend.admin_server.deps.require_org_admin (`admin_router`)
 - Backend.core.dependencies.get_system_db
+- Backend.widget_board_server.column_profiler.backfill_missing_profiles (`admin_router`)
 - Backend.widget_board_server.service, schemas
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 
+from Backend.admin_server.deps import require_org_admin
 from Backend.auth_server.permissions import require_permission
 from Backend.core.dependencies import get_system_db
+from Backend.widget_board_server.column_profiler import backfill_missing_profiles
 from Backend.widget_board_server import schemas, service
 
 router = APIRouter(prefix="/api/widget-boards", tags=["widget-boards"])
+admin_router = APIRouter(tags=["widget-boards-admin"])
 
 
 def _uid(payload: dict) -> int:
@@ -60,6 +72,47 @@ def _map(e: ValueError) -> HTTPException:
             return HTTPException(status_code=404, detail=msg)
         return HTTPException(status_code=403, detail=msg)
     return HTTPException(status_code=400, detail=msg)
+
+
+# 0.
+@router.get(
+    "/table/{table_master_id}/profile",
+    response_model=schemas.TableProfileResponse,
+)
+def wb_table_profile(
+    table_master_id: int,
+    payload: dict = Depends(require_permission("widgetboard")),
+    conn=Depends(get_system_db),
+):
+    try:
+        return service.get_table_profile_with_recommendations(
+            conn, table_master_id, _pid(payload)
+        )
+    except ValueError as e:
+        raise _map(e) from e
+
+
+@admin_router.post("/admin/backfill-profiles")
+def wb_admin_backfill_profiles(
+    body: schemas.BackfillProfilesBody | None = None,
+    actor: dict = Depends(require_org_admin),
+    conn=Depends(get_system_db),
+):
+    del actor  # 감사·확장용 훅
+    try:
+        bs = int(body.batch_size) if body and body.batch_size is not None else 10
+    except (TypeError, ValueError):
+        bs = 10
+
+    from Backend.core import db as core_db
+
+    def _get_data_conn(dt: str) -> Any:
+        d = (dt or "main").strip().lower()
+        if d == "dash":
+            return core_db.get_db_connection_dash()
+        return core_db.get_db_connection()
+
+    return backfill_missing_profiles(conn, _get_data_conn, batch_size=bs)
 
 
 # 1.

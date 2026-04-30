@@ -15,7 +15,7 @@ Env/config/config.json의 backend만 사용. FastAPI 라우터는 dependencies.g
 5. get_system_table_schema: ETL 스키마 우선(backend.etl_db.table_schema), 없으면 system_db.table_schema fallback
 6. get_system_table_schema_core: 비ETL 시스템 기능용 system_db.table_schema 고정 반환
 7. list_dash_schema_table_names: dash_db 스키마 BASE TABLE 목록(대시보드 후보 스캔)
-8. get_allowed_tables_by_project: project_info_id + db_type + 선택적 QS/위젯 플래그 필터(table_project_mapping)
+8. get_allowed_tables_by_project: project_info_id + db_type + 선택적 QS/위젯 플래그 필터(table_project_mapping); include_meta 시 table_master_id·column_profiles 포함
 9. get_allowed_tables: get_allowed_tables_by_project 위임
 9a. get_merged_allowed_table_names_for_project: 쿼리스튜디오·위젯보드용 허용명 — main_db 매핑만(dash 제외)
 9. get_table_schema: backend.main_db.table_schema(비면 public; main_db 필수)
@@ -439,10 +439,12 @@ def get_allowed_tables_by_project(
         cur.execute(
             f"""
             SELECT
+                m.table_master_id,
                 m.table_name,
                 m.table_label,
                 m.table_dscrtn,
-                m.db_type
+                m.db_type,
+                m.column_profiles
             FROM table_project_mapping mp
             JOIN table_master m
               ON mp.table_master_id = m.table_master_id

@@ -175,7 +175,7 @@ Backend/
 │   ├── parser_file.py
 │   ├── folder_adapter_file.py
 │   ├── scheduler_file.py
-│   ├── table_master_hook.py
+│   ├── table_master_hook.py       # 적재 후 table_master_id 반환·위젯보드용 컬럼 프로파일 트리거( **docs/report/26** )
 │   ├── etl_limits.py
 │   └── timezone_utils.py
 │
@@ -183,10 +183,12 @@ Backend/
 │   ├── router.py                  # 엔드포인트 + 내부 집계 함수 (summary·member·hourly·trend-multi·page)
 │   └── campaign_period.py         # 기간·추이 창 공통 (calc_summary_date_range, fact_inclusive_end_date 등)
 │
-└── widget_board_server/           # /api/widget-boards — 보드·레이아웃·초대·공유·위젯 데이터
-    ├── router.py                  # 엔드포인트 매핑 (CRUD·초대·공유·데이터)
-    ├── service.py                 # 비즈니스 로직 (접근 정책·초대·saved_table·기간 필터)
-    ├── schemas.py                 # Pydantic 요청 모델 (초대·공유·레이아웃)
+└── widget_board_server/           # /api/widget-boards — 보드·레이아웃·초대·공유·위젯 데이터·테이블 프로파일 API
+    ├── router.py                  # `router` + `admin_router`(백필 등 `require_org_admin`) — `main.py`에서 각각 include
+    ├── service.py                 # 비즈니스 로직 (접근 정책·초대·saved_table·기간 필터·프로파일 조합)
+    ├── column_profiler.py         # 컬럼 메타·통계·`column_profiles` JSON·백필
+    ├── chart_recommender.py       # 차트 타입·축·집계 추천
+    ├── schemas.py                 # Pydantic (보드·위젯·초대·`TableProfileResponse` 등)
     └── constants.py               # BOARD_DSCRTN_MAX_LEN
 ```
 
@@ -494,7 +496,7 @@ BI용 일별 회원 집계(예: Star `ibank_*_star_2`, `base_date`)를 사용한
 - **query_studio_router** (`query_studio_server/router.py`): prefix `/api` — list/describe/relationships/join-order/save-query-as-table/execute-query/explain-sql/get-column-values/query-stats — **execute-query**: SELECT만·금지 키워드 검사
 - **etl_router** (`etl_server/router.py` + `router_file.py`): `/api/etl`, `/api/etl/batch` — `require_etl_infrastructure`(등록은 `main.py`)
 - **campaign_dashboard_router**: prefix `/api/campaign-dashboard` — **core.dashboard_service** 등
-- **widget_board_router**: `/api/widget-boards/*` — 위젯 보드 메타·레이아웃(`dependencies=[Depends(require_permission("widgetboard"))]`)
+- **widget_board_router**: `/api/widget-boards/*` — 위젯 보드 메타·레이아웃·`GET …/table/{id}/profile` 등(`dependencies=[Depends(require_permission("widgetboard"))]`). **widget_board_admin_router**: `POST …/admin/backfill-profiles`(`require_org_admin`)
 
 ### 5.6 core/dashboard_service.py
 

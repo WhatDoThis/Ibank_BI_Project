@@ -36,6 +36,7 @@
 | 23_Permission_Role_Change_Notifications_Plan.md | **조직 역할·프로젝트 권한·ETL·정지/활성 변경 알림** + **기존 회원 타부서 `project_invite` 이메일(필수)**: `notification_info` + 이메일, 커밋 후 비차단, `add_member`/`create_project_full` 초대 경로에 P1-5·P2·P3-4 포함, `service_roles` `pmssn_list` 사용 중 수정 차단 반영, 정지는 이메일만. |
 | 24_Backend_admin_server_Module_Doc_And_Numbering_Audit.md | **백엔드 패키지 문서·`# N.` 전수 감사(단일 문서)**: **Part A** `admin_server`(13파일) 완료 기록·**Part B** 이후 `auth_server`·`project_server` 등은 **본 24번 파일에 섹션만 추가**하여 체크리스트·`compileall`·완료 표를 관리한다(감사 작업 전용 **별도 25번 분할 없음** — 번호 25는 아래 변경 추적 계획에 사용). |
 | 25_Data_Change_Log_And_Tracking_Plan.md | **데이터 변경 추적**: `data_change_log`·`change_tracker.py`·admin 우선 적용·`system_log_server` 조회 API·통합 이력 UI(§7)·수동 DDL(§3, 저장소 sql 파일 없음)·Phase 게이트·커서 명령문(§9). |
+| 26_Widgetboard_Column_Profile_Chart_Recommendation_Plan.md | **위젯보드 시각화 엔진**: recommend 전순회·Rule9 빈때만·role_summary=Phase2·backfill `get_data_conn`·IDENTIFIER 수치형 스킵·colorBy 저장=Phase3 후속. |
 | etc01_Backend_Learning_Flow.md | ETL 단일 스택 학습 가이드: **`Backend/etl_server`**, **`packages/etl`**, **`/api/etl`·`/api/etl/batch`**, `etlClient.js`(`etl2*`·`batch*` 함수명). 세부 구조는 **docs/main/02_BACKEND_GUIDE.md** 와 병행. |
 | log.md | 작업 완료 로그. 코드 정리·실행·점검 등 태스크 완료 시 갱신 |
 | ETL_Transform_Rules_Implementation_Plan.md | ETL 변환 룰 매핑 모달 통합 제작 플랜. Phase 1(미리보기 API)·Phase 4(client.js)·Phase 2(변환 열)·Phase 3(미리보기 패널)·적용 시 룰 삭제 후 생성, 제약 사항 |

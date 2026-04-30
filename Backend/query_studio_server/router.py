@@ -22,7 +22,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 [Endpoints]
 ===========
-11. list_tables: GET /api/list-tables?mapping_usage=query_studio|widgetboard (채널별 매핑)
+11. list_tables: GET /api/list-tables?mapping_usage=query_studio|widgetboard (채널별 매핑·`table_master_id`·`role_summary`)
 12. describe_table: POST /api/describe-table (mapping_usage 동일, main_db 매핑 테이블만·항상 main 연결)
 13. get_column_labels: GET /api/column-labels (테이블·컬럼 라벨)
 14. save_column_labels: POST /api/column-labels (라벨 저장·성공 시 `labels_save` 계측)
@@ -78,6 +78,7 @@ from Backend.auth_server.permissions import (
     require_permission,
 )
 from Backend.core.dependencies import get_db, get_config, get_system_db
+from Backend.widget_board_server.column_profiler import ensure_profile, summarize_semantic_roles
 from Backend.query_studio_server.audit_emit import emit_query_studio_log
 from Backend.query_studio_server.join_path import determine_join_order, validate_join_order
 from Backend.query_studio_server.join_metrics import join_accuracy_score
@@ -97,6 +98,8 @@ require_query_execute_perm = require_permission("query.execute")
 
 _MSG_MAPPING_LIST_FEATURE_OFF = "이 프로젝트에서 사용할 수 없는 기능입니다."
 _MSG_MAPPING_LIST_INACTIVE = "비활성화된 프로젝트입니다. 홈에서 다른 프로젝트를 선택하세요."
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_mapping_usage(raw: str) -> str:
@@ -703,8 +706,20 @@ def list_tables(
                 size_pretty = None
                 size_bytes = None
             row_meta = allowed_map.get(tname) or {}
+            cp_raw = row_meta.get("column_profiles")
+            if isinstance(cp_raw, str):
+                try:
+                    cp_dict = json.loads(cp_raw)
+                except json.JSONDecodeError:
+                    cp_dict = None
+            elif isinstance(cp_raw, dict):
+                cp_dict = cp_raw
+            else:
+                cp_dict = None
             tables.append({
                 "table_name": tname,
+                "table_master_id": row_meta.get("table_master_id"),
+                "role_summary": summarize_semantic_roles(cp_dict),
                 "size": size_pretty,
                 "size_bytes": size_bytes,
                 "table_label": _resolve_table_display_label(tname, user_labels, file_labels, row_meta),
@@ -1222,6 +1237,40 @@ def _upsert_table_master_and_mapping(
                     channel="query_studio",
                 )
         conn.commit()
+        sys_prof_conn = None
+        data_prof_conn = None
+        try:
+            profile_schema = db.get_table_schema() if dt == "main" else db.get_dash_table_schema()
+            sys_prof_conn = db.get_db_connection_system_core()
+            data_prof_conn = (
+                db.get_db_connection() if dt == "main" else db.get_db_connection_dash()
+            )
+            ensure_profile(
+                sys_prof_conn,
+                data_prof_conn,
+                table_master_id,
+                profile_schema,
+                table_name,
+                force=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "프로파일링 실패 (table_master_id=%s): %s",
+                table_master_id,
+                e,
+                exc_info=True,
+            )
+        finally:
+            if data_prof_conn is not None:
+                try:
+                    data_prof_conn.close()
+                except Exception:
+                    pass
+            if sys_prof_conn is not None:
+                try:
+                    sys_prof_conn.close()
+                except Exception:
+                    pass
     except Exception:
         conn.rollback()
         raise

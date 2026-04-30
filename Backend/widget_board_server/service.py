@@ -17,7 +17,8 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_ty
 8. list_board_participants / list_invite_candidates / send_invite_notifications(알림 초대, commit 후 `invite_send` system_log)
 9. accept_widget_board_invite / reject_widget_board_invite — `_parse_widget_board_invite_payload` 공통 검증 후 share 반영·알림 처리
 10. fetch_widget_data — saved_table 시 기간 필터·컬럼에 data_type 포함(FE 차트 축)·meta.applied_date_column(기간 필터에 사용한 날짜 컬럼)
-11. (system_log) 보드·위젯·레이아웃·공유·초대 발송/수락/거절 등 DB 변경 commit 직후 `emit_widget_board_log`(플래그 off 시 생략)
+11. get_table_profile_with_recommendations — 위젯 매핑 검증·ensure_profile·차트 추천 통합 응답
+12. (system_log) 보드·위젯·레이아웃·공유·초대 발송/수락/거절 등 DB 변경 commit 직후 `emit_widget_board_log`(플래그 off 시 생략)
 
 [Dependencies]
 =========
@@ -30,6 +31,8 @@ saved_table은 `get_allowed_tables_by_project(..., usage_widgetboard=True, db_ty
 - Backend.core.invite_expiry.invite_expired_from_payload
 - Backend.core.db (get_db_connection, get_db_connection_dash, get_table_schema, get_dash_table_schema, validate_table_identifier, validate_column_name, get_allowed_tables_by_project, format_value, _table_exists)
 - Backend.core.sql_safety.contains_dangerous_sql
+- Backend.widget_board_server.chart_recommender.recommend
+- Backend.widget_board_server.column_profiler.ensure_profile
 - Backend.widget_board_server.audit_emit.emit_widget_board_log
 - Backend.core.change_tracker (widget_board·widget_item·widget_board_share `data_change_log`, patch_layout·알림 제외; `create_board`·`add_widget` 은 INSERT 커서 닫은 뒤 `track_insert` 로 동일 연결에서 스냅샷 SELECT 안정화)
 """
@@ -62,6 +65,8 @@ from Backend.notification_server.service import (
 )
 from Backend.widget_board_server import schemas
 from Backend.widget_board_server.audit_emit import emit_widget_board_log
+from Backend.widget_board_server.chart_recommender import ChartRecommendation, recommend
+from Backend.widget_board_server.column_profiler import ensure_profile
 from Backend.core.change_tracker import capture_before, track_delete, track_insert, track_update
 from Backend.core.sql_safety import contains_dangerous_sql
 
@@ -1423,6 +1428,81 @@ def _allowed_saved_table(project_id: int, table_name: str) -> str:
     finally:
         mconn.close()
     return "main"
+
+
+def _chart_rec_to_dict(cr: ChartRecommendation) -> dict[str, Any]:
+    return {
+        "rank": cr.rank,
+        "chart_type": cr.chart_type,
+        "confidence": cr.confidence,
+        "x_axis": cr.x_axis,
+        "y_axis": list(cr.y_axis),
+        "color_by": cr.color_by,
+        "aggregation": dict(cr.aggregation),
+        "reason_ko": cr.reason_ko,
+    }
+
+
+# 11.
+def get_table_profile_with_recommendations(
+    system_conn,
+    table_master_id: int,
+    project_info_id: int,
+) -> dict[str, Any]:
+    """
+    table_project_mapping으로 위젯 채널 매핑을 검증하고 캐시/TTL 경로로 프로파일을 확보한 뒤 추천 목록을 붙인다.
+    """
+    tid = int(table_master_id)
+    pid = int(project_info_id)
+    cur = system_conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT m.table_master_id, m.table_name, m.db_type
+            FROM table_master m
+            INNER JOIN table_project_mapping mp
+              ON mp.table_master_id = m.table_master_id
+            WHERE mp.project_info_id = %s
+              AND m.table_master_id = %s
+              AND UPPER(COALESCE(NULLIF(TRIM(mp.use_widgetboard_yn), ''), 'Y')) = 'Y'
+            """,
+            (pid, tid),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+
+    if not row:
+        raise ValueError("프로젝트에 매핑되지 않았거나 위젯보드에서 사용할 수 없는 테이블입니다.")
+
+    table_name = str(row.get("table_name") or "").strip()
+    db_type = str(row.get("db_type") or "main").strip().lower()
+    schema = db.get_table_schema() if db_type != "dash" else db.get_dash_table_schema()
+
+    data_conn = db.get_db_connection() if db_type != "dash" else db.get_db_connection_dash()
+    try:
+        profile = ensure_profile(system_conn, data_conn, tid, schema, table_name, force=False)
+    finally:
+        try:
+            data_conn.close()
+        except Exception:
+            pass
+
+    cols_raw = profile.get("columns") if isinstance(profile, dict) else []
+    cols_list = cols_raw if isinstance(cols_raw, list) else []
+    rec_objs = recommend(cols_list, top_n=3)
+    rec_dicts = [_chart_rec_to_dict(r) for r in rec_objs]
+
+    return {
+        "table_master_id": tid,
+        "table_name": table_name,
+        "total_rows": int(profile.get("total_rows") or 0) if isinstance(profile, dict) else 0,
+        "sample_count": int(profile.get("sample_count") or 0) if isinstance(profile, dict) else 0,
+        "profiled_at": profile.get("profiled_at") if isinstance(profile, dict) else None,
+        "columns": cols_list,
+        "recommendations": rec_dicts,
+        "sample_rows": list(profile.get("sample_rows") or []) if isinstance(profile, dict) else [],
+    }
 
 
 # 8.

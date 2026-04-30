@@ -539,6 +539,32 @@
   border: 1px solid var(--color-border-light);
   border-radius: 6px;
 }
+.widgetboard-unsaved-hint {
+  font-size: 0.8125rem;
+  color: var(--color-warning, #b45309);
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.btn-save-board {
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-action-primary);
+  background: var(--color-action-primary);
+  color: #fff;
+  cursor: pointer;
+  margin-right: 8px;
+}
+.btn-save-board:hover:not(:disabled) {
+  background: var(--color-action-primary-hover);
+  border-color: var(--color-action-primary-hover);
+}
+.btn-save-board:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .btn-refresh {
   padding: 8px 14px;
   font-size: 0.875rem;
@@ -867,4 +893,134 @@
   height: 1rem;
   flex-shrink: 0;
   cursor: pointer;
+}
+
+/* 프로파일·추천 UI (마법사·설정 공통 §7 Phase 3) */
+.wb-wiz-recommend-row .wb-rec-chips,
+.settings-row.wb-wiz-recommend-row .wb-rec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.wb-rec-chip {
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  color: var(--color-text);
+  cursor: pointer;
+  line-height: 1.2;
+}
+.wb-rec-chip:hover {
+  border-color: var(--color-action-primary);
+  color: var(--color-action-primary);
+}
+.wb-rec-chip--active {
+  background: var(--color-action-primary, #2563eb);
+  border-color: transparent;
+  color: #fff;
+}
+.wb-rec-chip--outline {
+  background: transparent;
+}
+.wb-rec-reason {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+.wb-wiz-recommend-row .wb-rec-hints,
+.settings-row.wb-wiz-recommend-row .wb-rec-hints {
+  margin: 6px 0 0;
+  padding-left: 1.15rem;
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  line-height: 1.45;
+}
+.wb-rec-hint-line {
+  margin: 0 0 4px;
+}
+.wb-rec-hint-line:last-child {
+  margin-bottom: 0;
+}
+.wb-rec-hint-label {
+  font-weight: 600;
+}
+.wb-rec-hint-reason {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.wb-role-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wb-role-tag--temporal {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.wb-role-tag--measure {
+  background: #d1fae5;
+  color: #047857;
+}
+.wb-role-tag--dimension {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.wb-role-tag--identifier {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.wb-role-tag--high_cardinality_text {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.wb-role-tag--geo {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.wb-profile-preview-acc {
+  margin: 8px 0 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafafa;
+}
+.wb-profile-preview-acc__sum {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  list-style-position: outside;
+}
+.wb-profile-preview-acc__inner {
+  padding: 0 12px 12px;
+}
+.wb-profile-sum-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  margin-bottom: 10px;
+}
+.wb-profile-sum-table th,
+.wb-profile-sum-table td {
+  border: 1px solid var(--color-border-light);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.wb-profile-sum-table thead th {
+  background: #f3f4f6;
+}
+.wb-profile-sample-scroll {
+  max-height: 200px;
+  overflow: auto;
+}
+.wb-wiz-note-row .widget-wizard-hint {
+  margin-left: 0;
 }

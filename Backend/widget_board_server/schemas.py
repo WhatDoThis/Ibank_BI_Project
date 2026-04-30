@@ -9,6 +9,7 @@ widget_board_server.schemas (Pydantic 요청/응답)
 - WidgetItemCreateBody, WidgetItemPatchBody
 - LayoutPatchBody, LayoutItem
 - ShareUpsertBody, WidgetBoardInviteItem, WidgetBoardInviteBatchBody, WidgetBoardInviteResolveBody
+- ColumnProfileItem, ChartRecommendationOut, TableProfileResponse, BackfillProfilesBody
 
 [Dependencies]
 =========
@@ -131,3 +132,50 @@ class WidgetBoardInviteBatchBody(BaseModel):
 
 class WidgetBoardInviteResolveBody(BaseModel):
     notification_info_id: int = Field(..., ge=1)
+
+
+class ColumnProfileItem(BaseModel):
+    """컬럼 단위 프로파일(JSON columns[] 요소와 동일 키)."""
+
+    name: str
+    pg_type: str | None = None
+    semantic_role: str | None = None
+    nullable: bool = False
+    is_pk: bool = False
+    distinct_count: int = 0
+    null_ratio: float = 0.0
+    min_value: Any | None = None
+    max_value: Any | None = None
+
+
+class ChartRecommendationOut(BaseModel):
+    """차트 추천 엔진 결과(chart_recommender.ChartRecommendation 대응)."""
+
+    rank: int
+    chart_type: str
+    confidence: float
+    x_axis: str | None = None
+    y_axis: list[str] = Field(default_factory=list)
+    color_by: str | None = None
+    aggregation: dict[str, str] = Field(default_factory=dict)
+    reason_ko: str = ""
+
+
+class TableProfileResponse(BaseModel):
+    table_master_id: int
+    table_name: str
+    total_rows: int = 0
+    sample_count: int = 0
+    profiled_at: str | None = None
+    columns: list[ColumnProfileItem] = Field(default_factory=list)
+    recommendations: list[ChartRecommendationOut] = Field(default_factory=list)
+    sample_rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class BackfillProfilesBody(BaseModel):
+    batch_size: int | None = Field(
+        default=10,
+        ge=1,
+        le=500,
+        description="백필 배치 크기",
+    )
