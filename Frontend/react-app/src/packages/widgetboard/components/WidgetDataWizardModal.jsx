@@ -8,7 +8,8 @@
  * 1. 모달 폼 상태·describeTable + 프로파일 컬럼 병합(semantic_role 태그)
  * 2. table_master_id 있으면 프로파일 로드 — 템플릿에 맞는 추천만 자동 적용(추천은 안내 문구, 차트 유형은 사용자 셀렉터)
  * 3. 복수 일 기간이면 Dimension 선택 비활성(차트는 기간 단위 자동 집계)
- * 4. 확인 시 validateWidgetDateRange(일자 컬럼 없으면 생략) 후 onSubmit
+ * 4. 프로파일 미리보기: 컬럼 정보·샘플 데이터 섹션, 샘플 표 셀 말줄임
+ * 5. 확인 시 validateWidgetDateRange(일자 컬럼 없으면 생략) 후 onSubmit
  *
  * [Dependencies]
  * =========
@@ -452,63 +453,73 @@ export function WidgetDataWizardModal({
                 데이터 미리보기 (샘플 {tableProfile.sample_count ?? 0}행 / 전체 {(tableProfile.total_rows ?? 0).toLocaleString('ko-KR')}행)
               </summary>
               <div className="wb-profile-preview-acc__inner">
-                <table className="wb-profile-sum-table">
-                  <thead>
-                    <tr>
-                      <th>이름</th>
-                      <th>타입</th>
-                      <th>분류</th>
-                      <th>NULL%</th>
-                      <th>고유값</th>
-                      <th>Min</th>
-                      <th>Max</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableProfile.columns.map((col) => (
-                      <tr key={col.name}>
-                        <td>{col.name}</td>
-                        <td>{col.pg_type ?? '-'}</td>
-                        <td>
-                          <span className={`wb-role-tag wb-role-tag--${String(col.semantic_role || '').toLowerCase()}`}>
-                            {(col.semantic_role && SEMANTIC_ROLE_LABEL_KO[col.semantic_role]) || col.semantic_role || '-'}
-                          </span>
-                        </td>
-                        <td>{typeof col.null_ratio === 'number' ? `${(col.null_ratio * 100).toFixed(1)}%` : '-'}</td>
-                        <td>{typeof col.distinct_count === 'number' ? col.distinct_count : '-'}</td>
-                        <td>{col.min_value != null ? String(col.min_value) : '—'}</td>
-                        <td>{col.max_value != null ? String(col.max_value) : '—'}</td>
+                <section className="wb-profile-section wb-profile-section--columns" aria-labelledby="wb-wiz-profile-cols-title">
+                  <h4 id="wb-wiz-profile-cols-title" className="wb-profile-section__title">
+                    컬럼 정보
+                  </h4>
+                  <table className="wb-profile-sum-table wb-profile-col-meta-table">
+                    <thead>
+                      <tr>
+                        <th>이름</th>
+                        <th>타입</th>
+                        <th>분류</th>
+                        <th>NULL%</th>
+                        <th>고유값</th>
+                        <th>Min</th>
+                        <th>Max</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {Array.isArray(tableProfile.sample_rows) && tableProfile.sample_rows.length ? (
-                  <div className="wb-profile-sample-scroll">
-                    <table className="wb-profile-sum-table wb-profile-sample-table">
-                      <thead>
-                        <tr>
-                          {(wizardPreviewSampleColNames.length
-                            ? wizardPreviewSampleColNames
-                            : Object.keys(tableProfile.sample_rows[0])
-                          ).map((k) => (
-                            <th key={k}>{k}</th>
-                          ))}
+                    </thead>
+                    <tbody>
+                      {tableProfile.columns.map((col) => (
+                        <tr key={col.name}>
+                          <td>{col.name}</td>
+                          <td>{col.pg_type ?? '-'}</td>
+                          <td>
+                            <span className={`wb-role-tag wb-role-tag--${String(col.semantic_role || '').toLowerCase()}`}>
+                              {(col.semantic_role && SEMANTIC_ROLE_LABEL_KO[col.semantic_role]) || col.semantic_role || '-'}
+                            </span>
+                          </td>
+                          <td>{typeof col.null_ratio === 'number' ? `${(col.null_ratio * 100).toFixed(1)}%` : '-'}</td>
+                          <td>{typeof col.distinct_count === 'number' ? col.distinct_count : '-'}</td>
+                          <td>{col.min_value != null ? String(col.min_value) : '—'}</td>
+                          <td>{col.max_value != null ? String(col.max_value) : '—'}</td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {tableProfile.sample_rows.slice(0, 5).map((rw, ri) => (
-                          <tr key={ri}>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+                {Array.isArray(tableProfile.sample_rows) && tableProfile.sample_rows.length ? (
+                  <section className="wb-profile-section wb-profile-section--sample" aria-labelledby="wb-wiz-profile-sample-title">
+                    <h4 id="wb-wiz-profile-sample-title" className="wb-profile-section__title">
+                      샘플 데이터
+                    </h4>
+                    <div className="wb-profile-sample-scroll">
+                      <table className="wb-profile-sum-table wb-profile-sample-table">
+                        <thead>
+                          <tr>
                             {(wizardPreviewSampleColNames.length
                               ? wizardPreviewSampleColNames
                               : Object.keys(tableProfile.sample_rows[0])
                             ).map((k) => (
-                              <td key={k}>{rw[k] != null ? String(rw[k]) : '—'}</td>
+                              <th key={k}>{k}</th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {tableProfile.sample_rows.slice(0, 5).map((rw, ri) => (
+                            <tr key={ri}>
+                              {(wizardPreviewSampleColNames.length
+                                ? wizardPreviewSampleColNames
+                                : Object.keys(tableProfile.sample_rows[0])
+                              ).map((k) => (
+                                <td key={k}>{rw[k] != null ? String(rw[k]) : '—'}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
                 ) : null}
               </div>
             </details>
