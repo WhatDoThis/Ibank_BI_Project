@@ -1,6 +1,7 @@
 # Log
 
 ## Log Index
+606. 2026-05-06 ETL TargetTableSelectModal: 미추적 ` - 복사본` 8건 SHA256 동일 확인 후 삭제
 605. 2026-05-06 Frontend 위젯보드: WidgetDataWizardModal 프로파일 미리보기 섹션 반영·origin/ibankbi 푸시
 604. 2026-05-06 미추적 ` - 복사본` 파일: 원본과 SHA256 동일 시 삭제(53건), 내용 상이 1건 유지
 603. 2026-04-30 Frontend 위젯보드: 저장되지 않음 오탐 감소(RGL layout·hydrate 기준선)
@@ -608,6 +609,15 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+606. 2026-05-06 ETL TargetTableSelectModal: 미추적 ` - 복사본` 8건 SHA256 동일 확인 후 삭제
+Purpose: 위젯 푸시 직후 남아 있던 `TargetTableSelectModal/` 미추적 복사본에 대해, 프로젝트 전역과 동일한 규칙(`{원본명} - 복사본.{확장자}` ↔ 동일 디렉터리 원본, SHA256)으로 검증 후 동일 파일만 제거한다.
+
+Changes:
+
+- `CodeMapInlineEditor`, `ColumnMappingSection`, `PreviewSection`, `TableSelector`, `TransformCell`, `TransformDetailRow`, `constants`, `index` 각 ` - 복사본` 파일 8건: 원본과 바이트 동일 → 삭제. 내용 상이·원본 없음 0건.
+
+Changed files: (삭제된 경로 8건), docs/log/log.md
 
 605. 2026-05-06 Frontend 위젯보드: WidgetDataWizardModal 프로파일 미리보기 섹션 반영·origin/ibankbi 푸시
 Purpose: 복사본에만 있던 프로파일 미리보기(컬럼 정보·샘플 데이터 섹션·접근성·클래스)를 단일 원본 파일에 반영하고 원격에 게시한다.
