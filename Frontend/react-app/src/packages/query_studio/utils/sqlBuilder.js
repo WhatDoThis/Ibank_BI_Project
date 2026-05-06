@@ -141,7 +141,7 @@ function groupByExpression(alias, table, column, dateGranularity) {
   return expr
 }
 
-/** SELECT 결과 집합 컬럼명: 물리테이블_컬럼 (저장·표시 충돌 방지) */
+/** SELECT 결과 밖(PG 주석·distinct 피벗 등): 테이블_컬럼 — 결과 별칭과 별개 */
 function selectOutputAlias(table, column) {
   if (table == null || column == null) return 'unknown_col'
   return `${String(table)}_${String(column)}`
@@ -154,6 +154,10 @@ function selectOutputAliasAgg(aggFunc, table, column) {
 
 const _SAVED_REPORT_PREFIX = 'test_report_'
 
+function isValidSqlIdentifier(v) {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(v || ''))
+}
+
 /**
  * 1차 저장 테이블(test_report_*)의 물리 컬럼 col_n: describe `label`(PG COMMENT 기반)이 물리명과 다르면
  * SELECT AS·execute 결과 키·2차 저장 column_comment_hints.logical_key 로 쓴다 (outputKey 미설정 보정).
@@ -165,26 +169,62 @@ export function inferSavedReportOutputKey(table, column, label) {
   if (!/^col_\d+$/i.test(col)) return null
   const lab = label != null && String(label).trim() !== '' ? String(label).trim() : ''
   if (!lab || lab === col) return null
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(lab)) return null
+  if (!isValidSqlIdentifier(lab)) return null
   return lab
 }
 
-/** 저장 테이블 col_n 등: gridColumn.outputKey 있으면 SELECT 결과·저장 메타와 동일 키 사용 */
-function resolveOutputLabel(gridColumns, table, column, groupBy, dateGranularity, aggFunc) {
-  const gc = gridColumns?.find((x) => x.table === table && x.column === column)
-  const outKey = gc && gc.outputKey != null && String(gc.outputKey).trim() !== '' ? String(gc.outputKey).trim() : null
-  const inferred = gc && !outKey ? inferSavedReportOutputKey(gc.table, gc.column, gc.label) : null
-  const effective = outKey || inferred
-  const isGB = isGroupByColumn(groupBy, table, column)
-  if (groupBy && groupBy.length > 0 && !isGB && aggFunc) {
-    if (effective) return `${aggFunc}_${effective}`
-    return selectOutputAliasAgg(aggFunc, table, column)
-  }
-  if (effective) return effective
-  return selectOutputAlias(table, column)
+/**
+ * Rule 7: test_report_* 계열은 단계가 올라가도 현재 테이블명 prefix를 덮어쓰지 않는다.
+ * - PG 코멘트 root/logical_key가 있으면 우선 사용
+ * - col_n + label 추론 가능하면 사용
+ * - 그 외 test_report_* 물리 컬럼(예: campaigns_id)은 컬럼명 그대로 유지
+ */
+function stableSavedReportOutputKey(c) {
+  if (!c) return null
+  const t = c.table != null ? String(c.table) : ''
+  if (!t.startsWith(_SAVED_REPORT_PREFIX)) return null
+  const preserved =
+    c.pgCommentRoot ??
+    c.pg_comment_root ??
+    (c.logical_key != null && String(c.logical_key).trim() !== '' ? String(c.logical_key).trim() : null)
+  if (preserved && isValidSqlIdentifier(preserved)) return String(preserved).trim()
+  const inferred = inferSavedReportOutputKey(t, c.column, c.label)
+  if (inferred) return inferred
+  const col = c.column != null ? String(c.column) : ''
+  if (isValidSqlIdentifier(col)) return col
+  return null
 }
 
-// 11. SELECT 절 단일 컬럼 표현식 (날짜 단위 + 집계). 기본 AS 는 테이블_컬럼; test_report_* 의 col_n 은 label(코멘트) 기반으로 보정 가능.
+/**
+ * 결과 컬럼 키 한 칸분(유니크 파트 전): outputKey·label 추론 우선, 없으면 테이블명_컬럼명(selectOutputAlias)·집계는 AGG_테이블_컬럼.
+ * 겹침은 computeUniquifiedOutputKeys / uniquifyResultKeys 에서만 동일 base에 _1, _2, … (전부 접미).
+ */
+function baseResultKeyForColumn(c, groupBy, dateGranularity) {
+  if (!c) return 'unknown_col'
+  const explicit = c.outputKey != null && String(c.outputKey).trim() !== '' ? String(c.outputKey).trim() : null
+  const inferred = !explicit ? stableSavedReportOutputKey(c) : null
+  const effective = explicit || inferred
+  const isGB = isGroupByColumn(groupBy, c.table, c.column)
+  if (groupBy && groupBy.length > 0 && !isGB && c.aggFunc) {
+    if (effective) return `${c.aggFunc}_${effective}`
+    return selectOutputAliasAgg(c.aggFunc, c.table, c.column)
+  }
+  if (effective) return effective
+  return selectOutputAlias(c.table, c.column)
+}
+
+/** 피벗/저장 계획용 — resolveOutputLabel 대체 */
+function resolveOutputLabel(gridColumns, table, column, groupBy, dateGranularity, aggFunc) {
+  const gc = gridColumns?.find((x) => x.table === table && x.column === column)
+  const col = gc
+    ? aggFunc != null && aggFunc !== undefined && String(aggFunc).trim() !== ''
+      ? { ...gc, aggFunc }
+      : gc
+    : { table, column, alias: 't1', ...(aggFunc != null && aggFunc !== undefined ? { aggFunc } : {}) }
+  return baseResultKeyForColumn(col, groupBy, dateGranularity)
+}
+
+// 11. SELECT 절 단일 컬럼 표현식 (날짜 단위 + 집계). 기본 AS 는 테이블명_컬럼명·중복 시 uniquify; test_report_* 의 col_n 은 label(코멘트) 기반으로 보정 가능.
 // forcedOut: 테이블 저장 시 uniquify 된 별칭(겹침 시 _1, _2) — inner 래핑과 동일해야 함.
 function getSelectExpression(col, gridColumns, groupBy, dateGranularity, forcedOut = null) {
   const alias = col.alias
@@ -207,24 +247,18 @@ function getSelectExpression(col, gridColumns, groupBy, dateGranularity, forcedO
 }
 
 /**
- * executeQuery 결과 행 키: 비집계는 물리테이블_컬럼, 집계는 AGGFUNC_물리테이블_컬럼 (SELECT AS와 동일).
- * MainArea 등에서 row[getResultColumnKey(c, groupBy, dateGranularity)] 로 사용.
+ * executeQuery 결과 행 키: SELECT AS 와 동일(컬럼명·중복 시 _1, _2).
+ * gridColumns 를 넘기면 그리드 전체 기준 uniquify 와 일치; 생략 시 c 단일 칼럼만 기준.
  */
-export function getResultColumnKey(c, groupBy = [], dateGranularity = {}) {
+export function getResultColumnKey(c, groupBy = [], dateGranularity = {}, gridColumns = null) {
   if (!c) return ''
-  const explicit = c.outputKey != null && String(c.outputKey).trim() !== '' ? String(c.outputKey).trim() : null
-  const inferred = !explicit ? inferSavedReportOutputKey(c.table, c.column, c.label) : null
-  const effective = explicit || inferred
-  if (effective) {
-    const isGB = isGroupByColumn(groupBy, c.table, c.column)
-    if (groupBy && groupBy.length > 0 && !isGB && c.aggFunc) return `${c.aggFunc}_${effective}`
-    return effective
-  }
-  const isGB = isGroupByColumn(groupBy, c.table, c.column)
-  if (groupBy && groupBy.length > 0 && !isGB && c.aggFunc) {
-    return selectOutputAliasAgg(c.aggFunc, c.table, c.column)
-  }
-  return selectOutputAlias(c.table, c.column)
+  const cols = gridColumns && gridColumns.length > 0 ? gridColumns : [c]
+  const idx = cols.findIndex(
+    (gc) => gc.table === c.table && gc.column === c.column && (gc.alias || '') === (c.alias || '')
+  )
+  const i = idx >= 0 ? idx : 0
+  const keys = computeUniquifiedOutputKeys(cols, groupBy, dateGranularity)
+  return keys[i] ?? ''
 }
 
 // 12. ORDER BY 절 표현식 (집계 시 agg 반영)
@@ -239,26 +273,70 @@ function getOrderByExpression(ob, gridColumns, groupBy) {
   return `${alias}.${quoteIdent(c.column)}`
 }
 
-/** SELECT 결과 별칭이 겹칠 때: 첫 번째는 그대로, 이후 base_1, base_2, … */
+/** SELECT 결과 별칭이 겹칠 때: 동일 base가 2개 이상이면 base_1, base_2, … (전부 접미, Rule 2) */
 export function uniquifyResultKeys(baseKeys) {
-  const counts = {}
+  const freqs = {}
+  for (const k of baseKeys) {
+    const b = String(k)
+    freqs[b] = (freqs[b] || 0) + 1
+  }
+  const seen = {}
   return baseKeys.map((k) => {
     const b = String(k)
-    counts[b] = (counts[b] || 0) + 1
-    const n = counts[b]
-    if (n === 1) return b
-    return `${b}_${n - 1}`
+    if (freqs[b] <= 1) return b
+    seen[b] = (seen[b] || 0) + 1
+    return `${b}_${seen[b]}`
   })
 }
 
+/** 그리드 컬럼 순서대로 SELECT AS·행 키와 동일한 결과 별칭 배열 */
+export function computeUniquifiedOutputKeys(gridColumns, groupBy = [], dateGranularity = {}) {
+  const bases = gridColumns.map((c) => baseResultKeyForColumn(c, groupBy, dateGranularity))
+  return uniquifyResultKeys(bases)
+}
+
+/** 피벗 SELECT 열 순서와 동일하게 base 키 나열 (GROUP BY → 행집계 → 피벗값 → 전체) */
+function collectPivotBaseKeys(gridColumns, groupBy, dateGranularity, pivot, pivotRowAggs) {
+  const bases = []
+  groupBy.forEach((g) => {
+    const alias = getAlias(gridColumns, g.table)
+    if (!alias) return
+    const gc = gridColumns.find((c) => c.table === g.table && c.column === g.column)
+    const col = gc || { table: g.table, column: g.column, alias }
+    bases.push(baseResultKeyForColumn(col, groupBy, dateGranularity))
+  })
+  pivotRowAggs.forEach((agg) => {
+    const alias = getAlias(gridColumns, agg.table)
+    if (!alias) return
+    const gc = gridColumns.find((c) => c.table === agg.table && c.column === agg.column)
+    const col = gc ? { ...gc, aggFunc: agg.aggFunc } : { table: agg.table, column: agg.column, alias, aggFunc: agg.aggFunc }
+    bases.push(baseResultKeyForColumn(col, groupBy, dateGranularity))
+  })
+  pivot.values.forEach((value) => bases.push(String(value)))
+  bases.push('전체')
+  return bases
+}
+
+/** 피벗 결과 행 객체의 키 순서와 동일 (generateSQL 피벗 SELECT AS 와 일치) */
+export function computePivotOutputKeys(gridColumns, groupBy, dateGranularity, pivot, pivotRowAggs) {
+  return uniquifyResultKeys(collectPivotBaseKeys(gridColumns, groupBy, dateGranularity, pivot, pivotRowAggs))
+}
+
 /**
- * PG COMMENT용 문자열: 원본 출처 테이블_컬럼 (집계면 AGG_원본테이블_원본컬럼).
- * gridColumn.sourceTable/sourceColumn( describe lineage )가 있으면 그걸 쓰고,
- * test_report_* 의 col_n 만 있으면 inferSavedReportOutputKey(label) → 1차 저장 시 붙인 코멘트와 맞춤.
+ * PG COMMENT용 문자열: 최초 원천 테이블_컬럼 하나만 유지(후속 저장 테이블에서도 동일 문자열).
+ * 1) 이미 PG에 코멘트가 있었던 컬럼(describe.logical_key → pgCommentRoot): 그대로 전달.
+ * 2) 비어 있으면: sourceTable/sourceColumn → test_report col_n+label 추론 → 테이블_컬럼.
  * 저장 SELECT 별칭(uniquify)과는 무관.
  */
 export function pgCommentSourceKey(c, groupBy) {
   if (!c) return null
+  const preserved =
+    c.pgCommentRoot ??
+    c.pg_comment_root ??
+    (c.logical_key != null && String(c.logical_key).trim() !== '' ? String(c.logical_key).trim() : null)
+  if (preserved) {
+    return preserved
+  }
   const stRaw = c.sourceTable ?? c.source_table
   const scRaw = c.sourceColumn ?? c.source_column
   const st = stRaw != null && String(stRaw).trim() !== '' ? String(stRaw).trim() : null
@@ -272,9 +350,9 @@ export function pgCommentSourceKey(c, groupBy) {
   }
   const t = c.table != null ? String(c.table) : ''
   const col = c.column != null ? String(c.column) : ''
-  if (t.startsWith(_SAVED_REPORT_PREFIX) && /^col_\d+$/i.test(col)) {
-    const inferred = inferSavedReportOutputKey(t, col, c.label)
-    if (inferred) return inferred
+  if (t.startsWith(_SAVED_REPORT_PREFIX)) {
+    const stable = stableSavedReportOutputKey(c)
+    if (stable) return stable
   }
   if (groupBy && groupBy.length > 0 && !isGB && c.aggFunc) {
     return selectOutputAliasAgg(c.aggFunc, c.table, c.column)
@@ -313,13 +391,21 @@ export function generateSQL(
     const aggCol = gridColumns.find((c) => c.aggFunc)
     const aggFunc = aggCol ? aggCol.aggFunc : 'COUNT'
 
+    const pivotBases = saveAsKeys ? null : collectPivotBaseKeys(gridColumns, groupBy, dateGranularity, pivot, pivotRowAggs)
+    const pivotOutKeys = pivotBases ? uniquifyResultKeys(pivotBases) : null
+    let pki = 0
+
     groupBy.forEach((g) => {
       const alias = getAlias(gridColumns, g.table)
       if (!alias) return
       const expr = groupByExpression(alias, g.table, g.column, dateGranularity)
       const forced = pickSaveAs()
       const out =
-        forced != null ? forced : resolveOutputLabel(gridColumns, g.table, g.column, groupBy, dateGranularity, null)
+        forced != null
+          ? forced
+          : pivotOutKeys
+            ? pivotOutKeys[pki++]
+            : resolveOutputLabel(gridColumns, g.table, g.column, groupBy, dateGranularity, null)
       selectParts.push(`${expr} AS ${quoteIdent(out)}`)
     })
     pivotRowAggs.forEach((agg) => {
@@ -329,7 +415,9 @@ export function generateSQL(
         const out =
           forced != null
             ? forced
-            : resolveOutputLabel(gridColumns, agg.table, agg.column, groupBy, dateGranularity, agg.aggFunc)
+            : pivotOutKeys
+              ? pivotOutKeys[pki++]
+              : resolveOutputLabel(gridColumns, agg.table, agg.column, groupBy, dateGranularity, agg.aggFunc)
         selectParts.push(`${agg.aggFunc}(${alias}.${quoteIdent(agg.column)}) AS ${quoteIdent(out)}`)
       }
     })
@@ -343,22 +431,26 @@ export function generateSQL(
     pivot.values.forEach((value) => {
       const safeVal = String(value).replace(/'/g, "''")
       const forced = pickSaveAs()
-      const out = forced != null ? forced : String(value)
+      const out = forced != null ? forced : pivotOutKeys ? pivotOutKeys[pki++] : String(value)
       selectParts.push(
         `${aggFunc}(CASE WHEN ${pivotCompareExpr} = '${safeVal}' THEN 1 END) AS ${quoteIdent(out)}`
       )
     })
     const forcedTotal = pickSaveAs()
-    const totalOut = forcedTotal != null ? forcedTotal : '전체'
+    const totalOut =
+      forcedTotal != null ? forcedTotal : pivotOutKeys ? pivotOutKeys[pki++] : '전체'
     selectParts.push(`${aggFunc}(*) AS ${quoteIdent(totalOut)}`)
   } else {
+    const outKeys = computeUniquifiedOutputKeys(gridColumns, groupBy, dateGranularity)
     selectParts = gridColumns.map((c, i) =>
       getSelectExpression(
         c,
         gridColumns,
         groupBy,
         dateGranularity,
-        saveAsKeys && saveAsKeys[i] != null && String(saveAsKeys[i]).trim() !== '' ? String(saveAsKeys[i]).trim() : null
+        saveAsKeys && saveAsKeys[i] != null && String(saveAsKeys[i]).trim() !== ''
+          ? String(saveAsKeys[i]).trim()
+          : outKeys[i]
       )
     )
   }
@@ -562,7 +654,7 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
   const pivotSelectExpr = gran
     ? toCharByGran(`${alias}.${quoteIdent(column)}`, gran)
     : `${alias}.${quoteIdent(column)}`
-  const pivotSelectAlias = quoteIdent(selectOutputAlias(table, column))
+  const pivotSelectAlias = quoteIdent(computeUniquifiedOutputKeys([col], [], dateGranularity)[0])
 
   let sql = `SELECT DISTINCT ${pivotSelectExpr} AS ${pivotSelectAlias}\nFROM ${quoteIdent(addedTables[0])} AS t1`
   for (let i = 1; i < addedTables.length; i++) {
@@ -608,7 +700,7 @@ export function generateDistinctPivotSQL(table, column, gridColumns, addedTables
   return sql
 }
 
-/** 물리 저장 컬럼: col_1, col_2, … (메타의 physical_name과 동일) */
+/** @deprecated 예전 col_n 명명. 저장 테이블 물리 컬럼명은 이제 결과 별칭(innerKeys)과 동일 */
 export function savePhysicalColumnName(ordinal1Based) {
   return `col_${ordinal1Based}`
 }
@@ -618,6 +710,7 @@ export function savePhysicalColumnName(ordinal1Based) {
  * logical_key 는 PG COMMENT용(원본 테이블_컬럼 / 집계는 AGG_테이블_컬럼)만 넣고, 별칭(uniquify)과 분리한다.
  * 피벗 모드일 때는 COMMENT 힌트를 넣지 않는다(컬럼명이 피벗 규칙으로 이미 구분됨).
  * 저장 시 generateSQL(..., { saveAsTableSelectKeys: innerKeys }) 로 inner SQL 과 맞출 것(LIMIT/OFFSET 없음).
+ * 물리 컬럼명은 col_n 이 아니라 innerKeys(uniquify 된 결과 별칭)와 동일 — 원본 조회 결과 열 이름 유지.
  */
 export function buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, options = {}) {
   const { pivot = null, pivotRowAggs = [] } = options
@@ -673,7 +766,7 @@ export function buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, 
     })
   } else {
     gridColumns.forEach((c) => {
-      const baseKey = getResultColumnKey(c, groupBy, dateGranularity)
+      const baseKey = baseResultKeyForColumn(c, groupBy, dateGranularity)
       const comment = pgCommentSourceKey(c, groupBy)
       metaRows.push({
         baseKey,
@@ -690,7 +783,7 @@ export function buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, 
   const innerKeys = uniquifyResultKeys(baseInnerKeys)
   const column_comment_hints = metaRows.map((row, i) => ({
     ordinal: i + 1,
-    physical_name: savePhysicalColumnName(i + 1),
+    physical_name: String(innerKeys[i]),
     logical_key: row.comment != null && String(row.comment).trim() !== '' ? String(row.comment).trim() : null,
     source_table: row.source_table,
     source_column: row.source_column,
@@ -702,15 +795,15 @@ export function buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, 
 }
 
 /**
- * CREATE TABLE AS 에 넣을 SELECT: 서브쿼리 결과를 col_n 물리 컬럼으로만 노출.
+ * CREATE TABLE AS 에 넣을 SELECT: 서브쿼리 결과 열명(innerKeys)을 그대로 물리 컬럼명으로 노출.
  */
 export function buildSaveTableMaterializedSelect(innerSql, innerKeys) {
   const trimmed = String(innerSql || '')
     .trim()
     .replace(/;+\s*$/u, '')
-  const parts = innerKeys.map((lk, i) => {
-    const phys = savePhysicalColumnName(i + 1)
-    return `_qs_inner.${quoteIdent(String(lk))} AS ${quoteIdent(phys)}`
+  const parts = innerKeys.map((lk) => {
+    const q = quoteIdent(String(lk))
+    return `_qs_inner.${q} AS ${q}`
   })
   return `SELECT\n    ${parts.join(',\n    ')}\nFROM (\n${trimmed}\n) AS _qs_inner`
 }

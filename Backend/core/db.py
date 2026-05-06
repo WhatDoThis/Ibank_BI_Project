@@ -145,6 +145,19 @@ class _PooledConnection:
                 pass
             self._conn = None
 
+    @property
+    def autocommit(self):
+        """getattr로는 읽을 수 있으나, 직접 대입(c.autocommit=...)이 래퍼 __dict__에만 남는 버그를 막기 위해 _conn에 위임."""
+        if self._conn is None:
+            raise psycopg2.InterfaceError("연결이 이미 닫혔습니다.")
+        return self._conn.autocommit
+
+    @autocommit.setter
+    def autocommit(self, value):
+        if self._conn is None:
+            raise psycopg2.InterfaceError("연결이 이미 닫혔습니다.")
+        self._conn.autocommit = value
+
     def __getattr__(self, name):
         if name in ("_pool", "_conn"):
             raise AttributeError(name)

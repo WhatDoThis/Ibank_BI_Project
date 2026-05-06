@@ -31,6 +31,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 17. save_query_as_table: POST /api/save-query-as-table (쿼리 결과→테이블; DDL 완료는 워커에서 `emit_query_studio_log`·`saved_table_create`)
 18. save_query_as_table_status: GET /api/save-query-as-table/status/{job_id}
 19. execute_query: POST /api/execute-query (SELECT, main_db만·성공 시 `query_execute` 계측·`sql_fingerprint`·`user_id`는 JWT 클레임 정수로 확정)
+19a. estimate_query_result: POST /api/estimate-query-result (EXPLAIN FORMAT JSON만·플래너 예상 행·폭으로 결과 데이터 크기 추정)
 20. explain_sql: POST /api/explain-sql (Claude 해석)
 21. get_column_values: POST /api/get-column-values (main_db·main 매핑만)
 22. query_stats: POST /api/query-stats (COUNT·EXPLAIN, main_db만)
@@ -48,6 +49,7 @@ FastAPI 라우터. prefix /api. 테이블 목록·구조·JOIN 관계·쿼리 �
 
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -426,6 +428,29 @@ def _contains_dangerous_sql(query):
     return matched
 
 
+def _explain_json_root_rows_width(plan_payload):
+    """EXPLAIN (FORMAT JSON) 최상위 Plan의 Plan Rows·Plan Width (플래너 추정)."""
+    if not isinstance(plan_payload, list) or len(plan_payload) == 0:
+        return None, None
+    root = plan_payload[0]
+    if not isinstance(root, dict):
+        return None, None
+    plan = root.get("Plan")
+    if not isinstance(plan, dict):
+        return None, None
+    rows = plan.get("Plan Rows")
+    width = plan.get("Plan Width")
+    try:
+        rows_f = float(rows) if rows is not None else None
+    except (TypeError, ValueError):
+        rows_f = None
+    try:
+        width_i = int(width) if width is not None else None
+    except (TypeError, ValueError):
+        width_i = None
+    return rows_f, width_i
+
+
 router = APIRouter(prefix="/api", tags=["report"])
 
 
@@ -692,10 +717,19 @@ def list_tables(
             size_pretty = None
             size_bytes = None
             try:
+                # regclass 문자열(schema.name)은 예약어·대소문자 식별자에서 자주 실패한다.
+                # pg_class OID로 조회하면 메타와 동일하게 맞춘다.
                 cur.execute(
-                    "SELECT pg_total_relation_size(%s::regclass) AS size_bytes, "
-                    "pg_size_pretty(pg_total_relation_size(%s::regclass)) AS size",
-                    (f"{schema}.{tname}", f"{schema}.{tname}"),
+                    """
+                    SELECT pg_total_relation_size(c.oid) AS size_bytes,
+                           pg_size_pretty(pg_total_relation_size(c.oid)) AS size
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = %s AND c.relname = %s
+                      AND c.relkind IN ('r', 'p', 'm', 'f')
+                    LIMIT 1
+                    """,
+                    (schema, tname),
                 )
                 size_row = cur.fetchone() or {}
                 size_pretty = size_row.get("size")
@@ -1038,6 +1072,32 @@ _save_table_worker_last_conn_err_log = 0.0
 _save_table_worker_conn_err_interval_sec = 60
 _save_table_worker_conn_err_sleep_sec = 10
 
+def _ordered_table_physical_columns(cur, table_schema: str, table_name: str) -> list[str]:
+    """CREATE TABLE AS 직후 attnum 순서의 물리 컬럼명(코멘트 대상·ordinal 정렬)."""
+    cur.execute(
+        """
+        SELECT a.attname::text
+        FROM pg_catalog.pg_attribute a
+        JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+        JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = %s AND c.relname = %s
+          AND a.attnum > 0 AND NOT a.attisdropped
+        ORDER BY a.attnum
+        """,
+        (table_schema, table_name),
+    )
+    rows = cur.fetchall()
+    out: list[str] = []
+    for r in rows:
+        if isinstance(r, dict):
+            v = r.get("attname")
+        else:
+            v = r[0]
+        if v is not None and str(v).strip():
+            out.append(str(v).strip())
+    return out
+
+
 def _get_pg_column_comment(cur, table_schema: str, table_name: str, column_name: str) -> str | None:
     """pg_catalog 기준 컬럼 코멘트. 없으면 None."""
     cur.execute(
@@ -1061,13 +1121,67 @@ def _get_pg_column_comment(cur, table_schema: str, table_name: str, column_name:
     return v if v is None else str(v)
 
 
-def _apply_one_saved_column_pg_comment(cur, table_schema: str, table_name: str, entry: dict) -> None:
-    """저장 컬럼에 원본 논리명(테이블_컬럼)을 COMMENT로 남김. 이미 코멘트가 있으면 건너뜀."""
+def _count_nonempty_pg_column_comments(cur, table_schema: str, table_name: str) -> int:
+    """테이블의 비어있지 않은 컬럼 COMMENT 개수."""
+    cur.execute(
+        """
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN d IS NOT NULL AND LENGTH(TRIM(d)) > 0 THEN 1
+                ELSE 0
+              END
+            ),
+            0
+          )::int AS n
+        FROM (
+          SELECT pg_catalog.col_description(a.attrelid, a.attnum) AS d
+          FROM pg_catalog.pg_attribute a
+          JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+          JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+          WHERE n.nspname = %s AND c.relname = %s
+            AND a.attnum > 0 AND NOT a.attisdropped
+        ) t
+        """,
+        (table_schema, table_name),
+    )
+    r = cur.fetchone()
+    if not r:
+        return 0
+    if isinstance(r, dict):
+        v = r.get("n")
+    else:
+        v = r[0]
+    try:
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+def _apply_one_saved_column_pg_comment_detailed(
+    cur,
+    table_schema: str,
+    table_name: str,
+    entry,
+    actual_column_at_index: str | None = None,
+) -> dict:
+    """
+    저장 컬럼에 원본 논리명(테이블_컬럼)을 COMMENT로 남김.
+    physical_name(힌트)이 CTAS 실제 컬럼과 다를 수 있으므로(프론트 네이밍·빌드 혼용),
+    실패 시 `actual_column_at_index`(CREATE 직후 ordinal 위치의 실제 컬럼명)로 1회 재시도.
+
+    status:
+      - applied: COMMENT 실행함 (resolved_physical에 실제 붙인 컬럼명)
+      - skipped_existing: 이미 코멘트가 있어 유지
+      - invalid_not_dict / invalid_no_physical_name / invalid_no_comment_text: 힌트 형식 오류
+      - failed_execute: 힌트/폴백 모두 실패
+    """
     if not isinstance(entry, dict):
-        return
+        return {"status": "invalid_not_dict", "physical_name": None, "error": None}
     phys = (entry.get("physical_name") or "").strip()
-    if not phys:
-        return
+    if not phys and not (actual_column_at_index or "").strip():
+        return {"status": "invalid_no_physical_name", "physical_name": None, "error": None}
     lk = (entry.get("logical_key") or "").strip()
     st = entry.get("source_table")
     sc = entry.get("source_column")
@@ -1075,16 +1189,149 @@ def _apply_one_saved_column_pg_comment(cur, table_schema: str, table_name: str, 
     sc = str(sc).strip() if sc is not None and str(sc).strip() else ""
     comment_text = lk if lk else (f"{st}_{sc}" if st and sc else "")
     if not comment_text:
-        return
-    existing = _get_pg_column_comment(cur, table_schema, table_name, phys)
-    if existing is not None and str(existing).strip():
-        return
-    stmt = pg_sql.SQL("COMMENT ON COLUMN {}.{}.{} IS %s").format(
-        pg_sql.Identifier(table_schema),
-        pg_sql.Identifier(table_name),
-        pg_sql.Identifier(phys),
-    )
-    cur.execute(stmt, (comment_text,))
+        p0 = phys or (actual_column_at_index or "").strip()
+        return {"status": "invalid_no_comment_text", "physical_name": p0, "error": None}
+
+    def _try_comment(target: str) -> dict | None:
+        if not target or not str(target).strip():
+            return None
+        t = str(target).strip()
+        ex = _get_pg_column_comment(cur, table_schema, table_name, t)
+        if ex is not None and str(ex).strip():
+            return {"status": "skipped_existing", "physical_name": phys, "error": None, "resolved_physical": t}
+        stmt = pg_sql.SQL("COMMENT ON COLUMN {}.{}.{} IS %s").format(
+            pg_sql.Identifier(table_schema),
+            pg_sql.Identifier(table_name),
+            pg_sql.Identifier(t),
+        )
+        try:
+            cur.execute(stmt, (comment_text,))
+        except Exception as e:
+            return {
+                "status": "failed_execute",
+                "physical_name": phys,
+                "error": str(e).strip(),
+                "resolved_physical": t,
+            }
+        return {"status": "applied", "physical_name": phys, "error": None, "resolved_physical": t}
+
+    cands: list[str] = []
+    if phys:
+        cands.append(phys)
+    act = (actual_column_at_index or "").strip()
+    if act and act not in cands:
+        cands.append(act)
+
+    last_err = None
+    for target in cands:
+        r = _try_comment(target)
+        if r is None:
+            continue
+        if r.get("status") == "failed_execute":
+            last_err = r
+            continue
+        return r
+    if last_err:
+        return last_err
+    return {
+        "status": "failed_execute",
+        "physical_name": phys,
+        "error": "no_applicable_column_for_comment",
+    }
+
+
+def _format_comment_failure_message(comment_rows: list) -> str:
+    """column_comment_hints 적용 실패 시 큐 error 컬럼용 요약 문자열."""
+    parts = []
+    for r in comment_rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get("status") in ("applied", "skipped_existing"):
+            continue
+        phys = r.get("physical_name") or "(알 수 없음)"
+        st = r.get("status") or ""
+        err = (r.get("error") or "").strip()
+        if st == "failed_execute" and err:
+            parts.append(f"{phys}: {err.splitlines()[0][:400]}")
+        elif st == "invalid_not_dict":
+            parts.append("(항목이 객체가 아님)")
+        elif st == "invalid_no_physical_name":
+            parts.append("(physical_name 없음)")
+        elif st == "invalid_no_comment_text":
+            parts.append(f"{phys}: logical_key·출처 컬럼으로 코멘트 문자열을 만들 수 없음")
+        else:
+            parts.append(f"{phys}: {st}")
+    summary = "; ".join(parts[:20])
+    if len(parts) > 20:
+        summary += f" … 외 {len(parts) - 20}건"
+    return summary[:7900]
+
+
+def _drop_orphan_saved_physical_table_if_any(table_schema: str, table_name: str) -> None:
+    """
+    CREATE TABLE ... AS 직후 main_db 쪽 commit은 돌이킬 수 없다. 그 뒤 단계(매핑·큐 갱신 등)가
+    예외로 끊기면 큐는 failed인데 물리 테이블만 남아, 재시도 시 already exists가 난다. 고아만 DROP.
+    (큐 행이 최종 반영·커밋되기 전에만 호출. completed/failed(코멘트) 확정 뒤에는 호출하지 않는다.)
+    """
+    try:
+        conn = db.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                pg_sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                    pg_sql.Identifier(table_schema),
+                    pg_sql.Identifier(table_name),
+                )
+            )
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+    except Exception as ex:
+        logging.getLogger(__name__).warning(
+            "saved_table_orphan_drop_failed schema=%s table=%s: %s",
+            table_schema,
+            table_name,
+            str(ex)[:300],
+        )
+
+
+def _format_save_table_ctas_error_for_queue(err: Exception) -> str:
+    """큐 error 컬럼용: 중복 테이블명(42P07)은 덮어쓰지 않는다는 안내를 붙인다."""
+    raw = str(err).strip()
+    c = getattr(err, "pgcode", None)
+    if c == "42P07" or "already exists" in raw.lower():
+        return (
+            "같은 이름의 테이블이 이미 있어 저장할 수 없습니다(기존 데이터/테이블을 덮어쓰지 않습니다). "
+            "다른 저장 이름을 쓰거나, 기존 테이블을 직접 정리(DROP)한 뒤 다시 시도하세요.\n"
+            + raw
+        )
+    if c == "57014" or "statement timeout" in raw.lower():
+        return (
+            raw
+            + "\n\n[안내] DB 세션 statement_timeout(테이블 저장 CTAS)은 "
+            "Env/config/config.json 의 backend.save_table_ctas_timeout_seconds 입니다. "
+            "0 또는 생략 시 제한 없음(다음 큐 작업부터 config 파일을 다시 읽습니다). API 서버 재시작을 권장합니다."
+        )
+    return raw
+
+
+def _read_save_table_ctas_timeout_seconds() -> int:
+    """
+    CTAS 1건마다 config.json을 다시 읽음(Import 시점의 Env.config 와 달리 파일 최신값 반영).
+    save_table_ctas_timeout_seconds: 초 단위. 0·미설정·음수 → 0(SET statement_timeout 0, PostgreSQL 제한 없음).
+    """
+    try:
+        from Env.config import loader
+
+        cfg = loader.load_config()
+        v = getattr(cfg.backend, "save_table_ctas_timeout_seconds", None)
+        if v is None:
+            return 0
+        n = int(v)
+        return n if n > 0 else 0
+    except Exception:
+        return 0
 
 
 # 16.
@@ -1319,6 +1566,12 @@ def _ensure_queue_table(conn):
                 "ADD COLUMN IF NOT EXISTS column_comment_hints JSONB"
             ).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
         )
+        cur.execute(
+            pg_sql.SQL(
+                "ALTER TABLE {schema_table} "
+                "ADD COLUMN IF NOT EXISTS column_comment_result JSONB"
+            ).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE))
+        )
         conn.commit()
     finally:
         cur.close()
@@ -1328,7 +1581,6 @@ def _ensure_queue_table(conn):
 def _save_table_worker():
     """큐 테이블에서 status='queued'인 행을 확인해 하나씩 CREATE TABLE 실행."""
     global _save_table_worker_last_conn_err_log
-    from Env import config as env_config
     while True:
         conn_sel = None
         conn_create = None
@@ -1368,39 +1620,119 @@ def _save_table_worker():
             save_create_uid = int(save_create_uid) if save_create_uid is not None else None
             cur = conn_sel.cursor(cursor_factory=RealDictCursor)
             cur.execute(
-                pg_sql.SQL("UPDATE {schema_table} SET status = 'running', started_at = NOW() WHERE id = %s").format(
+                pg_sql.SQL(
+                    "UPDATE {schema_table} SET status = 'running', started_at = NOW() "
+                    "WHERE id = %s AND status = 'queued'"
+                ).format(
                     schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)
                 ),
                 (job_id,),
             )
+            if cur.rowcount == 0:
+                conn_sel.commit()
+                cur.close()
+                conn_sel.close()
+                conn_sel = None
+                continue
             conn_sel.commit()
             cur.close()
             conn_sel.close()
             conn_sel = None
 
-            timeout = int(getattr(env_config.backend, "query_timeout_seconds", None) or 120)
+            # CTAS(테이블 저장): 매 작업 config.json 다시 읽기 + 기본 0(무제한). 풀 연결이 이전 10s 세션을 쓸 수 있어 SET 필수
+            timeout_sec = _read_save_table_ctas_timeout_seconds()
             conn_create = db.get_db_connection()
             cur_create = conn_create.cursor(cursor_factory=RealDictCursor)
+            ctas_committed = False
+            job_queue_finalized = False
             try:
-                cur_create.execute(f"SET statement_timeout = '{timeout}s'")
-                cur_create.execute(pg_sql.SQL("CREATE TABLE {} AS ({})").format(pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)))
+                if timeout_sec <= 0:
+                    cur_create.execute("SET statement_timeout = 0")
+                else:
+                    cur_create.execute(f"SET statement_timeout = '{timeout_sec}s'")
+                logging.getLogger(__name__).info(
+                    "saved_table_ctas statement_timeout_sec=%s job_id=%s table=%s",
+                    "unlimited" if timeout_sec <= 0 else str(timeout_sec),
+                    job_id,
+                    table_name,
+                )
+                cur_create.execute(
+                    pg_sql.SQL("CREATE TABLE {} AS ({})").format(
+                        pg_sql.Identifier(schema, table_name), pg_sql.SQL(query)
+                    )
+                )
                 conn_create.commit()
+                ctas_committed = True
+                comment_rows: list = []
+                actual_cols: list[str] = []
+                expected_comment_targets = 0
                 if isinstance(cm_list, list) and len(cm_list) > 0:
+                    # autocommit 은 트랜잭션 밖에서만 set_session 으로 바꿀 수 있음.
+                    # _ordered_table_physical_columns 가 SELECT 로 암시적 BEGIN 을 열면 그 다음 autocommit=True 가 실패한다.
                     prev_ac = getattr(conn_create, "autocommit", False)
                     conn_create.autocommit = True
                     try:
-                        for ent in cm_list:
-                            try:
-                                _apply_one_saved_column_pg_comment(cur_create, schema, table_name, ent)
-                            except Exception as _cmt_e:
+                        actual_cols = _ordered_table_physical_columns(cur_create, schema, table_name)
+                        for idx, ent in enumerate(cm_list):
+                            at_ord = (
+                                actual_cols[idx]
+                                if idx < len(actual_cols)
+                                else None
+                            )
+                            row = _apply_one_saved_column_pg_comment_detailed(
+                                cur_create, schema, table_name, ent, at_ord
+                            )
+                            comment_rows.append(row)
+                            if row.get("status") not in ("invalid_no_comment_text", "invalid_not_dict"):
+                                expected_comment_targets += 1
+                            if row.get("status") == "failed_execute":
                                 logging.getLogger(__name__).warning(
                                     "saved_table_column_comment_skip table=%s col=%s: %s",
                                     table_name,
-                                    (ent or {}).get("physical_name") if isinstance(ent, dict) else None,
-                                    str(_cmt_e).split("\n")[0][:200],
+                                    row.get("physical_name"),
+                                    (row.get("error") or "")[:200],
                                 )
+                        # 1차 적용 후 실제 COMMENT 수가 기대치보다 적으면 ordinal 기준으로 한 번 더 재적용.
+                        # 프론트/백엔드 배포 시점이 엇갈려 physical_name이 달라진 경우를 복구한다.
+                        applied_now = _count_nonempty_pg_column_comments(cur_create, schema, table_name)
+                        expected_min = min(expected_comment_targets, len(actual_cols))
+                        if expected_min > 0 and applied_now < expected_min:
+                            logging.getLogger(__name__).warning(
+                                "saved_table_column_comment_reconcile table=%s have=%s expected_at_least=%s",
+                                table_name,
+                                applied_now,
+                                expected_min,
+                            )
+                            for idx, ent in enumerate(cm_list):
+                                at_ord = actual_cols[idx] if idx < len(actual_cols) else None
+                                if not at_ord:
+                                    continue
+                                ent2 = dict(ent) if isinstance(ent, dict) else {}
+                                if not (ent2.get("physical_name") or "").strip():
+                                    ent2["physical_name"] = at_ord
+                                row2 = _apply_one_saved_column_pg_comment_detailed(
+                                    cur_create, schema, table_name, ent2, at_ord
+                                )
+                                if row2.get("status") == "failed_execute":
+                                    logging.getLogger(__name__).warning(
+                                        "saved_table_column_comment_reconcile_skip table=%s col=%s: %s",
+                                        table_name,
+                                        row2.get("physical_name"),
+                                        (row2.get("error") or "")[:200],
+                                    )
+                                comment_rows.append(row2)
                     finally:
                         conn_create.autocommit = prev_ac
+
+                comment_result_payload = None
+                comment_apply_ok = True
+                if isinstance(cm_list, list) and len(cm_list) > 0:
+                    final_with_comments = _count_nonempty_pg_column_comments(cur_create, schema, table_name)
+                    comment_result_payload = {"hint_count": len(cm_list), "results": comment_rows}
+                    comment_apply_ok = all(
+                        r.get("status") in ("applied", "skipped_existing") for r in comment_rows
+                    ) and final_with_comments >= min(expected_comment_targets, len(actual_cols))
+
                 cur_create.close()
                 conn_create.close()
                 conn_create = None
@@ -1422,33 +1754,86 @@ def _save_table_worker():
                             time.sleep(0.35 * (attempt + 1))
                 if last_map_err is not None:
                     raise last_map_err
+
                 conn_up = db.get_db_connection()
                 cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
-                cur_up.execute(
-                    pg_sql.SQL("""
-                        UPDATE {schema_table}
-                        SET status = 'completed', completed_at = NOW(), result_table_name = %s
-                        WHERE id = %s
-                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
-                    (table_name, job_id),
-                )
-                conn_up.commit()
-                cur_up.close()
-                conn_up.close()
-                emit_query_studio_log(
-                    save_create_uid,
-                    business_action="saved_table_create",
-                    action_kind="CREATE",
-                    table_name=str(table_name)[:63] if table_name else None,
-                    sql_fingerprint=compute_sql_fingerprint_hex(str(query or "")),
-                    detail_json={
-                        "job_id": job_id,
-                        "project_info_id": project_info_id,
-                        "column_comment_hint_rows": (len(cm_list) if isinstance(cm_list, list) else 0),
-                    },
-                    risk_tier="MED",
-                )
+                try:
+                    if not comment_apply_ok:
+                        err_body = (
+                            "테이블은 생성되었으나 컬럼 코멘트 적용에 실패했습니다. "
+                            + _format_comment_failure_message(comment_rows)
+                        )
+                        cur_up.execute(
+                            pg_sql.SQL("""
+                                UPDATE {schema_table}
+                                SET status = 'failed', completed_at = NOW(), error = %s,
+                                    result_table_name = %s, column_comment_result = %s
+                                WHERE id = %s
+                            """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                            (
+                                err_body,
+                                table_name,
+                                Json(comment_result_payload),
+                                job_id,
+                            ),
+                        )
+                        conn_up.commit()
+                        job_queue_finalized = True
+                        emit_query_studio_log(
+                            save_create_uid,
+                            business_action="saved_table_create_comment_failed",
+                            action_kind="CREATE",
+                            table_name=str(table_name)[:63] if table_name else None,
+                            sql_fingerprint=compute_sql_fingerprint_hex(str(query or "")),
+                            detail_json={
+                                "job_id": job_id,
+                                "project_info_id": project_info_id,
+                                "column_comment_hint_rows": len(cm_list) if isinstance(cm_list, list) else 0,
+                                "comment_apply_ok": False,
+                                "column_comment_result": comment_result_payload,
+                            },
+                            risk_tier="MED",
+                        )
+                    else:
+                        cur_up.execute(
+                            pg_sql.SQL("""
+                                UPDATE {schema_table}
+                                SET status = 'completed', completed_at = NOW(),
+                                    result_table_name = %s,
+                                    column_comment_result = %s
+                                WHERE id = %s
+                            """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                            (
+                                table_name,
+                                Json(comment_result_payload) if comment_result_payload else None,
+                                job_id,
+                            ),
+                        )
+                        conn_up.commit()
+                        job_queue_finalized = True
+                        emit_query_studio_log(
+                            save_create_uid,
+                            business_action="saved_table_create",
+                            action_kind="CREATE",
+                            table_name=str(table_name)[:63] if table_name else None,
+                            sql_fingerprint=compute_sql_fingerprint_hex(str(query or "")),
+                            detail_json={
+                                "job_id": job_id,
+                                "project_info_id": project_info_id,
+                                "column_comment_hint_rows": (
+                                    len(cm_list) if isinstance(cm_list, list) else 0
+                                ),
+                                "comment_apply_ok": True,
+                                "column_comment_result": comment_result_payload,
+                            },
+                            risk_tier="MED",
+                        )
+                finally:
+                    cur_up.close()
+                    conn_up.close()
             except psycopg2.Error as e:
+                if ctas_committed and not job_queue_finalized:
+                    _drop_orphan_saved_physical_table_if_any(schema, table_name)
                 if conn_create:
                     try:
                         conn_create.rollback()
@@ -1456,6 +1841,7 @@ def _save_table_worker():
                     except Exception:
                         pass
                     conn_create = None
+                err_q = _format_save_table_ctas_error_for_queue(e)
                 conn_up = db.get_db_connection()
                 cur_up = conn_up.cursor(cursor_factory=RealDictCursor)
                 cur_up.execute(
@@ -1464,12 +1850,14 @@ def _save_table_worker():
                         SET status = 'failed', completed_at = NOW(), error = %s
                         WHERE id = %s
                     """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
-                    (str(e), job_id),
+                    (err_q, job_id),
                 )
                 conn_up.commit()
                 cur_up.close()
                 conn_up.close()
             except Exception as e:
+                if ctas_committed and not job_queue_finalized:
+                    _drop_orphan_saved_physical_table_if_any(schema, table_name)
                 traceback.print_exc()
                 if conn_create:
                     try:
@@ -1619,7 +2007,8 @@ def save_query_as_table_status(
         try:
             cur.execute(
                 pg_sql.SQL("""
-                    SELECT id, status, table_name, result_table_name, error, created_at, started_at, completed_at
+                    SELECT id, status, table_name, result_table_name, error,
+                           column_comment_result, created_at, started_at, completed_at
                     FROM {schema_table}
                     WHERE id = %s
                 """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
@@ -1630,17 +2019,350 @@ def save_query_as_table_status(
             cur.close()
         if not row:
             return JSONResponse(status_code=404, content={"error": "해당 job_id를 찾을 수 없습니다."})
+        cr = row.get("column_comment_result")
+        comment_apply_ok = None
+        if cr is not None:
+            if isinstance(cr, str):
+                try:
+                    cr = json.loads(cr)
+                except json.JSONDecodeError:
+                    cr = None
+            if isinstance(cr, dict):
+                results = cr.get("results") or []
+                comment_apply_ok = (
+                    len(results) > 0
+                    and all(
+                        isinstance(x, dict)
+                        and x.get("status") in ("applied", "skipped_existing")
+                        for x in results
+                    )
+                )
         return {
             "job_id": job_id,
             "status": row.get("status", "unknown"),
             "table_name": row.get("result_table_name") or row.get("table_name"),
             "error": row.get("error"),
+            "column_comment_result": row.get("column_comment_result"),
+            "comment_apply_ok": comment_apply_ok,
             "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+            "started_at": row.get("started_at").isoformat() if row.get("started_at") else None,
             "completed_at": row.get("completed_at").isoformat() if row.get("completed_at") else None,
         }
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e), "message": "상태 조회 실패"})
+
+
+def _display_name_for_user_info_row(ur: dict) -> str:
+    """user_info 한 행 → UI 표시명(닉네임 > 이메일 > id)."""
+    if not ur:
+        return ""
+    nn = (ur.get("user_nickname") or "").strip()
+    if nn:
+        return nn
+    em = (ur.get("user_email") or "").strip()
+    if em:
+        return em
+    uid = ur.get("user_id")
+    return str(uid) if uid is not None else ""
+
+
+# 19b.
+@router.get("/save-query-as-table/queue")
+def save_query_as_table_queue_list(
+    _perm: dict = Depends(require_query_read_perm),
+    conn=Depends(get_db),
+    conn_sys=Depends(get_system_db),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=500_000, description="페이지 시작(0 기준)"),
+    status: str | None = Query(
+        None,
+        description="queued|running|completed|failed|cancelled (미지정이면 전체)",
+    ),
+):
+    """현재 프로젝트의 테이블 저장 큐 목록(최신순, limit/offset 페이지네이션)."""
+    try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        _ensure_queue_table(conn)
+        schema = db.get_table_schema()
+        allowed_status = frozenset({"queued", "running", "completed", "failed", "cancelled"})
+        st = (status or "").strip().lower()
+        if st and st not in allowed_status:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"status 는 {', '.join(sorted(allowed_status))} 중 하나여야 합니다."},
+            )
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            if st:
+                cur.execute(
+                    pg_sql.SQL("""
+                        SELECT COUNT(*)::int AS c
+                        FROM {schema_table}
+                        WHERE project_info_id = %s AND status = %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (int(project_info_id), st),
+                )
+            else:
+                cur.execute(
+                    pg_sql.SQL("""
+                        SELECT COUNT(*)::int AS c
+                        FROM {schema_table}
+                        WHERE project_info_id = %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (int(project_info_id),),
+                )
+            c_row = cur.fetchone()
+            total = int(c_row.get("c", 0) or 0) if c_row is not None else 0
+            if st:
+                cur.execute(
+                    pg_sql.SQL("""
+                        SELECT id, table_name, result_table_name, status, error, query,
+                               created_at, started_at, completed_at, create_user_id
+                        FROM {schema_table}
+                        WHERE project_info_id = %s AND status = %s
+                        ORDER BY created_at DESC
+                        LIMIT %s OFFSET %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (int(project_info_id), st, limit, offset),
+                )
+            else:
+                cur.execute(
+                    pg_sql.SQL("""
+                        SELECT id, table_name, result_table_name, status, error, query,
+                               created_at, started_at, completed_at, create_user_id
+                        FROM {schema_table}
+                        WHERE project_info_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT %s OFFSET %s
+                    """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                    (int(project_info_id), limit, offset),
+                )
+            rows = cur.fetchall() or []
+        finally:
+            cur.close()
+
+        uids: list[int] = []
+        seen: set[int] = set()
+        for r in rows:
+            cuid = r.get("create_user_id")
+            if cuid is None:
+                continue
+            try:
+                u = int(cuid)
+            except (TypeError, ValueError):
+                continue
+            if u not in seen:
+                seen.add(u)
+                uids.append(u)
+
+        user_by_id: dict[int, str] = {}
+        if uids:
+            csys = conn_sys.cursor(cursor_factory=RealDictCursor)
+            try:
+                csys.execute(
+                    """
+                    SELECT user_id, user_email, user_nickname
+                    FROM user_info
+                    WHERE user_id IN %s
+                    """,
+                    (tuple(uids),),
+                )
+                for row_u in csys.fetchall() or []:
+                    uid = row_u.get("user_id")
+                    if uid is None:
+                        continue
+                    user_by_id[int(uid)] = _display_name_for_user_info_row(row_u) or f"#{uid}"
+            finally:
+                csys.close()
+
+        items = []
+        for r in rows:
+            q = r.get("query") or ""
+            if len(q) > 200000:
+                q = q[:200000] + "\n-- … (잘림, 총 길이 초과)"
+            cuid = r.get("create_user_id")
+            create_user_name = None
+            if cuid is not None:
+                try:
+                    create_user_name = user_by_id.get(int(cuid), f"#{cuid}")
+                except (TypeError, ValueError):
+                    create_user_name = None
+            items.append(
+                {
+                    "id": str(r.get("id")),
+                    "table_name": r.get("table_name"),
+                    "result_table_name": r.get("result_table_name"),
+                    "status": r.get("status"),
+                    "error": r.get("error"),
+                    "query": q,
+                    "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+                    "started_at": r["started_at"].isoformat() if r.get("started_at") else None,
+                    "completed_at": r["completed_at"].isoformat() if r.get("completed_at") else None,
+                    "create_user_id": cuid,
+                    "create_user_name": create_user_name,
+                }
+            )
+        return {
+            "ok": True,
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "큐 목록 조회 실패"})
+
+
+# 19c.
+@router.post("/save-query-as-table/queue/{job_id}/cancel")
+def save_query_as_table_queue_cancel(
+    job_id: str,
+    _perm: dict = Depends(require_query_read_perm),
+    conn=Depends(get_db),
+):
+    """대기(queued) 작업만 취소. 실행 중(running)은 취소되지 않습니다."""
+    try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        _ensure_queue_table(conn)
+        schema = db.get_table_schema()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                pg_sql.SQL("""
+                    UPDATE {schema_table}
+                    SET status = 'cancelled',
+                        completed_at = NOW(),
+                        error = %s
+                    WHERE id = %s::uuid AND project_info_id = %s AND status = 'queued'
+                    RETURNING id
+                """).format(
+                    schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)
+                ),
+                ("사용자에 의해 취소되었습니다.", str(job_id), int(project_info_id)),
+            )
+            r = cur.fetchone()
+        finally:
+            cur.close()
+        if not r:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "취소할 수 없습니다. 대기(queued) 상태의 작업만 취소됩니다."},
+            )
+        conn.commit()
+        return {"ok": True, "job_id": job_id, "status": "cancelled"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "취소 실패"})
+
+
+# 19d.
+@router.post("/save-query-as-table/queue/{job_id}/requeue")
+def save_query_as_table_queue_requeue(
+    job_id: str,
+    _perm: dict = Depends(require_query_execute_perm),
+    conn=Depends(get_db),
+):
+    """
+    기존 작업과 동일한 파라미터로 새 대기(queued) 작업을 만든다(재시도/동일 쿼리로 다시 큐).
+    running 이면 409. (completed/failed/cancelled/queued 등은 새 job_id 로 재등록)
+    """
+    try:
+        project_info_id = _perm.get("project_info_id")
+        if project_info_id is None:
+            raise HTTPException(status_code=403, detail="프로젝트를 먼저 선택해주세요.")
+        save_user_id = _perm.get("user_id")
+        save_user_id = int(save_user_id) if save_user_id is not None else None
+        _ensure_queue_table(conn)
+        schema = db.get_table_schema()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                pg_sql.SQL("""
+                    SELECT id, table_name, query, column_comment_hints, status, project_info_id, create_user_id
+                    FROM {schema_table}
+                    WHERE id = %s::uuid AND project_info_id = %s
+                """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                (job_id, int(project_info_id)),
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "해당 작업을 찾을 수 없습니다."})
+        if (row.get("status") or "").lower() == "running":
+            return JSONResponse(
+                status_code=409,
+                content={"error": "실행 중인 작업은 다시 큐에 넣을 수 없습니다. 끝난 뒤에 재시도하세요."},
+            )
+        q = (row.get("query") or "").strip().rstrip(";").strip()
+        if not q or not q.upper().startswith("SELECT"):
+            return JSONResponse(status_code=400, content={"error": "저장된 쿼리가 유효한 SELECT가 아닙니다."})
+        dangerous = _contains_dangerous_sql(q)
+        if dangerous:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"재실행 쿼리에 금지 키워드가 있습니다: {dangerous}"},
+            )
+        table_name = (row.get("table_name") or "").strip()
+        if not table_name:
+            return JSONResponse(status_code=400, content={"error": "table_name이 비어 있습니다."})
+        hints_raw = row.get("column_comment_hints")
+        hints_val = None
+        if isinstance(hints_raw, str) and hints_raw.strip():
+            try:
+                j = json.loads(hints_raw)
+            except json.JSONDecodeError:
+                j = None
+            hints_val = Json(j) if isinstance(j, list) and len(j) > 0 else None
+        elif isinstance(hints_raw, list) and len(hints_raw) > 0:
+            hints_val = Json(hints_raw)
+        new_id = str(uuid.uuid4())
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                pg_sql.SQL("""
+                    INSERT INTO {schema_table}
+                        (id, table_name, project_info_id, query, status, create_user_id, column_comment_hints)
+                    VALUES (%s, %s, %s, %s, 'queued', %s, %s)
+                """).format(schema_table=pg_sql.Identifier(schema, REPORT_SAVE_QUEUE_TABLE)),
+                (new_id, table_name, int(project_info_id), q, save_user_id, hints_val),
+            )
+        finally:
+            cur.close()
+        conn.commit()
+        return {
+            "ok": True,
+            "job_id": new_id,
+            "status": "queued",
+            "source_job_id": job_id,
+            "message": "동일한 설정으로 다시 대기열에 등록되었습니다.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "재실행(재큐) 실패"})
 
 
 # 20.
@@ -1727,6 +2449,97 @@ def execute_query(
         import traceback
         _log("traceback: %s", traceback.format_exc())
         return JSONResponse(status_code=500, content={"error": str(e), "message": "쿼리 실행 실패"})
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+
+# 20a.
+@router.post("/estimate-query-result")
+def estimate_query_result(
+    body: ExecuteQueryRequest,
+    _perm: dict = Depends(require_query_execute_perm),
+    conn=Depends(get_db),
+    cfg=Depends(get_config),
+):
+    """SELECT에 대해 EXPLAIN(FORMAT JSON)만 수행하고 최상위 Plan Rows·Width로 결과 데이터 크기를 추정."""
+    cur = None
+    try:
+        query = (body.query or "").strip()
+        if not query:
+            return JSONResponse(status_code=400, content={"error": "query 파라미터가 필요합니다"})
+        if not query.upper().startswith("SELECT"):
+            return JSONResponse(status_code=400, content={"error": "SELECT 쿼리만 추정 가능합니다"})
+        dangerous = _contains_dangerous_sql(query)
+        if dangerous:
+            return JSONResponse(status_code=400, content={"error": f"금지된 키워드: {dangerous}"})
+        rt = peak_guard.load_runtime(cfg)
+        if rt:
+            ok, retry = peak_guard.check_execute_query_rate_limit(_perm.get("user_id"), rt)
+            if not ok:
+                return _peak_guard_429(retry, "쿼리 추정 요청이 너무 잦습니다.")
+        timeout = getattr(cfg, "query_timeout_seconds", None)
+        if timeout is None:
+            raise ValueError("Env/config/config.json 에 backend.query_timeout_seconds 가 없습니다.")
+        timeout = int(timeout)
+        if timeout < 60:
+            timeout = 120
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(f"SET statement_timeout = '{timeout}s'")
+        cur.execute("EXPLAIN (FORMAT JSON) " + query)
+        row = cur.fetchone()
+        if not row:
+            return JSONResponse(status_code=500, content={"error": "EXPLAIN 결과 없음", "message": "플랜 조회 실패"})
+        raw_plan = next(iter(row.values()))
+        if isinstance(raw_plan, memoryview):
+            raw_plan = raw_plan.tobytes().decode("utf-8")
+        if isinstance(raw_plan, (bytes, bytearray)):
+            raw_plan = raw_plan.decode("utf-8")
+        if isinstance(raw_plan, str):
+            plan_payload = json.loads(raw_plan)
+        else:
+            plan_payload = raw_plan
+        rows_f, width_i = _explain_json_root_rows_width(plan_payload)
+        est_bytes = None
+        pretty = None
+        if rows_f is not None and width_i is not None and rows_f >= 0 and width_i >= 0:
+            cap = 10**18
+            est_bytes = int(min(cap, max(0, math.ceil(rows_f) * width_i)))
+            cur.execute("SELECT pg_size_pretty(%s::bigint) AS p", (est_bytes,))
+            pr = cur.fetchone() or {}
+            pretty = pr.get("p")
+        cur.close()
+        cur = None
+        return {
+            "estimated_rows": rows_f,
+            "plan_width_bytes": width_i,
+            "estimated_data_bytes": est_bytes,
+            "estimated_data_pretty": pretty,
+            "disclaimer": (
+                "PostgreSQL 플래너 통계 기준 추정입니다. "
+                "실제 행 수·디스크 테이블 크기(인덱스·TOAST 등)와 다를 수 있습니다."
+            ),
+        }
+    except json.JSONDecodeError as e:
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "EXPLAIN JSON 파싱 실패"})
+    except psycopg2.errors.QueryCanceled:
+        timeout = getattr(cfg, "query_timeout_seconds", None)
+        sec = max(int(timeout or 0), 120) if timeout is not None else 120
+        return JSONResponse(
+            status_code=408,
+            content={
+                "error": f"EXPLAIN 시간 초과 ({sec}초)",
+                "message": "쿼리가 복잡합니다. 잠시 후 다시 시도하세요.",
+            },
+        )
+    except psycopg2.Error as e:
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "EXPLAIN 실행 오류"})
+    except Exception as e:
+        _log("estimate_query_result exception: %s", repr(e))
+        return JSONResponse(status_code=500, content={"error": str(e), "message": "결과 크기 추정 실패"})
     finally:
         if cur is not None:
             try:

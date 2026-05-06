@@ -506,8 +506,24 @@
 }
 
 .query-studio .table-count {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 2px;
+  max-width: 100%;
   font-size: var(--font-size-hint);
   color: var(--color-text-muted);
+}
+.query-studio .table-count__n {
+  white-space: nowrap;
+}
+.query-studio .table-size {
+  white-space: nowrap;
+  color: #5c6b7a;
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.01em;
 }
 
 .query-studio .table-header .qs-table-label-gear {
@@ -1520,6 +1536,31 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
+.save-as-table-estimate {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-subtle, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--color-border-subtle, var(--color-border-input));
+}
+.save-as-table-estimate__main {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+.save-as-table-estimate__muted {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+.save-as-table-estimate__err {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-danger, #b42318);
+}
 .save-as-table-label {
   display: block;
   margin-bottom: 8px;
@@ -1569,4 +1610,458 @@
   margin: 0;
   font-size: 13px;
   color: var(--color-text-muted);
+}
+
+/* 왼쪽 사이드바: 테이블 목록 | 저장 큐 */
+.query-studio.qs-page__workspace .qs-sidebar__mode-bar {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--background, #f8fafc);
+}
+
+.query-studio.qs-page__workspace .qs-sidebar__mode-btn {
+  flex: 1 1 50%;
+  padding: 9px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  cursor: pointer;
+}
+
+.query-studio.qs-page__workspace .qs-sidebar__mode-btn:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.query-studio.qs-page__workspace .qs-sidebar__mode-btn.is-active {
+  color: var(--color-action-primary, #00704a);
+  border-bottom-color: var(--color-action-primary, #00704a);
+  font-weight: 600;
+  background: #fff;
+}
+
+.query-studio.qs-page__workspace .qs-sidebar__queue-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.query-studio.qs-page__workspace .qs-sidebar__queue-header .qs-sidebar__title {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.query-studio.qs-page__workspace .qs-sidebar-queue-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 테이블 저장 큐 패널 */
+.query-studio .save-queue-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+/* 사이드바에 붙은 큐(카드 느낌 제거·남은 공간 스크롤) */
+.query-studio .save-queue-panel--sidebar {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.query-studio .save-queue-hint--sidebar {
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.query-studio .save-queue-panel--sidebar .save-queue-toolbar {
+  padding: 8px 8px 8px 10px;
+  gap: 8px;
+}
+
+.query-studio .save-queue-panel--sidebar .save-queue-data-table th,
+.query-studio .save-queue-panel--sidebar .save-queue-data-table td {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.query-studio .save-queue-panel--sidebar .save-queue-td--tname .ibank-data-table__clip {
+  max-width: 100px;
+}
+
+.query-studio .save-queue-panel--sidebar .save-queue-td--mono,
+.query-studio .save-queue-panel--sidebar .save-queue-td__val {
+  font-size: 10px;
+  white-space: normal;
+}
+
+.query-studio .save-queue-panel--empty {
+  padding: 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.query-studio .save-queue-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+
+.query-studio .save-queue-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.query-studio .save-queue-filter select {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-btn-sm);
+  font-size: 13px;
+}
+
+.query-studio .save-queue-hint {
+  margin: 0;
+  padding: 8px 16px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+
+/* 테이블 저장 큐 — 페이지네이션( main.css .pagination-bar 재사용 ) */
+.query-studio .save-queue-panel .save-queue-pagination {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border-light);
+  background: #f9f9f9;
+}
+.query-studio .save-queue-panel .save-queue-pagination .pagination-bar {
+  border-top: none;
+  margin: 0;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  background: #f9f9f9;
+}
+.query-studio .save-queue-page-size-hint {
+  font-size: 11px;
+  color: var(--color-text-muted, #7f7f7f);
+  margin-right: 4px;
+}
+
+/* 패널 카드 안: 테이블 래퍼는 이중 테두리 제거 */
+.query-studio .save-queue-panel:not(.save-queue-panel--sidebar) > .ibank-table-wrap.save-queue-table-wrap {
+  border: none;
+  border-radius: 0;
+  background: #fff;
+}
+
+/* 테이블 저장 큐 — shared-ui .ibank-table-wrap + .ibank-data-table 위에 열·스트라이프·고정 헤더 */
+.query-studio .save-queue-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 0 12px;
+  max-width: 100%;
+}
+
+/* ibank-data-table 기본 td nowrap 해제(이 테이블만) */
+.query-studio table.save-queue-data-table > thead > tr > th,
+.query-studio table.save-queue-data-table > tbody > tr > td {
+  white-space: normal;
+}
+.query-studio .save-queue-td--nowrap {
+  white-space: nowrap;
+}
+
+.query-studio .save-queue-data-table {
+  width: 100%;
+  min-width: 1020px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.query-studio .save-queue-col--status {
+  width: 6.5rem;
+}
+.query-studio .save-queue-col--table {
+  width: 20%;
+}
+.query-studio .save-queue-col--user {
+  width: 10rem;
+}
+.query-studio .save-queue-col--created {
+  width: 9.5rem;
+}
+.query-studio .save-queue-col--span {
+  width: 10.5rem;
+}
+.query-studio .save-queue-col--err {
+  width: 18%;
+  min-width: 11.5rem;
+}
+.query-studio .save-queue-col--actions {
+  width: auto;
+  min-width: 10.5rem;
+}
+
+.query-studio .save-queue-data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 2px solid var(--color-border-light);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  white-space: nowrap;
+}
+
+.query-studio .save-queue-th--status {
+  text-align: center;
+}
+.query-studio .save-queue-th--actions {
+  text-align: center;
+}
+.query-studio .save-queue-th--nowrap {
+  white-space: nowrap;
+}
+
+.query-studio .save-queue-data-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border-light);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.query-studio .save-queue-tr--striped > td {
+  background: #f9fafb;
+}
+
+.query-studio .save-queue-td--status {
+  text-align: center;
+  width: 6.5rem;
+}
+
+.query-studio .save-queue-td--tname {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.query-studio .save-queue-td--tname .ibank-data-table__clip {
+  max-width: 100%;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* shared-ui __clip 기본 nowrap 무력화 */
+  text-overflow: clip;
+}
+
+.query-studio .save-queue-td--user .ibank-data-table__clip {
+  max-width: 100%;
+}
+
+.query-studio .save-queue-td--mono {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.query-studio .save-queue-td--nowrap {
+  white-space: nowrap;
+}
+
+.query-studio .save-queue-td--span {
+  white-space: normal;
+  vertical-align: middle;
+}
+
+.query-studio .save-queue-td__time-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.query-studio .save-queue-td__time-line {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+.query-studio .save-queue-td__label {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.query-studio .save-queue-td__val {
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+.query-studio .save-queue-td--actions {
+  text-align: right;
+  white-space: normal;
+  vertical-align: middle;
+}
+.query-studio .save-queue-td--actions .save-queue-actions {
+  justify-content: flex-end;
+}
+
+.query-studio .save-queue-td--err {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  vertical-align: top;
+  padding-top: 11px;
+}
+.query-studio .save-queue-td--err-fail {
+  color: #b91c1c;
+  font-weight: 500;
+}
+.query-studio .save-queue-errcell {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.query-studio .save-queue-status-cell {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 28px 16px;
+  font-size: 13px;
+  background: #fafafa;
+}
+.query-studio .save-queue-status-cell--empty {
+  font-style: normal;
+}
+
+.query-studio .save-queue-res {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.query-studio .save-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.query-studio .save-queue-btn-cancel {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.query-studio .save-queue-btn-cancel:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.query-studio .save-queue-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.query-studio .save-queue-badge--queued {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.query-studio .save-queue-badge--running {
+  background: #fef3c7;
+  color: #b45309;
+}
+.query-studio .save-queue-badge--completed {
+  background: #dcfce7;
+  color: #15803d;
+}
+.query-studio .save-queue-badge--failed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.query-studio .save-queue-badge--cancelled {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.query-studio .save-queue-tr--detail > .save-queue-td--detail {
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--color-border-light);
+  padding: 12px 14px 14px;
+  vertical-align: top;
+}
+
+.query-studio .save-queue-sql {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.query-studio .save-queue-err {
+  margin-top: 8px;
+}
+
+.query-studio .save-queue-err pre {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #b91c1c;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
 }

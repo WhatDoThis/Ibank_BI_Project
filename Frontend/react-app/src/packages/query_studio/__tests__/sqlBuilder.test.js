@@ -14,7 +14,7 @@ import {
   getResultColumnKey,
   buildSaveTableColumnPlan,
   buildSaveTableMaterializedSelect,
-  savePhysicalColumnName,
+  pgCommentSourceKey,
 } from '../utils/sqlBuilder'
 
 const baseGridColumns = [
@@ -25,11 +25,11 @@ const addedTables = ['ibank_1']
 const filters = []
 const tableRelationships = {}
 
-describe('generateSQL · getResultColumnKey (물리테이블_컬럼)', () => {
-  it('모든 컬럼은 AS "테이블명_컬럼명" 이고 id는 결과 키가 campaigns_id', () => {
+describe('generateSQL · getResultColumnKey (기본은 테이블_컬럼, 동일 base 겹치면 _1부터 전부)', () => {
+  it('단일 컬럼은 AS·결과 키가 테이블명_id (campaigns.id → campaigns_id)', () => {
     const grid = [{ table: 'campaigns', column: 'id', alias: 't1', type: 'bigint' }]
     const sql = generateSQL(grid, ['campaigns'], [], [], 1, 100, { campaigns: {} }, { joinConfigs: {} })
-    expect(sql).toContain('"campaigns_id"')
+    expect(sql).toContain('AS "campaigns_id"')
     expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_id')
   })
   it('gridColumn.outputKey 가 있으면 SELECT·getResultColumnKey 가 그 키를 씀', () => {
@@ -46,11 +46,18 @@ describe('generateSQL · getResultColumnKey (물리테이블_컬럼)', () => {
     expect(sql).not.toContain('test_report_test_5_col_1')
     expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_id')
   })
+  it('Rule 7: test_report_* 에서 이미 campaigns_id 컬럼이면 현재 테이블 prefix를 덮어쓰지 않음', () => {
+    const grid = [{ table: 'test_report_new_5', column: 'campaigns_id', alias: 't1', type: 'bigint' }]
+    const sql = generateSQL(grid, ['test_report_new_5'], [], [], 1, 100, { test_report_new_5: {} }, { joinConfigs: {} })
+    expect(sql).toContain('t1."campaigns_id" AS "campaigns_id"')
+    expect(sql).not.toContain('AS "test_report_new_5_campaigns_id"')
+    expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_id')
+  })
 
-  it('비 id 컬럼도 동일 규칙으로 별칭·키가 맞음', () => {
+  it('비 id 컬럼도 기본 별칭·키는 테이블_컬럼(campaigns_label)', () => {
     const grid = [{ table: 'campaigns', column: 'label', alias: 't1', type: 'varchar' }]
     const sql = generateSQL(grid, ['campaigns'], [], [], 1, 100, { campaigns: {} }, { joinConfigs: {} })
-    expect(sql).toContain('"campaigns_label"')
+    expect(sql).toContain('AS "campaigns_label"')
     expect(getResultColumnKey(grid[0], [], {})).toBe('campaigns_label')
   })
 
@@ -86,6 +93,34 @@ describe('generateSQL · getResultColumnKey (물리테이블_컬럼)', () => {
   })
 })
 
+describe('pgCommentSourceKey', () => {
+  it('pgCommentRoot 가 있으면 describe/PG 에서 온 최초 원천 문자열을 그대로 씀', () => {
+    const c = {
+      table: 'test_report_x',
+      column: 'col_1',
+      label: 'wrong_label',
+      pgCommentRoot: 'campaigns_id',
+    }
+    expect(pgCommentSourceKey(c, [])).toBe('campaigns_id')
+  })
+  it('pgCommentRoot 없으면 기존 규칙(test_report col_n + label)', () => {
+    const c = {
+      table: 'test_report_test_5',
+      column: 'col_1',
+      label: 'campaigns_id',
+    }
+    expect(pgCommentSourceKey(c, [])).toBe('campaigns_id')
+  })
+  it('Rule 7: test_report_* 의 이미 논리명 컬럼은 pgCommentSourceKey도 그대로 유지', () => {
+    const c = {
+      table: 'test_report_new_5',
+      column: 'campaigns_id',
+      label: 'campaigns_id',
+    }
+    expect(pgCommentSourceKey(c, [])).toBe('campaigns_id')
+  })
+})
+
 describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
   it('저장용 물리 컬럼명·메타 행 순서가 inner SELECT 키와 맞음', () => {
     const grid = [
@@ -94,7 +129,8 @@ describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
     ]
     const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(grid, [], {}, {})
     expect(innerKeys).toEqual(['campaigns_id', 'campaigns_label'])
-    expect(column_comment_hints[0].physical_name).toBe(savePhysicalColumnName(1))
+    expect(column_comment_hints[0].physical_name).toBe('campaigns_id')
+    expect(column_comment_hints[1].physical_name).toBe('campaigns_label')
     expect(column_comment_hints[0].logical_key).toBe('campaigns_id')
     const sqlForSave = generateSQL(grid, ['campaigns'], [], [], 1, 100, { campaigns: {} }, {
       joinConfigs: {},
@@ -102,8 +138,8 @@ describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
     })
     expect(sqlForSave).not.toMatch(/\bLIMIT\b/i)
     const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
-    expect(wrapped).toContain('_qs_inner."campaigns_id" AS "col_1"')
-    expect(wrapped).toContain('_qs_inner."campaigns_label" AS "col_2"')
+    expect(wrapped).toContain('_qs_inner."campaigns_id" AS "campaigns_id"')
+    expect(wrapped).toContain('_qs_inner."campaigns_label" AS "campaigns_label"')
   })
 
   it('2차 저장: 1차 test_report 의 col_n + label 로 inner 키가 논리명이면 래핑·COMMENT 힌트 일치', () => {
@@ -116,7 +152,7 @@ describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
       saveAsTableSelectKeys: innerKeys,
     })
     const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
-    expect(wrapped).toContain('_qs_inner."campaigns_id" AS "col_1"')
+    expect(wrapped).toContain('_qs_inner."campaigns_id" AS "campaigns_id"')
   })
 
   it('같은 결과 별칭이 겹치면 innerKeys 는 _1 접미사, COMMENT 는 각각 원본 테이블_컬럼', () => {
@@ -127,7 +163,7 @@ describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
     const rel = { campaigns: {}, labels: {} }
     const joinCfg = { 'campaigns||labels': { joinType: 'LEFT', conditions: [{ prevColumn: 'id', currColumn: 'id' }] } }
     const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(grid, [], {}, {})
-    expect(innerKeys).toEqual(['dup', 'dup_1'])
+    expect(innerKeys).toEqual(['dup_1', 'dup_2'])
     expect(column_comment_hints[0].logical_key).toBe('campaigns_id')
     expect(column_comment_hints[1].logical_key).toBe('labels_id')
     const sqlForSave = generateSQL(grid, ['campaigns', 'labels'], [], [], 1, 100, rel, {
@@ -135,8 +171,8 @@ describe('buildSaveTableColumnPlan / buildSaveTableMaterializedSelect', () => {
       saveAsTableSelectKeys: innerKeys,
     })
     const wrapped = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
-    expect(wrapped).toContain('_qs_inner."dup" AS "col_1"')
-    expect(wrapped).toContain('_qs_inner."dup_1" AS "col_2"')
+    expect(wrapped).toContain('_qs_inner."dup_1" AS "dup_1"')
+    expect(wrapped).toContain('_qs_inner."dup_2" AS "dup_2"')
   })
 
   it('피벗 저장 시 column_comment_hints.logical_key 는 모두 null (PG COMMENT 미적용)', () => {

@@ -10,6 +10,7 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 
 import QueryStudioPage from '@/packages/query_studio'
+import SaveTableQueuePage from '@/packages/query_studio/SaveTableQueuePage.jsx'
 import WidgetboardPage from '@/packages/widgetboard'
 import WidgetboardListPage from '@/packages/widgetboard/WidgetboardListPage.jsx'
 import ETLPage from '@/packages/etl'
@@ -90,6 +91,16 @@ export function AppRoutes() {
           }
         />
         <Route path="/report" element={<Navigate to="/query-studio" replace />} />
+        <Route
+          path="/query-studio/save-queue"
+          element={
+            <NeedProjectRoute>
+              <ProjectFeatureRoute feature="query-studio">
+                <SaveTableQueuePage />
+              </ProjectFeatureRoute>
+            </NeedProjectRoute>
+          }
+        />
         <Route
           path="/query-studio"
           element={

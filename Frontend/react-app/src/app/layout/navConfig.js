@@ -17,6 +17,13 @@ export const NAV_ITEMS = [
       { to: '/dashboard', label: '대시보드', sidebarLabel: '대시보드', icon: 'dashboard', requiresProject: true },
       { to: '/widgetboard', label: '위젯보드', sidebarLabel: '위젯', icon: 'widgetboard', requiresProject: true },
       { to: '/query-studio', label: '쿼리 스튜디오', sidebarLabel: '쿼리', icon: 'queryStudio', requiresProject: true },
+      {
+        to: '/query-studio/save-queue',
+        label: '테이블 저장 큐',
+        sidebarLabel: '저장 큐',
+        icon: 'saveTableQueue',
+        requiresProject: true,
+      },
     ],
   },
   { to: '/admin/users', label: '사용자 관리', sidebarLabel: '사용자', icon: 'users', requiresOrgAdmin: true },

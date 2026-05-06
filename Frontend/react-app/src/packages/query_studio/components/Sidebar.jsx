@@ -8,7 +8,7 @@
  * ===========
  * 1. getTableFolder: 테이블명 → 폴더(I1/쿼리빌더/기타)
  * 2. getEmptyTableListHint: 테이블 목록이 비었을 때 dbStatus.ok(연결됨/아님)에 따라 매핑 안내 vs 연결 확인 문구
- * 3. Sidebar: tables, tableRelationships, relationshipOptions, addedTables, loading, dbStatus(빈 목록 힌트용), onRefreshSidebar. isTableAvailableOrViaParent로 필터. 테이블 행 톱니바퀴 → onOpenTableLabelsModal(table). 컬럼 드래그·테이블명 드래그(전체 컬럼) 데이터 전달
+ * 3. Sidebar: tables, tableRelationships, onRefreshSidebar. isTableAvailableOrViaParent로 필터
  *
  * [Dependencies]
  * =========
@@ -44,6 +44,45 @@ function getEmptyTableListHint(dbStatus) {
     return 'DB 연결을 확인해 주세요.'
   }
   return 'DB 연결 상태를 확인한 뒤 목록을 새로고침해 주세요.'
+}
+
+function formatTableSizeByThousand(sizeBytes, sizeText) {
+  const base = 1000
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const formatFromBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return null
+    let value = bytes
+    let unitIdx = 0
+    while (value >= base && unitIdx < units.length - 1) {
+      value /= base
+      unitIdx += 1
+    }
+    return `${value.toFixed(2)} ${units[unitIdx]}`
+  }
+
+  if (Number.isFinite(sizeBytes)) {
+    return formatFromBytes(sizeBytes)
+  }
+  if (sizeText == null || String(sizeText).trim() === '') return null
+  const raw = String(sizeText).trim()
+  const m = raw.match(/^([\d.]+)\s*([A-Za-z]+)$/)
+  if (!m) return raw
+  const value = Number(m[1])
+  if (!Number.isFinite(value)) return raw
+  const unit = m[2].toUpperCase()
+  const factors = {
+    B: 1,
+    BYTE: 1,
+    BYTES: 1,
+    KB: base,
+    MB: base ** 2,
+    GB: base ** 3,
+    TB: base ** 4,
+    PB: base ** 5,
+  }
+  const factor = factors[unit]
+  if (!factor) return raw
+  return formatFromBytes(value * factor)
 }
 
 // 3.
@@ -137,6 +176,7 @@ export default function Sidebar({
   function renderTableGroup(t) {
     const expanded = !!tableExpanded[t.table_name]
     const cols = t.columns || []
+    const tableSizeText = formatTableSizeByThousand(t.size_bytes, t.size)
     return (
       <div
         key={t.table_name}
@@ -170,7 +210,17 @@ export default function Sidebar({
             {t.table_label ?? t.table_name}
           </span>
           <div className="table-header__trailing">
-            <span className="table-count">({cols.length}개)</span>
+            <span className="table-count">
+              <span className="table-count__n">({cols.length}개)</span>
+              {tableSizeText && (
+                <span
+                  className="table-size"
+                  title="이 테이블(데이터+인덱스+TOAST) 전체의 디스크 사용량 추정(catalog)입니다. 실제는 VACUUM·압축에 따라 달라질 수 있습니다."
+                >
+                  · {tableSizeText}
+                </span>
+              )}
+            </span>
             {typeof onOpenTableLabelsModal === 'function' && (
               <button
                 type="button"

@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { AGG_FUNCTIONS, OPERATOR_LABELS } from '../utils/constants'
-import { getResultColumnKey } from '../utils/sqlBuilder'
+import { getResultColumnKey, computePivotOutputKeys } from '../utils/sqlBuilder'
 import { isDateColumn, isDateType, isDateTimeType } from '../utils/helpers'
 import { buildRelationshipTree, buildRelationshipMermaid } from '../utils/relationshipDiagram'
 
@@ -162,6 +162,10 @@ export default function MainArea({
 
   const isGroupByActive = groupBy && groupBy.length > 0
   const hasPivot = pivot && pivot.values && pivot.values.length > 0
+  const pivotResultKeys =
+    gridColumns.length > 0 && hasPivot && pivot
+      ? computePivotOutputKeys(gridColumns, groupBy, dateGranularity, pivot, pivotRowAggs)
+      : null
   const havingCandidates = gridColumns.filter((c) => !isGroupByColumn(groupBy, c.table, c.column) && c.aggFunc)
   const pivotAvailableCols = gridColumns.filter((c) => !isGroupByColumn(groupBy, c.table, c.column))
   const pivotAggAvailableCols = pivotAvailableCols.filter(
@@ -869,7 +873,7 @@ export default function MainArea({
                   resultData.map((row, ri) => (
                     <tr key={ri}>
                       {gridColumns.map((c) => {
-                        const key = getResultColumnKey(c, groupBy, dateGranularity)
+                        const key = getResultColumnKey(c, groupBy, dateGranularity, gridColumns)
                         const val =
                           row[key] ??
                           row[`${c.aggFunc}(${c.alias}.${c.column})`] ??
@@ -912,42 +916,35 @@ export default function MainArea({
                 {resultData.length > 0 ? (
                   resultData.map((row, ri) => (
                     <tr key={ri} className="data-row">
-                      {groupBy.map((g) => {
+                      {groupBy.map((g, gi) => {
                         const gc = gridColumns.find((c) => c.table === g.table && c.column === g.column)
                         const alias = gc?.alias || gridColumns.find((c) => c.table === g.table)?.alias
-                        const gCol = {
-                          table: g.table,
-                          column: g.column,
-                          alias: alias || 't1',
-                          outputKey: gc?.outputKey,
-                        }
+                        const rk = pivotResultKeys?.[gi]
                         const val =
-                          row[getResultColumnKey(gCol, groupBy, dateGranularity)] ??
+                          (rk != null ? row[rk] : undefined) ??
                           row[`${alias}.${g.column}`] ??
                           row[g.column] ??
                           'NULL'
                         return <td key={`${g.table}.${g.column}`}>{val}</td>
                       })}
-                      {pivotRowAggs.map((agg) => {
-                        const gc = gridColumns.find((c) => c.table === agg.table && c.column === agg.column)
-                        const aggAlias = gc?.alias
-                        const aggCol = {
-                          table: agg.table,
-                          column: agg.column,
-                          alias: aggAlias || 't1',
-                          aggFunc: agg.aggFunc,
-                          outputKey: gc?.outputKey,
-                        }
+                      {pivotRowAggs.map((agg, ai) => {
+                        const rk = pivotResultKeys?.[groupBy.length + ai]
                         const val =
-                          row[getResultColumnKey(aggCol, groupBy, dateGranularity)] ??
+                          (rk != null ? row[rk] : undefined) ??
                           row[`${agg.aggFunc}(${agg.column})`] ??
                           'NULL'
                         return <td key={`${agg.table}.${agg.column}.${agg.aggFunc}`}>{val}</td>
                       })}
-                      {pivot.values.map((v) => (
-                        <td key={v}>{row[v] ?? 0}</td>
-                      ))}
-                      <td>{row['전체'] ?? 0}</td>
+                      {pivot.values.map((v, vi) => {
+                        const rk = pivotResultKeys?.[groupBy.length + pivotRowAggs.length + vi]
+                        return <td key={v}>{(rk != null ? row[rk] : undefined) ?? row[v] ?? 0}</td>
+                      })}
+                      <td>
+                        {(() => {
+                          const rk = pivotResultKeys?.[pivotResultKeys.length - 1]
+                          return (rk != null ? row[rk] : undefined) ?? row['전체'] ?? 0
+                        })()}
+                      </td>
                     </tr>
                   ))
                 ) : (

@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './queryStudio.css'
-import { describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/query_studio/api/queryStudioClient.js'
+import { describeTable, tableRelationships as fetchTableRelationships, joinOrder as fetchJoinOrder, executeQuery as apiExecuteQuery, explainSql, estimateQueryResultSize, saveQueryAsTable, getSaveQueryAsTableStatus, saveColumnLabels } from '@/packages/query_studio/api/queryStudioClient.js'
 import { getTableRelationshipsMode } from '@/shared/config/api.js'
 import { useQueryStudioData } from './hooks/useQueryStudioData'
 import {
@@ -55,6 +55,13 @@ function getOversizedTablesForJoin(newTableNames, tablesList, thresholdBytes) {
     })
   }
   return out
+}
+
+function formatEstimatedRows(n) {
+  if (n == null || Number.isNaN(Number(n))) return '—'
+  const x = Math.round(Number(n))
+  if (!Number.isFinite(x)) return String(n)
+  return x.toLocaleString('ko-KR')
 }
 
 /** GET table-relationships 응답 relationships[] → relationshipOptions 맵 */
@@ -128,6 +135,7 @@ function cloneWorkspaceSnapshot(o) {
 
 // 2.
 export default function QueryStudioPage() {
+  const { me, participatingProjectsNonce } = useAuth()
   const { dbStatus, setDbStatus, tables, setTables, loading, loadHealth, loadTables, refreshAll } = useQueryStudioData()
 
   const [gridColumns, setGridColumns] = useState([])
@@ -149,6 +157,8 @@ export default function QueryStudioPage() {
   const [showSaveAsTableModal, setShowSaveAsTableModal] = useState(false)
   const [saveAsTableName, setSaveAsTableName] = useState('')
   const [saveAsTableSubmitting, setSaveAsTableSubmitting] = useState(false)
+  /** 저장 모달: EXPLAIN 기반 예상 행·크기 — { loading } | { error } | API 응답 필드 */
+  const [saveTableEstimate, setSaveTableEstimate] = useState(null)
   const [showJoinImpossibleModal, setShowJoinImpossibleModal] = useState(false)
   /** 대용량 테이블 조인 확인: { tables: [{ table_name, label, size, size_bytes }] } */
   const [largeTableJoinConfirm, setLargeTableJoinConfirm] = useState(null)
@@ -173,11 +183,19 @@ export default function QueryStudioPage() {
   /** table-relationships 병렬 요청 시 마지막 응답만 반영 */
   const relationshipFetchGenRef = useRef(0)
 
+  /** 목록 새로고침만으로 tables 참조가 바뀌어도 내용이 같으면 동일 문자열 → tableRelationships·자동 실행 effect 불필요 갱신 방지 */
+  const tableNamesKey = useMemo(() => {
+    const names = tables.map((t) => t.table_name).filter(Boolean)
+    return names.length ? [...names].sort().join('\x1e') : ''
+  }, [tables])
+
   const tableRelationships = useMemo(() => {
     const resolved = {}
-    tables.forEach((t) => {
-      if (t.table_name) resolved[t.table_name] = {}
-    })
+    if (tableNamesKey) {
+      for (const name of tableNamesKey.split('\x1e')) {
+        resolved[name] = {}
+      }
+    }
     Object.keys(relationshipOptions).forEach((key) => {
       const opts = relationshipOptions[key]
       if (!opts || opts.length === 0) return
@@ -193,7 +211,7 @@ export default function QueryStudioPage() {
       resolved[toTable][fromTable] = { prevColumn: first.currColumn, currColumn: first.prevColumn }
     })
     return resolved
-  }, [tables, relationshipOptions, joinConditions])
+  }, [tableNamesKey, relationshipOptions, joinConditions])
 
   const joinConfigs = useMemo(() => {
     const configs = {}
@@ -283,9 +301,9 @@ export default function QueryStudioPage() {
   }, [loadHealth, loadTables])
 
   useEffect(() => {
-    if (!tables.length) return
+    if (!tableNamesKey) return
     void loadRelationshipOptions()
-  }, [joinMode, tables, loadRelationshipOptions])
+  }, [joinMode, tableNamesKey, loadRelationshipOptions])
 
   useEffect(() => {
     if (addedTables.length < 2) {
@@ -394,7 +412,6 @@ export default function QueryStudioPage() {
     if (toastMessage) showToast(toastType, toastMessage)
   }, [showToast])
 
-  const { me, participatingProjectsNonce } = useAuth()
   const prevProjectIdRef = useRef(undefined)
   const participatingProjectsNonceRef = useRef(null)
 
@@ -533,6 +550,9 @@ export default function QueryStudioPage() {
                 ...(columnInfo.logical_key || columnInfo.outputKey
                   ? { outputKey: String(columnInfo.logical_key || columnInfo.outputKey).trim() }
                   : {}),
+                ...(columnInfo.logical_key
+                  ? { pgCommentRoot: String(columnInfo.logical_key).trim() }
+                  : {}),
                 ...(columnInfo.source_table ? { sourceTable: columnInfo.source_table } : {}),
                 ...(columnInfo.source_column ? { sourceColumn: columnInfo.source_column } : {}),
               },
@@ -624,6 +644,7 @@ export default function QueryStudioPage() {
             aggFunc,
             label: c.label ?? c.name,
             ...(c.logical_key ? { outputKey: String(c.logical_key).trim() } : {}),
+            ...(c.logical_key ? { pgCommentRoot: String(c.logical_key).trim() } : {}),
             ...(c.source_table ? { sourceTable: c.source_table } : {}),
             ...(c.source_column ? { sourceColumn: c.source_column } : {}),
           }
@@ -1090,6 +1111,81 @@ export default function QueryStudioPage() {
     }
   }, [workspaceSql, showToast])
 
+  /** 테이블로 저장 시 워커에 넘기는 materialized SELECT·코멘트 힌트 (모달 추정·저장 확인 공통) */
+  const getSaveTableSqlBundle = useCallback(() => {
+    const saveOpts = {
+      groupBy,
+      dateGranularity,
+      havings,
+      pivot,
+      pivotRowAggs,
+      joinConfigs,
+      joinOrder: joinOrderData?.join_order,
+    }
+    const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, saveOpts)
+    const sqlForSave = generateSQL(
+      gridColumns,
+      addedTables,
+      filters,
+      orderBy,
+      currentPage,
+      pageSize,
+      tableRelationships,
+      { ...saveOpts, saveAsTableSelectKeys: innerKeys }
+    )
+    const materializedSql = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
+    return { materializedSql, column_comment_hints }
+  }, [
+    gridColumns,
+    groupBy,
+    dateGranularity,
+    havings,
+    pivot,
+    pivotRowAggs,
+    joinConfigs,
+    joinOrderData,
+    addedTables,
+    filters,
+    orderBy,
+    currentPage,
+    pageSize,
+    tableRelationships,
+  ])
+
+  useEffect(() => {
+    if (!showSaveAsTableModal) {
+      setSaveTableEstimate(null)
+      return
+    }
+    let cancelled = false
+    setSaveTableEstimate({ loading: true })
+    let bundle
+    try {
+      bundle = getSaveTableSqlBundle()
+    } catch (e) {
+      setSaveTableEstimate({ loading: false, error: e?.message || 'SQL 생성 실패' })
+      return
+    }
+    const sql = bundle?.materializedSql
+    if (!sql || !String(sql).trim()) {
+      setSaveTableEstimate({ loading: false, error: '저장용 SQL이 비어 있습니다.' })
+      return
+    }
+    estimateQueryResultSize(sql)
+      .then((res) => {
+        if (cancelled) return
+        setSaveTableEstimate({ loading: false, ...res })
+      })
+      .catch((e) => {
+        if (cancelled) return
+        const msg = e?.message || e?.error || String(e)
+        setSaveTableEstimate({ loading: false, error: msg || '추정 실패' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showSaveAsTableModal, getSaveTableSqlBundle])
+
   const openSaveAsTableModal = useCallback(() => {
     if (!workspaceSql || !workspaceSql.trim()) {
       showToast('warning', '저장할 SQL이 없습니다. 컬럼을 추가하거나 조건을 확인하세요.')
@@ -1111,27 +1207,7 @@ export default function QueryStudioPage() {
     }
     setSaveAsTableSubmitting(true)
     try {
-      const saveOpts = {
-        groupBy,
-        dateGranularity,
-        havings,
-        pivot,
-        pivotRowAggs,
-        joinConfigs,
-        joinOrder: joinOrderData?.join_order,
-      }
-      const { innerKeys, column_comment_hints } = buildSaveTableColumnPlan(gridColumns, groupBy, dateGranularity, saveOpts)
-      const sqlForSave = generateSQL(
-        gridColumns,
-        addedTables,
-        filters,
-        orderBy,
-        currentPage,
-        pageSize,
-        tableRelationships,
-        { ...saveOpts, saveAsTableSelectKeys: innerKeys }
-      )
-      const materializedSql = buildSaveTableMaterializedSelect(sqlForSave, innerKeys)
+      const { materializedSql, column_comment_hints } = getSaveTableSqlBundle()
       const res = await saveQueryAsTable(name, materializedSql, column_comment_hints)
       setShowSaveAsTableModal(false)
       setSaveAsTableName('')
@@ -1153,7 +1229,11 @@ export default function QueryStudioPage() {
               showToast('success', `테이블 "${statusRes.table_name || name}"이(가) 생성되었습니다.`)
             } else if (statusRes.status === 'failed') {
               clearInterval(interval)
-              showToast('error', statusRes.error || '테이블 저장 실패')
+              let errMsg = statusRes.error || '테이블 저장 실패'
+              if (errMsg.length > 900) {
+                errMsg = errMsg.slice(0, 900) + '…'
+              }
+              showToast('error', errMsg)
             }
           } catch {
             // ignore poll errors
@@ -1168,20 +1248,7 @@ export default function QueryStudioPage() {
   }, [
     saveAsTableName,
     showToast,
-    gridColumns,
-    addedTables,
-    filters,
-    orderBy,
-    currentPage,
-    pageSize,
-    tableRelationships,
-    groupBy,
-    dateGranularity,
-    havings,
-    pivot,
-    pivotRowAggs,
-    joinConfigs,
-    joinOrderData,
+    getSaveTableSqlBundle,
   ])
 
   const clearAll = useCallback(() => {
@@ -1482,6 +1549,46 @@ export default function QueryStudioPage() {
             </div>
             <div className="relationship-diagram-body">
               <p className="save-as-table-caption">실행했던 쿼리 결과가 지정한 이름의 테이블로 생성됩니다. 저장 시 <strong>test_report_</strong> 접두사가 자동으로 붙습니다.</p>
+              <div className="save-as-table-estimate" aria-live="polite">
+                {saveTableEstimate?.loading && (
+                  <p className="save-as-table-estimate__muted">생성될 결과 크기 추정 중(EXPLAIN)…</p>
+                )}
+                {!saveTableEstimate?.loading && saveTableEstimate?.error && (
+                  <p className="save-as-table-estimate__err">{saveTableEstimate.error}</p>
+                )}
+                {!saveTableEstimate?.loading &&
+                  !saveTableEstimate?.error &&
+                  (saveTableEstimate?.estimated_rows != null || saveTableEstimate?.estimated_data_pretty) && (
+                    <>
+                      <p className="save-as-table-estimate__main">
+                        예상 결과(통계 기준):
+                        {saveTableEstimate.estimated_rows != null && (
+                          <>
+                            {' '}
+                            약 <strong>{formatEstimatedRows(saveTableEstimate.estimated_rows)}</strong>행
+                          </>
+                        )}
+                        {saveTableEstimate.estimated_data_pretty && (
+                          <>
+                            {saveTableEstimate.estimated_rows != null ? ' · ' : ' '}
+                            데이터 크기 추정 <strong>{saveTableEstimate.estimated_data_pretty}</strong>
+                          </>
+                        )}
+                      </p>
+                      {saveTableEstimate.disclaimer && (
+                        <p className="save-as-table-estimate__muted">{saveTableEstimate.disclaimer}</p>
+                      )}
+                    </>
+                  )}
+                {!saveTableEstimate?.loading &&
+                  !saveTableEstimate?.error &&
+                  saveTableEstimate?.estimated_rows == null &&
+                  !saveTableEstimate?.estimated_data_pretty && (
+                    <p className="save-as-table-estimate__muted">
+                      플래너에서 행·크기 추정을 얻지 못했습니다.
+                    </p>
+                  )}
+              </div>
               <label className="save-as-table-label">
                 테이블 이름 (영문, 숫자, 언더스코어)
                 <input

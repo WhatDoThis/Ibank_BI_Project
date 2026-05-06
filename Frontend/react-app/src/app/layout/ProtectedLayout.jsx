@@ -52,7 +52,7 @@ function ProtectedLayoutContent({ me, logout }) {
 
       if (item.children?.length) {
         const children = item.children.filter((ch) => {
-          if (ch.to === '/query-studio' && !canAccessQueryStudio(me)) return false
+          if ((ch.to === '/query-studio' || ch.to === '/query-studio/save-queue') && !canAccessQueryStudio(me)) return false
           if (ch.to === '/dashboard' && !canAccessDashboard(me)) return false
           if (ch.to === '/widgetboard' && !canAccessWidgetboard(me)) return false
           return true
@@ -128,6 +128,8 @@ function ProtectedLayoutContent({ me, logout }) {
                   </span>
                 )
               }
+              /* end: /는 정확히 / 일 때만. /query-studio 는 /query-studio/save-queue 와 경로 prefix 가 겹치므로
+               * exact 매칭 — 안 하면 하위 경로에서 쿼리 스튜디오도 active 로 남음 */
               return (
                 <NavLink
                   key={to}
@@ -135,7 +137,7 @@ function ProtectedLayoutContent({ me, logout }) {
                   className={({ isActive }) => (isActive ? 'ibank-sidebar-link active' : 'ibank-sidebar-link')}
                   title={label}
                   aria-label={label}
-                  end={to === '/'}
+                  end={to === '/' || to === '/query-studio'}
                 >
                   {linkBody}
                 </NavLink>

@@ -44,8 +44,30 @@ export async function getSaveQueryAsTableStatus(jobId) {
   return request('GET', `/api/save-query-as-table/status/${encodeURIComponent(jobId)}`)
 }
 
+/** 현재 프로젝트의 테이블 저장 큐 목록 (최신순, total/offset/limit 응답) */
+export async function getSaveTableQueueList({ status = null, limit = 20, offset = 0 } = {}) {
+  const p = new URLSearchParams()
+  p.set('limit', String(Math.min(500, Math.max(1, limit))))
+  p.set('offset', String(Math.max(0, Math.min(500000, Number(offset) || 0))))
+  if (status && String(status).trim() !== '') p.set('status', String(status).trim())
+  return request('GET', `/api/save-query-as-table/queue?${p.toString()}`)
+}
+
+export async function cancelSaveTableQueueJob(jobId) {
+  return request('POST', `/api/save-query-as-table/queue/${encodeURIComponent(jobId)}/cancel`, {})
+}
+
+export async function requeueSaveTableJob(jobId) {
+  return request('POST', `/api/save-query-as-table/queue/${encodeURIComponent(jobId)}/requeue`, {})
+}
+
 export async function explainSql(query) {
   return request('POST', '/api/explain-sql', { query })
+}
+
+/** 저장 직전 SELECT에 대해 EXPLAIN 기반 예상 행·데이터 크기 추정 (실행 없음) */
+export async function estimateQueryResultSize(query) {
+  return request('POST', '/api/estimate-query-result', { query })
 }
 
 export async function saveColumnLabels(tableName, labels, tableLabel = null) {
