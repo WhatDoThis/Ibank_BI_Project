@@ -1,6 +1,8 @@
 # Log
 
 ## Log Index
+605. 2026-05-06 Frontend 위젯보드: WidgetDataWizardModal 프로파일 미리보기 섹션 반영·origin/ibankbi 푸시
+604. 2026-05-06 미추적 ` - 복사본` 파일: 원본과 SHA256 동일 시 삭제(53건), 내용 상이 1건 유지
 603. 2026-04-30 Frontend 위젯보드: 저장되지 않음 오탐 감소(RGL layout·hydrate 기준선)
 602. 2026-04-30 Frontend 위젯보드: 생성·설정 모달 확대(900px/90vh)·프로파일 컬럼/샘플 구역·샘플 스크롤 400px
 601. 2026-04-30 Frontend 위젯보드: 저장 필요 UI 재계산(모달 취소·무변경 닫기 오탐 제거)
@@ -606,6 +608,27 @@
 1. 2026-03-17 ETL 컬럼 변환 룰 — 날짜/시간 연산 UI·규칙 저장 전면 지원
 
 ## Log Body
+
+605. 2026-05-06 Frontend 위젯보드: WidgetDataWizardModal 프로파일 미리보기 섹션 반영·origin/ibankbi 푸시
+Purpose: 복사본에만 있던 프로파일 미리보기(컬럼 정보·샘플 데이터 섹션·접근성·클래스)를 단일 원본 파일에 반영하고 원격에 게시한다.
+
+Changes:
+
+- `WidgetDataWizardModal.jsx`: 상단 Main Functions 4·5 항목 정리, `details` 내 `section`+제목·`wb-profile-col-meta-table` 등 미리보기 마크업
+- Git: `feat(widgetboard): profile preview sections in WidgetDataWizardModal (column info / sample data)` 커밋 `48f3a21`, `origin/ibankbi` 푸시
+
+Changed files: Frontend/react-app/src/packages/widgetboard/components/WidgetDataWizardModal.jsx, docs/log/log.md
+
+604. 2026-05-06 미추적 ` - 복사본` 파일: 원본과 SHA256 동일 시 삭제(53건), 내용 상이 1건 유지
+Purpose: 프로젝트 루트 하위 전체를 순회하며 파일명이 `{원본명} - 복사본.{확장자}` 형태인 미추적 복사본을 원본과 바이트 단위( SHA256 )로 비교하고, 동일할 때만 삭제한다.
+
+Changes:
+
+- Python 일회 스크립트로 `.git`·`node_modules` 등 제외 디렉터리를 건너뜀
+- 동일 53건 삭제: `campaign_dashboard`·`etl`·`query_studio`·`widgetboard/utils` 등의 ` - 복사본` 파일
+- 원본과 해시 불일치 1건 유지: `Frontend/react-app/src/packages/widgetboard/components/WidgetDataWizardModal - 복사본.jsx`
+
+Changed files: (삭제된 복사본 53경로·상기 유지 1파일), docs/log/log.md
 
 603. 2026-04-30 Frontend 위젯보드: 저장되지 않음 오탐 감소(RGL layout·hydrate 기준선)
 Purpose: RGL `onLayoutChange`가 마운트·너비·모달 등에서도 호출되어 실제 편집 없이「저장되지 않음」이 켜지던 문제를 줄인다.
